@@ -305,6 +305,7 @@ export default defineConfig({
         'pie-chart/src/input/load.ts',
         'pie-chart/src/input/dbStage.ts',
         'pie-chart/src/input/sprocArgs.ts',
+        'pie-chart/src/input/db.ts',
         'pie-chart/src/limits.ts',
         'pie-chart/src/svg_export/values.ts',
         // SEA 実行時のモジュール解決。上位ディレクトリ遡りが復活すると任意コード実行になる。

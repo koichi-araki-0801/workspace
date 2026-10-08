@@ -1,10 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  assertLooksLikeSelect,
+  type MsSqlDriver,
+  type MsSqlResults,
   buildConnectionString,
+  buildSprocStatement,
+  callSprocItems,
+  checkConnection,
+  classifySqlError,
   normalizeConnExtra,
+  pickSingleResultSet,
+  resolveConnTarget,
   rowsToItems,
 } from '../src/input/db.js';
+import { DbStageError } from '../src/input/dbStage.js';
 import { MAX_DB_ROWS } from '../src/limits.js';
 
 describe('buildConnectionString', () => {
@@ -22,14 +30,13 @@ describe('buildConnectionString', () => {
   });
 
   it('既定ドライバ・サーバ + 明示 database で Trusted_Connection を付ける', () => {
-    expect(buildConnectionString({ query: 'select 1', database: 'usrap' })).toBe(
+    expect(buildConnectionString({ database: 'usrap' })).toBe(
       'Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=usrap;Trusted_Connection=yes;',
     );
   });
   it('明示の server / driver / extra を反映する', () => {
     expect(
       buildConnectionString({
-        query: 'select 1',
         server: 'db01',
         database: 'd',
         driver: 'ODBC Driver 18 for SQL Server',
@@ -41,10 +48,10 @@ describe('buildConnectionString', () => {
   });
   it('database が無ければ env DB_NAME を使う', () => {
     process.env.DB_NAME = 'fromenv';
-    expect(buildConnectionString({ query: 'select 1' })).toContain('Database=fromenv;');
+    expect(buildConnectionString({})).toContain('Database=fromenv;');
   });
   it('database 未指定 (env も無し) は投げる', () => {
-    expect(() => buildConnectionString({ query: 'select 1' })).toThrow(/database is required/);
+    expect(() => buildConnectionString({})).toThrow(/database is required/);
   });
 
   // ここからが本題: 接続文字列は `;` 区切りの key=value 列なので、値に `;` を通すと
@@ -57,41 +64,38 @@ describe('buildConnectionString', () => {
       'localhost;Trusted_Connection=no;UID=sa;PWD=p',
       'localhost,99999999',
     ]) {
-      expect(
-        () => buildConnectionString({ query: 'select 1', database: 'd', server: bad }),
-        bad,
-      ).toThrow(/Invalid server/);
+      expect(() => buildConnectionString({ database: 'd', server: bad }), bad).toThrow(
+        /Invalid server/,
+      );
     }
   });
   it('正当な server の形は通す (インスタンス名・ポート・localdb)', () => {
     const good = ['localhost', 'db01\\SQLEXPRESS', 'tcp:10.0.0.1,1433', '(localdb)\\MSSQLLocalDB'];
     for (const ok of good) {
-      const build = () => buildConnectionString({ query: 'select 1', database: 'd', server: ok });
+      const build = () => buildConnectionString({ database: 'd', server: ok });
       expect(build, ok).not.toThrow();
       expect(build()).toContain(`Server=${ok};`);
     }
   });
   it('database へのキーワード注入を拒否する', () => {
     for (const bad of ['usrap;FILEDSN=x', 'usrap}', '1db', '']) {
-      expect(() => buildConnectionString({ query: 'select 1', database: bad }), bad).toThrow(
+      expect(() => buildConnectionString({ database: bad }), bad).toThrow(
         /Invalid database name|database is required/,
       );
     }
   });
   it('未知の ODBC ドライバ名を拒否する', () => {
-    expect(() =>
-      buildConnectionString({ query: 'select 1', database: 'd', driver: 'X};FILEDSN=y' }),
-    ).toThrow(/Unknown ODBC driver/);
+    expect(() => buildConnectionString({ database: 'd', driver: 'X};FILEDSN=y' })).toThrow(
+      /Unknown ODBC driver/,
+    );
     // 部分一致で通ってしまう綴りも拒否する (完全一致の集合メンバシップ)。
-    expect(() =>
-      buildConnectionString({ query: 'select 1', database: 'd', driver: 'ODBC Driver 17' }),
-    ).toThrow(/Unknown ODBC driver/);
+    expect(() => buildConnectionString({ database: 'd', driver: 'ODBC Driver 17' })).toThrow(
+      /Unknown ODBC driver/,
+    );
   });
   it('env 経由の注入も同じく拒否する', () => {
     process.env.DB_SERVER = 'localhost;FILEDSN=x';
-    expect(() => buildConnectionString({ query: 'select 1', database: 'd' })).toThrow(
-      /Invalid server/,
-    );
+    expect(() => buildConnectionString({ database: 'd' })).toThrow(/Invalid server/);
   });
 });
 
@@ -118,151 +122,169 @@ describe('normalizeConnExtra', () => {
   });
   it('DB_CONN_EXTRA 経由でも接続文字列に混ざらない', () => {
     process.env.DB_CONN_EXTRA = 'FILEDSN=\\\\evil\\s\\x.dsn';
-    expect(() => buildConnectionString({ query: 'select 1', database: 'd' })).toThrow(
-      /is not allowed/,
-    );
+    expect(() => buildConnectionString({ database: 'd' })).toThrow(/is not allowed/);
     delete process.env.DB_CONN_EXTRA;
   });
 });
 
-describe('assertLooksLikeSelect', () => {
-  it('SELECT を許可する', () => {
-    expect(() => assertLooksLikeSelect('SELECT a, b FROM t')).not.toThrow();
+describe('resolveConnTarget', () => {
+  const saved = { ...process.env };
+  afterEach(() => {
+    process.env = { ...saved };
   });
-  it('WITH (CTE) を許可する', () => {
-    expect(() => assertLooksLikeSelect('WITH x AS (SELECT 1) SELECT * FROM x')).not.toThrow();
+  it('JSON に記録する server / database を解決済みの値で返す', () => {
+    delete process.env.DB_SERVER;
+    expect(resolveConnTarget({ database: 'usrap' })).toEqual({
+      driver: 'ODBC Driver 17 for SQL Server',
+      server: 'localhost',
+      database: 'usrap',
+      extra: '',
+    });
   });
-  it('末尾セミコロン 1 個は許容する', () => {
-    expect(() => assertLooksLikeSelect('SELECT 1;  ')).not.toThrow();
+});
+
+const ARGS = { fund: '0331A', baseDate: '20260930', chartType: '資産配分' };
+
+/** 呼び出しを記録し、指定した結果か例外を返すフェイクのドライバ。 */
+function fakeDriver(result: MsSqlResults | Error) {
+  const calls: unknown[][] = [];
+  const driver: MsSqlDriver = {
+    promises: {
+      query: async (...args) => {
+        calls.push(args);
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    },
+  };
+  return { driver, calls };
+}
+
+const twoCols = [{ name: 'name' }, { name: 'value' }];
+
+describe('buildSprocStatement', () => {
+  it('パラメータ名つきの EXEC を組み立て、値は ? で受ける', () => {
+    expect(buildSprocStatement('dbo.pie_chart_items')).toBe(
+      'EXEC dbo.pie_chart_items @ファンドコード=?, @基準日=?, @グラフ種別=?',
+    );
   });
-  it('文中セミコロンは投げる', () => {
-    expect(() => assertLooksLikeSelect('SELECT 1; DROP TABLE t')).toThrow(/multiple statements/i);
+});
+
+describe('pickSingleResultSet', () => {
+  it('列の無いセット(件数だけのもの)は無視する', () => {
+    const rows = [['A', 1]];
+    expect(pickSingleResultSet({ meta: [[], twoCols, []], results: [[], rows, []] })).toBe(rows);
   });
-  it('文字列リテラル・引用識別子・コメントの中の ";" は文の区切りと見なさない', () => {
-    for (const q of [
-      "SELECT name, value FROM t WHERE note = 'a;b'",
-      "SELECT name, value FROM t WHERE note = 'it''s;here'",
-      'SELECT "a;b" AS name, 1 AS value',
-      'SELECT [a;b] AS name, 1 AS value',
-      'SELECT [a]];b] AS name, 1 AS value',
-      'SELECT 1 AS v -- trailing; comment\n, 2 AS w',
-      'SELECT 1 /* a; /* nested; */ b; */ AS v',
-      "SELECT 'a;b' AS name, 1 AS value;",
-    ]) {
-      expect(() => assertLooksLikeSelect(q), q).not.toThrow();
+  it('列のあるセットが 0 個・2 個以上なら query 段階のエラー', () => {
+    expect(() => pickSingleResultSet({ meta: [[]], results: [[]] })).toThrow(
+      /no result set with columns/,
+    );
+    try {
+      pickSingleResultSet({ meta: [twoCols, twoCols], results: [[], []] });
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(DbStageError);
+      expect((e as DbStageError).stage).toBe('query');
+      expect((e as DbStageError).message).toMatch(/2 result sets with columns/);
     }
   });
-  it('リテラルの外の ";" は従来どおり投げる', () => {
-    for (const q of [
-      "SELECT 'a;b' AS name; DROP TABLE t",
-      'SELECT 1;;',
-      'SELECT 1; -- after',
-      "SELECT 'it''s' AS n; SELECT 2",
-    ]) {
-      expect(() => assertLooksLikeSelect(q), q).toThrow(/multiple statements/i);
-    }
-  });
-  it('SELECT / WITH 以外で始まる文は投げる', () => {
-    expect(() => assertLooksLikeSelect('UPDATE t SET a=1')).toThrow(/must start with SELECT/);
-    expect(() => assertLooksLikeSelect('DELETE FROM t')).toThrow(/must start with SELECT/);
-  });
-  it('空クエリは投げる', () => {
-    expect(() => assertLooksLikeSelect('   ;  ')).toThrow(/empty/);
-  });
-  // 形式チェックは読み取り専用の**強制ではない**。以下は素通りする — この事実を
-  // テストで固定しておかないと、呼び出し側が再び「ガードがあるから安全」と読んでしまう。
-  // 書き込みを止めるのは接続アカウントの権限 (db_datareader) であって本関数ではない。
-  it('書き込みになりうる形が素通りすることを明示する (境界ではない証拠)', () => {
-    for (const writes of [
-      'SELECT * INTO dbo.evil FROM sys.objects',
-      'WITH c AS (SELECT 1 a) DELETE FROM dbo.t',
-      'SELECT 1 DELETE FROM dbo.t',
-    ]) {
-      expect(() => assertLooksLikeSelect(writes), writes).not.toThrow();
-    }
+  it('列が 2 列でなければ列名つきでエラー', () => {
+    const meta = [[{ name: 'a' }, { name: 'b' }, { name: 'c' }]];
+    expect(() => pickSingleResultSet({ meta, results: [[]] })).toThrow(/3 columns.*a, b, c/);
   });
 });
 
 describe('rowsToItems', () => {
-  it('無指定なら先頭 2 列を name/value とする', () => {
+  it('先頭 2 列を name / value として読む', () => {
     expect(
       rowsToItems([
-        { 区分: '株式', 比率: 60 },
-        { 区分: '債券', 比率: 40 },
+        ['国内株式', 60.5],
+        ['外国株式', '30'],
       ]),
     ).toEqual([
-      ['株式', 60],
-      ['債券', 40],
+      ['国内株式', 60.5],
+      ['外国株式', 30],
     ]);
   });
-  it('列名指定で name/value を選ぶ (列順非依存)', () => {
-    const rows = [{ id: 1, label: 'A', pct: 30 }];
-    expect(rowsToItems(rows, 'label', 'pct')).toEqual([['A', 30]]);
-  });
-  it('カンマ区切り数値・数値文字列を変換する', () => {
-    expect(rowsToItems([{ n: 'X', v: '1,234' }])).toEqual([['X', 1234]]);
-  });
-  it('name/value とも空の行はスキップする', () => {
+  it('桁区切りの文字列は読み、空行は飛ばし、名前だけ空の行はエラー', () => {
     expect(
       rowsToItems([
-        { n: 'A', v: 1 },
-        { n: '', v: null },
+        ['A', '1,234.5'],
+        [null, null],
+        ['B', 1],
       ]),
-    ).toEqual([['A', 1]]);
+    ).toEqual([
+      ['A', 1234.5],
+      ['B', 1],
+    ]);
+    expect(() => rowsToItems([[null, 3]])).toThrow(/Empty name at row 1/);
   });
-  it('空白だけの value は 0 と見なさず投げる (xlsx / JSON 経路と同じ規則)', () => {
-    expect(() => rowsToItems([{ n: 'A', v: '   ' }])).toThrow(/Non-numeric value at row 1/);
-  });
-  it('行が無ければ投げる', () => {
-    expect(() => rowsToItems([])).toThrow(/no rows/);
-  });
-  it('片方の列名だけ指定は投げる', () => {
-    expect(() => rowsToItems([{ a: 'A', b: 1 }], 'a')).toThrow(/both name and value/);
-  });
-  it('指定した列名が無ければ投げる', () => {
-    expect(() => rowsToItems([{ a: 'A', b: 1 }], 'x', 'b')).toThrow(/Name column not found/);
-    expect(() => rowsToItems([{ a: 'A', b: 1 }], 'a', 'y')).toThrow(/Value column not found/);
-  });
-  it('列が 1 つしか無ければ投げる', () => {
-    expect(() => rowsToItems([{ only: 'A' }])).toThrow(/at least 2 columns/);
-  });
-  it('3 列以上で列名無指定は投げる', () => {
-    expect(() => rowsToItems([{ a: 1, b: 2, c: 3 }])).toThrow(/specify name\/value columns/);
-  });
-  it('name 空欄 (value あり) は投げる', () => {
-    expect(() => rowsToItems([{ n: '', v: 5 }])).toThrow(/Empty name/);
-  });
-  it('value が数値変換不可なら投げる', () => {
-    expect(() => rowsToItems([{ n: 'A', v: 'abc' }])).toThrow(/Non-numeric value/);
-  });
-  it('全行が空ならエラー (使える行ゼロ)', () => {
-    expect(() => rowsToItems([{ n: '', v: '' }])).toThrow(/No usable data rows/);
-  });
-  it('行数が MAX_DB_ROWS を超えたら列解決より前に投げる', () => {
-    const rows = Array.from({ length: MAX_DB_ROWS + 1 }, (_, i) => ({ n: `A${i}`, v: 1 }));
-    expect(() => rowsToItems(rows)).toThrow(
-      new RegExp(`returned ${MAX_DB_ROWS + 1} rows \\(limit ${MAX_DB_ROWS}\\)`),
-    );
-    // 上げ方をメッセージに含める(`limits.ts` の様式)
-    expect(() => rowsToItems(rows)).toThrow(/PIE_MAX_DB_ROWS/);
-  });
-  it('上限ちょうどの行数は通す', () => {
-    const rows = Array.from({ length: MAX_DB_ROWS }, (_, i) => ({ n: `A${i}`, v: 1 }));
-    expect(rowsToItems(rows)).toHaveLength(MAX_DB_ROWS);
+  it('0 行・全行空・上限超えは query 段階のエラー', () => {
+    expect(() => rowsToItems([])).toThrow(/returned no rows/);
+    expect(() => rowsToItems([[null, null]])).toThrow(/all blank/);
+    const many = Array.from({ length: MAX_DB_ROWS + 1 }, (_, i) => [`n${i}`, 1]);
+    expect(() => rowsToItems(many)).toThrow(/limit/);
   });
 });
 
-describe('rowsToItems の数値解釈 (load.ts の cellAsNumber と同規則)', () => {
-  it('桁区切り位置のカンマは許容する', () => {
-    expect(rowsToItems([{ n: 'X', v: '1,234,567.5' }])).toEqual([['X', 1234567.5]]);
+describe('classifySqlError', () => {
+  it('SQLSTATE 08 / 28 / IM002 は connect、それ以外は query', () => {
+    const mk = (sqlstate: string) => Object.assign(new Error('x'), { sqlstate });
+    expect(classifySqlError(mk('08001')).stage).toBe('connect');
+    expect(classifySqlError(mk('28000')).stage).toBe('connect');
+    expect(classifySqlError(mk('IM002')).stage).toBe('connect');
+    expect(classifySqlError(mk('42000')).stage).toBe('query');
+    expect(classifySqlError(mk('42000')).message).toBe('x (SQLSTATE 42000)');
+    expect(classifySqlError(new Error('plain')).stage).toBe('query');
   });
-  it('10 進以外の記法 (16 進・2 進・8 進) は明示エラー', () => {
-    expect(() => rowsToItems([{ n: 'X', v: '0x1A' }])).toThrow(/Non-numeric value/);
-    expect(() => rowsToItems([{ n: 'X', v: '0b11' }])).toThrow(/Non-numeric value/);
-    expect(() => rowsToItems([{ n: 'X', v: '0o7' }])).toThrow(/Non-numeric value/);
+  it('DbStageError はそのまま返す', () => {
+    const e = new DbStageError('load', 'y');
+    expect(classifySqlError(e)).toBe(e);
   });
-  it('桁区切りとして成立しないカンマは明示エラー', () => {
-    expect(() => rowsToItems([{ n: 'X', v: '1,23' }])).toThrow(/Non-numeric value/);
-    expect(() => rowsToItems([{ n: 'X', v: '1,2,3' }])).toThrow(/Non-numeric value/);
+});
+
+describe('callSprocItems', () => {
+  it('EXEC 文・値の順序・timeoutMs・raw を渡し、items を返す', async () => {
+    const { driver, calls } = fakeDriver({ meta: [twoCols], results: [[['A', 1]]] });
+    const items = await callSprocItems(driver, {
+      connectionString: 'CS',
+      proc: 'dbo.p',
+      args: ARGS,
+      timeoutMs: 60000,
+    });
+    expect(items).toEqual([['A', 1]]);
+    expect(calls).toEqual([
+      [
+        'CS',
+        'EXEC dbo.p @ファンドコード=?, @基準日=?, @グラフ種別=?',
+        ['0331A', '20260930', '資産配分'],
+        { timeoutMs: 60000, raw: true },
+      ],
+    ]);
+  });
+  it('ドライバの例外は SQLSTATE で段階を振り分ける', async () => {
+    const err = Object.assign(new Error('login failed'), { sqlstate: '28000' });
+    const { driver } = fakeDriver(err);
+    await expect(
+      callSprocItems(driver, { connectionString: 'CS', proc: 'p', args: ARGS, timeoutMs: 1 }),
+    ).rejects.toMatchObject({ stage: 'connect' });
+  });
+  it('行の変換で出た素の Error も query 段階にする', async () => {
+    const { driver } = fakeDriver({ meta: [twoCols], results: [[['A', 'abc']]] });
+    await expect(
+      callSprocItems(driver, { connectionString: 'CS', proc: 'p', args: ARGS, timeoutMs: 1 }),
+    ).rejects.toMatchObject({ stage: 'query' });
+  });
+});
+
+describe('checkConnection', () => {
+  it('SELECT 1 を投げ、失敗は connect 段階にする', async () => {
+    const ok = fakeDriver({ meta: [[{ name: '' }]], results: [[[1]]] });
+    await checkConnection(ok.driver, 'CS', 5000);
+    expect(ok.calls[0]).toEqual(['CS', 'SELECT 1', [], { timeoutMs: 5000, raw: true }]);
+    const bad = fakeDriver(Object.assign(new Error('nope'), { sqlstate: '42000' }));
+    await expect(checkConnection(bad.driver, 'CS', 5000)).rejects.toMatchObject({
+      stage: 'connect',
+    });
   });
 });

@@ -1,22 +1,19 @@
 // =============================================================================
 // input/load.ts — 入力データの取得と正規化
 // -----------------------------------------------------------------------------
-// 入力ソースは 5 系統:
+// 入力ソースは 4 系統:
 //   - sample        : samples.json 内の名前指定
 //   - data          : [name, value][] / {name, value}[] の配列直渡し
 //   - dataJson      : 同形式の JSON 文字列
 //   - xlsx          : Excel ファイル (§1・非同期のみ)
-//   - sql           : SQL Server に SELECT を投げて取得 (input/db.ts 経由・非同期のみ)
-// resolveInputData (同期) は xlsx / sql を扱えない。これらを含めて統一的に扱いたい
-// 場合は resolveInputDataAsync を使う。レンダリング層は外部依存ゼロ方針のため、
-// exceljs 依存は本ファイルへ、msnodesqlv8 (ネイティブ・遅延ロード) は input/db.ts へ隔離する
-// (db を別ファイルに保つのは、テストの module モック境界とネイティブ依存の隔離のため)。
+// resolveInputData (同期) は xlsx を扱えない。xlsx を含めて統一的に扱いたい場合は
+// resolveInputDataAsync を使う。レンダリング層は外部依存ゼロ方針のため、exceljs 依存は
+// 本ファイルへ隔離する。
 // =============================================================================
 
 import fsp from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 
-import { loadDbItems } from './db.js';
 import { cellValueAsNumber, parseDecimalText, rowToItem } from './number.js';
 import samplesData from '../../samples.json' with { type: 'json' };
 import type { Item, Samples } from '../types.js';
@@ -212,15 +209,7 @@ export type ResolveAsyncOpts =
   | { kind: 'sample'; sample: string }
   | { kind: 'data'; data: unknown[] }
   | { kind: 'dataJson'; dataJson: string }
-  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string }
-  | {
-      kind: 'sql';
-      query: string;
-      server?: string;
-      database?: string;
-      nameColumn?: string;
-      valueColumn?: string;
-    };
+  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string };
 
 /**
  * 任意形式の項目リストを {name, value} 配列に正規化する。
@@ -313,8 +302,8 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
 }
 
 /**
- * 非同期版: kind ごとに分岐する。xlsx / sql 以外は resolveInputData に同等のオプションで委譲。
- * CLI 等の入口で「Excel・DB もそれ以外も同じ呼び方にしたい」用途向け。
+ * 非同期版: kind ごとに分岐する。xlsx 以外は resolveInputData に同等のオプションで委譲。
+ * CLI 等の入口で「Excel もそれ以外も同じ呼び方にしたい」用途向け。
  */
 export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Item[]> {
   switch (opts.kind) {
@@ -323,16 +312,6 @@ export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Ite
         path: opts.xlsx,
         sheet: opts.sheet,
         range: opts.range,
-      });
-      return normalizeInputItems(raw);
-    }
-    case 'sql': {
-      const raw = await loadDbItems({
-        query: opts.query,
-        server: opts.server,
-        database: opts.database,
-        nameColumn: opts.nameColumn,
-        valueColumn: opts.valueColumn,
       });
       return normalizeInputItems(raw);
     }

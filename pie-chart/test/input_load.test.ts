@@ -3,19 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   normalizeInputItems,
   resolveInputData,
   resolveInputDataAsync,
   samples,
 } from '../src/input/load.js';
-
-// DB ドライバ(msnodesqlv8)は CI/オフラインに無いので db_loader をモックし、
-// resolveInputDataAsync の `sql` 経路(行→正規化)だけを検証する。
-vi.mock('../src/input/db.js', () => ({
-  loadDbItems: vi.fn(async () => [['DB', 7]] as Array<[string, number]>),
-}));
 
 const sampleKey = Object.keys(samples)[0];
 
@@ -151,11 +145,6 @@ describe('resolveInputDataAsync', () => {
     ).resolves.toEqual([{ name: 'B', value: 2 }]);
     const fromSample = await resolveInputDataAsync({ kind: 'sample', sample: sampleKey });
     expect(fromSample.length).toBeGreaterThan(0);
-  });
-  it('sql 経路は db_loader の行を正規化して返す', async () => {
-    await expect(
-      resolveInputDataAsync({ kind: 'sql', query: 'SELECT name, value FROM t', database: 'd' }),
-    ).resolves.toEqual([{ name: 'DB', value: 7 }]);
   });
 });
 
