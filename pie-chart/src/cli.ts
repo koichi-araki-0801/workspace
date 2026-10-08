@@ -5,25 +5,40 @@
 //   list                              組み込みサンプル名一覧を表示
 //   one --output-file path [...]      1 件だけ SVG を生成
 //                                     入力は --sample / --data-file / --data-json /
-//                                     --xlsx + --sheet + --range のいずれか
+//                                     --xlsx + --sheet + --range /
+//                                     --fund + --base-date + --chart-type(ストアド)のいずれか
 //   batch --output-dir dir [...]      まとめて SVG を生成
+//   db-check [--db-name db]           DB ドライバを読み込めるか(と接続できるか)を確かめる
+//   license                           埋め込みフォントの OFL 本文を表示
+//   __db-fetch                        内部用。exe が DB 取得のために自分自身を子プロセスで起動する
 // =============================================================================
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DbStageError, InterruptedError } from './input/dbStage.js';
 import {
+  normalizeInputItems,
   resolveInputData,
   resolveInputDataAsync,
   samples,
   type ResolveAsyncOpts,
 } from './input/load.js';
-import { extractDataItems } from './input/savedJson.js';
+import {
+  buildSavedJson,
+  defaultSavedJsonPath,
+  extractDataItems,
+  writeSavedJson,
+} from './input/savedJson.js';
+import { fetchSprocItems, formatDbCheckLine, runDbCheck } from './input/sproc.js';
+import { hasSprocArgs, normalizeSprocArgs, type RawSprocArgs } from './input/sprocArgs.js';
 import { MAX_JSON_BYTES } from './limits.js';
+import { runDbChild } from './runtime/dbChild.js';
+import { runDirParent, sweepStaleRunDirs } from './runtime/nativeDriver.js';
 import { installSeaGuards, isSea, readSeaAsset } from './runtime/seaRuntime.js';
 import { renderPdfStylePieToSvg } from './svg_export/pipeline.js';
-import type { PieLayoutConfig } from './types.js';
+import type { Item, PieLayoutConfig } from './types.js';
 import { assertFontWeight } from './svg_export/values.js';
 
 interface ParsedArgs {
@@ -67,9 +82,16 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     'xlsx',
     'sheet',
     'range',
+    'fund',
+    'base-date',
+    'chart-type',
+    'save-json',
+    'db-server',
+    'db-name',
     ...RENDER_FLAGS,
   ],
   batch: ['output-dir', 'input-dir', 'samples', ...RENDER_FLAGS],
+  'db-check': ['db-server', 'db-name'],
   list: [],
   license: [],
 };
@@ -130,23 +152,45 @@ function readJsonFile(filePath: string): unknown {
   }
 }
 
+/** ストアド入力。取得結果を JSON へ残すため、`ResolveAsyncOpts` とは別の経路で扱う。 */
+interface SprocInput {
+  kind: 'sproc';
+  raw: RawSprocArgs;
+  server?: string;
+  database?: string;
+}
+
+type OneInput = ResolveAsyncOpts | SprocInput;
+
+function optionString(options: Record<string, string | boolean>, key: string): string | undefined {
+  return typeof options[key] === 'string' ? (options[key] as string) : undefined;
+}
+
 /**
- * --sample / --data-file / --data-json / --xlsx のうち **1 つだけ** が指定されている
- * ことを検査し、対応する ResolveAsyncOpts variant を組み立てる。0 個や複数指定は明示的に拒否する。
+ * --sample / --data-file / --data-json / --xlsx / ストアド(--fund ほか)のうち **1 つだけ** が
+ * 指定されていることを検査し、対応する入力 variant を組み立てる。0 個や複数指定は明示的に拒否する。
  */
-function buildResolveOpts(options: Record<string, string | boolean>): ResolveAsyncOpts {
+function buildResolveOpts(options: Record<string, string | boolean>): OneInput {
   const sample = typeof options.sample === 'string' ? options.sample : undefined;
   const dataFile = typeof options['data-file'] === 'string' ? options['data-file'] : undefined;
   const dataJson = typeof options['data-json'] === 'string' ? options['data-json'] : undefined;
   const xlsx = typeof options.xlsx === 'string' ? options.xlsx : undefined;
+  const sprocRaw: RawSprocArgs = {
+    fund: optionString(options, 'fund'),
+    baseDate: optionString(options, 'base-date'),
+    chartType: optionString(options, 'chart-type'),
+  };
   const provided = [
     sample !== undefined ? '--sample' : null,
     dataFile !== undefined ? '--data-file' : null,
     dataJson !== undefined ? '--data-json' : null,
     xlsx !== undefined ? '--xlsx' : null,
+    hasSprocArgs(sprocRaw) ? '--fund / --base-date / --chart-type' : null,
   ].filter((flag): flag is string => flag !== null);
   if (provided.length === 0) {
-    throw new Error('Provide one input source: --sample / --data-file / --data-json / --xlsx.');
+    throw new Error(
+      'Provide one input source: --sample / --data-file / --data-json / --xlsx / --fund + --base-date + --chart-type.',
+    );
   }
   if (provided.length > 1) {
     throw new Error(`Conflicting input sources (specify only one): ${provided.join(', ')}.`);
@@ -159,6 +203,14 @@ function buildResolveOpts(options: Record<string, string | boolean>): ResolveAsy
     };
   }
   if (dataJson !== undefined) return { kind: 'dataJson', dataJson };
+  if (hasSprocArgs(sprocRaw)) {
+    return {
+      kind: 'sproc',
+      raw: sprocRaw,
+      server: optionString(options, 'db-server'),
+      database: optionString(options, 'db-name'),
+    };
+  }
   // ここに来る時点で xlsx !== undefined が provided.length===1 から確定するが、
   // TS の narrowing では追えないので明示的に再確認する。
   if (xlsx === undefined) {
@@ -177,9 +229,25 @@ async function renderOne(options: Record<string, string | boolean>): Promise<voi
   if (!outputFile) {
     throw new Error('--output-file is required.');
   }
+  const input = buildResolveOpts(options);
+  const saveJson = optionString(options, 'save-json');
+  if (input.kind !== 'sproc' && options['save-json'] !== undefined) {
+    throw new Error('--save-json is only for the stored procedure input (--fund ...).');
+  }
   fs.mkdirSync(path.dirname(path.resolve(outputFile)), { recursive: true });
 
-  const items = await resolveInputDataAsync(buildResolveOpts(options));
+  let items: Item[];
+  if (input.kind === 'sproc') {
+    const args = normalizeSprocArgs(input.raw);
+    const jsonFile = saveJson ?? defaultSavedJsonPath(outputFile);
+    const fetched = await fetchSprocItems(args, { server: input.server, database: input.database });
+    items = normalizeInputItems(fetched.items);
+    // 描画より前に書く。描画で失敗しても(項目数の上限など)、取得したデータは残る。
+    writeSavedJson(jsonFile, buildSavedJson(args, items, fetched, new Date()));
+    console.log(path.resolve(jsonFile));
+  } else {
+    items = await resolveInputDataAsync(input);
+  }
   const result = await renderPdfStylePieToSvg(items, buildRenderOverrides(options));
   fs.writeFileSync(outputFile, result.svg, 'utf-8');
   console.log(path.resolve(outputFile));
@@ -244,12 +312,31 @@ function printFontLicense(): void {
   console.log(fs.readFileSync(path.resolve(here, '..', 'fonts', 'OFL-BIZUDPGothic.txt'), 'utf8'));
 }
 
+async function dbCheck(options: Record<string, string | boolean>): Promise<void> {
+  const database = optionString(options, 'db-name');
+  const { ok, lines } = await runDbCheck({
+    connect: database !== undefined,
+    conn: { server: optionString(options, 'db-server'), database },
+  });
+  for (const line of lines) console.log(formatDbCheckLine(line));
+  if (!ok) process.exitCode = 1;
+}
+
 async function main(): Promise<void> {
   // SEA(単一 exe)実行時の外部モジュール解決を封鎖する。引数パースより前に張ることで、
   // どの経路を通っても exe 隣・上位ディレクトリの `node_modules` を見に行かせない
   // (`runtime/seaRuntime.ts`)。dev では no-op。
   installSeaGuards();
   const { command, options } = parseArgs(process.argv.slice(2));
+  // 強制終了などで残った実行ごとのフォルダを消す(作ったプロセスが既にいないものだけ)。
+  // 子プロセス自身は親のフォルダを使っている最中なので掃除しない。
+  if (isSea() && command !== '__db-fetch') {
+    sweepStaleRunDirs(runDirParent());
+  }
+  if (command === '__db-fetch') {
+    process.exitCode = await runDbChild();
+    return;
+  }
   if (!command || command === 'help' || command === '--help') {
     console.log(
       [
@@ -261,6 +348,18 @@ async function main(): Promise<void> {
         '  npm run cli -- batch --output-dir out/svg',
         '  npm run cli -- batch --input-dir data --output-dir out/svg',
         '  npm run cli -- license',
+        '  npm run cli -- one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file out/test.svg',
+        '  npm run cli -- db-check --db-name usrap',
+        '',
+        'DB (SQL Server) input (one):',
+        '  --fund <code>            ファンドコード',
+        '  --base-date <date>       基準日 (YYYY-MM-DD か YYYYMMDD)',
+        '  --chart-type <type>      グラフ種別',
+        '                           ストアド (既定 dbo.pie_chart_items、env PIE_DB_PROC) を',
+        '                           Windows 統合認証で呼ぶ。3 つそろえて指定する',
+        '  --save-json <path>       取得結果の保存先 (既定は --output-file の拡張子を .json にしたもの)',
+        '  --db-server <host>       接続先サーバ (既定 env DB_SERVER / localhost)',
+        '  --db-name <database>     データベース名 (既定 env DB_NAME)',
         '',
         'Font options (one / batch):',
         '  --font-weight <400|700>  ウェイト切替 (既定 400。対応フォントを自動選択)',
@@ -288,6 +387,10 @@ async function main(): Promise<void> {
     printFontLicense();
     return;
   }
+  if (command === 'db-check') {
+    await dbCheck(options);
+    return;
+  }
   if (command === 'one') {
     await renderOne(options);
     return;
@@ -299,7 +402,15 @@ async function main(): Promise<void> {
   throw new Error(`Unknown command: ${command}`);
 }
 
-main().catch((err: any) => {
-  console.error(err.message ?? err);
+main().catch((err: unknown) => {
+  if (err instanceof InterruptedError) {
+    console.error('[pie-chart] interrupted.');
+    process.exit(130);
+  }
+  if (err instanceof DbStageError) {
+    console.error(`[db:${err.stage}] ${err.message}`);
+    process.exit(1);
+  }
+  console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });

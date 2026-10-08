@@ -182,3 +182,107 @@ describe('--data-file の UTF-8 BOM', () => {
     }
   }, 60_000);
 });
+
+const cliRoot = resolve(fileURLToPath(import.meta.url), '..', '..');
+
+function runCli(args: string[]): { code: number; stderr: string } {
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        join(cliRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+        join(cliRoot, 'src', 'cli.ts'),
+        ...args,
+      ],
+      { cwd: cliRoot, stdio: 'pipe', encoding: 'utf8' },
+    );
+    return { code: 0, stderr: '' };
+  } catch (err) {
+    const e = err as { status?: number; stderr?: string };
+    return { code: e.status ?? -1, stderr: String(e.stderr ?? '') };
+  }
+}
+
+describe('CLI のストアド入力の検査(DB には接続しない)', () => {
+  it('--sql は廃止を案内して止まる', () => {
+    const r = runCli(['one', '--sql', 'SELECT 1', '--output-file', 'out/x.svg']);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/--sql was removed.*--fund/);
+  }, 60_000);
+  it('3 つの値のどれかが欠けたら、欠けたフラグを列挙して止まる', () => {
+    const r = runCli(['one', '--fund', 'F', '--output-file', 'out/x.svg']);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/missing: --base-date, --chart-type/);
+  }, 60_000);
+  it('ほかの入力と同時に指定したら止まる', () => {
+    const r = runCli([
+      'one',
+      '--sample',
+      sampleKey,
+      '--fund',
+      'F',
+      '--base-date',
+      '20260930',
+      '--chart-type',
+      'T',
+      '--output-file',
+      'out/x.svg',
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/Conflicting input sources.*--fund/);
+  }, 60_000);
+  it('--save-json はストアド入力のときだけ使える', () => {
+    const r = runCli([
+      'one',
+      '--sample',
+      sampleKey,
+      '--save-json',
+      'x.json',
+      '--output-file',
+      'out/x.svg',
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/--save-json is only for the stored procedure input/);
+  }, 60_000);
+  it('基準日が実在しなければ DB に接続する前に止まる', () => {
+    const r = runCli([
+      'one',
+      '--fund',
+      'F',
+      '--base-date',
+      '2026-02-30',
+      '--chart-type',
+      'T',
+      '--db-name',
+      'd',
+      '--output-file',
+      'out/x.svg',
+    ]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/not a real date/);
+  }, 60_000);
+  it('samples 形式の --data-file から描ける', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));
+    try {
+      const data = join(dir, 'saved.json');
+      writeFileSync(
+        data,
+        JSON.stringify({
+          k: {
+            description: 'd',
+            items: [
+              ['A', 1],
+              ['B', 2],
+            ],
+          },
+        }),
+      );
+      const out = join(dir, 'x.svg');
+      const r = runCli(['one', '--data-file', data, '--output-file', out]);
+      expect(r.code).toBe(0);
+      expect(readFileSync(out, 'utf8')).toMatch(/<svg/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
