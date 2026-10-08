@@ -21,15 +21,23 @@ import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { type MsSqlDriver, callSprocItems, checkConnection } from '../input/db.js';
+import {
+  type ConnOpts,
+  type MsSqlDriver,
+  callSprocItems,
+  checkConnection,
+  connectionStringFor,
+  resolveConnTarget,
+} from '../input/db.js';
 import { type DbStage, DbStageError, InterruptedError, errorMessage } from '../input/dbStage.js';
-import type { SprocArgs } from '../input/sprocArgs.js';
+import { type SprocArgs, resolveSprocName } from '../input/sprocArgs.js';
 import { loadMsSqlDriver } from './msDriver.js';
 import {
   DRIVER_ASSET_KEY,
   DRIVER_FILE_NAME,
   createRunDir,
   embeddedDriverSha256,
+  isRunDirName,
   registerDriverPath,
   removeRunDir,
   runDirParent,
@@ -45,7 +53,12 @@ export type HelperMode = 'fetch' | 'load' | 'connect';
 /** 親が子に頼む内容(ドライバの場所は親が書き出した後に足す)。 */
 export interface HelperRequest {
   mode: HelperMode;
-  connectionString: string;
+  /**
+   * 接続先の部品。接続文字列を受け取ると許可リストを経ない値がそのまま使われるので、子が
+   * `resolveConnTarget` へ通し直して組む。`load` では使わない。
+   */
+  conn?: ConnOpts;
+  /** `fetch` で呼ぶストアド名。子も形を検査し直す。 */
   proc: string;
   args: SprocArgs | null;
   timeoutMs: number;
@@ -60,6 +73,7 @@ type ChildResponse =
   | { ok: false; stage: DbStage; message: string };
 
 const MODES: ReadonlySet<string> = new Set(['fetch', 'load', 'connect']);
+const CONN_KEYS: ReadonlySet<string> = new Set(['server', 'database', 'driver', 'extra']);
 const STAGES: ReadonlySet<string> = new Set([
   'extract',
   'verify',
@@ -94,6 +108,19 @@ function samePath(a: string, b: string): boolean {
 }
 
 /**
+ * 要求の接続先とストアド名を親と同じ検査へ通し直す。`__db-fetch` は親以外からも呼べるので、
+ * 要求の値をそのまま接続文字列や `EXEC` 文へ入れない。ドライバを読み込む前に済ませる。
+ */
+function revalidateRequest(req: ChildRequest): { connectionString: string; proc: string } {
+  if (req.mode === 'load') return { connectionString: '', proc: '' };
+  if (!req.conn) throw new DbStageError('child', `${req.mode} request without a connection.`);
+  const connectionString = connectionStringFor(resolveConnTarget(req.conn));
+  if (req.mode === 'connect') return { connectionString, proc: '' };
+  if (req.proc.trim() === '') throw new DbStageError('child', 'fetch request without a procedure.');
+  return { connectionString, proc: resolveSprocName(req.proc) };
+}
+
+/**
  * ドライバが `<許可された親>/<実行ごとのフォルダ>/sqlserverv8.node` の形か確かめ、実体のパスを
  * 返す。以降の照合・登録・読み込みは、検査した実体のパスだけを使う(検査後の差し替え対策)。
  */
@@ -112,9 +139,11 @@ function resolveDriverLocation(driverPath: string, allowedParent: string): strin
   } catch {
     throw outside();
   }
+  const runDir = path.dirname(realDriver);
   if (
     !samePath(path.basename(realDriver), DRIVER_FILE_NAME) ||
-    !samePath(path.dirname(path.dirname(realDriver)), realParent)
+    !isRunDirName(path.basename(runDir)) ||
+    !samePath(path.dirname(runDir), realParent)
   ) {
     throw outside();
   }
@@ -127,6 +156,7 @@ export async function handleChildRequest(
   deps: ChildDeps,
 ): Promise<ChildResponse> {
   try {
+    const { connectionString, proc } = revalidateRequest(req);
     const expected = deps.expectedSha256();
     if (!expected) {
       throw new DbStageError('verify', 'this executable has no embedded DB driver hash.');
@@ -147,13 +177,13 @@ export async function handleChildRequest(
     }
     if (req.mode === 'load') return { ok: true, items: [] };
     if (req.mode === 'connect') {
-      await checkConnection(driver, req.connectionString, req.timeoutMs);
+      await checkConnection(driver, connectionString, req.timeoutMs);
       return { ok: true, items: [] };
     }
     if (!req.args) throw new DbStageError('child', 'fetch request without procedure arguments.');
     const items = await callSprocItems(driver, {
-      connectionString: req.connectionString,
-      proc: req.proc,
+      connectionString,
+      proc,
       args: req.args,
       timeoutMs: req.timeoutMs,
     });
@@ -168,8 +198,21 @@ export async function handleChildRequest(
 export function parseChildRequest(text: string): ChildRequest {
   const v = JSON.parse(text) as Record<string, unknown>;
   if (typeof v.mode !== 'string' || !MODES.has(v.mode)) throw new Error('invalid mode.');
-  for (const key of ['driverPath', 'connectionString', 'proc'] as const) {
+  for (const key of ['driverPath', 'proc'] as const) {
     if (typeof v[key] !== 'string') throw new Error(`invalid ${key}.`);
+  }
+  const conn = v.conn as Record<string, unknown> | undefined;
+  if (conn !== undefined) {
+    if (conn === null || typeof conn !== 'object' || Array.isArray(conn)) {
+      throw new Error('invalid conn.');
+    }
+    for (const key of Object.keys(conn)) {
+      if (!CONN_KEYS.has(key) || typeof conn[key] !== 'string') {
+        throw new Error(`invalid conn.${key}.`);
+      }
+    }
+  } else if (v.mode !== 'load') {
+    throw new Error('invalid conn.');
   }
   if (typeof v.timeoutMs !== 'number' || !(v.timeoutMs > 0)) throw new Error('invalid timeoutMs.');
   const args = v.args as Record<string, unknown> | null;
@@ -262,6 +305,9 @@ export function defaultParentDeps(): ParentDeps {
   };
 }
 
+/** Ctrl+C で終わった子の終了コード。`0xC000013A`(STATUS_CONTROL_C_EXIT)と 130。 */
+const CTRL_C_EXIT_CODES: ReadonlySet<number> = new Set([0xc000013a, 130]);
+
 function stderrTail(text: string): string {
   const trimmed = text.trim();
   return trimmed === '' ? '' : `\n${trimmed.slice(-500)}`;
@@ -322,7 +368,9 @@ export async function runDbHelper(
       });
       child.once('close', (code: number | null) => {
         settle();
-        if (interrupted) {
+        // 子は同じコンソールにいて Ctrl+C を自分でも受ける。子の終了が親の SIGINT より先に
+        // 届くと `interrupted` はまだ立っていないので、終了コードでも中断と判定する。
+        if (interrupted || (code !== null && CTRL_C_EXIT_CODES.has(code))) {
           reject(new InterruptedError());
           return;
         }

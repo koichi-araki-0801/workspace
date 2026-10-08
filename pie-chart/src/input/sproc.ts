@@ -15,6 +15,7 @@ import { loadMsSqlDriver } from '../runtime/msDriver.js';
 import { isSea } from '../runtime/seaRuntime.js';
 import {
   type ConnOpts,
+  type ConnTarget,
   type MsSqlDriver,
   callSprocItems,
   checkConnection,
@@ -66,19 +67,46 @@ function loadDevDriver(deps: SprocDeps): MsSqlDriver {
   }
 }
 
-/** ストアドを呼んで items と、JSON に記録する接続先を返す。 */
-export async function fetchSprocItems(
+/** 検査を済ませた取得の段取り。`prepareSprocFetch` が作り、`fetchSprocItems` が使う。 */
+export interface PreparedSprocFetch {
+  args: SprocArgs;
+  target: ConnTarget;
+  proc: string;
+  timeoutMs: number;
+}
+
+/**
+ * 接続先とストアド名を検査して段取りを作る。DB に触れないので、CLI は出力フォルダを作る
+ * 前にこれを呼び、指定ミスで止まったときに空のフォルダを残さない。
+ */
+export function prepareSprocFetch(
   args: SprocArgs,
   conn: ConnOpts,
+  deps: Pick<SprocDeps, 'procName' | 'timeoutS'> = defaultDeps(),
+): PreparedSprocFetch {
+  return {
+    args,
+    target: resolveConnTarget(conn),
+    proc: deps.procName(),
+    timeoutMs: deps.timeoutS * 1000,
+  };
+}
+
+/** ストアドを呼んで items と、JSON に記録する接続先を返す。 */
+export async function fetchSprocItems(
+  prepared: PreparedSprocFetch,
   deps: SprocDeps = defaultDeps(),
 ): Promise<SprocFetchResult> {
-  const target = resolveConnTarget(conn);
-  const connectionString = connectionStringFor(target);
-  const proc = deps.procName();
-  const timeoutMs = deps.timeoutS * 1000;
+  const { args, target, proc, timeoutMs } = prepared;
+  // 子へは接続文字列でなく部品を渡し、子が許可リストへ通し直して組む(`runtime/dbChild.ts`)。
   const items = deps.isSea()
-    ? (await deps.helper({ mode: 'fetch', connectionString, proc, args, timeoutMs })).items
-    : await callSprocItems(loadDevDriver(deps), { connectionString, proc, args, timeoutMs });
+    ? (await deps.helper({ mode: 'fetch', conn: target, proc, args, timeoutMs })).items
+    : await callSprocItems(loadDevDriver(deps), {
+        connectionString: connectionStringFor(target),
+        proc,
+        args,
+        timeoutMs,
+      });
   return { items, server: target.server, database: target.database, proc };
 }
 
@@ -103,7 +131,7 @@ export async function runDbCheck(
   deps: SprocDeps = defaultDeps(),
 ): Promise<{ ok: boolean; lines: DbCheckLine[] }> {
   const timeoutMs = deps.timeoutS * 1000;
-  const connectionString = opts.connect ? connectionStringFor(resolveConnTarget(opts.conn)) : '';
+  const target = opts.connect ? resolveConnTarget(opts.conn) : undefined;
   const order: CheckStage[] = opts.connect
     ? ['extract', 'verify', 'load', 'connect']
     : ['extract', 'verify', 'load'];
@@ -115,8 +143,8 @@ export async function runDbCheck(
     try {
       const driver = loadDevDriver(deps);
       lines.push({ stage: 'load', status: 'OK', detail: '' });
-      if (opts.connect) {
-        await checkConnection(driver, connectionString, timeoutMs);
+      if (target) {
+        await checkConnection(driver, connectionStringFor(target), timeoutMs);
         lines.push({ stage: 'connect', status: 'OK', detail: '' });
       }
     } catch (err) {
@@ -128,10 +156,11 @@ export async function runDbCheck(
   }
 
   let runDir = '';
-  const mode = opts.connect ? 'connect' : 'load';
   try {
     await deps.helper(
-      { mode, connectionString, proc: '', args: null, timeoutMs },
+      target
+        ? { mode: 'connect', conn: target, proc: '', args: null, timeoutMs }
+        : { mode: 'load', proc: '', args: null, timeoutMs },
       { onRunDir: (dir) => (runDir = dir) },
     );
     for (const stage of order) {

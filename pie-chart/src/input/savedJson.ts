@@ -83,16 +83,35 @@ export function writeSavedJson(file: string, data: unknown): void {
 }
 
 /**
- * 既定の出力先: `--output-file` の拡張子を `.json` に替えたもの。`--output-file` 自体が
- * `.json` だと同じパスになり SVG を上書きするので、出力先の指定を求めて止める。
+ * 2 つのパスが同じファイルを指すか。Windows のファイル名は大文字小文字を区別しないので、
+ * `x.JSON` と `x.json` も同じとみなす(区別すると SVG が保存した JSON を上書きする)。
  */
-export function defaultSavedJsonPath(outputFile: string): string {
+export function samePath(
+  a: string,
+  b: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  const ra = path.resolve(a);
+  const rb = path.resolve(b);
+  return platform === 'win32' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
+}
+
+/**
+ * 取得結果の保存先を決める。既定は `--output-file` の拡張子を `.json` に替えたもの。
+ * 既定でも `--save-json` の明示でも、SVG と同じファイルになるなら後から書く SVG が
+ * 取得結果を上書きするので、別の `--save-json` を求めて止める。
+ */
+export function resolveSavedJsonPath(
+  outputFile: string,
+  saveJson: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const parsed = path.parse(outputFile);
-  const candidate = path.join(parsed.dir, `${parsed.name}.json`);
-  if (path.resolve(candidate) === path.resolve(outputFile)) {
+  const candidate = saveJson ?? path.join(parsed.dir, `${parsed.name}.json`);
+  if (samePath(candidate, outputFile, platform)) {
     throw new Error(
-      `--output-file "${outputFile}" ends with .json, so the fetched data would overwrite it; ` +
-        'pass --save-json <path>.',
+      `The fetched data would be saved to the same file as --output-file "${outputFile}" ` +
+        'and overwritten by the SVG; pass a different --save-json <path>.',
     );
   }
   return candidate;

@@ -33,7 +33,7 @@ export interface ConnOpts {
 }
 
 /** 検証済みの接続先。JSON の `source` に server / database を記録するためにも使う。 */
-interface ConnTarget {
+export interface ConnTarget {
   driver: string;
   server: string;
   database: string;

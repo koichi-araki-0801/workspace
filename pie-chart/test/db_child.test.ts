@@ -23,9 +23,12 @@ import {
 import { sha256Hex } from '../src/runtime/nativeDriver.js';
 
 const ARGS = { fund: 'F', baseDate: '20260930', chartType: 'T' };
+const CONN = { server: 'db01', database: 'usrap', driver: 'ODBC Driver 17 for SQL Server' };
+const CS =
+  'Driver={ODBC Driver 17 for SQL Server};Server=db01;Database=usrap;Trusted_Connection=yes;';
 const REQ: ChildRequest = {
   mode: 'fetch',
-  connectionString: 'CS',
+  conn: CONN,
   proc: 'dbo.p',
   args: ARGS,
   timeoutMs: 1000,
@@ -121,7 +124,53 @@ describe('handleChildRequest(子の側)', () => {
       childDeps({ loadDriver: () => ({ promises: { query } }) }),
     );
     expect(res).toEqual({ ok: true, items: [] });
-    expect(query).toHaveBeenCalledWith('CS', 'SELECT 1', [], { timeoutMs: 1000, raw: true });
+    expect(query).toHaveBeenCalledWith(CS, 'SELECT 1', [], { timeoutMs: 1000, raw: true });
+  });
+  it('fetch は接続文字列を部品から組み直し、ストアド名も検査した値で呼ぶ', async () => {
+    const query = vi.fn(async () => ({
+      meta: [[{ name: 'n' }, { name: 'v' }]],
+      results: [[['A', 1]]],
+    }));
+    const res = await handleChildRequest(
+      { ...REQ, driverPath: driverFile, proc: ' dbo.p ' },
+      childDeps({ loadDriver: () => ({ promises: { query } }) }),
+    );
+    expect(res).toEqual({ ok: true, items: [['A', 1]] });
+    expect(query.mock.calls[0][0]).toBe(CS);
+    expect(query.mock.calls[0][1]).toMatch(/^EXEC dbo\.p @/);
+  });
+  it('許可リストを外れる接続先・形の違うストアド名は、ドライバを読む前に child 段階で止める', async () => {
+    const bad: Array<Partial<ChildRequest>> = [
+      { conn: { ...CONN, server: 'localhost;FILEDSN=\\\\evil\\s\\x.dsn' } },
+      { conn: { ...CONN, extra: 'FILEDSN=x' } },
+      { conn: { ...CONN, driver: '};FILEDSN=x' } },
+      { proc: 'dbo.p; DROP TABLE t' },
+      { proc: '' },
+      { conn: undefined },
+      { mode: 'connect', args: null, conn: undefined },
+    ];
+    for (const over of bad) {
+      const loadDriver = vi.fn();
+      const verify = vi.fn();
+      const res = await handleChildRequest(
+        { ...REQ, driverPath: driverFile, ...over },
+        childDeps({ loadDriver, verify }),
+      );
+      expect(res, JSON.stringify(over)).toMatchObject({ ok: false, stage: 'child' });
+      expect(loadDriver).not.toHaveBeenCalled();
+      expect(verify).not.toHaveBeenCalled();
+    }
+  });
+  it('実行ごとのフォルダの名前が <pid>-<6 文字> でなければ読み込まない', async () => {
+    const run = join(childParent, 'run');
+    mkdirSync(run);
+    const file = join(run, 'sqlserverv8.node');
+    writeFileSync(file, 'x');
+    const loadDriver = vi.fn();
+    const res = await handleChildRequest({ ...REQ, driverPath: file }, childDeps({ loadDriver }));
+    expect(res).toMatchObject({ ok: false, stage: 'verify' });
+    expect((res as { message: string }).message).toMatch(/outside the working folder/);
+    expect(loadDriver).not.toHaveBeenCalled();
   });
   it('検証には要求ではなく埋め込みのハッシュを使う', async () => {
     const verify = vi.fn();
@@ -188,7 +237,23 @@ describe('handleChildRequest(子の側)', () => {
 describe('parseChildRequest / parseChildResponse', () => {
   it('要求の形を検査する', () => {
     expect(parseChildRequest(JSON.stringify(REQ))).toEqual(REQ);
+    const load = { ...REQ, mode: 'load', conn: undefined, proc: '', args: null };
+    expect(parseChildRequest(JSON.stringify(load))).toMatchObject({ mode: 'load' });
     expect(() => parseChildRequest('{"mode":"drop"}')).toThrow(/mode/);
+    expect(() => parseChildRequest(JSON.stringify({ ...REQ, conn: undefined }))).toThrow(
+      /invalid conn/,
+    );
+    expect(() => parseChildRequest(JSON.stringify({ ...REQ, conn: null }))).toThrow(/invalid conn/);
+    expect(() => parseChildRequest(JSON.stringify({ ...REQ, conn: ['x'] }))).toThrow(
+      /invalid conn/,
+    );
+    expect(() =>
+      parseChildRequest(JSON.stringify({ ...REQ, conn: { ...CONN, server: 1 } })),
+    ).toThrow(/invalid conn\.server/);
+    expect(() =>
+      parseChildRequest(JSON.stringify({ ...REQ, conn: { connectionString: 'CS' } })),
+    ).toThrow(/invalid conn\.connectionString/);
+    expect(() => parseChildRequest(JSON.stringify({ ...REQ, proc: 1 }))).toThrow(/invalid proc/);
     expect(() => parseChildRequest('not json')).toThrow();
   });
   it('応答は印の付いた行だけを読む(他の出力が混ざっても取り違えない)', () => {
@@ -272,7 +337,7 @@ describe('runDbHelper(親の側)', () => {
   }
   const HREQ = {
     mode: 'fetch' as const,
-    connectionString: 'CS',
+    conn: CONN,
     proc: 'p',
     args: ARGS,
     timeoutMs: 60000,
@@ -291,6 +356,20 @@ describe('runDbHelper(親の側)', () => {
     const sent = JSON.parse(child.received);
     expect(sent.driverPath).toBe(join(runDir, 'sqlserverv8.node'));
     expect(sent).not.toHaveProperty('driverSha256');
+    expect(sent.conn).toEqual(CONN);
+    expect(sent).not.toHaveProperty('connectionString');
+  });
+  it.each([
+    [0xc000013a, 'STATUS_CONTROL_C_EXIT'],
+    [130, '130'],
+  ])('子が Ctrl+C の終了コード(%s / %s)で先に閉じても InterruptedError', async (code) => {
+    const child = new FakeChild();
+    let runDir = '';
+    const p = runDbHelper(HREQ, deps(child), { onRunDir: (d) => (runDir = d) });
+    await new Promise((r) => setImmediate(r));
+    child.respond('', code);
+    await expect(p).rejects.toBeInstanceOf(InterruptedError);
+    expect(existsSync(runDir)).toBe(false);
   });
   it('子のエラー応答は段階付きで投げ、フォルダは消す', async () => {
     const child = new FakeChild();

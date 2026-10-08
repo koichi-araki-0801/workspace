@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -185,22 +185,25 @@ describe('--data-file の UTF-8 BOM', () => {
 
 const cliRoot = resolve(fileURLToPath(import.meta.url), '..', '..');
 
-function runCli(args: string[]): { code: number; stderr: string } {
-  try {
-    execFileSync(
-      process.execPath,
-      [
-        join(cliRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-        join(cliRoot, 'src', 'cli.ts'),
-        ...args,
-      ],
-      { cwd: cliRoot, stdio: 'pipe', encoding: 'utf8' },
-    );
-    return { code: 0, stderr: '' };
-  } catch (err) {
-    const e = err as { status?: number; stderr?: string };
-    return { code: e.status ?? -1, stderr: String(e.stderr ?? '') };
-  }
+/** 接続先やストアド名を env から補う経路を確かめるため、DB_* / PIE_* を除いた env。 */
+function envWithoutDb(): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(?:DB|PIE)_/i.test(k)));
+}
+
+function runCli(
+  args: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): { code: number; stderr: string } {
+  const r = spawnSync(
+    process.execPath,
+    [
+      join(cliRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+      join(cliRoot, 'src', 'cli.ts'),
+      ...args,
+    ],
+    { cwd: cliRoot, stdio: 'pipe', encoding: 'utf8', env },
+  );
+  return { code: r.status ?? -1, stderr: String(r.stderr ?? '') };
 }
 
 describe('CLI のストアド入力の検査(DB には接続しない)', () => {
@@ -281,6 +284,63 @@ describe('CLI のストアド入力の検査(DB には接続しない)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }, 60_000);
+  it('--db-name も DB_NAME も無ければ、出力フォルダを作らずに止まる', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));
+    try {
+      const out = join(dir, 'sub', 'x.svg');
+      const r = runCli(
+        [
+          'one',
+          '--fund',
+          'F',
+          '--base-date',
+          '20260930',
+          '--chart-type',
+          'T',
+          '--output-file',
+          out,
+        ],
+        envWithoutDb(),
+      );
+      expect(r.code).toBe(1);
+      expect(r.stderr).toMatch(/database is required/);
+      expect(existsSync(join(dir, 'sub'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+  it('--save-json が --output-file と同じなら、出力フォルダを作らずに止まる', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));
+    try {
+      const out = join(dir, 'sub', 'x.svg');
+      const r = runCli([
+        'one',
+        '--fund',
+        'F',
+        '--base-date',
+        '20260930',
+        '--chart-type',
+        'T',
+        '--db-name',
+        'd',
+        '--save-json',
+        out,
+        '--output-file',
+        out,
+      ]);
+      expect(r.code).toBe(1);
+      expect(r.stderr).toMatch(/different --save-json/);
+      expect(existsSync(join(dir, 'sub'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+  it('db-check に --db-server だけを渡すと、接続を確かめないことを警告する', () => {
+    const r = runCli(['db-check', '--db-server', 'localhost'], envWithoutDb());
+    expect(r.stderr).toContain(
+      '[db-check] --db-server was given without --db-name; skipping the connection check.',
+    );
   }, 60_000);
   it('samples 形式の --data-file から描ける', () => {
     const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));

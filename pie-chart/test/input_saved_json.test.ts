@@ -5,9 +5,10 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { normalizeInputItems } from '../src/input/load.js';
 import {
   buildSavedJson,
-  defaultSavedJsonPath,
   extractDataItems,
   formatLocalIso,
+  resolveSavedJsonPath,
+  samePath,
   savedEntryKey,
   writeSavedJson,
 } from '../src/input/savedJson.js';
@@ -43,13 +44,41 @@ describe('buildSavedJson', () => {
   });
 });
 
-describe('defaultSavedJsonPath', () => {
-  it('--output-file の拡張子を .json に替える(拡張子が無ければ足す)', () => {
-    expect(defaultSavedJsonPath(join('out', 'x.svg'))).toBe(join('out', 'x.json'));
-    expect(defaultSavedJsonPath(join('out', 'x'))).toBe(join('out', 'x.json'));
+describe('resolveSavedJsonPath', () => {
+  it('既定は --output-file の拡張子を .json に替える(拡張子が無ければ足す)', () => {
+    expect(resolveSavedJsonPath(join('out', 'x.svg'), undefined)).toBe(join('out', 'x.json'));
+    expect(resolveSavedJsonPath(join('out', 'x'), undefined)).toBe(join('out', 'x.json'));
   });
-  it('--output-file が .json なら SVG を上書きしないよう --save-json を求める', () => {
-    expect(() => defaultSavedJsonPath(join('out', 'x.json'))).toThrow(/--save-json/);
+  it('--save-json を明示すればそれを使う', () => {
+    expect(resolveSavedJsonPath(join('out', 'x.svg'), join('d', 'y.json'))).toBe(
+      join('d', 'y.json'),
+    );
+  });
+  it('--output-file が .json なら SVG を上書きしないよう別の --save-json を求める', () => {
+    expect(() => resolveSavedJsonPath(join('out', 'x.json'), undefined)).toThrow(
+      /different --save-json/,
+    );
+  });
+  it('Windows では拡張子の大文字小文字が違っても同じファイルとみなす', () => {
+    const out = join('out', 'x.JSON');
+    expect(() => resolveSavedJsonPath(out, undefined, 'win32')).toThrow(/different --save-json/);
+    expect(resolveSavedJsonPath(out, undefined, 'linux')).toBe(join('out', 'x.json'));
+  });
+  it('明示した --save-json が --output-file と同じなら止める', () => {
+    const out = join('out', 'x.svg');
+    expect(() => resolveSavedJsonPath(out, out)).toThrow(/different --save-json/);
+    expect(() => resolveSavedJsonPath(out, join('out', 'X.SVG'), 'win32')).toThrow(
+      /different --save-json/,
+    );
+  });
+});
+
+describe('samePath', () => {
+  it('解決後のパスで比べ、Windows だけ大文字小文字を無視する', () => {
+    expect(samePath(join('a', '..', 'b'), 'b', 'linux')).toBe(true);
+    expect(samePath('B', 'b', 'linux')).toBe(false);
+    expect(samePath('B', 'b', 'win32')).toBe(true);
+    expect(samePath('a', 'b')).toBe(false);
   });
 });
 

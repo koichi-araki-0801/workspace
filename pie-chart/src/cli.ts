@@ -27,17 +27,18 @@ import {
 } from './input/load.js';
 import {
   buildSavedJson,
-  defaultSavedJsonPath,
   extractDataItems,
+  resolveSavedJsonPath,
   writeSavedJson,
 } from './input/savedJson.js';
-import { fetchSprocItems, formatDbCheckLine, runDbCheck } from './input/sproc.js';
 import {
-  hasSprocArgs,
-  normalizeSprocArgs,
-  type RawSprocArgs,
-  type SprocArgs,
-} from './input/sprocArgs.js';
+  type PreparedSprocFetch,
+  fetchSprocItems,
+  formatDbCheckLine,
+  prepareSprocFetch,
+  runDbCheck,
+} from './input/sproc.js';
+import { hasSprocArgs, normalizeSprocArgs, type RawSprocArgs } from './input/sprocArgs.js';
 import { MAX_JSON_BYTES } from './limits.js';
 import { runDbChild } from './runtime/dbChild.js';
 import { runDirParent, sweepStaleRunDirs } from './runtime/nativeDriver.js';
@@ -239,19 +240,24 @@ async function renderOne(options: Record<string, string | boolean>): Promise<voi
   if (input.kind !== 'sproc' && options['save-json'] !== undefined) {
     throw new Error('--save-json is only for the stored procedure input (--fund ...).');
   }
-  // ストアド入力は引数の検査(基準日の実在など)を出力フォルダを作る前に済ませ、
+  // ストアド入力は引数・保存先・接続先・ストアド名の検査を出力フォルダを作る前に済ませ、
   // 検査で止まったときに空のフォルダを残さない。
-  const sprocArgs = input.kind === 'sproc' ? normalizeSprocArgs(input.raw) : undefined;
+  let prepared: PreparedSprocFetch | undefined;
+  let jsonFile = '';
+  if (input.kind === 'sproc') {
+    const args = normalizeSprocArgs(input.raw);
+    jsonFile = resolveSavedJsonPath(outputFile, saveJson);
+    prepared = prepareSprocFetch(args, { server: input.server, database: input.database });
+  }
   fs.mkdirSync(path.dirname(path.resolve(outputFile)), { recursive: true });
 
   let items: Item[];
   if (input.kind === 'sproc') {
-    const args = sprocArgs as SprocArgs;
-    const jsonFile = saveJson ?? defaultSavedJsonPath(outputFile);
-    const fetched = await fetchSprocItems(args, { server: input.server, database: input.database });
+    const ready = prepared as PreparedSprocFetch;
+    const fetched = await fetchSprocItems(ready);
     items = normalizeInputItems(fetched.items);
     // 描画より前に書く。描画で失敗しても(項目数の上限など)、取得したデータは残る。
-    writeSavedJson(jsonFile, buildSavedJson(args, items, fetched, new Date()));
+    writeSavedJson(jsonFile, buildSavedJson(ready.args, items, fetched, new Date()));
     console.log(path.resolve(jsonFile));
   } else {
     items = await resolveInputDataAsync(input);
@@ -322,9 +328,17 @@ function printFontLicense(): void {
 
 async function dbCheck(options: Record<string, string | boolean>): Promise<void> {
   const database = optionString(options, 'db-name');
+  const server = optionString(options, 'db-server');
+  // 接続まで確かめるのは `--db-name` があるときだけ。サーバだけ指定すると接続を確かめた
+  // つもりで読み込みだけの結果を見ることになるので、そのことを知らせる。
+  if (server !== undefined && database === undefined) {
+    console.warn(
+      '[db-check] --db-server was given without --db-name; skipping the connection check.',
+    );
+  }
   const { ok, lines } = await runDbCheck({
     connect: database !== undefined,
-    conn: { server: optionString(options, 'db-server'), database },
+    conn: { server, database },
   });
   for (const line of lines) console.log(formatDbCheckLine(line));
   if (!ok) process.exitCode = 1;

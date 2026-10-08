@@ -23,6 +23,7 @@ import {
   type SprocDeps,
   fetchSprocItems,
   formatDbCheckLine,
+  prepareSprocFetch,
   runDbCheck,
 } from '../src/input/sproc.js';
 
@@ -49,9 +50,39 @@ function deps(over: Partial<SprocDeps> = {}): SprocDeps {
   };
 }
 
+const TARGET = {
+  driver: 'ODBC Driver 17 for SQL Server',
+  server: 'db01',
+  database: 'usrap',
+  extra: '',
+};
+
+describe('prepareSprocFetch', () => {
+  it('接続先とストアド名を検査し、タイムアウトをミリ秒にする', () => {
+    expect(prepareSprocFetch(ARGS, CONN, deps())).toEqual({
+      args: ARGS,
+      target: TARGET,
+      proc: 'dbo.p',
+      timeoutMs: 60000,
+    });
+  });
+  it('データベース名が無い・ストアド名の形が違うときは DB に触れる前に投げる', () => {
+    expect(() => prepareSprocFetch(ARGS, { server: 'db01', database: '' }, deps())).toThrow(
+      /database is required/,
+    );
+    const badProc = deps({
+      procName: () => {
+        throw new Error('PIE_DB_PROC must look like [schema.]name');
+      },
+    });
+    expect(() => prepareSprocFetch(ARGS, CONN, badProc)).toThrow(/PIE_DB_PROC/);
+  });
+});
+
 describe('fetchSprocItems', () => {
+  const prepared = { args: ARGS, target: TARGET, proc: 'dbo.p', timeoutMs: 60000 };
   it('開発版はその場でドライバを読んで呼ぶ', async () => {
-    const res = await fetchSprocItems(ARGS, CONN, deps());
+    const res = await fetchSprocItems(prepared, deps());
     expect(res).toEqual({ items: [['D', 2]], server: 'db01', database: 'usrap', proc: 'dbo.p' });
   });
   it('開発版でドライバが読めなければ load 段階', async () => {
@@ -60,16 +91,15 @@ describe('fetchSprocItems', () => {
         throw new Error("Cannot find module 'msnodesqlv8'");
       },
     });
-    await expect(fetchSprocItems(ARGS, CONN, d)).rejects.toMatchObject({ stage: 'load' });
+    await expect(fetchSprocItems(prepared, d)).rejects.toMatchObject({ stage: 'load' });
   });
-  it('exe は子プロセスに fetch を頼み、タイムアウトをミリ秒で渡す', async () => {
+  it('exe は子プロセスに fetch を頼み、接続文字列でなく接続先の部品を渡す', async () => {
     const d = deps({ isSea: () => true });
-    const res = await fetchSprocItems(ARGS, CONN, d);
+    const res = await fetchSprocItems(prepared, d);
     expect(res.items).toEqual([['H', 1]]);
     expect(d.helper).toHaveBeenCalledWith({
       mode: 'fetch',
-      connectionString:
-        'Driver={ODBC Driver 17 for SQL Server};Server=db01;Database=usrap;Trusted_Connection=yes;',
+      conn: TARGET,
       proc: 'dbo.p',
       args: ARGS,
       timeoutMs: 60000,
@@ -114,6 +144,10 @@ describe('runDbCheck', () => {
       'cleanup:NG',
     ]);
     expect(res.lines[2].detail).toBe('blocked');
+    expect(d.helper).toHaveBeenCalledWith(
+      { mode: 'connect', conn: TARGET, proc: '', args: null, timeoutMs: 60000 },
+      expect.anything(),
+    );
   });
   it('child 段階の失敗はそのまま child: NG として出す', async () => {
     const d = deps({
@@ -180,7 +214,7 @@ describe('既定の依存(実体を差し替えた状態)', () => {
   it('exe では helper と procName と exists が既定のものを通る', async () => {
     seaState.sea = true;
     try {
-      const res = await fetchSprocItems(ARGS, CONN);
+      const res = await fetchSprocItems(prepareSprocFetch(ARGS, CONN));
       expect(res.items).toEqual([['H', 1]]);
       const check = await runDbCheck({ connect: false, conn: {} });
       expect(check.lines.map((l) => `${l.stage}:${l.status}`)).toEqual([
@@ -194,7 +228,7 @@ describe('既定の依存(実体を差し替えた状態)', () => {
     }
   });
   it('開発版では loadDriver が既定のものを通る', async () => {
-    const res = await fetchSprocItems(ARGS, CONN);
+    const res = await fetchSprocItems(prepareSprocFetch(ARGS, CONN));
     expect(res.items).toEqual([['D', 2]]);
   });
 });
