@@ -312,6 +312,7 @@ export default defineConfig({
         // SEA 実行時のモジュール解決。上位ディレクトリ遡りが復活すると任意コード実行になる。
         'pie-chart/src/runtime/seaRuntime.ts',
         'pie-chart/src/runtime/nativeDriver.ts',
+        'pie-chart/src/runtime/dbChild.ts',
         'pie-chart/src/runtime/subsetFontFs.ts',
       ],
       // `middleware/auth.ts` を exclude しないこと。viewer ロール強制と
