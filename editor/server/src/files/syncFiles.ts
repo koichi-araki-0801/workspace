@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { emptySyncState, type PairSyncState } from '../sync/partSync.js';
 import { atomicWrite } from './atomic.js';
+import { readOrMissing } from './fsHelpers.js';
 
 // `pairKey` は呼び出し元(`pairSyncService.ts`)がテンプレート属性から組み立てるが、パス検証は
 // 連結する唯一の場所であるここで強制する(正典: `docs/editor/src/設計正典.md` の該当節)。
@@ -56,10 +57,7 @@ const PairSyncStateSchema = z.object({
  * lastSynced と競合の記録を消す。呼び出し側の扱いは壊れたファイルと同じ(同期スキップ + 警告)。
  */
 export async function readSyncState(pairKey: string): Promise<PairSyncState> {
-  const raw = await fs.readFile(syncPath(pairKey), 'utf8').catch((e: NodeJS.ErrnoException) => {
-    if (e?.code === 'ENOENT') return null;
-    throw e;
-  });
+  const raw = await readOrMissing(syncPath(pairKey), null);
   if (raw === null) return emptySyncState(pairKey);
   return PairSyncStateSchema.parse(JSON.parse(raw));
 }

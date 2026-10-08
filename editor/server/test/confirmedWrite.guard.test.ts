@@ -58,9 +58,8 @@ describe('書込プリミティブの import 許可リスト', () => {
     // 増えても減っても落ちる。新しいファイルがディスクへ直接書き始めたことに気付くための
     // 検査であって、「危険な書き込みを列挙する」検査ではない。
     const allowed = [
-      'files/draftFiles.ts',
+      'files/idPairStore.ts',
       'files/notesFile.ts',
-      'files/pendingFiles.ts',
       'files/reviewFiles.ts',
       'files/syncFiles.ts',
       'repositories/confirmedWrite.ts',
