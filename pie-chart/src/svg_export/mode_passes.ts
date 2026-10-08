@@ -82,6 +82,18 @@ export function isLeftStackMember(p: Placement): boolean {
   return p.item.side === 'left' && p.baseline === 'bottom' && !p.insideSlice && p.x < 0;
 }
 
+/** 左上クラスタ (isUpperLeft) の左列とみなす placement (flipToRight・inside を除き、baseline=bottom・x<0)。 */
+function isUpperLeftStackMember(p: Placement): boolean {
+  return (
+    p.item.side === 'left' &&
+    p.item.isUpperLeft === true &&
+    !p.item.flipToRight &&
+    !p.insideSlice &&
+    p.baseline === 'bottom' &&
+    p.x < 0
+  );
+}
+
 /** twoLineLeftStackMode の左列メンバ (上部「その他」・真下中央・flip・inside を除く左側外側ラベル)。 */
 function twoLineLeftColumnMembers(placements: Placement[]): Placement[] {
   return placements.filter(
@@ -1328,15 +1340,7 @@ const LEFT_STACK_GAP_EXCESS_FACTOR = 1.6;
  * applyOutsideLeaderAngularOrder の後 (角度順確定後の最終 Y 上) に呼ぶ。
  */
 export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): void {
-  const stack = placements.filter(
-    (p) =>
-      p.item.side === 'left' &&
-      p.item.isUpperLeft === true &&
-      !p.item.flipToRight &&
-      !p.insideSlice &&
-      p.baseline === 'bottom' &&
-      p.x < 0,
-  );
+  const stack = placements.filter(isUpperLeftStackMember);
   if (stack.length < 3) return;
   stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
 
@@ -1415,15 +1419,7 @@ export function relieveLeftStackSpacing(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  const stack = placements.filter(
-    (p) =>
-      p.item.side === 'left' &&
-      p.item.isUpperLeft === true &&
-      !p.item.flipToRight &&
-      !p.insideSlice &&
-      p.baseline === 'bottom' &&
-      p.x < 0,
-  );
+  const stack = placements.filter(isUpperLeftStackMember);
   if (stack.length < 4) return;
   stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
   // 論理→px の横スケール (右ほど大。線形なので 2 点差で求まる)。見切れ量から右シフト量を逆算する。

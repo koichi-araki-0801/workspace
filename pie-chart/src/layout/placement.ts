@@ -469,10 +469,9 @@ function bottomCenterBelow(
   // ごく小さいが、参考 PDF は真下スライスのラベルを中心角の直下に置く)。anchor=middle のまま
   // 箱中心を anchorX へ寄せ、leader も anchorX 起点の極短スタブにする。
   const textX = item.anchorX;
-  // pieClearance / dominantOutsideEdge は付けない: 箱は pie の **真下** に押し下げ済で X 方向の
-  // 円クリアランスは不要 (pieClearance を立てると closestY が円外でも anchor=middle 箱を横へ
-  // 叩き出す)。dominantOutsideEdge を立てると computeDrawnLeader がドリフト時に leader を復活
-  // させてしまう。円との距離は runCascadeOnce の nudgeTextAwayFromPie (真下へ押下げ) が担保する。
+  // pieClearance は付けない: 箱は pie の **真下** に押し下げ済で X 方向の円クリアランスは不要
+  // (pieClearance を立てると closestY が円外でも anchor=middle 箱を横へ叩き出す)。円との距離は
+  // runCascadeOnce の nudgeTextAwayFromPie (真下へ押下げ) が担保する。
   return {
     textX,
     textY,
