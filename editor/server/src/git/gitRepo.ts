@@ -23,6 +23,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { isGitObjectId, validation } from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import { COMMITTED_AREAS } from './committedAreas.js';
 
 const execFileAsync = promisify(execFile);
@@ -142,16 +143,7 @@ async function git(args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<
 
 // ── コミット直列化(index.lock 競合対策) ──
 // モジュール内の単一 Promise チェーン。全コミットを直列に実行する。
-let lock: Promise<unknown> = Promise.resolve();
-export function withGitLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = lock.then(fn, fn);
-  // チェーンは握りつぶして次へ繋ぐ(個々の結果は run が保持)。
-  lock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
+export const withGitLock = createSerialQueue();
 
 /** identity の name/email を解決する。email はログインID から安全な local アドレスを合成。 */
 function resolveIdentity(author: GitAuthor): { name: string; email: string } {

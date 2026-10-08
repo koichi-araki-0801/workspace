@@ -6,7 +6,7 @@
 // (`confirmedWrite.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
 // ルートは `requireApprover` で施錠する(`reviews.routes.ts`)。各関数は失敗時に `AppError`
 // を throw し、HTTP 変換は中央 `errorHandler` に委ねる(`templateRepo.ts` と同方針)。
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   type ApproveReviewResult,
   anyTemplateFileName,
@@ -27,6 +27,8 @@ import {
   unexpected,
   validation,
 } from '@editor/shared';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import {
   countPendingReviews,
   findDuplicatePendingReview,
@@ -37,12 +39,7 @@ import {
   updateReviewMeta,
   writeReview,
 } from '../files/reviewFiles.js';
-import {
-  filledExists,
-  readFilledHtml,
-  readTemplateCss,
-  readTemplateHtml,
-} from '../files/templateFiles.js';
+import { filledExists, readTemplateCss } from '../files/templateFiles.js';
 import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
@@ -66,30 +63,13 @@ export interface ReviewActor {
 // 低頻度のため、reqId 別の粒度は持たずモジュール全体の単一 Promise チェーンで直列化する。
 // ロックがモジュール直下に在るのは意図的で、`createReviewRepo` を複数回呼んでも触る確定領域は
 // プロセスに 1 つだからである(インスタンス別に持つと直列化が効かなくなる)。
-let reviewLock: Promise<unknown> = Promise.resolve();
-function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = reviewLock.then(fn, fn);
-  // チェーンは握りつぶして次へ繋ぐ(個々の結果は run が保持)。
-  reviewLock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
+const withReviewLock = createSerialQueue();
 
 // ── 申請の直列化 ──
 // 重複の検査と書き込みの間に同じ内容の申請が割り込むと、二重クリック・再送が両方とも通る。
 // 件数上限の検査から `writeReview` までをこの鎖で直列化する。承認の鎖(`withReviewLock`)と
 // 分けるのは、承認が git コミットを含んで遅く、申請をその後ろで待たせないため。
-let submitLock: Promise<unknown> = Promise.resolve();
-function withSubmitLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = submitLock.then(fn, fn);
-  submitLock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
+const withSubmitLock = createSerialQueue();
 
 /** 申請日時の表示(web の `formatDateTimeShort` と同じ `YYYY/MM/DD HH:mm`、サーバの現地時刻)。 */
 function formatSubmittedAt(iso: string): string {
@@ -145,10 +125,10 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
   const attrs = parseAnyTemplateFileName(`${templateId}.html`);
   const fileName = attrs ? anyTemplateFileName(attrs) : `${templateId}.html`;
   const [html, css] = await Promise.all([
-    target === 'filled' ? readFilledHtml(fileName) : readTemplateHtml(fileName),
+    readConfirmedHtml(target, fileName),
     readTemplateCss(templateId),
   ]);
-  return createHash('sha1').update(html).update('\x00').update(css).digest('hex');
+  return reviewContentHash(html, css);
 }
 
 /** approver|admin は全件、それ以外(editor)は自分の申請のみ閲覧できる。 */

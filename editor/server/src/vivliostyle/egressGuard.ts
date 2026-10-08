@@ -76,6 +76,7 @@
 import http from 'node:http';
 import net, { type AddressInfo } from 'node:net';
 import { config, isLoopbackHost } from '../config.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import { logger } from '../logger.js';
 
 /**
@@ -244,16 +245,10 @@ export async function pickFreePortSpan(probe: PortProbe = listenProbe): Promise<
  * 取れない**ライブロックになる(実測: 5 本同時で全滅し、全員が試行回数を使い切った)。
  * 1 回の枠取りは数回の bind で終わるので、取り合いを順番待ちに変えるのが素直。
  */
-let pickQueue: Promise<unknown> = Promise.resolve();
+const pickQueue = createSerialQueue();
 
 export function pickFreePortSpanSerialized(probe?: PortProbe): Promise<number[]> {
-  const next = pickQueue.then(
-    () => pickFreePortSpan(probe),
-    () => pickFreePortSpan(probe),
-  );
-  // 直前の失敗で行列を止めない(失敗した約束を繋ぐと以後の全予約が同じ失敗を再生する)。
-  pickQueue = next.catch(() => undefined);
-  return next;
+  return pickQueue(() => pickFreePortSpan(probe));
 }
 
 function refuse(res: http.ServerResponse, target: string): void {

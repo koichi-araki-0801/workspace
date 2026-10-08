@@ -8,6 +8,7 @@ import { CreateUserRequest, UpdateUserRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import { actorFromReq, audit } from '../logger.js';
 import { requireAdmin, requireAuth, requireIdentifiedUser } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
@@ -24,15 +25,7 @@ function isActiveAdmin(user: Pick<User, 'role' | 'disabled'>): boolean {
 // 直下に在るのは、`usersRoutes` を複数回登録しても触る台帳はプロセスに 1 つだから。台帳が
 // 1 サーバにしか無い前提で、複数台構成ではプロセス間の排他にならない。作成とパスワードのリセットは
 // 管理者の席を減らさないので鎖に入れない。
-let userLedgerLock: Promise<unknown> = Promise.resolve();
-function withUserLedgerLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = userLedgerLock.then(fn, fn);
-  userLedgerLock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
+const withUserLedgerLock = createSerialQueue();
 
 /**
  * ロール・無効フラグの変更が管理者の席を失わせないことを確かめる。web の
