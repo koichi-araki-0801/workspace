@@ -5,8 +5,8 @@ vi.mock('../src/runtime/seaRuntime.js', () => ({ isSea: () => seaState.sea }));
 vi.mock('../src/runtime/dbChild.js', () => ({
   runDbHelper: vi.fn(
     async (_req: unknown, _deps: unknown, hooks?: { onRunDir?: (d: string) => void }) => {
-      hooks?.onRunDir?.('Z:\no-such-dir\pie-chart-db\1-x');
-      return { items: [['H', 1]], runDir: 'Z:\no-such-dir' };
+      hooks?.onRunDir?.(String.raw`Z:\no-such-dir\pie-chart-db\1-x`);
+      return { items: [['H', 1]], runDir: String.raw`Z:\no-such-dir` };
     },
   ),
 }));
@@ -18,7 +18,7 @@ vi.mock('../src/runtime/msDriver.js', () => ({
   }),
 }));
 import type { MsSqlDriver } from '../src/input/db.js';
-import { DbStageError } from '../src/input/dbStage.js';
+import { DbStageError, InterruptedError } from '../src/input/dbStage.js';
 import {
   type SprocDeps,
   fetchSprocItems,
@@ -144,6 +144,27 @@ describe('runDbCheck', () => {
     const res = await runDbCheck({ connect: false, conn: {} }, d);
     expect(res.ok).toBe(false);
     expect(res.lines[2]).toMatchObject({ stage: 'load', status: 'NG' });
+  });
+  it('中断(InterruptedError)は child: NG に包まず投げ直す(exe)', async () => {
+    const d = deps({
+      isSea: () => true,
+      helper: vi.fn(async () => {
+        throw new InterruptedError();
+      }),
+    });
+    await expect(runDbCheck({ connect: false, conn: {} }, d)).rejects.toBeInstanceOf(
+      InterruptedError,
+    );
+  });
+  it('中断(InterruptedError)は child: NG に包まず投げ直す(開発版)', async () => {
+    const d = deps({
+      loadDriver: () => {
+        throw new InterruptedError();
+      },
+    });
+    await expect(runDbCheck({ connect: false, conn: {} }, d)).rejects.toBeInstanceOf(
+      InterruptedError,
+    );
   });
   it('formatDbCheckLine', () => {
     expect(formatDbCheckLine({ stage: 'load', status: 'NG', detail: 'x' })).toBe(

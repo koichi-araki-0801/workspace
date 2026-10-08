@@ -21,7 +21,7 @@ import {
   connectionStringFor,
   resolveConnTarget,
 } from './db.js';
-import { DbStageError, errorMessage } from './dbStage.js';
+import { DbStageError, InterruptedError, errorMessage } from './dbStage.js';
 import { type SprocArgs, resolveSprocName } from './sprocArgs.js';
 
 export interface SprocFetchResult {
@@ -58,6 +58,7 @@ function loadDevDriver(deps: SprocDeps): MsSqlDriver {
   try {
     return deps.loadDriver();
   } catch (err) {
+    if (err instanceof InterruptedError) throw err;
     throw new DbStageError(
       'load',
       `msnodesqlv8 is not installed or could not be loaded: ${errorMessage(err)}`,
@@ -119,6 +120,7 @@ export async function runDbCheck(
         lines.push({ stage: 'connect', status: 'OK', detail: '' });
       }
     } catch (err) {
+      if (err instanceof InterruptedError) throw err;
       const e = err instanceof DbStageError ? err : new DbStageError('child', errorMessage(err));
       lines.push({ stage: e.stage as CheckStage, status: 'NG', detail: e.message });
     }
@@ -136,6 +138,7 @@ export async function runDbCheck(
       lines.push({ stage, status: 'OK', detail: stage === 'extract' ? runDir : '' });
     }
   } catch (err) {
+    if (err instanceof InterruptedError) throw err;
     const e = err instanceof DbStageError ? err : new DbStageError('child', errorMessage(err));
     const failedAt = order.indexOf(e.stage as CheckStage);
     if (failedAt === -1) {

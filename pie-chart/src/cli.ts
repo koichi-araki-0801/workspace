@@ -32,7 +32,12 @@ import {
   writeSavedJson,
 } from './input/savedJson.js';
 import { fetchSprocItems, formatDbCheckLine, runDbCheck } from './input/sproc.js';
-import { hasSprocArgs, normalizeSprocArgs, type RawSprocArgs } from './input/sprocArgs.js';
+import {
+  hasSprocArgs,
+  normalizeSprocArgs,
+  type RawSprocArgs,
+  type SprocArgs,
+} from './input/sprocArgs.js';
 import { MAX_JSON_BYTES } from './limits.js';
 import { runDbChild } from './runtime/dbChild.js';
 import { runDirParent, sweepStaleRunDirs } from './runtime/nativeDriver.js';
@@ -234,11 +239,14 @@ async function renderOne(options: Record<string, string | boolean>): Promise<voi
   if (input.kind !== 'sproc' && options['save-json'] !== undefined) {
     throw new Error('--save-json is only for the stored procedure input (--fund ...).');
   }
+  // ストアド入力は引数の検査(基準日の実在など)を出力フォルダを作る前に済ませ、
+  // 検査で止まったときに空のフォルダを残さない。
+  const sprocArgs = input.kind === 'sproc' ? normalizeSprocArgs(input.raw) : undefined;
   fs.mkdirSync(path.dirname(path.resolve(outputFile)), { recursive: true });
 
   let items: Item[];
   if (input.kind === 'sproc') {
-    const args = normalizeSprocArgs(input.raw);
+    const args = sprocArgs as SprocArgs;
     const jsonFile = saveJson ?? defaultSavedJsonPath(outputFile);
     const fetched = await fetchSprocItems(args, { server: input.server, database: input.database });
     items = normalizeInputItems(fetched.items);
@@ -331,7 +339,11 @@ async function main(): Promise<void> {
   // 強制終了などで残った実行ごとのフォルダを消す(作ったプロセスが既にいないものだけ)。
   // 子プロセス自身は親のフォルダを使っている最中なので掃除しない。
   if (isSea() && command !== '__db-fetch') {
-    sweepStaleRunDirs(runDirParent());
+    try {
+      sweepStaleRunDirs(runDirParent());
+    } catch {
+      // 掃除の失敗でコマンド本体を止めない。
+    }
   }
   if (command === '__db-fetch') {
     process.exitCode = await runDbChild();

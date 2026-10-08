@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -260,6 +260,27 @@ describe('CLI のストアド入力の検査(DB には接続しない)', () => {
     ]);
     expect(r.code).toBe(1);
     expect(r.stderr).toMatch(/not a real date/);
+  }, 60_000);
+  it('引数の検査で止まったときは出力フォルダを作らない', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));
+    try {
+      const out = join(dir, 'sub', 'x.svg');
+      const r = runCli([
+        'one',
+        '--fund',
+        'F',
+        '--base-date',
+        '2026-02-30',
+        '--chart-type',
+        'T',
+        '--output-file',
+        out,
+      ]);
+      expect(r.code).toBe(1);
+      expect(existsSync(join(dir, 'sub'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 60_000);
   it('samples 形式の --data-file から描ける', () => {
     const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));
