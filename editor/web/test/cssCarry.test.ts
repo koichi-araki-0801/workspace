@@ -116,6 +116,8 @@ describe('splitNestedFontFaces', () => {
 // 小さい入力と大きい入力は交互に測り、それぞれの最小値を比べる。別々の時間帯にまとめて測ると、
 // 片方の測定中だけ他のワーカーが動いた場合に、最小値を採っても比が戻らない。
 // 挙動の確認(expect)は測定と分けて先に行う。
+// 制限時間は比の判定とは別に長く取る。カバレッジ計測は絶対時間を数倍にするので、既定の 5 秒だと
+// 比を見る前に打ち切られる。
 describe('splitNestedFontFaces は入力サイズに対して線形', () => {
   const build = (n: number): string => '@media print{/* c */@font-face{font-family:F}}'.repeat(n);
 
@@ -141,5 +143,5 @@ describe('splitNestedFontFaces は入力サイズに対して線形', () => {
       minLarge = Math.min(minLarge, time(large));
     }
     expect(minLarge / Math.max(minSmall, 1)).toBeLessThan(12);
-  });
+  }, 30_000);
 });
