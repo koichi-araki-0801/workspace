@@ -619,7 +619,7 @@ describe('コメントの閉じ方がブラウザと一致する', () => {
   });
   // ブラウザが `=` の後ろで読み飛ばす空白は TAB / LF / FF / CR / SP だけ。NBSP や VT は値の
   // 先頭の文字で、引用符は開かない。ブラウザは ` "x` を裸の値と読み、次の空白で値を閉じる。
-  it.each([' ', ''])('= の後ろの %j では引用符を開かない', (sp) => {
+  it.each(['\u00a0', '\v'])('= の後ろの %j では引用符を開かない', (sp) => {
     const html = `<img alt=${sp}"x src=https://e.example/a.png "y>`;
     expect(findDocumentExternalRefs(html, '')).toEqual(['<img src="https://e.example/a.png">']);
   });

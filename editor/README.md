@@ -150,7 +150,7 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | 役割 | パス |
 |---|---|
 | Jinja2 タグ保護（核心） | `web/src/lib/jinjaMask.ts` |
-| Nunjucks プレビュー描画 | `web/src/lib/nunjucksRender.ts` |
+| プレビュー文書の組み立て(描画は `renderHostClient.renderJinjaIsolated` と `server/src/render/renderHost.ts`) | `web/src/lib/nunjucksRender.ts` |
 | GrapesJS 連携 | `web/src/features/editor/useGrapes.ts`, `jinjaComponents.ts` |
 | データ抽象化（差し替え点） | `web/src/api/repositories.ts`, `web/src/api/local/*Repo.ts`, `web/src/api/rest/*` |
 | ページ境界オーバーレイ | `web/src/features/editor/pageView.ts` |

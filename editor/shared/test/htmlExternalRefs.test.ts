@@ -496,8 +496,8 @@ describe('resolveServedRoutePath — 復号済みのルート引数', () => {
   });
 });
 
-// 置き換え前の 3 実装(サーバ `docRefs.ts`・web `fundImages.ts`・ここの `findExternalRefsInTag`)を
-// 写しとして持ち、共有した `splitSrcsetUrls` が各呼び出し側と同じ候補を返すことを確かめる。
+// 各呼び出し側(サーバ `docRefs.ts`・web `fundImages.ts`・`findExternalRefsInTag`)が必要とする
+// 候補の分け方を参照実装として持ち、`splitSrcsetUrls` が同じ候補を返すことを確かめる。
 // 関所(`findExternalRefsInTag`)の候補が 1 つでも減ると外部参照の見落としになる。
 describe('splitSrcsetUrls — 複数の URL を詰めた属性値の候補', () => {
   const firstTokens = (value: string): string[] =>

@@ -4,8 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import { INLINEABLE_SCRIPT_TYPES, neutralizeRawTextClose } from '../src/security/rawTextClose.js';
 
-// 置き換え前の 4 か所(web `sanitizeCss.ts`・`previewSelfContain.ts`、サーバ `inlineCss.ts`・
-// `inlineDocScripts.ts`)の正規表現と置換文字列の写し。共有した関数が同じ結果を返すことを確かめる。
+// 呼び出し側(web `sanitizeCss.ts`・`previewSelfContain.ts`、サーバ `inlineCss.ts`・
+// `inlineDocScripts.ts`)が必要とする正規表現と置換文字列を参照実装として持ち、共有した関数が
+// 同じ結果を返すことを確かめる。
 const OLD = { style: /<\/(?=style)/gi, script: /<\/(?=script)/gi } as const;
 const OLD_REPLACEMENT = '<\\/';
 

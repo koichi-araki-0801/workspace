@@ -17,7 +17,7 @@
       "ignoreDependencies": ["@vivliostyle/core"]
     }
   },
-  "ignore": ["**/resources/web/**", "CLAUDE-SECURITY-*/**"],
+  "ignore": ["CLAUDE-SECURITY-*/**"],
   "ignoreBinaries": ["py", "powershell"],
-  "ignoreDependencies": ["subset-font", "pino-pretty"]
+  "ignoreDependencies": ["pino-pretty"]
 }

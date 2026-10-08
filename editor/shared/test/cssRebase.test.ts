@@ -93,8 +93,8 @@ describe('rebaseCssForDoc — css/<テンプレ>.css の位置の CSS を doc/ �
   });
 });
 
-// 置き換え前の各所の書き方(後ろから `slice` で繋ぎ直すループ)を写しとして持ち、共有した関数が
-// 同じ結果を返すことを確かめる。
+// 呼び出し側が必要とする結果(後ろから `slice` で繋ぎ直すループ)を参照実装として持ち、
+// `rewriteCssUrlSpans` が同じ結果を返すことを確かめる。
 describe('rewriteCssUrlSpans — url() を後ろから置き換える', () => {
   const oldLoop = (css: string, f: (span: CssUrlSpan) => string | undefined): string => {
     let out = css;
