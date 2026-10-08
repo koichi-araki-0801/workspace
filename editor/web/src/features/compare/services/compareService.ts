@@ -67,7 +67,7 @@ export interface CompareService {
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
   /** ヒットしたテンプレートに選べる版(現行版込み)を付与した候補一覧。 */
   listCandidates(query: DropdownQuery): Promise<Result<CompareCandidate[]>>;
-  /** テンプレートの確定版(snapshot 付き)を新しい順で返す。 */
+  /** テンプレートの確定版(snapshot 付き)を新しい順で返す。テストから直接検証するために公開する。 */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
   /**
    * 1 版の本文を比較用の HTML にする(クライアント側、サーバ往復なし)。値入り HTML は

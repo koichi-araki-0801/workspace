@@ -140,7 +140,7 @@ async function nunjucksBundle(): Promise<string> {
  *
  * 責務は 3 つ:
  *  1. nunjucks の Environment を 1 つ作る(`autoescape: true` / `throwOnUndefined: false` は
- *     web の `nunjucksRender.ts` と同じ設定 — 隔離しても描画結果は変えない)。
+ *     web のテスト用 `test/helpers/renderJinja.ts` と同じ設定 — 描画結果を揃える)。
  *  2. **多層防御**の適用(下記)。
  *  3. REQ を 1 件受けて `renderString` の結果を RES で返す。例外は ERROR で返して親へ
  *     投げっぱなしにしない(親は `id` で自分の要求と突き合わせる)。
