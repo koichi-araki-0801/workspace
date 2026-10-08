@@ -29,7 +29,7 @@ import {
   degToRad,
   nudgeTextAwayFromEndpoint,
   nudgeTextAwayFromSegment,
-  pieClearanceWithinViewBox,
+  pieClampXLimits,
   radialFraction,
   fitsInsideSliceExtent,
   scaledLabelWidthUnits,
@@ -737,41 +737,21 @@ export function finalizePlacement(
       anchor,
       baseline,
     );
-    const bboxYMin = clearanceBox.bottom;
-    const bboxYMax = clearanceBox.top;
-    let closestY: number;
-    if (bboxYMin <= 0 && bboxYMax >= 0) closestY = 0;
-    else closestY = Math.abs(bboxYMin) < Math.abs(bboxYMax) ? bboxYMin : bboxYMax;
-    const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
-    // 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) なら円と X 方向で干渉しないので
-    // 制約自体を作らない。動的側 `pieClampXLimits` (`layout/geometry.ts`) は同条件で null を返すのに、
-    // 静的側だけが `insidePieR` = 0 のまま ±(0 + クリアランス) という名残制約を残しており、pie
-    // キャップより完全に上へ持ち上げた箱 (`topBandSonohokaRight` の真上垂直 center 配置など) を
-    // 横へ押し出していた。`currency_low_diff_10` の「その他」で textX が anchorX (-0.187) から
-    // -0.607 へ 66px 左寄せされ、真上垂直のはずの leader が長い斜めになる原因。
-    // ただし名残制約は一部チャートで隣接ラベルとの重なり回避として偶然機能していたため、外すと
-    // 退行するチャートがある。チャート単位の do-no-harm (`svg_export/pipeline.ts` の
-    // `pickCapClearanceParity`) が不具合増を検知した時だけ `capParityRejected` を立てて旧挙動へ戻す。
-    if (Math.abs(closestY) < cfg.pieRadius || item.capParityRejected) {
-      // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (`pieClearanceWithinViewBox`)。
-      // 動的側 `pieClampXLimits` と同式 (対の関係は同関数の doc コメント参照)。
-      const pieClearanceLogical = pieClearanceWithinViewBox(
-        cfg,
-        insidePieR,
-        widthVerify,
-        radialFraction(cfg, 0.012, 0.12),
-      );
-      pieMinTextX = insidePieR + pieClearanceLogical;
-      pieMaxTextX = -(insidePieR + pieClearanceLogical);
-      if (anchor === 'middle') {
-        pieMinTextX += widthVerify / 2;
-        pieMaxTextX -= widthVerify / 2;
-      } else if (anchor === 'end') {
-        pieMinTextX += widthVerify;
-      } else {
-        pieMaxTextX -= widthVerify;
-      }
-    }
+    // 箱の最近接 Y 縁が円の完全に外なら円と X 方向で干渉しないので制約を作らない
+    // (`pieClampXLimits` が null)。ただし `insidePieR` = 0 のまま ±(0 + クリアランス) を課す
+    // 名残制約が隣接ラベルとの重なり回避として働くチャートがあるため、チャート単位の do-no-harm
+    // (`svg_export/pipeline.ts` の `pickCapClearanceParity`) が不具合増を検知して `capParityRejected`
+    // を立てたときだけ `force` で名残制約を残す。
+    const pie = pieClampXLimits(
+      clearanceBox.top,
+      clearanceBox.bottom,
+      widthVerify,
+      anchor,
+      cfg,
+      Boolean(item.capParityRejected),
+    );
+    pieMinTextX = pie?.pieMinTextX;
+    pieMaxTextX = pie?.pieMaxTextX;
   }
   let effectiveMaxTextX: number | undefined =
     typeof leaderMaxTextX === 'number'

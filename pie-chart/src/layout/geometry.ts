@@ -853,12 +853,12 @@ export function pieClearanceWithinViewBox(
  * ラベル箱の Y 範囲 (boxTop/boxBottom)・幅・anchor から、pie クリアランスを満たす textX の
  * 上下限 (pieMinTextX = 右側ラベルの下限 / pieMaxTextX = 左側ラベルの上限) を計算する。
  *
- * post_layout の clampPlacement が後段で y が動いた後に円クリアランス X 限界を動的再計算するための
- * ヘルパ。label_placement の finalizePlacement にある draft 構築時の静的計算 (同式をインライン
- * 展開) と対になる。静的計算は draft 時点の y で固定されるため、ラベルが大きい |y| へ動くと円が太く
- * なり静的限界では円内へ食い込む。それを本関数の動的再計算が補正する。
+ * `layout/placement.ts` の `finalizePlacement` が draft 時点の y で静的に計算し、post_layout の
+ * clampPlacement が後段で y が動いた後に動的に再計算する。静的限界は draft 時点の y で固定される
+ * ため、ラベルが大きい |y| へ動くと円が太くなり静的限界では円内へ食い込む。それを動的再計算が補正する。
  * 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) のときは円との X 干渉が無いので null を
- * 返す (静的計算は同ケースで insidePieR=0 の名残制約を作るが、動的側は X 制約不要として正しく外す)。
+ * 返す。`force` を立てると同ケースでも insidePieR=0 の名残制約 (±クリアランス) を返す
+ * (静的側の `capParityRejected` 用)。
  *
  * closestY は箱の Y 範囲のうち円中心 (y=0) に最も近い値: 箱が y=0 を跨げば 0、そうでなければ
  * 絶対値の小さい側の縁。その Y での円半幅 insidePieR = sqrt(r² − closestY²) にクリアランスと
@@ -870,11 +870,12 @@ export function pieClampXLimits(
   width: number,
   anchor: string,
   cfg: PieLayoutConfig,
+  force = false,
 ): { pieMinTextX: number; pieMaxTextX: number } | null {
   let closestY: number;
   if (boxBottom <= 0 && boxTop >= 0) closestY = 0;
   else closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
-  if (Math.abs(closestY) >= cfg.pieRadius) return null;
+  if (!force && Math.abs(closestY) >= cfg.pieRadius) return null;
   const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
   // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (幅広ラベルの見切れ退行防止)。
   const pieClearanceLogical = pieClearanceWithinViewBox(
