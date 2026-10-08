@@ -12,6 +12,7 @@ import {
   estimateVerifyTextExtent,
   fitsInsideSliceExtent,
   getLabelLines,
+  hugRimAt,
   horizontalLowerLeftDropAmount,
   labelHeightUnits,
   leaderAttachTargetY,
@@ -632,5 +633,41 @@ describe('sortByAngleDesc', () => {
     const out = sortByAngleDesc(xs);
     expect(out).toBe(xs);
     expect(out.map((x) => x.item.midAngle)).toEqual([90, 180, 0, undefined, 270]);
+  });
+});
+
+describe('hugRimAt', () => {
+  const place = (): Placement => ({
+    x: -3,
+    y: 0.4,
+    anchor: 'end',
+    baseline: 'bottom',
+    lines: ['AB', '50%'],
+    item: { name: 'AB', value: 1, percentText: '50%' } as Placement['item'],
+    leaderAnchor: { x: -0.9, y: 0.4 },
+    leaderBend: { x: 0, y: 0 },
+    leaderEndpoint: { x: 0, y: 0 },
+    leaderBendFollowsEndpointY: false,
+    leaderBendFollowsEndpointX: false,
+    origTextX: 0,
+    origTextY: 0,
+    insideSlice: false,
+  });
+  it('左は -rim、右は +rim を起点に pie クリアランス nudge した位置へ x/y を更新する', () => {
+    for (const side of ['left', 'right'] as const) {
+      const p = place();
+      const rim = pieYAtX(0.6, cfg);
+      const want = nudgeTextAwayFromPie(
+        side === 'left' ? -rim : rim,
+        0.6,
+        p.anchor,
+        p.baseline,
+        placementExtent(p, cfg),
+        cfg,
+      );
+      hugRimAt(p, 0.6, side, cfg);
+      expect(p.x).toBe(want.x);
+      expect(p.y).toBe(want.y);
+    }
   });
 });

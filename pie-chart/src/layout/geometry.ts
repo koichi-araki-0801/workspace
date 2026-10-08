@@ -1018,3 +1018,21 @@ export function sortByAngleDesc<T extends { item: { midAngle?: number } }>(xs: T
     (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
   );
 }
+
+/**
+ * ラベルを高さ `y` の円縁 (左は `-x`、右は `+x`) を起点に pie クリアランス nudge し、`p.x` / `p.y` を
+ * 更新する。呼び出し側が必要なら続けて `clampPlacement` を掛ける。
+ */
+export function hugRimAt(p: Placement, y: number, side: 'left' | 'right', cfg: PieLayoutConfig): void {
+  const rim = pieYAtX(y, cfg);
+  const nudged = nudgeTextAwayFromPie(
+    side === 'left' ? -rim : rim,
+    y,
+    p.anchor,
+    p.baseline,
+    placementExtent(p, cfg),
+    cfg,
+  );
+  p.x = nudged.x;
+  p.y = nudged.y;
+}

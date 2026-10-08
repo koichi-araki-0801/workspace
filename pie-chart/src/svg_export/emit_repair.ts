@@ -27,6 +27,7 @@ import {
   pxToLogical,
   wrapPi,
   boxDistToOrigin,
+  hugRimAt,
   sortByAngleDesc,
 } from '../layout/geometry.js';
 import type { BBox } from '../layout/geometry.js';
@@ -431,7 +432,6 @@ function untangleAngularOrderBySwap(
   const tolPx = 2;
   const yLo = cfg.canvasYlim[0];
   const yHi = cfg.canvasYlim[1];
-  const pieR = cfg.pieRadius;
   const sinOf = (p: Placement) => Math.sin(degToRad(p.item.midAngle ?? 0));
   const centerY = (p: Placement): number => {
     const b = placementBox(p, cfg);
@@ -450,18 +450,7 @@ function untangleAngularOrderBySwap(
 
   const rehug = (p: Placement): void => {
     // 新 Y で rim にハグする X (= ±sqrt(r^2 - y^2)) を起点に pie クリアランス nudge。
-    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - p.y * p.y));
-    const measured = placementExtent(p, cfg);
-    const nudged = nudgeTextAwayFromPie(
-      side === 'left' ? -rimXmag : rimXmag,
-      p.y,
-      p.anchor,
-      p.baseline,
-      measured,
-      cfg,
-    );
-    p.x = nudged.x;
-    p.y = nudged.y;
+    hugRimAt(p, p.y, side, cfg);
     clampPlacement(p);
   };
 
@@ -719,7 +708,6 @@ function pullOutsideOverflowTowardPie(
 ): void {
   const tol = pxToLogical(cfg, 2);
   const halfW = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
-  const pieR = cfg.pieRadius;
   // anchor=end → 左ラベル (pie 側辺=右端、右へ寄せる)。anchor=start → 右ラベル (pie 側辺=左端、左へ寄せる)。
   // middle (内側等) は対象外。flip 済みは実描画サイドが anchor と一致するのでそのまま扱える。
   const candidates = placements
@@ -741,7 +729,7 @@ function pullOutsideOverflowTowardPie(
   for (const { p } of candidates) {
     // rim ハグ X (pie 側辺が pieRadius+clearance に接する最も pie 寄りの anchor 位置)。左ラベルは
     // pie 中心の左 (-rimXmag) 側、右ラベルは右 (+rimXmag) 側でハグする。
-    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - p.y * p.y));
+    const rimXmag = pieYAtX(p.y, cfg);
     const seedX = p.anchor === 'end' ? -rimXmag : rimXmag;
     const measured = placementExtent(p, cfg);
     const hugX = nudgeTextAwayFromPie(seedX, p.y, p.anchor, p.baseline, measured, cfg).x;
@@ -1959,7 +1947,7 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         // 箱の Y 範囲のうち円中心に最も近い縁の高さで必要な円縁 X を求める。
         const spansZero = lb.top > 0 && lb.bottom < 0;
         const edgeY = spansZero ? 0 : Math.min(Math.abs(lb.top), Math.abs(lb.bottom));
-        const rimX = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - edgeY * edgeY));
+        const rimX = pieYAtX(edgeY, cfg);
         const targetRight = -(rimX + clearance);
         if (lb.right > targetRight) {
           // シフトで動くのは p (= placements[i]) の箱と leader だけ、続く複合手で追加で動くのは

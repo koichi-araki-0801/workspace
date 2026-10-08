@@ -25,6 +25,8 @@ import {
   isOtherCategory,
   pxToLogical,
   boxDistToOrigin,
+  hugRimAt,
+  pieYAtX,
   sortByAngleDesc,
 } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
@@ -330,11 +332,7 @@ export function applyLeftStackClusterEvenSpread(
       p.y = newY;
     } else {
       // below の大スライス: 新 Y での左 rim (x=-sqrt(r^2-y^2)) を起点に pie クリアランス nudge。
-      const measured = placementExtent(p, cfg);
-      const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - newY * newY));
-      const nudged = nudgeTextAwayFromPie(-rimXmag, newY, p.anchor, p.baseline, measured, cfg);
-      p.x = nudged.x;
-      p.y = nudged.y;
+      hugRimAt(p, newY, 'left', cfg);
     }
     p.twoLineLeftColumn = true;
     if (!isCluster) clampPlacement(p, cfg);
@@ -1154,11 +1152,7 @@ export function reorderLeftStackWithCondense(
   spreadByAngleOrder(byAngle, cfg, false);
   // 各ラベルを新 Y で左 rim にハグ (X=-sqrt(r²-y²) 起点に pie nudge) → leader を短く保つ。
   for (const p of byAngle) {
-    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - p.y * p.y));
-    const measured = placementExtent(p, cfg);
-    const nudged = nudgeTextAwayFromPie(-rimXmag, p.y, p.anchor, p.baseline, measured, cfg);
-    p.x = nudged.x;
-    p.y = nudged.y;
+    hugRimAt(p, p.y, 'left', cfg);
     clampPlacement(p);
   }
   // 幅広ラベルを viewBox に収める長体圧縮 (per-member・横のみ・下限 0.7)。
@@ -1374,17 +1368,12 @@ export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutCo
   const origY = stack.map((p) => p.y);
   const origX = stack.map((p) => p.x);
 
-  const pieR = cfg.pieRadius;
   for (let i = 0; i < stack.length; i += 1) {
     if (shift[i] <= tol) continue;
     const p = stack[i];
     const newY = p.y + shift[i];
     // 新 Y で左 rim にハグする X (= -sqrt(r^2 - y^2)) を起点に pie クリアランス nudge。
-    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - newY * newY));
-    const measured = placementExtent(p, cfg);
-    const nudged = nudgeTextAwayFromPie(-rimXmag, newY, p.anchor, p.baseline, measured, cfg);
-    p.x = nudged.x;
-    p.y = nudged.y;
+    hugRimAt(p, newY, 'left', cfg);
     clampPlacement(p);
   }
 
@@ -1532,7 +1521,7 @@ export function reshapeToLeftRimHug(p: Placement, cfg: PieLayoutConfig, y: numbe
   // その外側 (+ clearance) に右端を置く。これで Y を動かさずにパイ侵入を避け、等間隔が保たれる。
   const measured = placementExtent(p, cfg);
   const edgeY = Math.max(0, y - measured.height);
-  const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - edgeY * edgeY));
+  const rimXmag = pieYAtX(edgeY, cfg);
   p.x = -(rimXmag + radialFraction(cfg, 0.02, 0.2));
   p.y = y;
   p.origTextX = p.x;
