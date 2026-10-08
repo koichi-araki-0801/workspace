@@ -20,15 +20,10 @@ import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
+import { pickQuery } from './routeHelpers.js';
 
 function toQuery(q: Record<string, unknown>): DropdownQuery {
-  const pick = (k: string) => (typeof q[k] === 'string' && q[k] ? (q[k] as string) : undefined);
-  return {
-    companyCode: pick('companyCode'),
-    fundCode: pick('fundCode'),
-    baseDate: pick('baseDate'),
-    editionType: pick('editionType'),
-  };
+  return pickQuery(q, ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const);
 }
 
 /** `scope` の検査。省略・空文字は編集タブと同じ `edit`。 */

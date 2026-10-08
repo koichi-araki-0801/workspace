@@ -18,10 +18,11 @@ import { auditedRethrow } from '../logger.js';
 import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
 import type { ReviewActor } from '../repositories/reviewRepo.js';
+import { actorOf } from './routeHelpers.js';
 
 /** 操作主体を request.user から導く。local モード(user 未設定)は全件可視の system 扱い。 */
 function actor(req: FastifyRequest): ReviewActor {
-  return { username: req.user?.username ?? 'system', role: req.user?.role ?? 'admin' };
+  return { username: actorOf(req), role: req.user?.role ?? 'admin' };
 }
 
 // `:reqId` を持つルートで共有する params 型(RouteGeneric に渡してキャストを消す)。

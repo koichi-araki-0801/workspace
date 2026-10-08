@@ -8,8 +8,7 @@ import type { z } from 'zod';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import * as notes from '../repositories/noteRepo.js';
-
-const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
+import { actorOf } from './routeHelpers.js';
 
 // ⚠ ここに私有のスキーマを再定義しないこと。正典は `@editor/shared/schemas` の
 // `AddNoteRequest` / `UpdateNoteRequest` で、複製すると上限(`pathKey`/`content` の
@@ -32,7 +31,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
         request.params.templateId,
         body.pathKey,
         body.content,
-        actor(request),
+        actorOf(request),
         { replyTo: body.replyTo },
       );
       return reply.code(201).send(entry);
@@ -45,7 +44,7 @@ export async function notesRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const { templateId, entryId } = request.params;
       const { content, status } = request.body;
-      return notes.updateNote(templateId, entryId, { content, status }, actor(request));
+      return notes.updateNote(templateId, entryId, { content, status }, actorOf(request));
     },
   );
 

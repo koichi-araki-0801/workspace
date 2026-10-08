@@ -35,6 +35,7 @@ import { auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { recordCreate } from '../repositories/historyRepo.js';
+import { actorOf } from './routeHelpers.js';
 
 // トークン単位の検査はここに私有の複製を置かず `@editor/shared` の
 // `assertTemplateAttributeToken` 1 本を呼ぶ。同じ判定を呼び出し元ごとの私有複製で持つと、
@@ -50,7 +51,7 @@ export const generateRoutes: FastifyPluginAsync<{
     { preHandler: [requireAuth, requireEditor, validate(GenerateRequest)] },
     async (request) => {
       const body = request.body;
-      const loginId = request.user?.username ?? 'system';
+      const loginId = actorOf(request);
       const { meta, html, css } = await auditedRethrow(
         request,
         'template.generate',

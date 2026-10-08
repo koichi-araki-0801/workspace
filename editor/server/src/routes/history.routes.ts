@@ -8,8 +8,7 @@ import type { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import * as history from '../repositories/historyRepo.js';
-
-const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
+import { actorOf } from './routeHelpers.js';
 
 export async function historyRoutes(app: FastifyInstance): Promise<void> {
   app.get(apiPaths.historyEdit, { preHandler: requireAuth }, async () => {
@@ -25,7 +24,7 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, validate(RecordPdfExportRequest)] },
     async (request, reply) => {
       const body = request.body;
-      await history.recordPdfExport(body.templateId, actor(request));
+      await history.recordPdfExport(body.templateId, actorOf(request));
       return reply.code(204).send();
     },
   );
