@@ -188,8 +188,8 @@ pie-chart/
 │   │   ├── diagnostics.ts      — layoutLabels orchestrator (モード判定・マーカー付与)
 │   │   │                         (profiles / diagnostics / resolve / flip /
 │   │   │                          upper-left render Y / left-stack / placeX を section 構成)
-│   │   ├── placement.ts        — drawLabelFragments + 10 種 placeXxxLabel
-│   │   │                         (constants / leader / place_*×10 / orchestrator を section 構成)
+│   │   ├── placement.ts        — `build*Draft` + `finalizePlacement`
+│   │   │                         (constants / leader / draft builders / finalize を section 構成)
 │   │   └── geometry.ts         — 幾何/測定/ナッジ (副作用なし・SVG 文字列なし)
 │   ├── svg_export/             — SVG 出力層 (関心事ごとに分離)
 │   │   ├── pipeline.ts         — renderPdfStylePieToSvg orchestrator (カスケード実行・候補選択・fallback)
@@ -237,7 +237,7 @@ renderPdfStylePieToSvg (async, svg_export/pipeline.ts)   ← 最終アセンブ�
    ├─→ config.ts             createPieLayoutConfig / makeColors          (寸法・スケール・配色)
    ├─→ layout/diagnostics.ts layoutLabels                                (論理座標でラベル位置決定)
    ├─→ svg_export/rendering.ts  createCoordinateSystem / buildSlicePath / computeArcs / textFragment
-   ├─→ layout/placement.ts   drawLabelFragments / leaderPath             (経路選択 + 引出線 path)
+   ├─→ layout/placement.ts   build*Draft / finalizePlacement / leaderPath           (経路選択 + 引出線 path)
    ├─→ svg_export/post_layout.ts  resolveLabelOverlaps / runCompactCascade /
    │                              applyVisualViewBoxNudge
    └─→ svg_export/font.ts    buildFontFaceDefs                           (TTF → WOFF2 埋込)
@@ -254,7 +254,7 @@ RenderResult { svg, diagnostics, config }
 | 設定 | `src/config.ts` | pt 基準寸法・フォント・派生スケール getter 群(`createPieLayoutConfig`)+ 配色(`makeColors`) |
 | レイアウト | `src/layout/diagnostics.ts` | 論理座標系でのラベル位置決定(左右割当・Y 解決・上左カスケード・X 配置・flip 判定)。`layoutLabels` を section 構成 |
 | 幾何 | `src/layout/geometry.ts` | 純粋幾何/測定/ナッジ系ヘルパー(座標変換なし、SVG 文字列生成なし、副作用なし) |
-| 経路選択 | `src/layout/placement.ts` | 角度ゾーン別の `placeXxxLabel` 群 10 種と `drawLabelFragments` のオーケストレーション。引出線 SVG path(`leaderPath`)と end-point / segment ナッジ |
+| 経路選択 | `src/layout/placement.ts` | 形ごとの `build*Draft` 群と共通後処理 `finalizePlacement`。引出線 SVG path(`leaderPath`)と end-point / segment ナッジ |
 | 描画 | `src/svg_export/rendering.ts` | 論理座標 → SVG pt への座標変換、スライス path・テキスト要素、視覚 em 幅推定(純粋関数) |
 | 後処理 | `src/svg_export/post_layout.ts` | overlap 解消(対角押し + 縦分離の 2 パス）・compact cascade・半角カナ fallback・視覚 viewBox nudge |
 | フォント | `src/svg_export/font.ts` | WOFF2 サブセット埋込(async I/O + キャッシュ。`subset-font` 依存、失敗時は full TTF に fallback) |
@@ -271,26 +271,20 @@ RenderResult { svg, diagnostics, config }
 6. **上左カスケード** (`assignUpperLeftRenderY`) — 上左象限は専用処理で上方向にスタック
 7. **X 配置** (`placeX`) — 楕円リング上に配置: `x = √(r² - y²) × xScale`
 
-### リーダー線の分岐(`layout/placement.ts`)
+### 配置の下書き(`layout/placement.ts`)
 
-`drawLabelFragments` は角度・密度から配置関数を 1 つ選び、`leaderPath` で引出線を描くオーケストレータ。実際の配置計算は角度ゾーンごとに **10 関数**へ分割:
+カスケード(`svg_export/pipeline.ts`)が rank ごとに形を選び、`build*Draft` が配置の下書き(`PlacementDraft`)を作り、`finalizePlacement` が nudge・bbox・pie クリアランス・viewBox クランプを共通で掛けて `Placement` に確定する。引出線の SVG path は `leaderPath` が組む。
 
-- `placeTopBandRightLabel` — 上帯 90°±18° の右出し(L 字: 垂直 → 水平 → ラベル）
-- `placeTopBandUpperLeftLabel` — 上帯のうち上左象限側
-- `placeBottomBandLabel` — 下帯 270°±14°
-- `placeLowerLeftLabel` — 下左象限(`leaderBendPoint` で曲げ点、pie 円外まで bend を押し出し）
-- `placeDominantBelowCenterLabel` — 下半分にある支配スライス(真下中央 + leader なし）
-- `placeDominantOutsideEdgeLabel` — 下右で優勢なスライスを外側エッジへ逃がす
-- `placeInsideSliceLabel` — スライス内部に収めるラベル
-- `placeUpperLeftLabel` — 上左象限(`upperLeftBendPoint`、大きく上昇する場合は L 字に切替）
-- `placeLeftStackLabel` — 長い左ラベルの 2 行スタック
-- `placeDefaultLabel` — その他
+- `buildInsideDraft` — スライス内部に収めるラベル(引出線なし)
+- `buildOutsideRimDraft` — 円外 rim の既定経路。上部「その他」の右上逃がし・クラスタ右逃がし・6 時直下中央など、角度ゾーン別の特殊経路を順に試す
+- `buildOutsideLeaderDraft` — 最終手段の放射引出線
+- `buildLowerLeftDropLeaderDraft` — 9 時直近の幅広長名を水平軸下へ 2 行ドロップ
 
-各関数は `{ fragments, textX, textY, anchor, baseline, lineEnd*, allowSegmentNudge }` 系を返し、`svg_export/rendering.ts` の `textFragment` が `<text>` を組み立て、`svg_export/post_layout.ts` の `resolveLabelOverlaps` がラベル同士の重なりを反復解消する。
+`svg_export/rendering.ts` の `textFragment` が `<text>` を組み立て、`svg_export/post_layout.ts` の `resolveLabelOverlaps` がラベル同士の重なりを反復解消する。
 
 ### 分割方針
 
-- **`layout/diagnostics.ts` / `layout/placement.ts` は 1 ファイル**: 公開 API は 1 関数 (`layoutLabels` / `drawLabelFragments`) で、サブモジュール化は内部詳細にすぎず grep 性が下がる。section header コメントで「profiles / diagnostics / ...」を識別できれば十分
+- **`layout/diagnostics.ts` / `layout/placement.ts` は 1 ファイル**: 公開関数は少数 (`layoutLabels` / `finalizePlacement` と `build*Draft` 群) で、サブモジュール化は内部詳細にすぎず grep 性が下がる。section header コメントで「profiles / diagnostics / ...」を識別できれば十分
 - **`svg_export/` は subdir 維持**: rendering (純粋関数) / post_layout (placement 修正) / font (async I/O + 独自依存) / orchestrator は性質が異なるため分けるメリットあり
 
 ## 触りやすさマップ（どこから触るか / どこは慎重に）
@@ -303,7 +297,7 @@ RenderResult { svg, diagnostics, config }
 | 🟢 まず触ってよい | `src/layout/geometry.ts` | 副作用なしの純粋幾何ヘルパー約 60 個。`test/geometry.test.ts` が手厚い |
 | 🟢 | `src/config.ts`・`src/input/` | 定数の集約・入力正規化。端の層に隔離済み |
 | 🟢 | `src/verify/oracle_sync.ts` | 定数追加は照合付きで安全 |
-| 🟡 局所なら可 | `src/layout/placement.ts` | 10 個の `placeXxxLabel` は角度ゾーンごとに独立。1 関数の理解で 1 ケース触れる |
+| 🟡 局所なら可 | `src/layout/placement.ts` | `build*Draft` は配置の形ごとに独立。1 関数の理解で 1 ケース触れる |
 | 🔴 レビュー必須 | `src/svg_export/emit_repair.ts` | パス順序・stage/gate・循環 import・FP 演算順序が絡む最難関 |
 | 🔴 | `src/svg_export/pipeline.ts`・`mode_passes.ts` | orchestrator と fallback 群・モード特化パス |
 | 🔴 | `src/layout/diagnostics.ts` のモード判定 | フラグ間の相互作用が非自明（`mark_flags` ゴールデンが分布を固定） |
