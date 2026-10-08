@@ -38,6 +38,8 @@ import {
   applyVisualViewBoxNudge,
   applyFinalCondenseToFit,
   relaxNameCondense,
+  relaxCondenseRoundRobin,
+  inkCrossGrows,
 } from './post_layout.js';
 import {
   computeDrawnLeader,
@@ -814,7 +816,6 @@ function relaxStructuralCondense(
   coord: Coord,
 ): void {
   const tol = pxToLogical(cfg, 2);
-  const STEP = 0.025; // applyFinalCondenseToFit / relaxNameCondense と同じ格子
   const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
   // 実 viewBox 端 (ハードリミット)。ソフトと違い `marginCapHorizontalPx` を引かない = 見切れる直前まで
   // 許す。端ぴったりはグリフが切れて見えるため数 px の安全代を残す。
@@ -827,9 +828,6 @@ function relaxStructuralCondense(
   // から増やさない限り実 viewBox (`realHalf`) は必ず数 px 余して割らない = verify の見切れ判定と整合する。
   const hardClip = (b: { left: number; right: number }): number =>
     Math.max(0, -hardHalf - b.left, b.right - hardHalf);
-  const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
-    return boxDistToOrigin(b);
-  };
   // 各候補の開始時 (relax 前) の見切れ量。見切れガードはこの絶対基準で測る (ステップごとの相対基準だと
   // 許容が毎ステップ累積し、収まっていたラベルが徐々に viewBox を割る)。
   const initialClip = new Map<Placement, number>(
@@ -839,17 +837,10 @@ function relaxStructuralCondense(
   const beforeCross = countLeaderCrossings(placements, cfg, coord);
   const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
 
-  let progressed = true;
-  while (progressed) {
-    progressed = false;
-    for (const p of candidates) {
-      const cur = p.nameScaleX ?? 1;
-      if (cur >= 1 - 1e-9) continue;
-      const beforeBox = placementBox(p, cfg);
-      const beforePieDist = distToPie(beforeBox);
-      const beforeLineBoxes = placementLineBoxes(p, cfg);
-      p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
-      const box = placementBox(p, cfg);
+  relaxCondenseRoundRobin(candidates, cfg, (p, beforeBox) => {
+    const beforePieDist = boxDistToOrigin(beforeBox);
+    const beforeLineBoxes = placementLineBoxes(p, cfg);
+    return (box) => {
       // (a) このラベルの見切れを開始時から増やさない。収まっていれば収まったまま、既に見切れる真の
       //     クリップ floor ラベルは広げると悪化するので revert = floor 据え置き。
       let ok = hardClip(box) <= (initialClip.get(p) ?? 0) + 1e-9;
@@ -858,9 +849,9 @@ function relaxStructuralCondense(
       //     同境界, verify/svg.ts) を割らない。2 行ラベルの「% 短行脇の空隅」だけがクリアランス帯へ入れる
       //     (ink は従来どおり外)。1 行ラベルは行 = union box なので単純判定 (d ≥ pieRadius + clearance) と等価。
       if (ok) {
-        const d = distToPie(box);
+        const d = boxDistToOrigin(box);
         const linesClearPie = placementLineBoxes(p, cfg).every(
-          (lb) => distToPie(lb) >= cfg.pieRadius + pieClearance - 1e-9,
+          (lb) => boxDistToOrigin(lb) >= cfg.pieRadius + pieClearance - 1e-9,
         );
         ok = (linesClearPie && d >= cfg.pieRadius - tol - 1e-9) || d >= beforePieDist - 1e-9;
       }
@@ -879,22 +870,9 @@ function relaxStructuralCondense(
           const b = placementBox(q, cfg);
           const qLines = placementLineBoxes(q, cfg);
           // (c1) 行 sub-box 対の実 ink 横交差非増加。
-          let c1ok = true;
-          for (let i = 0; i < afterLineBoxes.length && c1ok; i += 1) {
-            const la = afterLineBoxes[i];
-            const lbBefore = beforeLineBoxes[i];
-            for (const lq of qLines) {
-              const oy = Math.min(la.top, lq.top) - Math.max(la.bottom, lq.bottom);
-              if (oy <= 0) continue;
-              const oxAfter = Math.min(la.right, lq.right) - Math.max(la.left, lq.left);
-              const oxBefore =
-                Math.min(lbBefore.right, lq.right) - Math.max(lbBefore.left, lq.left);
-              if (oxAfter > Math.max(oxBefore, 0) + 1e-9) {
-                c1ok = false;
-                break;
-              }
-            }
-          }
+          const c1ok = afterLineBoxes.every((la, i) =>
+            qLines.every((lq) => !inkCrossGrows(beforeLineBoxes[i], la, lq)),
+          );
           // (c2) union box: 可算/flag 対を新規に作らない (oy は sx で不変なので ox のみで遷移する)。
           const oyU = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
           const oxAfterU = Math.min(box.right, b.right) - Math.max(box.left, b.left);
@@ -913,10 +891,9 @@ function relaxStructuralCondense(
           countLeaderCrossings(placements, cfg, coord) <= beforeCross &&
           countLeaderThroughLabels(placements, cfg, coord) <= beforeThrough;
       }
-      if (ok) progressed = true;
-      else p.nameScaleX = cur;
-    }
-  }
+      return ok;
+    };
+  });
 }
 
 /**

@@ -673,14 +673,46 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
  */
 export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutConfig): void {
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px (condense-to-fit と同じ)
-  const STEP = 0.025; // applyFinalCondenseToFit と同じ格子
   const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
-  const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
-    return boxDistToOrigin(b);
-  };
   const candidates = textPlacements.filter((p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9);
-  if (candidates.length === 0) return;
+  relaxCondenseRoundRobin(candidates, cfg, (p, beforeBox) => {
+    const beforePieDist = boxDistToOrigin(beforeBox);
+    return (box) => {
+      const [xmin, xmax] = horizontalLabelLimits(p, cfg);
+      let ok =
+        (box.left >= xmin - tol && box.right <= xmax + tol) ||
+        box.right - box.left <= beforeBox.right - beforeBox.left + 1e-9;
+      if (ok) {
+        const d = boxDistToOrigin(box);
+        ok = d >= cfg.pieRadius + pieClearance - 1e-9 || d >= beforePieDist - 1e-9;
+      }
+      if (ok) {
+        for (const q of textPlacements) {
+          if (q === p) continue;
+          if (inkCrossGrows(beforeBox, box, placementBox(q, cfg))) {
+            ok = false;
+            break;
+          }
+        }
+      }
+      return ok;
+    };
+  });
+}
 
+/**
+ * 長体ラベルを原寸 (sx=1) へ向けて緩める共通の骨格。候補へラウンドロビンで `applyFinalCondenseToFit`
+ * と同じ 0.025 格子ずつ sx を与え (逐次貪欲だと配列先頭が共有空間を独占するため)、どの候補も進めなく
+ * なるまで繰り返す。採否は呼び出し側のゲートが決める: `gate(p, beforeBox)` を広げる前に呼んで
+ * 開始状態を捕まえさせ、返った判定関数を広げた後の box で呼ぶ。偽ならそのステップを revert する。
+ */
+export function relaxCondenseRoundRobin(
+  candidates: Placement[],
+  cfg: PieLayoutConfig,
+  gate: (p: Placement, beforeBox: BBox) => (box: BBox) => boolean,
+): void {
+  const STEP = 0.025;
+  if (candidates.length === 0) return;
   let progressed = true;
   while (progressed) {
     progressed = false;
@@ -688,33 +720,22 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
       const cur = p.nameScaleX ?? 1;
       if (cur >= 1 - 1e-9) continue;
       const beforeBox = placementBox(p, cfg);
-      const beforePieDist = distToPie(beforeBox);
+      const accept = gate(p, beforeBox);
       p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
-      const box = placementBox(p, cfg);
-      const [xmin, xmax] = horizontalLabelLimits(p, cfg);
-      let ok =
-        (box.left >= xmin - tol && box.right <= xmax + tol) ||
-        box.right - box.left <= beforeBox.right - beforeBox.left + 1e-9;
-      if (ok) {
-        const d = distToPie(box);
-        ok = d >= cfg.pieRadius + pieClearance - 1e-9 || d >= beforePieDist - 1e-9;
-      }
-      if (ok) {
-        for (const q of textPlacements) {
-          if (q === p) continue;
-          const b = placementBox(q, cfg);
-          const oy = Math.min(box.top, b.top) - Math.max(box.bottom, b.bottom);
-          if (oy <= 0) continue;
-          const oxAfter = Math.min(box.right, b.right) - Math.max(box.left, b.left);
-          const oxBefore = Math.min(beforeBox.right, b.right) - Math.max(beforeBox.left, b.left);
-          if (oxAfter > Math.max(oxBefore, 0) + 1e-9) {
-            ok = false;
-            break;
-          }
-        }
-      }
-      if (ok) progressed = true;
+      if (accept(placementBox(p, cfg))) progressed = true;
       else p.nameScaleX = cur;
     }
   }
+}
+
+/**
+ * 箱 (`before` → `after`) を広げたとき、縦に重なる `other` との横交差量が広げる前より増えるか。
+ * 縦の重なりは `after` で測る (sx は名前行の幅だけを変えるので縦位置は不変)。
+ */
+export function inkCrossGrows(before: BBox, after: BBox, other: BBox): boolean {
+  const oy = Math.min(after.top, other.top) - Math.max(after.bottom, other.bottom);
+  if (oy <= 0) return false;
+  const oxAfter = Math.min(after.right, other.right) - Math.max(after.left, other.left);
+  const oxBefore = Math.min(before.right, other.right) - Math.max(before.left, other.left);
+  return oxAfter > Math.max(oxBefore, 0) + 1e-9;
 }
