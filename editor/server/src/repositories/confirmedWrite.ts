@@ -35,14 +35,9 @@ import {
 } from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from '../files/atomic.js';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
 import { deletePending, readPending } from '../files/pendingFiles.js';
-import {
-  filledPath,
-  readFilledHtml,
-  readTemplateHtml,
-  resolveTemplateCssPath,
-  templatePath,
-} from '../files/templateFiles.js';
+import { filledPath, resolveTemplateCssPath, templatePath } from '../files/templateFiles.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { audit, logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
@@ -191,8 +186,7 @@ export async function baselineTemplateHtml(
   target: ConfirmedTarget,
 ): Promise<string> {
   const fileName = `${templateId}.html`;
-  const confirmed =
-    target === 'filled' ? await readFilledHtml(fileName) : await readTemplateHtml(fileName);
+  const confirmed = await readConfirmedHtml(target, fileName);
   if (confirmed !== '') return confirmed;
   const pending = await readPending(templateId);
   return pending?.html ?? '';

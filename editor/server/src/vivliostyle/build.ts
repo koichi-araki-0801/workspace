@@ -2,7 +2,6 @@
 // build.ts — `@vivliostyle/cli` で PDF をビルドする(inline / project / merge)
 // =============================================================================
 import { execFile } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { DOC_DIR } from '@editor/shared';
@@ -20,6 +19,7 @@ import { sharedInlineConfig } from './options.js';
 import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
 import { rebaseRequestCss } from './requestCss.js';
+import { makeWorkDir } from './workDir.js';
 
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
@@ -182,14 +182,13 @@ async function buildInlineInSlot(
   runBuild: (buildOptions: unknown) => Promise<void>,
 ): Promise<Buffer> {
   await fs.mkdir(config.tmpDir, { recursive: true });
-  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   // ⚠ **ビルドごとに専用ディレクトリを作る。** `config.tmpDir` 直下へ書くと、CLI の配信
   // ルートが `.tmp` そのものになり、同時に走る他のプレビューセッションや展開済み zip まで
   // 丸ごと loopback の Vite サーバから配信される。1 文書 = 1 ルートにするのが「作業
   // ディレクトリの外へ出さない」の実体。
   // 文書は `doc/` に書き、資産は `stageDocAssets` が兄弟(`css/` `js/` `images/`)へ置く —
   // 文書の `../css/…` がそのまま実体へ届く形(`docAssets.ts` 冒頭)。
-  const dir = path.join(config.tmpDir, `vivlio-inline-${stamp}`);
+  const dir = makeWorkDir('vivlio-inline');
   const htmlPath = path.join(dir, ...INLINE_ENTRY.split('/'));
   const pdfPath = path.join(dir, 'output.pdf');
   // 予約(ポート選び・中継の起動)も try の内側で取る。外に出すと、予約の失敗で
@@ -347,8 +346,7 @@ export async function prepareInlineDoc(
   const css = rebaseRequestCss(input.css);
   // 検査は作業フォルダを作る**前**に行う(拒否すべき入力でディレクトリを作らない)。
   assertNoDocumentExternalRefs(input.html, css, 'preview.inline');
-  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const dir = path.join(config.tmpDir, `vivlio-prev-${stamp}`);
+  const dir = makeWorkDir('vivlio-prev');
   try {
     await fs.mkdir(path.join(dir, DOC_DIR), { recursive: true });
     await writePreviewInlineDoc(dir, input.html, css);

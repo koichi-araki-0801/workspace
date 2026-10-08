@@ -118,6 +118,11 @@ export default defineConfig({
         // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
         'editor/server/src/files/atomic.ts',
         'editor/server/src/files/fileLock.ts',
+        'editor/server/src/files/fsHelpers.ts',
+        'editor/server/src/files/idPairStore.ts',
+        'editor/server/src/files/confirmedHtml.ts',
+        'editor/server/src/util/mapLimit.ts',
+        'editor/server/src/vivliostyle/workDir.ts',
         'editor/server/src/files/historyFiles.ts',
         'editor/server/src/files/notesFile.ts',
         'editor/server/src/repositories/noteRepo.ts',
@@ -207,6 +212,10 @@ export default defineConfig({
         'editor/web/src/features/editor/undoStep.ts',
         // 同じ処理の連続予約を次の描画フレーム 1 回へ集約する。
         'editor/web/src/lib/rafOnce.ts',
+        // canvas の根要素の取得と、幾何の計測失敗を overlay の消去に落とす補助。
+        'editor/web/src/features/editor/canvasGeometry.ts',
+        // UI 状態の変更をセッションへ写して永続する。
+        'editor/web/src/features/editor/syncUi.ts',
         'editor/web/src/features/editor/textEditFinish.ts',
         'editor/web/src/features/editor/pageWarnings.ts',
         'editor/web/src/features/editor/usePageGuides.ts',

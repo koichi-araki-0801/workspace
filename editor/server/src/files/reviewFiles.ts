@@ -19,6 +19,7 @@ import {
 import { ReviewStatus } from '@editor/shared/schemas';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { mapLimit } from '../util/mapLimit.js';
 import { atomicWrite } from './atomic.js';
 
 /** reqId は内部生成(英数字/`-`/`_`)。パストラバーサルを弾き、ディレクトリ脱出を防ぐ。 */
@@ -195,25 +196,6 @@ export async function findDuplicatePendingReview(p: {
 
 /** 同時に開くメタファイル数。`Promise.all` の全件同時 open は fd を枯渇させる。 */
 const REVIEW_READ_CONCURRENCY = 8;
-
-/** 同時実行数を制限しつつ全件を写像する(結果は入力順)。 */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  task: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const run = async (): Promise<void> => {
-    while (next < items.length) {
-      const i = next;
-      next += 1;
-      out[i] = await task(items[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
-  return out;
-}
 
 /**
  * 全申請のメタ一覧(順序は呼び出し側でソート)。壊れた/読めないエントリは飛ばす。

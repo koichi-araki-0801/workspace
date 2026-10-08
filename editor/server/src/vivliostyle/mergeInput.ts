@@ -7,11 +7,9 @@
 // `page` カウンタが文書境界でリセットされず継続する — これが「通しページ番号」の土台。
 // ライフサイクルは `projectInput.ts` と同じで、呼び出し側が `cleanupProject(dir)` を持つ。
 
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { DOC_DIR } from '@editor/shared';
-import { config } from '../config.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
 import { inlineCss } from './inlineCss.js';
@@ -19,6 +17,7 @@ import { inlineDocScripts } from './inlineDocScripts.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
+import { makeWorkDir } from './workDir.js';
 
 /** 結合対象の 1 文書(レンダリング済み HTML + 文書スコープの CSS)。 */
 export interface MergeDocument {
@@ -80,8 +79,7 @@ export async function materializeMergeProject(
   documents: MergeDocument[],
   size?: string,
 ): Promise<{ dir: string; config: SafeProjectConfig }> {
-  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const dir = path.join(config.tmpDir, `vivlio-merge-${stamp}`);
+  const dir = makeWorkDir('vivlio-merge');
   await fs.mkdir(dir, { recursive: true });
 
   try {

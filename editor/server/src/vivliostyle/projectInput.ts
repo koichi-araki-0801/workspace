@@ -1,7 +1,6 @@
 // =============================================================================
 // projectInput.ts — アップロード zip から vivliostyle プロジェクトを安全に展開する
 // =============================================================================
-import crypto from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -9,10 +8,12 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isAppError, validation } from '@editor/shared';
 import StreamZip from 'node-stream-zip';
-import { config, envPositiveNumber } from '../config.js';
+import { envPositiveNumber } from '../config.js';
 import { assertProjectDirHasNoExternalRefs } from '../security/externalRefs.js';
+import { mapLimit } from '../util/mapLimit.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import { isConfigFileName, parseProjectConfig, type SafeProjectConfig } from './projectConfig.js';
+import { makeWorkDir } from './workDir.js';
 
 /** アップロード zip から展開した vivliostyle プロジェクト。 */
 interface ExtractedProject {
@@ -182,33 +183,6 @@ const COMPRESSION_RATIO_FLOOR_BYTES = 8 * 1024 * 1024;
  * `safeEntryPath` 側が別途弾くため、ここを通り抜けても封じ込めは崩れない。
  */
 export const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
-
-/**
- * `items` を最大 `limit` 並列で `task` に通す(順序不問)。最初の失敗で reject し、以降の
- * 未着手分は走らせない(走行中タスクは完了を待つ)。外部依存(p-limit 等)を増やさないための
- * 最小実装。
- */
-async function mapLimit<T>(
-  items: T[],
-  limit: number,
-  task: (item: T) => Promise<unknown>,
-): Promise<void> {
-  let next = 0;
-  let failed = false;
-  const run = async (): Promise<void> => {
-    while (next < items.length && !failed) {
-      const i = next;
-      next += 1;
-      try {
-        await task(items[i]);
-      } catch (e) {
-        failed = true;
-        throw e;
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
-}
 
 /**
  * zip エントリ名を `root` 配下の安全な絶対パスへ解決する。
@@ -398,8 +372,7 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
   // materialize(`archive.entries()`)の**前**に申告値で足切りする。
   assertDeclaredEntryCount(zip);
 
-  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const dir = path.join(config.tmpDir, `vivlio-${stamp}`);
+  const dir = makeWorkDir('vivlio');
   const zipPath = `${dir}.zip`;
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(zipPath, zip);
@@ -443,8 +416,11 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
       // 各 entry stream は明示 position(`fs.read` の position 引数)で読み、共有 fd の現在
       // 位置に依存しないため互いに干渉しない(node-stream-zip `EntryDataReaderStream`)。
       const budget: ExtractBudget = { remaining: extractByteBudget(zip.length) };
-      await mapLimit(targets, EXTRACT_CONCURRENCY, (t) =>
-        extractEntry(archive, t.entry, t.dest, budget),
+      await mapLimit(
+        targets,
+        EXTRACT_CONCURRENCY,
+        (t) => extractEntry(archive, t.entry, t.dest, budget),
+        { stopOnError: true },
       );
       fileCount = targets.length;
     } finally {

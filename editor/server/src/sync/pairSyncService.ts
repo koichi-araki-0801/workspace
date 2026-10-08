@@ -24,14 +24,9 @@ import {
   parseAnyTemplateFileName,
   templatePairKey,
 } from '@editor/shared';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
 import { readSyncState, writeSyncState } from '../files/syncFiles.js';
-import {
-  filledExists,
-  readFilledHtml,
-  readTemplateCss,
-  readTemplateHtml,
-  templateExists,
-} from '../files/templateFiles.js';
+import { filledExists, readTemplateCss, templateExists } from '../files/templateFiles.js';
 import { commitAll, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { applyConfirmedWrite, type ConfirmedTarget } from '../repositories/confirmedWrite.js';
@@ -108,7 +103,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
       // 読み書きする実体は承認が書いた先と同じに揃える。混ぜると値入り HTML の変更を
       // Jinja スケルトンへ転写する(またはその逆)ことになる。
       const exists = target === 'filled' ? filledExists : templateExists;
-      const readHtml = target === 'filled' ? readFilledHtml : readTemplateHtml;
+      const readHtml = (fileName: string) => readConfirmedHtml(target, fileName);
       const pairId = pairedTemplateId(sourceTemplateId);
       if (pairId === null) return null;
       const attrs = parseAnyTemplateFileName(`${sourceTemplateId}.html`);
