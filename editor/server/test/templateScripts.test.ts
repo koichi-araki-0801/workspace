@@ -248,6 +248,13 @@ describe('collectExecutableUnits / expandEncodedChips', () => {
 // HTML の `<title>` が RCDATA なのは HTML 名前空間だけで、SVG の foreign content では
 // 普通の外来要素。つまり `<svg><title><script>…` は実行されるのに単位ゼロで通っていた。
 describe('raw text 読み飛ばしの迂回', () => {
+  it('長さの変わる大文字(`İ`)を前に並べても raw text の後ろの script を拾う', () => {
+    for (const n of [2, 8]) {
+      const html = `${'İ'.repeat(n)}<style>x</style><script>evil()</script>`;
+      expect(collectExecutableUnits(html)).toEqual(['script:|evil()']);
+    }
+  });
+
   const svgBase = '<div><svg><title>zu</title></svg></div>';
 
   it('<svg><title> の内側に隐した script を拒否する', () => {

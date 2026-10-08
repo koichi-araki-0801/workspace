@@ -28,7 +28,7 @@
 // 倒し方は、誤検出側へ倒す申請の関所(`shared/src/security/editingMarkers.ts`)や拾いすぎる側へ
 // 倒す不変性の照合(`security/templateScripts.ts`)と逆なので、走査器は 1 本にしない
 // (設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。raw text 要素の集合
-// (`noscript` などを含む 10 個)もここだけのもの。空白・英字・タグ名の終わり・コメントの終わり・
+// (`INLINE_CSS_RAW_TEXT`。`noscript` などを含む 10 個)もここだけのもの。空白・英字・タグ名の終わり・コメントの終わり・
 // 属性 1 つの読み取りは `@editor/shared` の `html/htmlLex.ts`、raw text の終わり探しは
 // `html/rawText.ts` を共有する(ブラウザと同じ答えになるべき部品なので、片方だけ変えない)。
 //
@@ -36,6 +36,7 @@
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
 
 import {
+  asciiLower,
   commentEnd,
   DOC_DIR,
   findRawTextEnd,
@@ -71,7 +72,7 @@ const STYLE_CLOSE_RE = /<\/(?=style)/gi;
  * 誤って raw text とみなす方向の間違いは「中の本物のタグを見落とす」= 加工を諦める側へ
  * 倒れるだけで、偽のタグを掴むより安全だからである。
  */
-const RAW_TEXT_ELEMENTS = new Set([
+const INLINE_CSS_RAW_TEXT: ReadonlySet<string> = new Set([
   'script',
   'style',
   'textarea',
@@ -151,9 +152,9 @@ interface ScanResult {
  */
 export function scanTags(html: string): ScanResult {
   const tags: TagSpan[] = [];
-  // 小文字化コピーは走査ごとに 1 つだけ(`shared/src/html/rawText.ts` の `findRawTextEnd` の
-  // 注意書きを見よ)。
-  const lower = html.toLowerCase();
+  // 小文字化コピーは走査ごとに 1 つだけで、位置がずれない `asciiLower` で作る
+  // (`shared/src/html/rawText.ts` の注意書きを見よ)。
+  const lower = asciiLower(html);
   const commentSeen = newCommentEndMemo();
   let i = 0;
   while (i < html.length) {
@@ -225,7 +226,7 @@ export function scanTags(html: string): ScanResult {
     span.attrNames = span.attrs.map((a) => a.name);
     tags.push(span);
     i = end;
-    if (!isEnd && RAW_TEXT_ELEMENTS.has(name)) {
+    if (!isEnd && INLINE_CSS_RAW_TEXT.has(name)) {
       const close = findRawTextEnd(lower, name, i).at;
       if (close === -1) return { tags, ok: false };
       span.rawText = html.slice(i, close);

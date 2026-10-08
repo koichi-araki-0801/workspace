@@ -7,7 +7,7 @@ import {
   newCommentEndMemo,
   readAttr,
 } from '../src/html/htmlLex';
-import { findRawTextEnd, RAW_TEXT_ELEMENTS } from '../src/html/rawText';
+import { asciiLower, findRawTextEnd, RAW_TEXT_ELEMENTS } from '../src/html/rawText';
 
 describe('文字の分類', () => {
   it('HTML の空白は TAB / LF / FF / CR / SP だけ(NBSP や VT は含めない)', () => {
@@ -97,8 +97,15 @@ describe('readAttr', () => {
 });
 
 describe('findRawTextEnd', () => {
+  it('asciiLower は ASCII だけを小文字にし、長さを変えない(`İ` は伸ばさない)', () => {
+    expect(asciiLower('AbC-İ-Kelvin\u212a')).toBe('abc-İ-kelvin\u212a');
+    const s = 'İİ<STYLE>';
+    expect(asciiLower(s)).toHaveLength(s.length);
+    expect('İ'.toLowerCase()).toHaveLength(2);
+  });
+
   const find = (html: string, name: string, from = 0) =>
-    findRawTextEnd(html.toLowerCase(), name, from);
+    findRawTextEnd(asciiLower(html), name, from);
 
   it('`</name` の直後が空白・`/`・`>`・終端のときだけ閉じタグと見る', () => {
     expect(find('a</script>', 'script')).toEqual({ at: 1, scanned: 9 });

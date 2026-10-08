@@ -39,9 +39,11 @@ describe('raw text 要素は「読み飛ばした範囲を検査する」が対�
   // 走査器が raw text として読み飛ばす要素は、その中身を必ず何かの形で検査すること。
   // 見落とすと、その内側が検査から**完全に消える**。`templateScripts` では `style` が、
   // `externalRefs` では `title`/`textarea`/`noscript` がこの形で抜けていた。
-  it('templateScripts の RAW_TEXT_ELEMENTS は collectInto に専用分岐を持つ', () => {
+  it('templateScripts の SCRIPT_SCAN_RAW_TEXT は collectInto に専用分岐を持つ', () => {
     const src = read(path.join(SERVER_SRC, 'security', 'templateScripts.ts'));
-    const list = /const RAW_TEXT_ELEMENTS = new Set\(\[([^\]]*)\]\)/.exec(src)?.[1] ?? '';
+    const list =
+      /const SCRIPT_SCAN_RAW_TEXT: ReadonlySet<string> = new Set\(\[([^\]]*)\]\)/.exec(src)?.[1] ??
+      '';
     const names = [...list.matchAll(/'([a-z]+)'/g)].map((m) => m[1]);
     expect(names.length).toBeGreaterThan(0);
     for (const name of names) {

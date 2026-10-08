@@ -53,6 +53,7 @@
 // `=` で始まる名前を空名として捨てる(`<a =x>` は単位を作らない)現行の単位列を保つため。
 
 import {
+  asciiLower,
   decodeHtmlEntities,
   findExternalRefsInCss,
   findRawTextEnd,
@@ -305,7 +306,7 @@ const INERT_ELEMENTS = new Set([
  * しか単位化しないと単位ゼロで通ってしまう。`style` は CSS 参照の抽出が要るので
  * ここへ残したまま、中身をマークアップとしても走査する形にしてある。
  */
-const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
+const SCRIPT_SCAN_RAW_TEXT: ReadonlySet<string> = new Set(['script', 'style']);
 
 /**
  * 能動性を持たない属性。ここに**無い**属性は単位になる。`on*`(既知/未知を問わず)・
@@ -511,8 +512,9 @@ function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
  * 前方一致で切ると `<script>init()</scriptx>/;evil()</script>` の本文を
  * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通してしまう。
  *
- * ⚠ `lower`(= `text` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
- * ここで `text.toLowerCase()` すると script/style 1 つにつき入力全体のコピーを
+ * ⚠ `lower`(= `text` 全体を `asciiLower` で小文字にしたコピー)は**呼び出し側が 1 回だけ作って
+ * 渡す**。`toLowerCase` で作ると `İ` が 2 単位に伸びて位置がずれ、閉じタグの後ろの本物のタグを
+ * 見落とす。ここで入力全体を小文字にすると script/style 1 つにつき入力全体のコピーを
  * 作り、`collectInto` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり
  * 概ね 2 コピーになる。`'<style></style>'` の反復を `POST /api/review-requests` に
  * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
@@ -610,7 +612,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
     }
     yield { at: lt, contentAt: p, name, attrs, jinja };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
-    if (RAW_TEXT_ELEMENTS.has(name)) {
+    if (SCRIPT_SCAN_RAW_TEXT.has(name)) {
       const close = rawTextEnd(lower, name, p, budget);
       i = close < 0 ? len : close + name.length + 2;
     } else {
@@ -725,8 +727,9 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
     return;
   }
   const { text, payloads } = splitEncodedChips(html);
-  // 小文字化コピーは走査 1 回につき 1 つ(`rawTextEnd` の注意書きを見よ)。予算からも引く。
-  const lower = text.toLowerCase();
+  // 小文字化コピーは走査 1 回につき 1 つで、位置がずれない `asciiLower` で作る(`rawTextEnd` の
+  // 注意書きを見よ)。予算からも引く。
+  const lower = asciiLower(text);
   budget.remaining -= text.length;
   for (const tag of scanOpenTags(text, lower, budget)) {
     if (tag.name === 'script') {
@@ -751,7 +754,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       // 単位化だけでは能動属性を拾えず、`</style` まで読み飛ばした範囲が単位ゼロになる。
       // HTML 名前空間では実行されない字面まで拾うが、過剰包含は基準側にも同じだけ現れるので
       // 害にならない(ファイル冒頭の方針どおり)。同じ理由で `title` / `textarea` は
-      // `RAW_TEXT_ELEMENTS` から外してある。
+      // `SCRIPT_SCAN_RAW_TEXT` から外してある。
       // ⚠ 深さを 1 段下げて再走査する。閉じない `<style>` は本文＝残り全体になり、その中の
       // `<style>` がまた残り全体を本文にする…と同じ深さで再帰して二次爆発したため。
       collectInto(body, out, depth + 1, budget);

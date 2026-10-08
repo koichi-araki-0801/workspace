@@ -35,6 +35,13 @@ const { ALLOWED_EXTENSIONS } = await import('../src/vivliostyle/projectInput.js'
 const { MERGE_PAGE_COUNTER_CSS } = await import('../src/vivliostyle/mergeInput.js');
 
 describe('findDocumentExternalRefs — 検査面の網羅', () => {
+  it('長さの変わる大文字(`İ`)を前に並べても raw text の後ろの外部参照を拾う', () => {
+    for (const n of [1, 2, 9]) {
+      const html = `${'İ'.repeat(n)}<style>x</style><img src=https://e/x>`;
+      expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
+    }
+  });
+
   it('リクエストの css に置いた外部参照を拾う', () => {
     expect(findDocumentExternalRefs('<p>x</p>', '@import url(http://evil/x.css);')).not.toEqual([]);
     expect(

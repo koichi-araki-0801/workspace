@@ -24,7 +24,7 @@ import {
   newCommentEndMemo,
   readAttr,
 } from '../html/htmlLex.js';
-import { findRawTextEnd, RAW_TEXT_ELEMENTS } from '../html/rawText.js';
+import { asciiLower, findRawTextEnd, RAW_TEXT_ELEMENTS } from '../html/rawText.js';
 import { JINJA_DELIMS, jinjaCloserOf, lexJinja } from '../jinja/jinjaLex.js';
 
 interface EditingMarkerHit {
@@ -115,9 +115,8 @@ function readAttrs(html: string, from: number, at: number, onAttr: AttrSink | nu
  * `skipComments` が false のときは `<!--` の中も読む(`findEditingMarkers` の伏せた写しの走査)。
  */
 function scanStartTags(html: string, onAttr: AttrSink, skipComments: boolean): void {
-  // 大小文字を無視した閉じタグ探しに使う。走査 1 回につき 1 コピーに留める。ASCII だけを
-  // 小文字にするのは、`toLowerCase` が長さを変える文字(`İ` など)で位置がずれるため。
-  const lower = html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+  // 大小文字を無視した閉じタグ探しに使う。走査 1 回につき 1 コピーに留める(`asciiLower` を見よ)。
+  const lower = asciiLower(html);
   // 閉じタグが見つからなかった raw text 要素名。2 回目以降の探索で末尾まで読み直さない。
   const unclosed = new Set<string>();
   // -2 はまだ探していない印(-1 は「以後に無い」)。

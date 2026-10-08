@@ -9,6 +9,19 @@
 import { describe, expect, it } from 'vitest';
 import { inlineCss, scanTags } from '../src/vivliostyle/inlineCss.js';
 
+describe('scanTags — 長さの変わる大文字(`İ`)の後ろ', () => {
+  it('`toLowerCase` で伸びる文字があっても raw text の後ろのタグ位置がずれない', () => {
+    for (const n of [1, 2, 9]) {
+      const html = `${'İ'.repeat(n)}<style>x</style><img src=https://e/x>`;
+      const { tags, ok } = scanTags(html);
+      expect(ok).toBe(true);
+      const img = tags.find((t) => t.name === 'img');
+      expect(img && html.slice(img.start, img.end)).toBe('<img src=https://e/x>');
+      expect(tags.find((t) => t.name === 'style' && !t.isEnd)?.rawText).toBe('x');
+    }
+  });
+});
+
 /** 出力を素朴に読み直して、属性として live な `on*` が生えていないかを見る。 */
 function eventHandlerNames(html: string): string[] {
   const out: string[] = [];

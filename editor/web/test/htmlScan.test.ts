@@ -36,6 +36,15 @@ describe('scanHtml', () => {
     expect(scanHtml(h).elements.map((e) => e.tag)).toEqual(['script', 'p']);
   });
 
+  it('長さの変わる大文字(`İ`)の後でも生テキストの終わりの位置がずれない', () => {
+    const h = 'İİİİİİ<title>T</title><p>P</p>';
+    expect(ctx(h, 'P')).toBe('text:p');
+    expect(scanHtml(h).elements.map((e) => [e.tag, h.slice(e.start, e.end)])).toEqual([
+      ['title', '<title>T</title>'],
+      ['p', '<p>P</p>'],
+    ]);
+  });
+
   it('表の中の位置の親', () => {
     const h = '<table><tbody>GAP<tr>ROWGAP<td>CELL</td></tr></tbody></table>';
     expect(ctx(h, 'GAP')).toBe('text:tbody');

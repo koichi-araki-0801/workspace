@@ -21,6 +21,18 @@ export const RAW_TEXT_ELEMENTS: ReadonlySet<string> = new Set([
   'title',
 ]);
 
+/**
+ * ASCII の英大文字だけを小文字にした写し。長さも各文字の位置も原文と同じになる。ブラウザの
+ * 字句解析もタグ名を ASCII だけで小文字にする。
+ *
+ * ⚠ `findRawTextEnd` へ渡す写しは必ずこれで作る。`toLowerCase` は `İ`(U+0130)を 2 単位へ伸ばす
+ * ので、その写しの上の位置を原文の位置として使うと、`İ` 1 つにつき 1 文字ずつ後ろへずれる。
+ * raw text の終わりを本物の閉じタグより後ろと読み、その間の本物のタグを見落とす(関所の迂回)。
+ */
+export function asciiLower(s: string): string {
+  return s.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+}
+
 /** `findRawTextEnd` の結果。`scanned` は探すのに読んだ文字数で、作業量の予算に数える。 */
 interface RawTextEnd {
   at: number;
@@ -31,7 +43,8 @@ interface RawTextEnd {
  * `lower` の `from` 以降で、raw text 要素 `name`(小文字)を閉じる `</name` の `<` の位置を返す。
  * 無ければ `at` は -1。閉じタグと見るのは `</name` の直後が空白・`/`・`>`・入力の終わりのときだけ。
  *
- * ⚠ `lower`(入力全体を小文字にした写し)は呼び出し側が走査 1 回につき 1 回だけ作って渡す。
+ * ⚠ `lower`(入力全体を `asciiLower` で小文字にした写し)は呼び出し側が走査 1 回につき 1 回だけ
+ * 作って渡す。
  * ここで作ると raw text の開始タグ 1 つごとに入力全体を写し、`<title></title>` の反復で
  * 同期区間が止まる(`server/test/scanQuadratic.guard.test.ts` が機械検査する)。
  */

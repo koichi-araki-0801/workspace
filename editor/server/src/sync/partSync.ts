@@ -26,6 +26,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+  asciiLower,
   findRawTextEnd,
   isAsciiAlpha,
   isHtmlSpace,
@@ -104,8 +105,7 @@ const isNameChar = (c: string): boolean => isAsciiAlpha(c) || (c >= '0' && c <= 
  */
 function* tokenizeHtml(html: string): Generator<HtmlToken> {
   const n = html.length;
-  // raw text の閉じタグ探し用の小文字の写し。最初の raw text 要素で 1 回だけ作る。ASCII だけを
-  // 小文字にするのは、`toLowerCase` が長さを変える文字(`İ` など)で位置がずれるため。
+  // raw text の閉じタグ探し用の小文字の写し(`asciiLower`)。最初の raw text 要素で 1 回だけ作る。
   let lower: string | null = null;
   let i = 0;
   while (i < n) {
@@ -166,7 +166,7 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
     i = end;
     if (isClose || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) continue;
     // RAWTEXT: 最初に現れる `</name` で終わる(引用符を考慮して探すと二次の温床になる)。
-    lower ??= html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+    lower ??= asciiLower(html);
     const closeAt = findRawTextEnd(lower, name, i).at;
     if (closeAt < 0) return;
     const gt = html.indexOf('>', closeAt);

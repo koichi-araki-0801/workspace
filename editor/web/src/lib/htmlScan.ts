@@ -15,6 +15,7 @@
 // 属性の読み取りは `attrValue` / `tagOther` の区間を切る必要があるのでここ独自に持つ。
 
 import {
+  asciiLower,
   commentEnd,
   findRawTextEnd,
   isAsciiAlpha,
@@ -131,7 +132,8 @@ interface Span {
 
 export function scanHtml(masked: string): HtmlScan {
   const len = masked.length;
-  const lower = masked.toLowerCase();
+  // 位置が原文とずれない小文字の写し(`toLowerCase` は `İ` を 2 単位へ伸ばす)。
+  const lower = asciiLower(masked);
   const commentMemo = newCommentEndMemo();
   const elements: ScannedElement[] = [];
   const stack: ScannedElement[] = [];
