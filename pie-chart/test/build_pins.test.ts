@@ -11,7 +11,7 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,13 +38,26 @@ describe('exe 同梱物の固定値', () => {
     expect(sha).toBe(pins.hbSubsetWasmSha256);
   });
 
-  it('msnodesqlv8 の版とネイティブドライバの SHA256 が pin と一致する', () => {
-    const pkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
+  it('msnodesqlv8 の版が pin と一致する', () => {
     expect(require('msnodesqlv8/package.json').version).toBe(pins.msnodesqlv8);
-    const driver = join(pkgDir, 'build', 'Release', 'sqlserverv8.node');
-    const sha = createHash('sha256').update(readFileSync(driver)).digest('hex');
-    expect(sha).toBe(pins.sqlserverv8NodeSha256);
   });
+
+  // pin は Windows x64 / Node 24 用の公式 prebuild のハッシュなので、照合できるのはその .node が
+  // 置かれている Windows 端末だけ。Linux の CI ではインストールスクリプトを止めているため .node が
+  // 無い。exe のビルドはこの端末種でしか行わず、build-exe.mjs のアサート D も同じ照合をする。
+  const driverPath = join(
+    dirname(require.resolve('msnodesqlv8/package.json')),
+    'build',
+    'Release',
+    'sqlserverv8.node',
+  );
+  it.skipIf(process.platform !== 'win32' || !existsSync(driverPath))(
+    'Windows ではネイティブドライバの SHA256 が pin と一致する',
+    () => {
+      const sha = createHash('sha256').update(readFileSync(driverPath)).digest('hex');
+      expect(sha).toBe(pins.sqlserverv8NodeSha256);
+    },
+  );
 });
 
 describe('subset-font の外部参照が shim の前提どおりであること', () => {
