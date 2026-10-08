@@ -84,3 +84,25 @@ test('clean.mjs は editor/data を保護領域として扱わない(旧構成�
   const src = readFileSync(CLEAN_SRC, 'utf8');
   assert.ok(!src.includes("'editor/data'"), 'NEVER_REL に editor/data が残っている');
 });
+
+test('clean.mjs の通常走査は pie-chart/dist-exe に降りて light 対象を拾う(HEAVY に含めない)', () => {
+  const fixture = buildFixtureRepo();
+  try {
+    const dir = join(fixture.root, 'pie-chart', 'dist-exe', '__pycache__');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'x.pyc'), 'x');
+    const res = spawnSync(process.execPath, [join(fixture.root, 'scripts', 'clean.mjs')], {
+      cwd: fixture.root,
+      encoding: 'utf8',
+    });
+    assert.equal(res.status, 0, `異常終了 (stderr: ${res.stderr})`);
+    assert.ok(
+      res.stdout.includes('dist-exe') && res.stdout.includes('__pycache__'),
+      `dist-exe 配下の __pycache__ が候補に出ていない
+---
+${res.stdout}`,
+    );
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});

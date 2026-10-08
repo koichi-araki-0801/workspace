@@ -82,7 +82,16 @@ const BUNDLE_FILES = [
 ];
 
 // 容量計算をスキップする大容量ディレクトリ (du が遅いだけで意味が薄いため `(大容量)` 表示)。
-const HEAVY = new Set([...DEEP_DIRS.map((d) => d.split('/').pop()), ...DEEP_WHOLE_DIR_NAMES]);
+// `DEEP_DIRS` から導かない: `pie-chart/dist-exe` は deep の対象だが、通常の走査では中の
+// light 対象を拾うために降りる必要があり、容量も数えるため。
+const HEAVY = new Set([
+  'node_modules',
+  '.pnpm-store',
+  'ms-playwright',
+  'python-wheelhouse',
+  '.venv-build',
+  '.venv',
+]);
 
 // ── 3. 引数解釈 ──
 const argv = process.argv.slice(2);
