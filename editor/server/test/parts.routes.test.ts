@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { FakePartSeed } from './fakes/sprocFake.js';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 vi.mock('../src/auth/session.js', async (importOriginal) => ({
@@ -34,9 +35,7 @@ process.env.LOG_DIR = path.join(root, 'logs');
 
 const as = (username: string) => ({ cookie: username });
 
-async function buildApp(
-  parts?: import('./fakes/sprocFake.js').FakePartSeed[],
-): Promise<FastifyInstance> {
+async function buildApp(parts?: FakePartSeed[]): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { createDeps } = await import('../src/deps.js');

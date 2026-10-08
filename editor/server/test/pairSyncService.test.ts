@@ -99,6 +99,27 @@ d('pairSyncService', () => {
     expect(read('templates', 'AM01_510037_全体版')).toContain('新');
   });
 
+  it('カタログは版種を絞らずに全件で読み、別の版種専用のパーツも転写の対象にする', {
+    timeout: 60_000,
+  }, async () => {
+    const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
+    const spy = vi.fn(async (_q: unknown) => [
+      { id: 'a', syncDefault: '同期', targetEdition: '全体版' },
+    ]);
+    const only = createPairSyncService({
+      listParts: spy,
+      getPartClassificationOptions: async () => ({}),
+    } as never);
+    put('templates', 'AM01_510124_交付版', doc(part('a', '旧')));
+    put('templates', 'AM01_510124_全体版', doc(part('a', '旧')));
+    const opts = { css: { before: '', baseline: '' } };
+    await only.syncPairAfterConfirm('AM01_510124_交付版', 'approver1', 'template', opts);
+    put('templates', 'AM01_510124_交付版', doc(part('a', '新')));
+    const r = await only.syncPairAfterConfirm('AM01_510124_交付版', 'approver1', 'template', opts);
+    expect(r?.applied).toHaveLength(1);
+    expect(spy.mock.calls[0][0]).toEqual({});
+  });
+
   it('値入り HTML の状態は sync/会社_ファンド_基準日.json で、テンプレート側の状態を上書きしない', {
     timeout: 60_000,
   }, async () => {
