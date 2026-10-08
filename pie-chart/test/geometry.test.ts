@@ -4,6 +4,7 @@ import type { LayoutItem, LayoutItemReady, PieLayoutConfig, Placement } from '..
 import {
   angleInBand,
   arcAngles,
+  boxDistToOrigin,
   boxOverlapAmount,
   clampBendOutsideBox,
   degToRad,
@@ -28,6 +29,7 @@ import {
   radialFraction,
   scaledLabelWidthUnits,
   segmentsIntersect,
+  sortByAngleDesc,
   textBoxBounds,
   truncateLeaderEndpointAtBox,
   upperLeftAngleProgress,
@@ -36,6 +38,7 @@ import {
   visualCharEm,
   visualMaxEm,
   visualTextWidthUnits,
+  wrapPi,
 } from '../src/layout/geometry.js';
 
 const cfg: PieLayoutConfig = createPieLayoutConfig();
@@ -593,5 +596,41 @@ describe('nudgeTextAwayFromSegment', () => {
       cfg,
     );
     expect(out).toEqual({ x: 10, y: 10 });
+  });
+});
+
+describe('wrapPi', () => {
+  it('(-π, π] へ巻き戻す', () => {
+    expect(wrapPi(0)).toBe(0);
+    expect(wrapPi(Math.PI)).toBe(Math.PI);
+    expect(wrapPi(-Math.PI)).toBe(-Math.PI);
+    expect(wrapPi(3 * Math.PI)).toBeCloseTo(Math.PI, 12);
+    expect(wrapPi(1.5 * Math.PI)).toBeCloseTo(-0.5 * Math.PI, 12);
+    expect(wrapPi(-1.5 * Math.PI)).toBeCloseTo(0.5 * Math.PI, 12);
+  });
+  it('範囲内の値はビット単位で変えない', () => {
+    expect(wrapPi(1.2345)).toBe(1.2345);
+    expect(wrapPi(-2.5)).toBe(-2.5);
+  });
+});
+
+describe('boxDistToOrigin', () => {
+  it('原点を含む箱は 0', () => {
+    expect(boxDistToOrigin({ left: -1, right: 1, top: 1, bottom: -1 })).toBe(0);
+  });
+  it('原点から箱の最近接点までの距離', () => {
+    expect(boxDistToOrigin({ left: 3, right: 5, top: 1, bottom: -1 })).toBe(3);
+    expect(boxDistToOrigin({ left: 3, right: 5, top: 6, bottom: 4 })).toBe(5);
+    expect(boxDistToOrigin({ left: -5, right: -3, top: -4, bottom: -6 })).toBe(5);
+  });
+});
+
+describe('sortByAngleDesc', () => {
+  const mk = (midAngle?: number) => ({ item: { midAngle } });
+  it('sin(midAngle) の降順に並べ替え、同じ配列を返す', () => {
+    const xs = [mk(270), mk(90), mk(0), mk(undefined), mk(180)];
+    const out = sortByAngleDesc(xs);
+    expect(out).toBe(xs);
+    expect(out.map((x) => x.item.midAngle)).toEqual([90, 180, 0, undefined, 270]);
   });
 });

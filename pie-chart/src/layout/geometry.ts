@@ -503,7 +503,7 @@ export function estimateTextExtent(item: LayoutItem, cfg: PieLayoutConfig): Exte
 }
 
 /**
- * fitsInsideSlice の本体。bbox 幅/高さ (論理単位) を明示指定する版。
+ * bbox 幅/高さ (論理単位) を明示指定して、ラベルがスライス内に収まるかを判定する。
  * カスケードが各 form (行数 × 長体率) の実寸で内側判定するために使う。
  *
  * `horizontalCenter=true` (dominant スライス用) のときは配置中心の水平成分を 0 (= キャンバス水平中央)
@@ -990,4 +990,31 @@ export function nudgeTextAwayFromSegment(
   }
 
   return { x: nextX, y: nextY };
+}
+
+/** 角度 (rad) を [−π, π] へ巻き戻す。範囲内の値 (±π を含む) はそのまま返す。 */
+export function wrapPi(a: number): number {
+  let r = a;
+  while (r > Math.PI) r -= 2 * Math.PI;
+  while (r < -Math.PI) r += 2 * Math.PI;
+  return r;
+}
+
+/** 箱 (原点が円の中心) の最近接点から原点までの距離。原点を含む箱は 0。 */
+export function boxDistToOrigin(b: {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}): number {
+  const nx = Math.max(b.left, Math.min(b.right, 0));
+  const ny = Math.max(b.bottom, Math.min(b.top, 0));
+  return Math.hypot(nx, ny);
+}
+
+/** `item.midAngle` の sin 降順 (上にあるものが先) に配列を並べ替える。引数の配列を書き換えて返す。 */
+export function sortByAngleDesc<T extends { item: { midAngle?: number } }>(xs: T[]): T[] {
+  return xs.sort(
+    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
+  );
 }

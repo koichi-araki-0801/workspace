@@ -25,6 +25,7 @@ import {
   degToRad,
   isOtherCategory,
   pxToLogical,
+  wrapPi,
 } from '../layout/geometry.js';
 import type { BBox } from '../layout/geometry.js';
 import type { PieLayoutConfig, Diagnostics, Placement } from '../types.js';
@@ -1862,9 +1863,7 @@ function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
   const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
   const tA = Math.atan2(a2.y, a2.x);
   const tE = Math.atan2(e2.y, e2.x);
-  let dT = tE - tA;
-  while (dT > Math.PI) dT -= 2 * Math.PI;
-  while (dT < -Math.PI) dT += 2 * Math.PI;
+  const dT = wrapPi(tE - tA);
   if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) return false;
   const sv = {
     bend: { ...p.leaderBend },
@@ -1910,9 +1909,7 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
     const e = drawn.detectPathPoints[drawn.detectPathPoints.length - 1];
     const thA = Math.atan2(a.y, a.x);
     const thE = Math.atan2(e.y, e.x);
-    let dTh = thE - thA;
-    while (dTh > Math.PI) dTh -= 2 * Math.PI;
-    while (dTh < -Math.PI) dTh += 2 * Math.PI;
+    const dTh = wrapPi(thE - thA);
     // 角度差が小さい leader は bend の置き場が無く、大きすぎると 1 曲げで円を回り込めない。
     const bendFeasible =
       !drawn.skipLeader &&

@@ -16,6 +16,7 @@ import {
   segmentsIntersect,
   leaderCrossesBox,
   isOtherCategory,
+  wrapPi,
 } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import type { BBox } from '../layout/geometry.js';
@@ -382,9 +383,7 @@ export function computeDrawnLeader(
     if (!placement.forceTopRight && (intrudes(anchor, bend) || intrudes(bend, drawEndpoint))) {
       const thA = Math.atan2(anchor.y, anchor.x);
       const thE = Math.atan2(endpoint.y, endpoint.x);
-      let dTh = thE - thA;
-      while (dTh > Math.PI) dTh -= 2 * Math.PI;
-      while (dTh < -Math.PI) dTh += 2 * Math.PI;
+      const dTh = wrapPi(thE - thA);
       // 角度差が大きすぎると W が極端に遠くなる (rc/cos(Δ/2) 発散)。150° 以上は現状維持。
       if (Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD) {
         const rc = cfg.pieRadius + 2.5 * pxUnit;
@@ -443,9 +442,7 @@ export function computeDrawnLeader(
         if (dotRadial < NEAR_TANGENT_DOT_RADIAL_MAX) {
           const thA = Math.atan2(a.y, a.x);
           const thE = Math.atan2(endpoint.y, endpoint.x);
-          let dTh = thE - thA;
-          while (dTh > Math.PI) dTh -= 2 * Math.PI;
-          while (dTh < -Math.PI) dTh += 2 * Math.PI;
+          const dTh = wrapPi(thE - thA);
           if (Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD) {
             const rc = cfg.pieRadius + 2.5 * pxUnit; // 上の `intrudes` リルートと同値
             const midTh = thA + dTh / 2;
@@ -473,9 +470,7 @@ export function computeDrawnLeader(
               const anchorAng = thA;
               const spanRad = ((placement.item.percent ?? 0) / 100) * 2 * Math.PI;
               const half = Math.max(0, spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180));
-              let rel = thE - anchorAng;
-              while (rel > Math.PI) rel -= 2 * Math.PI;
-              while (rel < -Math.PI) rel += 2 * Math.PI;
+              const rel = wrapPi(thE - anchorAng);
               const ang = anchorAng + Math.max(-half, Math.min(half, rel));
               const na = { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
               const de = clampOutsidePie(
@@ -505,9 +500,7 @@ export function computeDrawnLeader(
         if (dotRadial < NEAR_TANGENT_DOT_RADIAL_MAX) {
           const thA = Math.atan2(a.y, a.x);
           const thE = Math.atan2(endpoint.y, endpoint.x);
-          let dTh = thE - thA;
-          while (dTh > Math.PI) dTh -= 2 * Math.PI;
-          while (dTh < -Math.PI) dTh += 2 * Math.PI;
+          const dTh = wrapPi(thE - thA);
           const rc = cfg.pieRadius + radialFraction(cfg, 0.04, 0.4); // 明確に見える持ち上げ
           const rw = rc / Math.cos(Math.abs(dTh) / 2);
           // テント頂点 W が描画上のラベル接続点 (`e` = box 縁で truncate 済) の半径を越えて飛び出すと、ラベルが rim 際にある
@@ -539,9 +532,7 @@ export function computeDrawnLeader(
             const anchorAng = Math.atan2(a.y, a.x);
             const spanRad = ((placement.item.percent ?? 0) / 100) * 2 * Math.PI;
             const half = Math.max(0, spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180));
-            let rel = thE - anchorAng;
-            while (rel > Math.PI) rel -= 2 * Math.PI;
-            while (rel < -Math.PI) rel += 2 * Math.PI;
+            const rel = wrapPi(thE - anchorAng);
             const ang = anchorAng + Math.max(-half, Math.min(half, rel));
             const na = { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
             const de = clampOutsidePie(
