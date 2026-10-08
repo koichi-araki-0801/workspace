@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { editingMarkerMessage, findEditingMarkers } from '../src/security/editingMarkers';
+import {
+  EDITING_MARKER_ATTRS,
+  editingMarkerMessage,
+  findEditingMarkers,
+  MARKER_ATTRS,
+  maskRanges,
+} from '../src/security/editingMarkers';
 
 const kinds = (html: string) => findEditingMarkers(html).map((h) => h.marker);
 
@@ -180,5 +186,30 @@ describe('editingMarkerMessage', () => {
       '申請本文に編集用の印(attr:data-jinja, comment:jinja-rt)が残っています。' +
         '編集画面を開き直してから申請してください: T1',
     );
+  });
+});
+
+describe('maskRanges', () => {
+  it('範囲を同じ長さの伏せ字にし、改行は残す', () => {
+    const src = 'a{{ x }}b{#\n#}c';
+    expect(maskRanges(src, [{ start: 1, end: 8 }], 'J')).toBe('aJJJJJJJb{#\n#}c');
+    expect(maskRanges(src, [{ start: 9, end: 14 }], ' ')).toBe('a{{ x }}b  \n  c');
+    expect(maskRanges(src, [], 'J')).toBe(src);
+  });
+});
+
+describe('MARKER_ATTRS', () => {
+  it('印の属性はすべて検出の対象になる', () => {
+    const attrs = Object.values(MARKER_ATTRS).filter((v) => v.startsWith('data-'));
+    expect([...attrs].sort()).toEqual([...EDITING_MARKER_ATTRS].sort());
+  });
+
+  it('定数から組んだ印を検出する', () => {
+    const { chipClass, frozenBodyClass, rtCommentPrefix, placeholderStart, placeholderEnd } =
+      MARKER_ATTRS;
+    expect(kinds(`<span class="${chipClass}"></span>`)).toEqual([`class:${chipClass}`]);
+    expect(kinds(`<div class="${frozenBodyClass}"></div>`)).toEqual([`class:${frozenBodyClass}`]);
+    expect(kinds(`<!--${rtCommentPrefix}x:1-->`)).toEqual(['comment:jinja-rt']);
+    expect(kinds(`a${placeholderStart}eA==${placeholderEnd}`)).toEqual(['placeholder']);
   });
 });

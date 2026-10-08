@@ -10,7 +10,7 @@
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
 
-import { findEditingMarkers } from '@editor/shared';
+import { findEditingMarkers, MARKER_ATTRS } from '@editor/shared';
 import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
@@ -36,17 +36,23 @@ import {
 } from './jinjaLex';
 
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
-const PH_START = String.fromCharCode(0xe000);
-const PH_END = String.fromCharCode(0xe001);
+const PH_START = MARKER_ATTRS.placeholderStart;
+const PH_END = MARKER_ATTRS.placeholderEnd;
 const PH_RE = new RegExp(`${PH_START}([A-Za-z0-9+/=]*)${PH_END}`, 'g');
 
 /**
  * 要素の属性で往復の印を持つ旧形式。読み手は持たず、見つけたら `legacy-draft` の違反にする。
- * lib は features を import しないので属性名はここに書き、`legacyDraft.ts` の
+ * lib は features を import しないので集合はここに書き、`legacyDraft.ts` の
  * `LEGACY_DRAFT_ATTRS` との一致はテストが突き合わせる。
  */
-export const LEGACY_ATTR_SELECTOR =
-  '[data-jinja-open],[data-jinja-close],[data-jinja-block],[data-jinja-loop-clone]';
+export const LEGACY_ATTR_SELECTOR = [
+  MARKER_ATTRS.jinjaOpen,
+  MARKER_ATTRS.jinjaClose,
+  MARKER_ATTRS.jinjaBlock,
+  MARKER_ATTRS.jinjaLoopClone,
+]
+  .map((a) => `[${a}]`)
+  .join(',');
 
 /** テンプレ文字列から Jinja のトークン(`{{ }}` / `{% %}` / `{# #}`)を出現順に取り出す。テストから直接検証するために公開する。 */
 export function extractJinjaTokens(s: string): string[] {

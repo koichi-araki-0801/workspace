@@ -4,14 +4,14 @@
 // 作成タブの往復の印は HTML コメントの範囲の印で持ち、要素の属性で持つ旧形式は読まない。
 // 旧形式の if は採用した枝しか持たず、退避した原文も壊れている場合があるので、新形式へ変換しても
 // 結果を信用できない。読めない下書きは黙って使わず、破棄して利用者へ知らせる。
-import { findEditingMarkers } from '@editor/shared';
+import { findEditingMarkers, MARKER_ATTRS } from '@editor/shared';
 
 /** 旧形式の属性名。`jinjaMask.ts` の `LEGACY_ATTR_SELECTOR` と同じ集合(テストが突き合わせる)。 */
 export const LEGACY_DRAFT_ATTRS: readonly string[] = [
-  'data-jinja-open',
-  'data-jinja-close',
-  'data-jinja-block',
-  'data-jinja-loop-clone',
+  MARKER_ATTRS.jinjaOpen,
+  MARKER_ATTRS.jinjaClose,
+  MARKER_ATTRS.jinjaBlock,
+  MARKER_ATTRS.jinjaLoopClone,
 ];
 
 export const LEGACY_DRAFT_MESSAGE =

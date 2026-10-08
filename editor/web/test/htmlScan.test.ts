@@ -21,6 +21,21 @@ describe('scanHtml', () => {
     expect(ctx(h, 'TI')).toBe('rawText:title');
   });
 
+  it('コメントはブラウザと同じく `--!>`・`<!-->`・`<!--->` でも閉じる', () => {
+    expect(ctx('<!-- a --!>AFTER<p>X</p>', 'AFTER')).toBe('text:-');
+    expect(ctx('<!-- a --!>AFTER<p>X</p>', 'X')).toBe('text:p');
+    expect(ctx('<!-->AFTER', 'AFTER')).toBe('text:-');
+    expect(ctx('<!--->AFTER', 'AFTER')).toBe('text:-');
+    expect(ctx('<!-- a -- b', 'b')).toBe('comment');
+  });
+
+  it('生テキストは `</name` の直後が空白・`/`・`>` のときだけ閉じる(`</scriptx>` は中身)', () => {
+    const h = '<script>a</scriptx>IN</script><p>P</p>';
+    expect(ctx(h, 'IN')).toBe('rawText:script');
+    expect(ctx(h, 'P')).toBe('text:p');
+    expect(scanHtml(h).elements.map((e) => e.tag)).toEqual(['script', 'p']);
+  });
+
   it('表の中の位置の親', () => {
     const h = '<table><tbody>GAP<tr>ROWGAP<td>CELL</td></tr></tbody></table>';
     expect(ctx(h, 'GAP')).toBe('text:tbody');

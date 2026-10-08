@@ -7,7 +7,17 @@
 // 入力は Jinja トークンを同じ長さの `J` で伏せた文字列(`maskJinja`)なので、トークン内の引用符や
 // `>` が属性の解釈を狂わせない。近似が外れる壊れた HTML は呼び出し側の自己検査が受け止める。
 
-import { lexJinja } from '@editor/shared';
+import {
+  commentEnd,
+  findRawTextEnd,
+  isAsciiAlpha,
+  isHtmlSpace,
+  isTagNameEnd,
+  lexJinja,
+  maskRanges,
+  newCommentEndMemo,
+  RAW_TEXT_ELEMENTS,
+} from '@editor/shared';
 
 // ── 1. 型 ──
 
@@ -45,15 +55,12 @@ export interface HtmlScan {
 /** 伏せ字の 1 文字。規則表の判定も、トークンが占める位置をこの文字で見分ける。 */
 const MASK_CHAR = 'J';
 
-/** トークンの範囲を同じ長さの `J` に置き換える。改行は残し、行の数を変えない。 */
+/**
+ * トークンの範囲を同じ長さの `J` に置き換える。改行は残し、行の数を変えない。申請の関所
+ * (`shared/src/security/editingMarkers.ts`)も同じ伏せ方の写しを読むので、`maskRanges` を共有する。
+ */
 export function maskJinja(src: string, tokens: readonly { start: number; end: number }[]): string {
-  let out = '';
-  let at = 0;
-  for (const t of tokens) {
-    out += src.slice(at, t.start) + src.slice(t.start, t.end).replace(/[^\r\n]/g, 'J');
-    at = t.end;
-  }
-  return out + src.slice(at);
+  return maskRanges(src, tokens, MASK_CHAR);
 }
 
 /**
@@ -72,7 +79,6 @@ export function scanMaskedHtml(
 // ── 3. 規則表 ──
 
 const VOID = new Set('area base br col embed hr img input link meta source track wbr'.split(' '));
-const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title']);
 const P_CLOSERS = new Set(
   (
     'address article aside blockquote details div dl fieldset figcaption figure footer form ' +
@@ -109,10 +115,6 @@ const IMPLIED: Record<string, { closes: readonly string[]; stops: readonly strin
   optgroup: { closes: ['option', 'optgroup'], stops: ['select'] },
 };
 
-const isSpace = (c: string | undefined) =>
-  c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
-const isAlpha = (c: string | undefined) => c !== undefined && /[A-Za-z]/.test(c);
-
 interface Span {
   from: number;
   ctx: PositionContext;
@@ -123,6 +125,7 @@ interface Span {
 export function scanHtml(masked: string): HtmlScan {
   const len = masked.length;
   const lower = masked.toLowerCase();
+  const commentMemo = newCommentEndMemo();
   const elements: ScannedElement[] = [];
   const stack: ScannedElement[] = [];
   // from の昇順に並べる。各区間は次の区間の from まで続く。
@@ -171,9 +174,14 @@ export function scanHtml(masked: string): HtmlScan {
     // コメントと宣言(<!DOCTYPE …> 等)。後者は本文でないのでコメントと同じ扱いにする。
     if (masked.startsWith('<!--', i) || masked[i + 1] === '!' || masked[i + 1] === '?') {
       flushText(i);
-      const isComment = masked.startsWith('<!--', i);
-      const close = isComment ? masked.indexOf('-->', i + 4) : masked.indexOf('>', i + 2);
-      const to = close < 0 ? len : close + (isComment ? 3 : 1);
+      // コメントの閉じ方は `commentEnd`(ブラウザと同じ)。閉じなければ末尾までコメントとみなす。
+      let to: number;
+      if (masked.startsWith('<!--', i)) to = commentEnd(masked, i + 4, commentMemo);
+      else {
+        const gt = masked.indexOf('>', i + 2);
+        to = gt < 0 ? -1 : gt + 1;
+      }
+      if (to < 0) to = len;
       push(i, { kind: 'htmlComment' });
       i = textFrom = to;
       continue;
@@ -188,10 +196,10 @@ export function scanHtml(masked: string): HtmlScan {
       continue;
     }
     // 終了タグ
-    if (masked[i + 1] === '/' && isAlpha(masked[i + 2])) {
+    if (masked[i + 1] === '/' && isAsciiAlpha(masked[i + 2])) {
       flushText(i);
       let j = i + 2;
-      while (j < len && !isSpace(masked[j]) && masked[j] !== '>' && masked[j] !== '/') j++;
+      while (j < len && !isTagNameEnd(masked[j])) j++;
       const name = lower.slice(i + 2, j);
       const gt = masked.indexOf('>', j);
       const to = gt < 0 ? len : gt + 1;
@@ -218,10 +226,10 @@ export function scanHtml(masked: string): HtmlScan {
     }
     // 開始タグ
     // `<` + 伏せ字は開始タグでなくテキスト(伏せ字は英字だが、実際の Jinja は名前でない)。
-    if (isAlpha(masked[i + 1]) && masked[i + 1] !== MASK_CHAR) {
+    if (isAsciiAlpha(masked[i + 1]) && masked[i + 1] !== MASK_CHAR) {
       flushText(i);
       let j = i + 1;
-      while (j < len && !isSpace(masked[j]) && masked[j] !== '>' && masked[j] !== '/') j++;
+      while (j < len && !isTagNameEnd(masked[j])) j++;
       const tag = lower.slice(i + 1, j);
       const outer = top();
       const underForeign = outer?.foreign != null && outer.tag !== 'foreignobject';
@@ -264,20 +272,21 @@ export function scanHtml(masked: string): HtmlScan {
           closed = true;
           break;
         }
-        if (isSpace(c) || c === '/') {
+        if (isHtmlSpace(c) || c === '/') {
           k++;
           continue;
         }
         while (k < len) {
           const d = masked[k];
-          if (isSpace(d) || d === '=' || d === '>' || (d === '/' && masked[k + 1] === '>')) break;
+          if (isHtmlSpace(d) || d === '=' || d === '>' || (d === '/' && masked[k + 1] === '>'))
+            break;
           k++;
         }
         let m = k;
-        while (isSpace(masked[m])) m++;
+        while (isHtmlSpace(masked[m])) m++;
         if (masked[m] !== '=') continue;
         m++;
-        while (isSpace(masked[m])) m++;
+        while (isHtmlSpace(masked[m])) m++;
         const q = masked[m];
         if (q === '"' || q === "'") {
           const close = masked.indexOf(q, m + 1);
@@ -286,7 +295,7 @@ export function scanHtml(masked: string): HtmlScan {
           segFrom = close < 0 ? len : close;
           k = close < 0 ? len : close + 1;
         } else {
-          while (m < len && !isSpace(masked[m]) && masked[m] !== '>') m++;
+          while (m < len && !isHtmlSpace(masked[m]) && masked[m] !== '>') m++;
           k = m;
         }
       }
@@ -306,8 +315,8 @@ export function scanHtml(masked: string): HtmlScan {
       stack.push(el);
       el.implicitlyClosed = true;
       // 生テキスト要素は対応する終了タグまで、中身をタグとして読まない。
-      if (RAW_TEXT.has(tag) && foreign === null && !underForeign) {
-        const close = lower.indexOf(`</${tag}`, k);
+      if (RAW_TEXT_ELEMENTS.has(tag) && foreign === null && !underForeign) {
+        const close = findRawTextEnd(lower, tag, k).at;
         const to = close < 0 ? len : close;
         if (to > k) push(k, { kind: 'rawText', element: el });
         textFrom = i = to;

@@ -5,7 +5,7 @@
 // `Component` type を GrapesJS に登録し、chip 表示用の canvas CSS も提供する。
 
 import type { Component, Editor } from 'grapesjs';
-import { DATA_JINJA, DATA_OPAQUE, DATA_OPAQUE_KIND } from '@/lib/jinjaAttrs';
+import { DATA_JINJA, DATA_OPAQUE, DATA_OPAQUE_KIND, JINJA_CHIP_CLASS } from '@/lib/jinjaAttrs';
 
 /**
  * canvas で通用する `data-gjs-type` の全集合。**`addType` する型と、canvas 入口の
@@ -133,7 +133,7 @@ const isSvgRoot = (el: unknown): boolean => {
 
 /** `data-jinja` を持つ値・文・コメントのチップか(`kind` は `jinja-<kind>` のクラス名)。 */
 function isDataJinjaChip(el: unknown, kind: 'var' | 'stmt' | 'comment'): boolean {
-  return hasClasses(el, 'jinja-chip', `jinja-${kind}`) && attrOf(el, DATA_JINJA) !== null;
+  return hasClasses(el, JINJA_CHIP_CLASS, `jinja-${kind}`) && attrOf(el, DATA_JINJA) !== null;
 }
 
 /** 型ごとの判定。値の差し込みチップは `data-jinja`、原文を運ぶ部品は `data-opaque` と種別で見る。 */
@@ -158,7 +158,7 @@ const IS_COMPONENT: Record<JinjaComponentType, (el: unknown) => boolean> = {
 
 function isOpaqueChip(el: unknown, kind: string): boolean {
   return (
-    hasClasses(el, 'jinja-chip', `jinja-${kind}`) &&
+    hasClasses(el, JINJA_CHIP_CLASS, `jinja-${kind}`) &&
     attrOf(el, DATA_OPAQUE_KIND) === kind &&
     attrOf(el, DATA_OPAQUE) !== null
   );
