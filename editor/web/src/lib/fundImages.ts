@@ -17,10 +17,11 @@
 import {
   apiPaths,
   buildPath,
-  collectCssUrlSpans,
   DOC_CSS_PATH,
   parseAnyTemplateFileName,
   resolveDocAssetPath,
+  rewriteCssUrlSpans,
+  splitSrcsetUrls,
 } from '@editor/shared';
 
 /** 論理ルートでの置き場の名前(参照を解いた論理パスの先頭)。 */
@@ -140,27 +141,21 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
  */
 export function attrUrlCandidates(name: string, value: string): string[] {
   if (!MULTI_URL_ATTRS.has(name.toLowerCase())) return [value];
-  return value
-    .split(',')
-    .map((part) => part.trim().split(/\s+/)[0] ?? '')
-    .filter((u) => u !== '');
+  return splitSrcsetUrls(value);
 }
 
 /**
  * CSS の中の、会社フォルダが合わない画像の `url()` を `none` にする(PDF に配置させないため)。
- * 走査は検査・付け替えと同じ `collectCssUrlSpans` で行い、別の正規表現で拾い直さない。
+ * 走査は検査・付け替えと同じ `collectCssUrlSpans`(`rewriteCssUrlSpans` の中)で行い、別の正規表現で
+ * 拾い直さない。
  */
 export function dropUnmatchedCompanyImageUrls(
   css: string,
   from: string,
   companyCode: string | null,
 ): string {
-  let out = css;
-  // 後ろから置換して、先行する範囲のオフセットを保つ。
-  for (const span of [...collectCssUrlSpans(css)].reverse()) {
+  return rewriteCssUrlSpans(css, (span) => {
     const c = classifyImageRel(resolveDocAssetPath(span.value, from), companyCode);
-    if (c.kind !== 'fundImage' || c.companyMatches) continue;
-    out = `${out.slice(0, span.start)}none${out.slice(span.end)}`;
-  }
-  return out;
+    return c.kind !== 'fundImage' || c.companyMatches ? undefined : 'none';
+  });
 }

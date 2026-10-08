@@ -14,6 +14,7 @@ import {
   nestedHtmlAttrsFor,
   resolveDocAssetPath,
   resolveServedRoutePath,
+  splitSrcsetUrls,
 } from '../src/security/htmlExternalRefs.js';
 
 const TAB = String.fromCharCode(0x09);
@@ -488,5 +489,49 @@ describe('resolveServedRoutePath — 復号済みのルート引数', () => {
     ['', '空'],
   ])('%j は undefined(%s)', (input) => {
     expect(resolveServedRoutePath(input)).toBeUndefined();
+  });
+});
+
+// 置き換え前の 3 実装(サーバ `docRefs.ts`・web `fundImages.ts`・ここの `findExternalRefsInTag`)を
+// 写しとして持ち、共有した `splitSrcsetUrls` が各呼び出し側と同じ候補を返すことを確かめる。
+// 関所(`findExternalRefsInTag`)の候補が 1 つでも減ると外部参照の見落としになる。
+describe('splitSrcsetUrls — 複数の URL を詰めた属性値の候補', () => {
+  const firstTokens = (value: string): string[] =>
+    value
+      .split(',')
+      .map((part) => part.trim().split(/\s+/)[0] ?? '')
+      .filter((u) => u !== '');
+  const serverOld = (value: string): string[] => [value, ...firstTokens(value)];
+  const webOld = firstTokens;
+  const gateOld = (value: string): string[] =>
+    value
+      .split(',')
+      .flatMap((part) => part.trim().split(/\s+/))
+      .filter((u) => u !== '');
+  const inputs = [
+    '',
+    ' ',
+    ',',
+    ' , ,',
+    'a.png',
+    'img/a.png 1x, https://evil.example/b.png 2x',
+    '../images/a.png 1x, ../images/b.png 2x',
+    '../images/c.png 480w,../images/d.png',
+    'a.jar https://evil.example/b.jar',
+    'a.jar,https://evil.example/b.jar',
+    `a.png\t1x,\nb.png  2x ,  c.png`,
+    'data:image/png;base64,AAAA 1x, b.png',
+  ];
+
+  it.each(inputs)('%j: 3 つの呼び出し側の候補を変えない', (value) => {
+    expect(splitSrcsetUrls(value, { includeWhole: true })).toEqual(serverOld(value));
+    expect(splitSrcsetUrls(value)).toEqual(webOld(value));
+    expect(splitSrcsetUrls(value, { allTokens: true })).toEqual(gateOld(value));
+  });
+
+  it('記述子を外した URL だけを返し、includeWhole なら値そのものを先頭に足す', () => {
+    expect(splitSrcsetUrls('a.png 1x, b.png 2x')).toEqual(['a.png', 'b.png']);
+    expect(splitSrcsetUrls('a.png 1x', { includeWhole: true })).toEqual(['a.png 1x', 'a.png']);
+    expect(splitSrcsetUrls('a.jar b.jar', { allTokens: true })).toEqual(['a.jar', 'b.jar']);
   });
 });

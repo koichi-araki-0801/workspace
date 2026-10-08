@@ -2,8 +2,18 @@
 // cssRebase.test.ts — リクエスト CSS の相対 url() を文書基準へ付け替える関数の固定
 // =============================================================================
 import { describe, expect, it } from 'vitest';
-import { collectCssUrlCandidates, findExternalRefsInCss } from '../src/security/cssExternalRefs.js';
-import { DOC_CSS_PATH, rebaseCssForDoc } from '../src/security/cssRebase.js';
+import {
+  type CssUrlSpan,
+  collectCssUrlCandidates,
+  collectCssUrlSpans,
+  findExternalRefsInCss,
+} from '../src/security/cssExternalRefs.js';
+import {
+  DOC_CSS_PATH,
+  rebaseCssForDoc,
+  replaceSpansFromEnd,
+  rewriteCssUrlSpans,
+} from '../src/security/cssRebase.js';
 import { resolveDocAssetPath } from '../src/security/htmlExternalRefs.js';
 
 describe('DOC_CSS_PATH — CSS の参照元として web も使う論理パス', () => {
@@ -80,5 +90,57 @@ describe('rebaseCssForDoc — css/<テンプレ>.css の位置の CSS を doc/ �
     const css =
       '.a{background:url(fonts/a.png)} .b{background:url(https://evil/x)} @import "x.css";';
     expect(findExternalRefsInCss(rebaseCssForDoc(css))).toEqual(findExternalRefsInCss(css));
+  });
+});
+
+// 置き換え前の各所の書き方(後ろから `slice` で繋ぎ直すループ)を写しとして持ち、共有した関数が
+// 同じ結果を返すことを確かめる。
+describe('rewriteCssUrlSpans — url() を後ろから置き換える', () => {
+  const oldLoop = (css: string, f: (span: CssUrlSpan) => string | undefined): string => {
+    let out = css;
+    for (const span of [...collectCssUrlSpans(css)].reverse()) {
+      const next = f(span);
+      if (next === undefined) continue;
+      out = `${out.slice(0, span.start)}${next}${out.slice(span.end)}`;
+    }
+    return out;
+  };
+  const inputs = [
+    '',
+    '.a{color:red}',
+    '.a{background:url(x.png)}',
+    `.a{background:url(x.png),url("y.png")} .b{src:url( 'z.woff2' ) format("woff2")}`,
+    '@font-face{src:url(fonts/a.woff2)}@media print{.c{background:url(../images/b.svg)}}',
+    '.a{content:"url(not-a-url)";background:url(a\\29 .png)}',
+  ];
+  const fs: Array<(span: CssUrlSpan) => string | undefined> = [
+    () => undefined,
+    () => 'none',
+    (span) => (span.value.endsWith('.png') ? `url("${span.value}?v")` : undefined),
+    (span) => `url(${span.value.length}${'x'.repeat(span.end - span.start)})`,
+  ];
+  it.each(inputs)('%j: 置き換え前のループと同じ結果になる', (css) => {
+    for (const f of fs) expect(rewriteCssUrlSpans(css, f)).toBe(oldLoop(css, f));
+  });
+
+  it('undefined を返した url() は残し、文字列を返した url() だけを置き換える', () => {
+    expect(
+      rewriteCssUrlSpans('.a{x:url(a.png);y:url(b.svg)}', (s) =>
+        s.value === 'b.svg' ? 'none' : undefined,
+      ),
+    ).toBe('.a{x:url(a.png);y:none}');
+  });
+});
+
+describe('replaceSpansFromEnd — 範囲の列を後ろから置き換える', () => {
+  it('範囲を後ろから置き換え、先行する範囲の位置を保つ', () => {
+    const spans = [
+      { start: 0, end: 1 },
+      { start: 2, end: 4 },
+    ];
+    expect(replaceSpansFromEnd('abcdef', spans, (s) => (s.start === 0 ? 'XYZ' : '-'))).toBe(
+      'XYZb-ef',
+    );
+    expect(replaceSpansFromEnd('abc', spans.slice(0, 1), () => undefined)).toBe('abc');
   });
 });

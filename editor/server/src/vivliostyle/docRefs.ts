@@ -16,7 +16,12 @@
 // 見落としは「資産が置かれない → `inlineCss` が参照ごと落とす」= 静かな見た目の劣化になる。
 // よって迷ったら**拾う側**へ倒す(過剰に拾ってもコピーが 1 つ増えるだけである)。
 
-import { collectCssUrlCandidates, DOC_DIR, resolveDocAssetPath } from '@editor/shared';
+import {
+  collectCssUrlCandidates,
+  DOC_DIR,
+  resolveDocAssetPath,
+  splitSrcsetUrls,
+} from '@editor/shared';
 import { scanTags } from './inlineCss.js';
 
 /** CSS 内の相対参照を辿る段数。`css/x.css` → `css/fonts/y.woff2` の 1 段で足りるが余裕を持つ。 */
@@ -32,11 +37,7 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
  */
 function attrRefCandidates(name: string, value: string): string[] {
   if (!MULTI_URL_ATTRS.has(name)) return [value];
-  const urls = value
-    .split(',')
-    .map((part) => part.trim().split(/\s+/)[0] ?? '')
-    .filter((u) => u !== '');
-  return [value, ...urls];
+  return splitSrcsetUrls(value, { includeWhole: true });
 }
 
 /** CSS 1 枚が参照する論理ルート相対パスを `out` へ積む。`from` は CSS の置き場(文書なら `DOC_DIR`)。 */

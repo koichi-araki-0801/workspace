@@ -183,12 +183,28 @@ function refreshUrlPart(s: string): string {
   return close === -1 ? rest : rest.slice(0, close);
 }
 
+/**
+ * 複数の URL を詰めた属性値(`srcset` の `url 1x, url 2x` など)を候補に分ける。既定はカンマで
+ * 区切った各候補の先頭(URL)だけを返し、後ろの `1x` / `480w`(記述子)は捨てる。
+ * `allTokens` は空白で区切った語をすべて候補にする(`archive` は空白区切りでも URL を並べるので、
+ * 関所は記述子まで候補に含めて見落としを無くす)。`includeWhole` は値そのものも先頭に残す
+ * (資産を拾う側が、値全体を 1 つの参照として解く形も取りこぼさないため)。
+ */
+export function splitSrcsetUrls(
+  value: string,
+  opts: { includeWhole?: boolean; allTokens?: boolean } = {},
+): string[] {
+  const parts = value.split(',').map((part) => part.trim());
+  const tokens = opts.allTokens
+    ? parts.flatMap((part) => part.split(/\s+/))
+    : parts.map((part) => part.split(/\s+/)[0] ?? '');
+  const urls = tokens.filter((u) => u !== '');
+  return opts.includeWhole ? [value, ...urls] : urls;
+}
+
 function splitCandidateUrls(attrName: string, value: string): string[] {
   if (!MULTI_URL_ATTRS.has(attrName)) return [value];
-  return value
-    .split(',')
-    .flatMap((part) => part.trim().split(/\s+/))
-    .filter((u) => u !== '');
+  return splitSrcsetUrls(value, { allTokens: true });
 }
 
 /**

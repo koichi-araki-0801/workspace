@@ -35,6 +35,7 @@ import {
   collectCssUrlSpans,
   DOC_DIR,
   PREVIEW_HOST_BASE,
+  replaceSpansFromEnd,
   resolveDocAssetPath,
 } from '@editor/shared';
 import {
@@ -266,9 +267,9 @@ async function inlineStyleAssets(
     const css = style.textContent ?? '';
     if (css === '') continue;
     const spans = collectCssUrlSpans(css);
-    let out = css;
-    let changed = false;
-    // 後ろから置換して先行 span のオフセットを保つ。
+    // 取得は非同期なので先に済ませ、置き換えは `replaceSpansFromEnd` に任せる。取得の順序は
+    // 置き換えと同じ後ろから(キャッシュへの登録順を変えない)。
+    const dataUris = new Map<number, string>();
     for (const span of [...spans].reverse()) {
       const rel = resolveDocAssetPath(span.value, DOC_DIR);
       if (rel === undefined) continue;
@@ -282,12 +283,16 @@ async function inlineStyleAssets(
         }
       }
       if (dataUri === undefined) continue;
-      out = `${out.slice(0, span.start)}url(${dataUri})${out.slice(span.end)}`;
-      changed = true;
+      dataUris.set(span.start, dataUri);
     }
+    if (dataUris.size === 0) continue;
+    const out = replaceSpansFromEnd(css, spans, (span) => {
+      const dataUri = dataUris.get(span.start);
+      return dataUri === undefined ? undefined : `url(${dataUri})`;
+    });
     // 直列化器は raw text をエスケープしないため、書き戻し時の `</style>` 潰しは必須
     // (`appendPreviewStyle` と同じ理由)。
-    if (changed) style.textContent = sanitizeStyleContent(out);
+    style.textContent = sanitizeStyleContent(out);
   }
 }
 

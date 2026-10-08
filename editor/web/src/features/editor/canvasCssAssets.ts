@@ -37,6 +37,7 @@ import {
   findExternalRefsInCss,
   isAllowedDataUrl,
   PREVIEW_HOST_BASE,
+  replaceSpansFromEnd,
   resolveDocAssetPath,
   splitCssRules,
 } from '@editor/shared';
@@ -133,23 +134,23 @@ function rewriteSpans(
   from: string,
   keepUnresolved: (value: string) => boolean,
 ): { out: string; changed: boolean } | undefined {
-  let out = text.slice(range.start, range.end);
+  const inRange = spans
+    .filter((span) => span.start >= range.start && span.end <= range.end)
+    .map((span) => ({ ...span, start: span.start - range.start, end: span.end - range.start }));
   let changed = false;
-  // 後ろから置換して、先行する範囲のオフセットを保つ。
-  for (const span of [...spans].reverse()) {
-    if (span.start < range.start || span.end > range.end) continue;
+  let abandoned = false;
+  const out = replaceSpansFromEnd(text.slice(range.start, range.end), inRange, (span) => {
+    if (abandoned) return undefined;
     const rel = resolveDocAssetPath(span.value, from);
     const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
     if (url === undefined) {
-      if (keepUnresolved(span.value)) continue;
+      if (!keepUnresolved(span.value)) abandoned = true;
       return undefined;
     }
-    const s = span.start - range.start;
-    const e = span.end - range.start;
-    out = `${out.slice(0, s)}url(${cssString(url)})${out.slice(e)}`;
     changed = true;
-  }
-  return { out, changed };
+    return `url(${cssString(url)})`;
+  });
+  return abandoned ? undefined : { out, changed };
 }
 
 /** `text` の `range` の中の `url()` を配信 URL へ直す。直したものが 1 つも無ければ undefined。 */
@@ -297,13 +298,16 @@ const TRAILING_FONT_HINTS = /^(?:\s*(?:format|tech)\([^()]*\))*/i;
  * `from` は参照を解く基準の論理パス(既定はテンプレの CSS の位置)。
  */
 export function canvasFontFaceSrcDisabled(css: string, from: string = TEMPLATE_CSS_FROM): string {
-  let out = css;
-  // 後ろから置換して、先行する範囲のオフセットを保つ。
-  for (const span of collectCssUrlSpansInContext(css).reverse()) {
-    if (!span.inFontFaceSrc) continue;
-    if (!resolveDocAssetPath(span.value, from)?.startsWith(FONTS_PREFIX)) continue;
-    const hints = TRAILING_FONT_HINTS.exec(out.slice(span.end))?.[0] ?? '';
-    out = `${out.slice(0, span.start)}${DISABLED_FONT_SRC}${out.slice(span.end + hints.length)}`;
-  }
-  return out;
+  // 置き換える範囲は `url()` とそれに続く `format()` / `tech()`。後ろの範囲を置き換えても、
+  // ここで読む直後の字(`url(` を含みえない)は変わらないので、原文から読んでよい。
+  const targets = collectCssUrlSpansInContext(css)
+    .filter(
+      (span) =>
+        span.inFontFaceSrc && resolveDocAssetPath(span.value, from)?.startsWith(FONTS_PREFIX),
+    )
+    .map((span) => ({
+      start: span.start,
+      end: span.end + (TRAILING_FONT_HINTS.exec(css.slice(span.end))?.[0] ?? '').length,
+    }));
+  return replaceSpansFromEnd(css, targets, () => DISABLED_FONT_SRC);
 }

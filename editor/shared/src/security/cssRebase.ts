@@ -16,7 +16,7 @@
 // 付け替えは見ていない」形の食い違いが生まれる。引用符文字列(`image-set("…")`・`content`)は
 // 付け替えない — 本文の文字列を壊さないため、相対参照は `url()` で書く契約にしている。
 
-import { collectCssUrlSpans, isSelfContainedUrl } from './cssExternalRefs.js';
+import { type CssUrlSpan, collectCssUrlSpans, isSelfContainedUrl } from './cssExternalRefs.js';
 import { resolveDocAssetPath } from './htmlExternalRefs.js';
 
 /**
@@ -40,14 +40,40 @@ export function rebaseCssForDoc(css: string): string {
 
 /** `url()` を後ろから順に書き換える。`resolve` は値のパス部分を新しいパスへ写す(対象外は undefined)。 */
 function rewriteCssUrls(css: string, resolve: (pathPart: string) => string | undefined): string {
-  let out = css;
-  // 後ろから置換して、先行する範囲のオフセットを保つ。
-  for (const span of [...collectCssUrlSpans(css)].reverse()) {
+  return rewriteCssUrlSpans(css, (span) => {
     const rewritten = rewriteUrlValue(span.value, resolve);
-    if (rewritten === undefined) continue;
-    out = `${out.slice(0, span.start)}url("${rewritten}")${out.slice(span.end)}`;
+    return rewritten === undefined ? undefined : `url("${rewritten}")`;
+  });
+}
+
+/**
+ * `text` の範囲 `spans`(位置順で重ならないもの)を後ろから順に `f` の結果へ置き換える
+ * (undefined を返した範囲は残す)。後ろから置き換えるので、先行する範囲の位置がずれない。
+ */
+export function replaceSpansFromEnd<S extends { start: number; end: number }>(
+  text: string,
+  spans: readonly S[],
+  f: (span: S) => string | undefined,
+): string {
+  let out = text;
+  for (let k = spans.length - 1; k >= 0; k--) {
+    const span = spans[k];
+    const next = f(span);
+    if (next === undefined) continue;
+    out = `${out.slice(0, span.start)}${next}${out.slice(span.end)}`;
   }
   return out;
+}
+
+/**
+ * CSS の `url()` 式(`collectCssUrlSpans` の範囲)を、`f` が返す文字列へ置き換える(undefined は
+ * 原文のまま)。走査は検査・配置と同じ `collectCssUrlSpans` 1 本で、別の正規表現で拾い直さない。
+ */
+export function rewriteCssUrlSpans(
+  css: string,
+  f: (span: CssUrlSpan) => string | undefined,
+): string {
+  return replaceSpansFromEnd(css, collectCssUrlSpans(css), f);
 }
 
 /** 1 つの URL 値を付け替える。対象外なら `undefined`。 */
