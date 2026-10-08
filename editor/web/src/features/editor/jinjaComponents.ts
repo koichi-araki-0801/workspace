@@ -131,13 +131,16 @@ const isSvgRoot = (el: unknown): boolean => {
   return e?.namespaceURI === SVG_NS && e.localName === 'svg';
 };
 
+/** `data-jinja` を持つ値・文・コメントのチップか(`kind` は `jinja-<kind>` のクラス名)。 */
+function isDataJinjaChip(el: unknown, kind: 'var' | 'stmt' | 'comment'): boolean {
+  return hasClasses(el, 'jinja-chip', `jinja-${kind}`) && attrOf(el, DATA_JINJA) !== null;
+}
+
 /** 型ごとの判定。値の差し込みチップは `data-jinja`、原文を運ぶ部品は `data-opaque` と種別で見る。 */
 const IS_COMPONENT: Record<JinjaComponentType, (el: unknown) => boolean> = {
-  'jinja-var': (el) => hasClasses(el, 'jinja-chip', 'jinja-var') && attrOf(el, DATA_JINJA) !== null,
-  'jinja-stmt': (el) =>
-    hasClasses(el, 'jinja-chip', 'jinja-stmt') && attrOf(el, DATA_JINJA) !== null,
-  'jinja-comment': (el) =>
-    hasClasses(el, 'jinja-chip', 'jinja-comment') && attrOf(el, DATA_JINJA) !== null,
+  'jinja-var': (el) => isDataJinjaChip(el, 'var'),
+  'jinja-stmt': (el) => isDataJinjaChip(el, 'stmt'),
+  'jinja-comment': (el) => isDataJinjaChip(el, 'comment'),
   'jinja-script': (el) => isOpaqueChip(el, 'script'),
   'jinja-math': (el) => isOpaqueChip(el, 'math'),
   'jinja-rawtext': (el) => isOpaqueChip(el, 'rawtext'),

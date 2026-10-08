@@ -54,6 +54,11 @@ interface OpenCanvasResult {
   loadFailed: boolean;
 }
 
+/** 読み込んだ直後の本文を確定版の正規形として測る。CSS は同じ時点の `getCss()` を渡す。 */
+function measureCanonical(g: OpenCanvasTarget, css: string): ConfirmedCanonical {
+  return { html: g.getBodyHtml(), css };
+}
+
 /**
  * canvas へ本文を読み込み、確定版の正規形と CSS の baseline を測る。下書きから開くときは
  * 本文の前に確定版を quiet load して測る(本文の読み込みで同じ通知が出るためトーストは抑止)。
@@ -68,7 +73,7 @@ export function openCanvas(g: OpenCanvasTarget, input: OpenCanvasInput): OpenCan
     if (g.load(input.confirmedBody, input.confirmedCss, { quiet: true })) {
       cssBaseline = g.getCss();
       if (!input.isCreateRoute) {
-        canonical = { html: g.getBodyHtml(), css: cssBaseline };
+        canonical = measureCanonical(g, cssBaseline);
         measuredCanonical = true;
       }
     } else if (!input.isCreateRoute && input.cachedCanonical) {
@@ -93,11 +98,13 @@ export function openCanvas(g: OpenCanvasTarget, input: OpenCanvasInput): OpenCan
       loadFailed: false,
     };
   }
-  if (!input.hasDraft) cssBaseline = g.getCss();
   // 下書きが無ければ、本文の読み込みがそのまま確定版の読み込み。
-  if (!input.hasDraft && !input.isCreateRoute) {
-    canonical = { html: g.getBodyHtml(), css: g.getCss() };
-    measuredCanonical = true;
+  if (!input.hasDraft) {
+    cssBaseline = g.getCss();
+    if (!input.isCreateRoute) {
+      canonical = measureCanonical(g, cssBaseline);
+      measuredCanonical = true;
+    }
   }
   return { loaded: true, cssBaseline, canonical, measuredCanonical, loadFailed };
 }

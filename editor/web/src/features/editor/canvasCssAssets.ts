@@ -121,6 +121,37 @@ function declarationRanges(text: string): Range[] {
   return ranges;
 }
 
+/**
+ * `text` の `range` の中の `url()` を、直せるものは配信 URL へ直す。直せない参照は
+ * `keepUnresolved(値)` が true なら残し、false なら全体を諦めて undefined を返す。
+ */
+function rewriteSpans(
+  text: string,
+  range: Range,
+  spans: readonly CssUrlSpan[],
+  companyCode: string | null,
+  from: string,
+  keepUnresolved: (value: string) => boolean,
+): { out: string; changed: boolean } | undefined {
+  let out = text.slice(range.start, range.end);
+  let changed = false;
+  // 後ろから置換して、先行する範囲のオフセットを保つ。
+  for (const span of [...spans].reverse()) {
+    if (span.start < range.start || span.end > range.end) continue;
+    const rel = resolveDocAssetPath(span.value, from);
+    const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
+    if (url === undefined) {
+      if (keepUnresolved(span.value)) continue;
+      return undefined;
+    }
+    const s = span.start - range.start;
+    const e = span.end - range.start;
+    out = `${out.slice(0, s)}url(${cssString(url)})${out.slice(e)}`;
+    changed = true;
+  }
+  return { out, changed };
+}
+
 /** `text` の `range` の中の `url()` を配信 URL へ直す。直したものが 1 つも無ければ undefined。 */
 function rewriteUrls(
   text: string,
@@ -129,20 +160,27 @@ function rewriteUrls(
   companyCode: string | null,
   from: string,
 ): string | undefined {
-  let out = text.slice(range.start, range.end);
-  let changed = false;
-  // 後ろから置換して、先行する範囲のオフセットを保つ。
-  for (const span of [...spans].reverse()) {
-    if (span.start < range.start || span.end > range.end) continue;
-    const rel = resolveDocAssetPath(span.value, from);
-    const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
-    if (url === undefined) continue;
-    const s = span.start - range.start;
-    const e = span.end - range.start;
-    out = `${out.slice(0, s)}url(${cssString(url)})${out.slice(e)}`;
-    changed = true;
+  const r = rewriteSpans(text, range, spans, companyCode, from, () => true);
+  return r?.changed ? r.out : undefined;
+}
+
+/**
+ * 規則ごとの複製 `copy` を、囲む at-rule で包んで 1 規則 1 行に並べる。`copy` が undefined の規則と、
+ * 包んだ結果を `accept` が拒む規則は出さない。
+ */
+function wrapCopiedRules(
+  css: string,
+  copy: (ruleText: string) => string | undefined,
+  accept: (wrapped: string) => boolean = () => true,
+): string {
+  const out: string[] = [];
+  for (const rule of splitCssRules(css)) {
+    const copied = copy(rule.text);
+    if (copied === undefined) continue;
+    const wrapped = rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, copied);
+    if (accept(wrapped)) out.push(wrapped);
   }
-  return changed ? out : undefined;
+  return out.join('\n');
 }
 
 /**
@@ -183,13 +221,7 @@ function rewriteRule(text: string, companyCode: string | null, from: string): st
  * `<style>` は `DOC_DIR`。
  */
 export function canvasCssAssetCopy(css: string, companyCode: string | null, from: string): string {
-  const out: string[] = [];
-  for (const rule of splitCssRules(css)) {
-    const rewritten = rewriteRule(rule.text, companyCode, from);
-    if (rewritten === undefined) continue;
-    out.push(rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, rewritten));
-  }
-  return out.join('\n');
+  return wrapCopiedRules(css, (text) => rewriteRule(text, companyCode, from));
 }
 
 // ── 本文の `<style>` の全規則の複製 ──
@@ -210,20 +242,7 @@ function rewriteEveryUrl(
   companyCode: string | null,
   from: string,
 ): string | undefined {
-  let out = text.slice(range.start, range.end);
-  for (const span of [...spans].reverse()) {
-    if (span.start < range.start || span.end > range.end) continue;
-    const rel = resolveDocAssetPath(span.value, from);
-    const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
-    if (url === undefined) {
-      if (staysInDocument(span.value)) continue;
-      return undefined;
-    }
-    const s = span.start - range.start;
-    const e = span.end - range.start;
-    out = `${out.slice(0, s)}url(${cssString(url)})${out.slice(e)}`;
-  }
-  return out;
+  return rewriteSpans(text, range, spans, companyCode, from, staysInDocument)?.out;
 }
 
 /**
@@ -253,15 +272,11 @@ function copyWholeRule(text: string, companyCode: string | null, from: string): 
  * スキームなど)が残る規則は複製しない。`from` は参照を解く基準の論理パス(`DOC_DIR` など)。
  */
 export function canvasCssFullCopy(css: string, companyCode: string | null, from: string): string {
-  const out: string[] = [];
-  for (const rule of splitCssRules(css)) {
-    const copied = copyWholeRule(rule.text, companyCode, from);
-    if (copied === undefined) continue;
-    const wrapped = rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, copied);
-    if (findExternalRefsInCss(wrapped).length > 0) continue;
-    out.push(wrapped);
-  }
-  return out.join('\n');
+  return wrapCopiedRules(
+    css,
+    (text) => copyWholeRule(text, companyCode, from),
+    (wrapped) => findExternalRefsInCss(wrapped).length === 0,
+  );
 }
 
 // ── canvas に描かれる元の `@font-face` ──
