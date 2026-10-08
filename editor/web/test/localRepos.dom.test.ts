@@ -302,22 +302,42 @@ describe('localPartRepo', () => {
       ]);
     });
 
-    it('専用パーツだけの分類は他の版の候補から消える', async () => {
-      const only = partCatalog.filter((i) => i.targetEdition === '全体版');
-      const mixedMinors = new Set(
-        partCatalog
-          .filter((i) => i.targetEdition !== '全体版')
-          .map((i) => i.classification.minorClass),
-      );
-      const hidden = only.find((i) => !mixedMinors.has(i.classification.minorClass));
-      if (!hidden) return;
-      const r = await localPartRepo.getPartClassificationOptions({
-        editionType: '交付版',
-        category: hidden.classification.category,
-        majorClass: hidden.classification.majorClass,
-        middleClass: hidden.classification.middleClass,
-      });
-      expect(isOk(r) && r.value.minorClasses).not.toContain(hidden.classification.minorClass);
+    it('全体版専用のパーツだけのカテゴリは、交付版の候補（カテゴリと下位）から消える', async () => {
+      const seed = {
+        ...partCatalog[0],
+        id: 'only-whole',
+        targetEdition: '全体版',
+        classification: {
+          category: '全体版専用',
+          majorClass: '大X',
+          middleClass: '中X',
+          minorClass: '小X',
+        },
+      };
+      partCatalog.push(seed);
+      try {
+        const q = { category: '全体版専用', majorClass: '大X', middleClass: '中X' };
+        const own = await localPartRepo.getPartClassificationOptions({
+          ...q,
+          editionType: '交付版',
+        });
+        const all = await localPartRepo.getPartClassificationOptions(q);
+        const whole = await localPartRepo.getPartClassificationOptions({
+          ...q,
+          editionType: '全体版',
+        });
+        if (!isOk(own) || !isOk(all) || !isOk(whole)) throw new Error('unexpected err');
+        expect(own.value.categories).not.toContain('全体版専用');
+        expect(own.value.majorClasses).toEqual([]);
+        expect(own.value.middleClasses).toEqual([]);
+        expect(own.value.minorClasses).toEqual([]);
+        expect(all.value.categories).toContain('全体版専用');
+        expect(all.value.minorClasses).toEqual(['小X']);
+        expect(whole.value.categories).toContain('全体版専用');
+        expect(whole.value.minorClasses).toEqual(['小X']);
+      } finally {
+        partCatalog.splice(partCatalog.indexOf(seed), 1);
+      }
     });
   });
 
