@@ -9,8 +9,12 @@
 // JSON として stdout に書く。ドライバや Node が stdout に何か書いても応答を取り違えないよう、
 // 親は印の付いた行だけを読む。
 // 信頼の置き方: `__db-fetch` は誰でも任意の stdin で呼べるので、子は要求のハッシュを信用せず、
-// exe に埋め込んだハッシュだけで照合する。ドライバの場所も `<作業フォルダの親>/<実行ごと>/
-// sqlserverv8.node` の形に限る(任意の DLL を読み込む踏み台にしない)。
+// ビルド時に exe へ埋め込んだハッシュとファイルを照合する。これが主たる防御。ドライバの場所を
+// `<作業フォルダの親>/<実行ごと>/sqlserverv8.node` の形に限る検査は、`__db-fetch` の誤用に
+// 対する多層防御にとどまる(許可する親は子自身の TEMP から導くので、子を自分で起動できる者
+// は止められない)。照合から `dlopen` までの間に同じユーザーがファイルを差し替える余地は残る。
+// Node は共有モードを指定してファイルを開けず、この窓は塞げない。悪用には同一ユーザーの
+// コード実行がすでに要るため、許容する限界とする。
 // =============================================================================
 
 import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process';
@@ -89,15 +93,22 @@ function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-/** ドライバが `<許可された親>/<実行ごとのフォルダ>/sqlserverv8.node` の形か確かめる。 */
-function assertDriverLocation(driverPath: string, allowedParent: string): void {
+/**
+ * ドライバが `<許可された親>/<実行ごとのフォルダ>/sqlserverv8.node` の形か確かめ、実体のパスを
+ * 返す。以降の照合・登録・読み込みは、検査した実体のパスだけを使う(検査後の差し替え対策)。
+ */
+function resolveDriverLocation(driverPath: string, allowedParent: string): string {
   const outside = (): DbStageError =>
     new DbStageError('verify', `driver path is outside the working folder: ${driverPath}`);
-  let realDriver: string;
   let realParent: string;
   try {
-    realDriver = fs.realpathSync(driverPath);
     realParent = fs.realpathSync(allowedParent);
+  } catch {
+    throw new DbStageError('verify', `working folder not found: ${allowedParent}`);
+  }
+  let realDriver: string;
+  try {
+    realDriver = fs.realpathSync(driverPath);
   } catch {
     throw outside();
   }
@@ -107,6 +118,7 @@ function assertDriverLocation(driverPath: string, allowedParent: string): void {
   ) {
     throw outside();
   }
+  return realDriver;
 }
 
 /** 照合 → 登録 → 読み込み → (モードに応じて)接続確認かストアド呼び出し。 */
@@ -115,14 +127,14 @@ export async function handleChildRequest(
   deps: ChildDeps,
 ): Promise<ChildResponse> {
   try {
-    // 親が照合してから子が読み込むまでの間に差し替えられていないか、読み込む直前にもう一度見る。
     const expected = deps.expectedSha256();
     if (!expected) {
       throw new DbStageError('verify', 'this executable has no embedded DB driver hash.');
     }
-    assertDriverLocation(req.driverPath, deps.allowedParent());
-    deps.verify(req.driverPath, expected);
-    deps.register(req.driverPath);
+    const driverFile = resolveDriverLocation(req.driverPath, deps.allowedParent());
+    // 親が照合してから子が読み込むまでの間に差し替えられていないか、読み込む直前にもう一度見る。
+    deps.verify(driverFile, expected);
+    deps.register(driverFile);
     let driver: MsSqlDriver;
     try {
       driver = deps.loadDriver();
@@ -277,6 +289,9 @@ export async function runDbHelper(
     const limitMs = req.timeoutMs + deps.graceMs;
     const response = await new Promise<ChildResponse>((resolve, reject) => {
       const child = deps.spawn(deps.execPath, ['__db-fetch']);
+      // 子が早く死ぬと `stdin.end()` が EPIPE を出す。結果は子の `close` / `error` で決めるので、
+      // 流れの `error` は握りつぶす(未処理だと `finally` に届く前に親が落ちる)。
+      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.on('error', () => {});
       let out = '';
       let err = '';
       let timedOut = false;

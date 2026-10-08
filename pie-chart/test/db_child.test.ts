@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
@@ -157,6 +157,24 @@ describe('handleChildRequest(子の側)', () => {
       expect(loadDriver).not.toHaveBeenCalled();
     }
   });
+  it('許可された親のフォルダ自体が無ければ working folder not found', async () => {
+    const loadDriver = vi.fn();
+    const res = await handleChildRequest(
+      { ...REQ, driverPath: driverFile },
+      childDeps({ allowedParent: () => join(childParent, 'missing'), loadDriver }),
+    );
+    expect(res).toMatchObject({ ok: false, stage: 'verify' });
+    expect((res as { message: string }).message).toMatch(/working folder not found/);
+    expect(loadDriver).not.toHaveBeenCalled();
+  });
+  it('照合・登録には検査した実体のパスを渡す', async () => {
+    const verify = vi.fn();
+    const register = vi.fn();
+    await handleChildRequest({ ...REQ, driverPath: driverFile }, childDeps({ verify, register }));
+    const real = realpathSync(driverFile);
+    expect(verify).toHaveBeenCalledWith(real, 'embedded');
+    expect(register).toHaveBeenCalledWith(real);
+  });
   it('fetch なのに args が無ければ child 段階', async () => {
     expect(
       await handleChildRequest({ ...REQ, driverPath: driverFile, args: null }, childDeps()),
@@ -257,7 +275,7 @@ describe('runDbHelper(親の側)', () => {
     connectionString: 'CS',
     proc: 'p',
     args: ARGS,
-    timeoutMs: 20,
+    timeoutMs: 60000,
   };
 
   it('成功したら items を返し、フォルダを消している', async () => {
@@ -296,7 +314,9 @@ describe('runDbHelper(親の側)', () => {
   it('タイムアウト＋猶予を過ぎたら子を止め、child 段階で投げる', async () => {
     const child = new FakeChild();
     let runDir = '';
-    const p = runDbHelper(HREQ, deps(child), { onRunDir: (d) => (runDir = d) });
+    const p = runDbHelper({ ...HREQ, timeoutMs: 20 }, deps(child), {
+      onRunDir: (d) => (runDir = d),
+    });
     await expect(p).rejects.toThrow(/did not finish within 70 ms/);
     expect(child.killed).toBe(true);
     expect(existsSync(runDir)).toBe(false);
@@ -305,15 +325,25 @@ describe('runDbHelper(親の側)', () => {
     const child = new FakeChild();
     let fire: () => void = () => {};
     let runDir = '';
-    const p = runDbHelper(
-      { ...HREQ, timeoutMs: 60000 },
-      deps(child, { onSignal: (h) => ((fire = h), () => {}) }),
-      { onRunDir: (d) => (runDir = d) },
-    );
+    const p = runDbHelper(HREQ, deps(child, { onSignal: (h) => ((fire = h), () => {}) }), {
+      onRunDir: (d) => (runDir = d),
+    });
     await new Promise((r) => setImmediate(r));
     fire();
     await expect(p).rejects.toBeInstanceOf(InterruptedError);
     expect(child.killed).toBe(true);
+    expect(existsSync(runDir)).toBe(false);
+  });
+  it('子の stdin が error を出しても落ちず、close で決着してフォルダを消す', async () => {
+    const child = new FakeChild();
+    let runDir = '';
+    const p = runDbHelper(HREQ, deps(child), { onRunDir: (d) => (runDir = d) });
+    await new Promise((r) => setImmediate(r));
+    child.stdin.emit('error', new Error('write EPIPE'));
+    child.stdout.emit('error', new Error('boom'));
+    child.stderr.emit('error', new Error('boom'));
+    child.respond('', 1);
+    await expect(p).rejects.toMatchObject({ stage: 'child' });
     expect(existsSync(runDir)).toBe(false);
   });
   it('子を起動できなければ child 段階', async () => {
