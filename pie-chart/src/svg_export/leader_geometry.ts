@@ -663,7 +663,7 @@ export function replaceLeaderGeometryAt(
 }
 
 /** logical box 1 つを pixel 空間の辺へ射影する。 */
-function projectBoxToPixels(lb: BBox, coord: Coord): PixelBox {
+export function projectBoxToPixels(lb: BBox, coord: Coord): PixelBox {
   return {
     left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
     right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
@@ -1090,10 +1090,7 @@ export function boxViewOverflowOf(p: Placement, cfg: PieLayoutConfig, coord: Coo
 
 /** `boxViewOverflowOf` の box 版。 */
 export function boxViewOverflowOfBox(lb: BBox, coord: Coord): number {
-  const left = Math.min(coord.xScale(lb.left), coord.xScale(lb.right));
-  const right = Math.max(coord.xScale(lb.left), coord.xScale(lb.right));
-  const top = Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom));
-  const bottom = Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom));
+  const { left, right, top, bottom } = projectBoxToPixels(lb, coord);
   return Math.max(-left, right - coord.width, -top, bottom - coord.height);
 }
 

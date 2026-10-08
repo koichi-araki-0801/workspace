@@ -61,13 +61,14 @@ import {
   boxOverlapMaxOf,
   boxPieIntrusionMaxOf,
   boxViewOverflowOfBox,
+  projectBoxToPixels,
   boxViewOverflowMaxOf,
   oobLeaderCountFrom,
   crossCountWithChanged,
   throughCountWithChanged,
   buildScoreBase,
 } from './leader_geometry.js';
-import type { Pt, Coord, LeaderGeometry, ScoreBase } from './leader_geometry.js';
+import type { Pt, Coord, LeaderGeometry, ScoreBase, PixelBox } from './leader_geometry.js';
 import { radialFraction, pieClearanceWithinViewBox } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import { FINAL_CONDENSE_MIN_SCALE } from './post_layout.js';
@@ -158,16 +159,8 @@ export function countDefects(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): DefectCounts {
-  const { xScale, yScale, width, height } = coord;
-  const pboxes = finalized.map((p) => {
-    const lb = placementBox(p, cfg);
-    return {
-      left: Math.min(xScale(lb.left), xScale(lb.right)),
-      right: Math.max(xScale(lb.left), xScale(lb.right)),
-      top: Math.min(yScale(lb.top), yScale(lb.bottom)),
-      bottom: Math.max(yScale(lb.top), yScale(lb.bottom)),
-    };
-  });
+  const { width, height } = coord;
+  const pboxes = finalized.map((p) => placementPixelRect(p, cfg, coord));
   let clips = 0;
   let issues = 0;
   for (let i = 0; i < finalized.length; i += 1) {
@@ -189,23 +182,8 @@ export function countDefects(
   const crossings = countLeaderCrossings(finalized, cfg, coord);
   issues += crossings;
   const paths = realLeaderPaths(finalized, cfg, coord);
-  const cx = xScale(0);
-  const cy = yScale(0);
-  const pieR = Math.abs(xScale(cfg.pieRadius) - xScale(0));
-  let pie = 0;
-  for (const path of paths) {
-    if (!path) continue;
-    for (let k = 0; k + 1 < path.length; k += 1) {
-      if (
-        distPointToSegment(cx, cy, path[k].x, path[k].y, path[k + 1].x, path[k + 1].y) <
-        pieR - 1
-      ) {
-        issues += 1;
-        pie += 1;
-        break;
-      }
-    }
-  }
+  const pie = leaderPieCrossCountFrom(paths, cfg, coord);
+  issues += pie;
   return { clips, crossings, pie, total: issues };
 }
 
@@ -1167,23 +1145,9 @@ function escapeUpperLeftTinyLeaders(
 // 厳密減にしたときだけ採用し、悪化すれば元位置へ revert する。汎用に効く (特定サンプル決め打ちでない)
 // が、近接の無い図は deficit≈0 で早期 continue するため無変更。以下は計測用の共有ヘルパと本体。
 
-/** px 空間の矩形。`countDefects` の pbox と同じ作り (yScale 反転を min/max で吸収)。 */
-interface PixRect {
-  left: number;
-  right: number;
-  top: number;
-  bottom: number;
-}
-
 /** placement の box を pixel 矩形へ変換する。 */
-export function placementPixelRect(p: Placement, cfg: PieLayoutConfig, coord: Coord): PixRect {
-  const lb = placementBox(p, cfg);
-  return {
-    left: Math.min(coord.xScale(lb.left), coord.xScale(lb.right)),
-    right: Math.max(coord.xScale(lb.left), coord.xScale(lb.right)),
-    top: Math.min(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-    bottom: Math.max(coord.yScale(lb.top), coord.yScale(lb.bottom)),
-  };
+export function placementPixelRect(p: Placement, cfg: PieLayoutConfig, coord: Coord): PixelBox {
+  return projectBoxToPixels(placementBox(p, cfg), coord);
 }
 
 /** non-clip/crossing/pie の純粋な box 重なり件数 (`countDefects` の分解)。 */
@@ -1252,14 +1216,14 @@ function countBoxPieIntrusions(
 }
 
 /** px 点と矩形の最短距離 (矩形内は 0)。 */
-function pointToRectPx(px: number, py: number, r: PixRect): number {
+function pointToRectPx(px: number, py: number, r: PixelBox): number {
   const dx = Math.max(r.left - px, 0, px - r.right);
   const dy = Math.max(r.top - py, 0, py - r.bottom);
   return Math.hypot(dx, dy);
 }
 
 /** px 線分と矩形の最短距離の近似 (矩形4隅→線分 と 線分2端→矩形 の最小)。交差時はほぼ 0。 */
-function segToRectPx(ax: number, ay: number, bx: number, by: number, r: PixRect): number {
+function segToRectPx(ax: number, ay: number, bx: number, by: number, r: PixelBox): number {
   let d = Math.min(pointToRectPx(ax, ay, r), pointToRectPx(bx, by, r));
   const corners: [number, number][] = [
     [r.left, r.top],
@@ -1725,18 +1689,22 @@ function leaderPieCrossCountFrom(
   const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
   let c = 0;
   for (const path of paths) {
-    if (!path) continue;
-    for (let k = 0; k + 1 < path.length; k += 1) {
-      if (
-        distPointToSegment(cx, cy, path[k].x, path[k].y, path[k + 1].x, path[k + 1].y) <
-        pieRPx - 1
-      ) {
-        c += 1;
-        break;
-      }
-    }
+    if (path && leaderPathEntersPie(path, cx, cy, pieRPx)) c += 1;
   }
   return c;
+}
+
+/** leader パスのどれかの線分が、中心 (cx, cy)・半径 `pieRPx - 1` の円の内側へ入るか (pixel 判定)。 */
+function leaderPathEntersPie(path: Pt[], cx: number, cy: number, pieRPx: number): boolean {
+  for (let k = 0; k + 1 < path.length; k += 1) {
+    if (
+      distPointToSegment(cx, cy, path[k].x, path[k].y, path[k + 1].x, path[k + 1].y) <
+      pieRPx - 1
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1765,12 +1733,7 @@ function collectDefectInvolved(
         involved.add(j);
       }
     }
-    for (let k = 0; k + 1 < pa.length; k += 1) {
-      if (distPointToSegment(cx, cy, pa[k].x, pa[k].y, pa[k + 1].x, pa[k + 1].y) < pieRPx - 1) {
-        involved.add(i);
-        break;
-      }
-    }
+    if (leaderPathEntersPie(pa, cx, cy, pieRPx)) involved.add(i);
     for (let j = 0; j < placements.length; j += 1) {
       if (j !== i && leaderCrossesBox(pa, boxes[j])) {
         involved.add(i);
