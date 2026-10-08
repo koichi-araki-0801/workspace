@@ -24,7 +24,7 @@ Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
 #   2. `--ignore-scripts` で lifecycle script を一律実行しない。exe ビルドに script 実行が
 #      必要な依存は無い(esbuild は optionalDependencies のプラットフォーム別バイナリ、
 #      subset-font/harfbuzzjs は wasm 同梱。msnodesqlv8 の native build は走らなくなるが、
-#      exe は DB 入力非対応なので不要)。
+#      この経路は `--no-db` で DB 機能なしにビルドするので不要)。
 # `npm ci` は node_modules を自前で消してから入れるため、開発機の pnpm symlink 構成も
 # フラットな npm 構成へ置き換わる。pnpm ワークスペースの依存解決をそのまま使いたい
 # 場合は、本 .bat/.ps1 ではなく `pnpm run build:exe` を使うこと。

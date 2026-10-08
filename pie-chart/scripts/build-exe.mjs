@@ -16,7 +16,7 @@
 // `fonts/` や `node_modules/` の sidecar は作らない。sidecar を置くと、署名の外にある
 // 書き込み可能なファイルを実行時に読むことになり、上位ディレクトリへ偽 `subset-font` を
 // 置くだけで別ユーザーの exe 内でコードが走る。実行されるものは
-// すべて exe の中 = Authenticode 署名の内側に入れる。SEA 側の受け口は
+// すべて exe の中に入れる。SEA 側の受け口は
 // `src/runtime/seaRuntime.ts`(アセット許可リスト・モジュール解決封鎖)。
 //
 // ビルドを止めるアサートを 5 つ持つ(壊れたら黙って劣化させず落とす):
@@ -246,7 +246,7 @@ const sqlserverv8Plugin = {
   name: 'sqlserverv8-shim',
   setup(pluginBuild) {
     const shim = join(root, 'src', 'runtime', 'sqlserverv8Shim.cjs');
-    pluginBuild.onResolve({ filter: /sqlserverv8.node$/ }, () => ({ path: shim }));
+    pluginBuild.onResolve({ filter: /sqlserverv8\.node$/ }, () => ({ path: shim }));
   },
 };
 
@@ -291,7 +291,7 @@ await build({
 // 1-c. アサート E: ドライバの require が shim へ差し替わったこと -----------------------
 if (!noDb) {
   const bundleSrc = readFileSync(bundlePath, 'utf8');
-  const leftovers = bundleSrc.match(/require(s*["'][^"']*sqlserverv8.node["']s*)/g) ?? [];
+  const leftovers = bundleSrc.match(/require\(\s*["'][^"']*sqlserverv8\.node["']\s*\)/g) ?? [];
   const shimHits = bundleSrc.match(/pie-chart:sqlserverv8-shim/g) ?? [];
   if (leftovers.length !== 0 || shimHits.length !== 1) {
     fail(

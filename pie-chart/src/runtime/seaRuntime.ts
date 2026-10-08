@@ -4,10 +4,10 @@
 // 配布物は **exe 1 個**で、実行されるコードとデータ(subset-font の JS 閉包 / harfbuzz
 // wasm / 埋込フォント woff2)はすべて exe の内側にある。例外は DB ドライバ(`sqlserverv8.node`)で、
 // ネイティブモジュールは実ファイルからしか読めないため、照合してから一時フォルダ経由で読む
-// (`runtime/nativeDriver.ts`)。exe の隣や上位
-// ディレクトリの `node_modules` を実行時に解決すると、書き込み可能な場所(既定 ACL の
-// `C:\` は Authenticated Users が AppendData を持つ)へ置かれた偽モジュールがexe の
-// 外から読み込まれ、別ユーザーが起動した exe の中で攻撃者のコードが走る。ゆえに SEA では
+// (`runtime/nativeDriver.ts`)。
+// exe の隣や上位ディレクトリの `node_modules` を実行時に解決すると、書き込み可能な場所
+// (既定 ACL の `C:\` は Authenticated Users が AppendData を持つ)へ置かれた偽モジュールが
+// exe の外から読み込まれ、別ユーザーが起動した exe の中で攻撃者のコードが走る。ゆえに SEA では
 //   1. builtin 以外のモジュール解決をすべて拒否する(`installSeaGuards`)
 //   2. 外部ファイル参照は SEA アセットの **固定キー許可リスト**経由のみにする
 // の 2 段で閉じる。1 は多層防御で、主防御は「解決が必要なコードが 1 行も無い」こと。
