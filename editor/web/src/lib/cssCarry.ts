@@ -15,7 +15,7 @@
 // 字句は外部参照の検査と同じ走査器(`collectCssStructure`)から取り、文字列・コメントの中の `{` `}`
 // `@` に騙されない。閉じていない `@font-face` は範囲が決まらないので取り出さない。
 
-import { collectCssStructure } from '@editor/shared';
+import { asciiLower, collectCssStructure, firstSignificant } from '@editor/shared';
 
 /** `@font-face` を取り出す外側の at-rule(名前は小文字)。 */
 const CARRIED_GROUP_AT_RULES = new Set(['media', 'supports']);
@@ -38,37 +38,6 @@ interface OpenBlock {
   fontFaceAt: number | null;
 }
 
-/** ASCII の英大文字だけを小文字にする(CSS の at-rule 名は ASCII の範囲だけ大文字小文字を区別しない)。 */
-function asciiLower(s: string): string {
-  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
-}
-
-/**
- * `css` の `[from, to)` が空白とコメントだけかを返す判定器。`comments` は位置順で、呼び出しは
- * `from` が単調に増える順に限る。コメントの添字を呼び出しをまたいで進めるので、全体で入力長に
- * 線形になる。
- */
-function triviaChecker(
-  css: string,
-  comments: ReadonlyArray<{ start: number; end: number }>,
-): (from: number, to: number) => boolean {
-  let k = 0;
-  return (from, to) => {
-    let i = from;
-    while (i < to) {
-      while (k < comments.length && comments[k].end <= i) k++;
-      const c = comments[k];
-      if (c !== undefined && c.start <= i) {
-        i = c.end;
-        continue;
-      }
-      if (!/\s/.test(css[i] ?? '')) return false;
-      i++;
-    }
-    return true;
-  };
-}
-
 /**
  * `@media` / `@supports` の中(何段の入れ子でも、外側がすべてこの 2 つ)にある `@font-face` を
  * 取り出す。
@@ -76,25 +45,23 @@ function triviaChecker(
  */
 export function splitNestedFontFaces(css: string): CarriedCss {
   const { punct, comments, atRules } = collectCssStructure(css);
-  const ats = [...atRules.entries()].sort((a, b) => a[0] - b[0]);
-  const onlyTrivia = triviaChecker(css, comments);
+  const commentEnd = new Map(comments.map((c) => [c.start, c.end]));
   const stack: OpenBlock[] = [];
   const found: Array<{ start: number; end: number; text: string }> = [];
   /** 今の文の頭(直前の `{` `}` `;` の直後)。 */
   let stmtStart = 0;
-  let ai = 0;
   for (const p of punct) {
     if (p.ch === '{') {
-      while (ai < ats.length && ats[ai][0] < stmtStart) ai++;
-      const cand = ats[ai];
-      const head =
-        cand !== undefined && cand[0] < p.at && onlyTrivia(stmtStart, cand[0]) ? cand : undefined;
-      const name = head ? asciiLower(head[1]) : '';
+      // ブロックの頭(文の頭から空白・コメントを除いた最初の字)が at-rule の `@` なら、その at-rule。
+      // 文の頭は単調に進むので、走査は全体で入力長に線形になる。
+      const first = firstSignificant(css, commentEnd, stmtStart, p.at);
+      const head = first !== undefined && atRules.has(first) ? first : undefined;
+      const name = head === undefined ? '' : asciiLower(atRules.get(head) ?? '');
       const nested = stack.length > 0 && stack.every((o) => o.group);
       stack.push({
         group: CARRIED_GROUP_AT_RULES.has(name),
-        prelude: head ? css.slice(head[0], p.at) : '',
-        fontFaceAt: head && name === 'font-face' && nested ? head[0] : null,
+        prelude: head === undefined ? '' : css.slice(head, p.at),
+        fontFaceAt: head !== undefined && name === 'font-face' && nested ? head : null,
       });
     } else if (p.ch === '}') {
       const block = stack.pop();

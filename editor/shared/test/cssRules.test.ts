@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canonicalCssRuleKeys,
+  firstSignificant,
   foldedCssRuleTexts,
   mergeCssRuleChanges,
   mergeCssRuleChangesFromBaseline,
@@ -1461,5 +1462,25 @@ describe('mergeCssRuleChangesFromBaseline — 末尾へ運んだ入れ子の @fo
     const baseline = `${gjs('x:1;')}@font-face{font-family:F;src:url("fonts/g.woff2");}`;
     const r = mergeCssRuleChangesFromBaseline(base, baseline, baseline, base);
     expect(r).toEqual({ css: base, applied: [], conflicts: [], unmatched: [] });
+  });
+});
+
+describe('firstSignificant — コメントと空白を除いた最初の文字', () => {
+  // `css` のコメントの開始位置 → 終わり(文字列を考えない簡易版)。
+  const commentEnds = (css: string): Map<number, number> => {
+    const m = new Map<number, number>();
+    for (const c of css.matchAll(/\/\*[\s\S]*?\*\//g)) m.set(c.index, c.index + c[0].length);
+    return m;
+  };
+  it.each([
+    ['@media x', 0, 8, 0],
+    ['  /* a */ @media', 0, 16, 10],
+    ['/* a *//* b */\n.a', 0, 17, 15],
+    ['   ', 0, 3, undefined],
+    ['/* a */', 0, 7, undefined],
+    ['ab  cd', 2, 6, 4],
+    ['ab  cd', 2, 4, undefined],
+  ])('%j の [%i, %i) → %s', (css, from, to, want) => {
+    expect(firstSignificant(css, commentEnds(css), from, to)).toBe(want);
   });
 });

@@ -558,6 +558,71 @@ function collapseOutsideStrings(s: string): string {
 }
 
 /**
+ * `css` の `[from, to)` でコメントと空白を除いた最初の文字の位置。無ければ undefined。
+ * `commentEnd` はコメントの開始位置 → 終わりの位置(`collectCssStructure` の `comments` から作る)で、
+ * コメントの途中から始めないこと。規則や at-rule の頭(`atRules` のキー)を引くのに使う。
+ */
+export function firstSignificant(
+  css: string,
+  commentEnd: ReadonlyMap<number, number>,
+  from: number,
+  to: number,
+): number | undefined {
+  let k = from;
+  while (k < to) {
+    const skip = commentEnd.get(k);
+    if (skip !== undefined) {
+      k = skip;
+      continue;
+    }
+    if (!/\s/.test(css[k])) return k;
+    k++;
+  }
+  return undefined;
+}
+
+/**
+ * `s` の `[from, to)` を括弧・`[…]`・文字列・エスケープの外の `,` で分けた範囲の列。`commentEnd`
+ * (コメントの開始位置 → 終わり)を渡すと、コメントの中の `,` も分けない。
+ */
+function topLevelCommaSegments(
+  s: string,
+  from: number,
+  to: number,
+  commentEnd?: ReadonlyMap<number, number>,
+): Array<[number, number]> {
+  const segments: Array<[number, number]> = [];
+  let segFrom = from;
+  let depth = 0;
+  let k = from;
+  while (k < to) {
+    const skip = commentEnd?.get(k);
+    if (skip !== undefined) {
+      k = skip;
+      continue;
+    }
+    const c = s[k];
+    if (c === '"' || c === "'") {
+      k = stringEnd(s, k);
+      continue;
+    }
+    if (c === '\\') {
+      k += escapeLength(s, k);
+      continue;
+    }
+    if (c === '(' || c === '[') depth++;
+    else if ((c === ')' || c === ']') && depth > 0) depth--;
+    else if (c === ',' && depth === 0) {
+      segments.push([segFrom, k]);
+      segFrom = k + 1;
+    }
+    k++;
+  }
+  segments.push([segFrom, to]);
+  return segments;
+}
+
+/**
  * 原文を規則へ分ける(キーと入れ子の情報つき)。`expandLists` なら、宣言だけを持つ規則のセレクタの
  * 並びを 1 セレクタずつの見かけの規則に展開する(照合の経路だけが立てる)。
  */
@@ -566,19 +631,8 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
   const commentEnd = new Map(comments.map((c) => [c.start, c.end]));
 
   /** `[from, to)` でコメントと空白を除いた最初の文字の位置。無ければ undefined。 */
-  const firstSignificant = (from: number, to: number): number | undefined => {
-    let k = from;
-    while (k < to) {
-      const skip = commentEnd.get(k);
-      if (skip !== undefined) {
-        k = skip;
-        continue;
-      }
-      if (!/\s/.test(css[k])) return k;
-      k++;
-    }
-    return undefined;
-  };
+  const significantAt = (from: number, to: number): number | undefined =>
+    firstSignificant(css, commentEnd, from, to);
 
   /**
    * `[from, to)` のコメントを `commentAs` に置き換え、空白を畳み、`,` の前後の空白を消す(キー用)。
@@ -632,37 +686,8 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
    * `[from, to)` を括弧・`[…]`・文字列・コメント・エスケープの外の `,` で分けた範囲の列。
    * `:is(.a, .b)` や `[title="a,b"]` の `,` はセレクタの一部なので分けない。
    */
-  const listSegments = (from: number, to: number): Array<[number, number]> => {
-    const segments: Array<[number, number]> = [];
-    let segFrom = from;
-    let depth = 0;
-    let k = from;
-    while (k < to) {
-      const skip = commentEnd.get(k);
-      if (skip !== undefined) {
-        k = skip;
-        continue;
-      }
-      const c = css[k];
-      if (c === '"' || c === "'") {
-        k = stringEnd(css, k);
-        continue;
-      }
-      if (c === '\\') {
-        k += escapeLength(css, k);
-        continue;
-      }
-      if (c === '(' || c === '[') depth++;
-      else if ((c === ')' || c === ']') && depth > 0) depth--;
-      else if (c === ',' && depth === 0) {
-        segments.push([segFrom, k]);
-        segFrom = k + 1;
-      }
-      k++;
-    }
-    segments.push([segFrom, to]);
-    return segments;
-  };
+  const listSegments = (from: number, to: number): Array<[number, number]> =>
+    topLevelCommaSegments(css, from, to, commentEnd);
 
   /**
    * セレクタの並び `[start, at)` を 1 セレクタずつ(正規化したキーと原文の書き方)にする。並びで
@@ -676,7 +701,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
     const segments = listSegments(start, at);
     if (segments.length < 2) return undefined;
     const items = segments.map(([a, b]) => {
-      const from = firstSignificant(a, b) ?? b;
+      const from = significantAt(a, b) ?? b;
       return {
         identity: canonicalSelector(normalize(from, b, '')),
         head: css.slice(from, trimmedEnd(from, b)),
@@ -705,7 +730,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
   while (i < punct.length) {
     const { ch, at } = punct[i];
     if (ch === '{') {
-      const start = firstSignificant(segStart, at) ?? at;
+      const start = significantAt(segStart, at) ?? at;
       const name = atRules.get(start)?.toLowerCase();
       const prelude =
         name === undefined
@@ -789,7 +814,7 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
       continue;
     }
     // `;` と `}` の手前にある、ブロックを持たない文(`@charset "x";` など)。
-    const start = firstSignificant(segStart, at);
+    const start = significantAt(segStart, at);
     if (start !== undefined) {
       // `;` で終わる文は `;` まで。`}` の手前で終わる文は末尾の空白を含めない。
       let end = ch === ';' ? at + 1 : at;
@@ -868,29 +893,7 @@ function canonicalKeyPart(part: string): string {
  * (`scanCssRules` の `expandList`)と同じ条件にし、展開されないキーは並びのまま残す。
  */
 function splitSelectorList(sel: string): string[] | undefined {
-  const items: string[] = [];
-  let from = 0;
-  let depth = 0;
-  let k = 0;
-  while (k < sel.length) {
-    const c = sel[k];
-    if (c === '"' || c === "'") {
-      k = stringEnd(sel, k);
-      continue;
-    }
-    if (c === '\\') {
-      k += escapeLength(sel, k);
-      continue;
-    }
-    if (c === '(' || c === '[') depth++;
-    else if ((c === ')' || c === ']') && depth > 0) depth--;
-    else if (c === ',' && depth === 0) {
-      items.push(sel.slice(from, k).trim());
-      from = k + 1;
-    }
-    k++;
-  }
-  items.push(sel.slice(from).trim());
+  const items = topLevelCommaSegments(sel, 0, sel.length).map(([a, b]) => sel.slice(a, b).trim());
   if (items.length < 2 || items.includes('') || new Set(items).size !== items.length) {
     return undefined;
   }

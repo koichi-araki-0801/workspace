@@ -23,7 +23,10 @@ export const RAW_TEXT_ELEMENTS: ReadonlySet<string> = new Set([
 
 /**
  * ASCII の英大文字だけを小文字にした写し。長さも各文字の位置も原文と同じになる。ブラウザの
- * 字句解析もタグ名を ASCII だけで小文字にする。
+ * 字句解析もタグ名を ASCII だけで小文字にする。CSS の関数名・プロパティ名・at-rule 名の比較
+ * (`security/cssExternalRefs.ts`、web の `lib/cssCarry.ts`)もこれを使う: CSS も ASCII の範囲でだけ
+ * 大文字小文字を区別せず、`toLowerCase` で非 ASCII まで畳むと(U+212A のケルビン記号が `k` に
+ * なる等)ブラウザと違う名前で判定する。
  *
  * ⚠ `findRawTextEnd` へ渡す写しは必ずこれで作る。`toLowerCase` は `İ`(U+0130)を 2 単位へ伸ばす
  * ので、その写しの上の位置を原文の位置として使うと、`İ` 1 つにつき 1 文字ずつ後ろへずれる。

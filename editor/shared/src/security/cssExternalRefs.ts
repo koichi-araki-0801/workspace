@@ -23,6 +23,7 @@
 // `collectCssStringsInFunctions` はこの方針の裏返しで、関数名を見るのは「URL にならない
 // 安全な関数」の許可リストを当てるためだけ。知らない関数の中の文字列は URL 候補の側へ倒れる。
 
+import { asciiLower } from '../html/rawText.js';
 import { stripUrlIgnoredChars } from './urlNormalize.js';
 
 /**
@@ -461,15 +462,6 @@ export function collectCssStringsInFunctions(css: string): CssFunctionString[] {
  */
 function isSubstitutableDecl(decl: string): boolean {
   return decl.startsWith('--') || asciiLower(decl) === 'initial-value';
-}
-
-/**
- * ASCII の英大文字だけを小文字にする。CSS の関数名・プロパティ名の比較は ASCII の範囲でだけ
- * 大文字小文字を区別しないので、`toLowerCase` で非 ASCII まで畳むと(U+212A のケルビン記号が
- * `k` になる等)ブラウザと違う名前で判定する。
- */
-function asciiLower(s: string): string {
-  return s.replace(/[A-Z]/g, (c) => c.toLowerCase());
 }
 
 /** `collectCssStructure` の結果。位置はすべて原文のオフセット。 */
