@@ -727,7 +727,7 @@ export function applyTopBandClusterReorder(
   coord: Coord,
   leftStackMode: boolean,
 ): void {
-  // forceTopRight 済 (= clusterTopBandBottomRight で右上 rim へ逃げた) item は再配置対象外。
+  // forceTopRight 済 (= `clusterTopBandBottom` で右上 rim へ逃げた) item は再配置対象外。
   // layout/placement.ts 側で確定済みの右上 rim 配置を尊重し、左帯の再スタックには参加させない。
   const cluster = placements.filter(
     (p) => p.item.clusterTopBand === true && !p.insideSlice && !p.forceTopRight,

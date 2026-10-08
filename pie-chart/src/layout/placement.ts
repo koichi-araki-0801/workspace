@@ -65,6 +65,24 @@ interface PlacementDraft {
   forceTopRight?: boolean;
 }
 
+/**
+ * 引出線を持たない draft (`lineStart` = `lineEnd` = テキスト位置)。leader は finalize 後に
+ * anchor から自動接続するため、draft 段では端点をテキスト位置に縮退させる。
+ */
+function pointDraft(
+  textX: number,
+  textY: number,
+  fields: Omit<PlacementDraft, 'textX' | 'textY' | 'lineStart' | 'lineEnd'>,
+): PlacementDraft {
+  return {
+    textX,
+    textY,
+    lineStart: { x: textX, y: textY },
+    lineEnd: { x: textX, y: textY },
+    ...fields,
+  };
+}
+
 // =============================================================================
 // 1. constants — 配置ルーティングで使う角度帯 / 優勢度の閾値
 // =============================================================================
@@ -309,18 +327,12 @@ export function outsideFormForRank(
 
 /** inside 配置の draft (wedge 中心・leader なし)。 */
 export function buildInsideDraft(fit: InsideFit): PlacementDraft {
-  const cx = fit.centerX!;
-  const cy = fit.centerY!;
-  return {
-    textX: cx,
-    textY: cy,
+  return pointDraft(fit.centerX!, fit.centerY!, {
     anchor: 'middle',
     baseline: 'middle',
-    lineStart: { x: cx, y: cy },
-    lineEnd: { x: cx, y: cy },
     allowSegmentNudge: false,
     insideSlice: true,
-  };
+  });
 }
 
 /**
@@ -368,9 +380,19 @@ function topBandSonohokaRight(
 }
 
 /**
- * 「12時直右へ逃がす」3 経路 (topBandSonohokaRight 右パス / topBandSmallRight /
- * clusterTopBandBottomRight) で共有する、箱を **pie キャップより完全に上** へ持ち上げる
- * draft ビルダ。
+ * 箱全体を pie キャップより上に置く baseline=bottom の textY。baseline=bottom では textY が箱上端
+ * なので、箱下端 (textY − form.height) を pieRadius + クリアランスへ揃えるには
+ * textY = pieRadius + クリアランス + form.height。canvas 上端は越えないようクランプする。
+ */
+function liftedCapY(cfg: PieLayoutConfig, form: LabelForm): number {
+  const capClear = radialFraction(cfg, 0.012, 0.12);
+  return Math.min(cfg.pieRadius + capClear + form.height, cfg.scaledYTop - cfg.canvasSafetyMargin);
+}
+
+/**
+ * 「12時直右へ逃がす」3 経路 (`topBandSonohokaRight` 右パス / `topRightEscapeIf` の
+ * `topBandSmallRight` と `clusterTopBandBottom`) で共有する、箱を **pie キャップより完全に上** へ
+ * 持ち上げる draft ビルダ。
  *
  * 箱上端 (baseline=bottom の textY) を pieRadius + 小クリアランスに置く形だと、箱下端
  * (= textY − 高さ) が円の y 域 (|y| < pieRadius) に入るため、後段 pie クリアランスクランプが
@@ -389,13 +411,7 @@ function topRightLiftedRimDraft(
 ): PlacementDraft {
   const anchorX = item.anchorX;
   const labelX = Math.abs(anchorX) + radialFraction(cfg, 0.12, 1.5);
-  // baseline=bottom では textY が箱上端。箱下端 (textY − form.height) を pieRadius + クリアランスへ
-  // 揃えるには textY = pieRadius + クリアランス + form.height。canvas 上端は越えないようクランプ。
-  const capClear = radialFraction(cfg, 0.012, 0.12);
-  const labelY = Math.min(
-    cfg.pieRadius + capClear + form.height,
-    cfg.scaledYTop - cfg.canvasSafetyMargin,
-  );
+  const labelY = liftedCapY(cfg, form);
   return {
     textX: labelX,
     textY: labelY,
@@ -411,43 +427,27 @@ function topRightLiftedRimDraft(
 }
 
 /**
- * 12時直左の小スライス (top-band) を右上空白へ逃がす draft を返す。`topBandSmallRight` フラグ
- * (`layout/diagnostics.ts` の `markTopBandSmallRight` が立てる) を持つ item のみ対象。配置座標は `topBandSonohokaRight`
- * の右パスと同一 (slice から縦に抜けて右へ折れる L 字 + anchor=start)。anchorX が僅かに負でも
- * 右側を維持するため `forceTopRight` で `clampToAnchorSide` の中心跨ぎ引き戻しを免除する。
+ * 12時付近のスライスを右上空白へ逃がす draft を返す。`flag` が偽なら null。座標は
+ * `topBandSonohokaRight` の右パスと同一 (slice から縦に抜けて右へ折れる L 字 + anchor=start) で、
+ * 箱を pie キャップより上へ持ち上げて pie 横押し出しを無効化する (`topRightLiftedRimDraft`)。
+ * anchorX が僅かに負でも右側を維持するため `forceTopRight` で `clampToAnchorSide` の中心跨ぎ
+ * 引き戻しを免除する。フラグは `layout/diagnostics.ts` が立てる次の 2 種:
  *
- * 用途: 上左に小 top-band スライスが 2 つ並んで混雑し、左帯に縦積みすると片方が長体化する時、
- * 12時に最も近い 1 件を右上の空白へ出して両ラベルとも原寸 2 行に収める。フラグが無ければ null。
+ * - `topBandSmallRight` (`markTopBandSmallRight`): 上左に小 top-band スライスが 2 つ並んで混雑し、
+ *   左帯に縦積みすると片方が長体化する時、12時に最も近い 1 件を右上の空白へ出して両ラベルとも
+ *   原寸 2 行に収める。
+ * - `clusterTopBandBottom`: topBandClusterMode の「最下段」(12時 真近 mid 90°±5°) 構成員。左帯の
+ *   最下段に押し込むと leader が pie 上を大きく跨いで視覚的に長くなるため、右半が空く dominant
+ *   チャートで右上 rim を出口に使う。
  */
-function topBandSmallRight(
+function topRightEscapeIf(
+  flag: boolean | undefined,
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
   form: LabelForm,
   opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
-  if (!item.topBandSmallRight) return null;
-  // 12時直右に短い leader で据える。箱を pie キャップより上へ持ち上げ pie 横押し出しを無効化する
-  // (topRightLiftedRimDraft 共通実装)。
-  return topRightLiftedRimDraft(item, cfg, form, opts);
-}
-
-/**
- * topBandClusterMode の「最下段」(12時 真近 mid 90°±5°) 構成員ラベルを、`topBandSonohokaRight`
- * と同じ右上 rim 配置で逃がす draft を返す。anchorX が僅かに負でも右側を維持するため
- * `forceTopRight` で `clampToAnchorSide` の中心跨ぎ引き戻しを免除する。条件外なら null。
- *
- * 用途: 12時 真近 (mid 90°±5°) のスライスは左帯の最下段に押し込むと leader が pie 上を
- * 大きく跨いで視覚的に長くなる。右半が空く dominant チャートで右上 rim を出口に使う。
- * `clusterTopBandBottom` は layout/diagnostics.ts で立つフラグ。
- */
-function clusterTopBandBottomRight(
-  item: LayoutItemReady,
-  cfg: PieLayoutConfig,
-  form: LabelForm,
-  opts: { allowSegmentNudge: boolean },
-): PlacementDraft | null {
-  if (!item.clusterTopBandBottom) return null;
-  // 12時直右へ逃がす。箱を pie キャップより上へ持ち上げ短い leader にする (topRightLiftedRimDraft 共通)。
+  if (!flag) return null;
   return topRightLiftedRimDraft(item, cfg, form, opts);
 }
 
@@ -472,15 +472,11 @@ function bottomCenterBelow(
   // pieClearance は付けない: 箱は pie の **真下** に押し下げ済で X 方向の円クリアランスは不要
   // (pieClearance を立てると closestY が円外でも anchor=middle 箱を横へ叩き出す)。円との距離は
   // runCascadeOnce の nudgeTextAwayFromPie (真下へ押下げ) が担保する。
-  return {
-    textX,
-    textY,
+  return pointDraft(textX, textY, {
     anchor: 'middle',
     baseline: 'top',
-    lineStart: { x: textX, y: textY },
-    lineEnd: { x: textX, y: textY },
     allowSegmentNudge: opts.allowSegmentNudge,
-  };
+  });
 }
 
 /**
@@ -516,11 +512,11 @@ export function buildOutsideRimDraft(
     allowSegmentNudge: false,
   });
   if (right) return right;
-  const clusterRight = clusterTopBandBottomRight(item, cfg, form, {
+  const clusterRight = topRightEscapeIf(item.clusterTopBandBottom, item, cfg, form, {
     allowSegmentNudge: false,
   });
   if (clusterRight) return clusterRight;
-  const smallRight = topBandSmallRight(item, cfg, form, {
+  const smallRight = topRightEscapeIf(item.topBandSmallRight, item, cfg, form, {
     allowSegmentNudge: false,
   });
   if (smallRight) return smallRight;
@@ -537,17 +533,13 @@ export function buildOutsideRimDraft(
       ? item.upperLeftRenderY
       : Math.sin(rad) * r;
   const { anchor, baseline } = radialAnchorBaseline(Math.cos(rad), Math.sin(rad));
-  return {
-    textX,
-    textY,
+  return pointDraft(textX, textY, {
     anchor,
     baseline,
-    lineStart: { x: textX, y: textY },
-    lineEnd: { x: textX, y: textY },
     allowSegmentNudge: false,
     pieClearance: true,
     dominantOutsideEdge: true,
-  };
+  });
 }
 
 /**
@@ -563,7 +555,7 @@ export function buildOutsideLeaderDraft(
     allowSegmentNudge: true,
   });
   if (right) return right;
-  const smallRight = topBandSmallRight(item, cfg, form, {
+  const smallRight = topRightEscapeIf(item.topBandSmallRight, item, cfg, form, {
     allowSegmentNudge: true,
   });
   if (smallRight) return smallRight;
@@ -586,17 +578,13 @@ export function buildOutsideLeaderDraft(
   // `forceOutsideLeader` (= 上部 far-sliver の up-and-over leader 経路) かつ near-12 middle のときだけ適用。
   const anchor =
     item.forceOutsideLeader && cosA < 0 && sinA > 0 && rawAnchor === 'middle' ? 'end' : rawAnchor;
-  return {
-    textX: labelX,
-    textY: labelY,
+  return pointDraft(labelX, labelY, {
     anchor,
     baseline,
-    lineStart: { x: labelX, y: labelY },
-    lineEnd: { x: labelX, y: labelY },
     allowSegmentNudge: true,
     pieClearance: true,
     dominantOutsideEdge: true,
-  };
+  });
 }
 
 /**
@@ -614,13 +602,7 @@ function topLiftedRimLeft(
   // anchorX は 12時直左で僅かに負。riser (anchorX) から左へ明確にオフセットし、「その他」(右) と扇形に
   // 分離させる横走りを確保する。
   const labelX = -(Math.abs(anchorX) + radialFraction(cfg, 0.3, 3.0));
-  // baseline=bottom では textY が箱上端。箱下端 (textY − form.height) を pieRadius + クリアランスへ
-  // 揃えて箱全体を円の上に置き、canvas 上端は越えないようクランプ (`topRightLiftedRimDraft` と同方針)。
-  const capClear = radialFraction(cfg, 0.012, 0.12);
-  const labelY = Math.min(
-    cfg.pieRadius + capClear + form.height,
-    cfg.scaledYTop - cfg.canvasSafetyMargin,
-  );
+  const labelY = liftedCapY(cfg, form);
   return {
     textX: labelX,
     textY: labelY,
@@ -651,17 +633,13 @@ const LOWER_LEFT_DROP_Y_FACTOR = 0.9;
 export function buildLowerLeftDropLeaderDraft(cfg: PieLayoutConfig): PlacementDraft {
   const textY = -cfg.pieRadius * LOWER_LEFT_DROP_Y_FACTOR;
   const textX = -cfg.pieRadius; // pieClearance が現在 y の円左縁へクランプする初期値
-  return {
-    textX,
-    textY,
+  return pointDraft(textX, textY, {
     anchor: 'end',
     baseline: 'top',
-    lineStart: { x: textX, y: textY },
-    lineEnd: { x: textX, y: textY },
     allowSegmentNudge: true,
     pieClearance: true,
     dominantOutsideEdge: true,
-  };
+  });
 }
 
 /**

@@ -188,7 +188,7 @@ export function computeDrawnLeader(
   const lineCount = placement.lines.length >= 2 ? 2 : 1;
   const perLineHeight = labelHeightUnits(1, cfg);
   if (placement.forceTopRight) {
-    // 上左帯の右上逃がし (その他 / topBandSmallRight / clusterTopBandBottomRight)。
+    // 上左帯の右上逃がし (その他 / `topBandSmallRight` / `clusterTopBandBottom`)。
     const capClearY = cfg.pieRadius + radialFraction(cfg, 0.012, 0.12);
     if (finalBox.bottom >= capClearY - 1e-9) {
       // 箱が完全に pie キャップより上 (topRightLiftedRimDraft): 通常の rim ラベルと同じく
