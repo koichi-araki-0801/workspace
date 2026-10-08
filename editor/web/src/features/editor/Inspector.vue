@@ -164,6 +164,12 @@ const ALIGN_LABEL: Record<Align, string> = {
   right: '右寄せ',
   stretch: '全幅',
 };
+// 横の配置の切替ボタン(幅 < 100% のときだけ出る 3 択。`stretch` は幅 100% の状態なので含めない)。
+const ALIGN_BUTTONS = [
+  { value: 'left', icon: AlignLeft },
+  { value: 'center', icon: AlignCenter },
+  { value: 'right', icon: AlignRight },
+] as const;
 const alignLabel = computed(() => (props.geom ? ALIGN_LABEL[props.geom.align] : ''));
 
 // 改ページの 3 項目(編集 toggle / 表示のみの読み取り行で共有)。前後は区切りの状態
@@ -338,19 +344,9 @@ const PB_CLASS =
           <div v-if="canAlign()" class="ins-row">
             <span class="text-muted-foreground">横の配置</span>
             <div v-if="editMode" class="flex gap-0.5">
-              <Tooltip text="左寄せ">
-                <Button variant="ghost" aria-label="左寄せ" :aria-pressed="geom.align === 'left'" :class="cn(SEG_CLASS, geom.align === 'left' && ON_CLASS)" @click="setAlign('left')">
-                  <AlignLeft class="h-[15px] w-[15px]" />
-                </Button>
-              </Tooltip>
-              <Tooltip text="中央">
-                <Button variant="ghost" aria-label="中央" :aria-pressed="geom.align === 'center'" :class="cn(SEG_CLASS, geom.align === 'center' && ON_CLASS)" @click="setAlign('center')">
-                  <AlignCenter class="h-[15px] w-[15px]" />
-                </Button>
-              </Tooltip>
-              <Tooltip text="右寄せ">
-                <Button variant="ghost" aria-label="右寄せ" :aria-pressed="geom.align === 'right'" :class="cn(SEG_CLASS, geom.align === 'right' && ON_CLASS)" @click="setAlign('right')">
-                  <AlignRight class="h-[15px] w-[15px]" />
+              <Tooltip v-for="opt in ALIGN_BUTTONS" :key="opt.value" :text="ALIGN_LABEL[opt.value]">
+                <Button variant="ghost" :aria-label="ALIGN_LABEL[opt.value]" :aria-pressed="geom.align === opt.value" :class="cn(SEG_CLASS, geom.align === opt.value && ON_CLASS)" @click="setAlign(opt.value)">
+                  <component :is="opt.icon" class="h-[15px] w-[15px]" />
                 </Button>
               </Tooltip>
             </div>

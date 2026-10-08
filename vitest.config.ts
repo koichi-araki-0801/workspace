@@ -131,6 +131,7 @@ export default defineConfig({
         'editor/server/src/routes/zipBodyParser.ts',
         // editor/web (UI/VM/Service/Repository 層)
         'editor/web/src/workers/fallback.ts',
+        'editor/web/src/workers/htmlApi.ts',
         'editor/web/src/lib/jinjaMask.ts',
         // 値差込の許可リスト評価器と、その唯一の利用者。全域 CSP から `'unsafe-eval'` を
         // 落とせているのはこの 2 つが `new Function` を使わないからで、退行は「値が空に
@@ -226,6 +227,7 @@ export default defineConfig({
         'editor/web/src/features/editor/usePartEditHistory.ts',
         'editor/web/src/features/editor/useComments.ts',
         'editor/web/src/features/editor/comments/commentFilter.ts',
+        'editor/web/src/features/editor/comments/useThreadActions.ts',
         'editor/web/src/features/editor/comments/CommentPanel.vue',
         'editor/web/src/features/editor/partKey.ts',
         // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは

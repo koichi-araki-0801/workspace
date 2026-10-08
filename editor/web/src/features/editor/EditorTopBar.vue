@@ -102,6 +102,15 @@ const attrItems = (a: TemplateAttributes) =>
     k: i.label,
     v: i.key === 'companyCode' ? companyLabel(i.value) : i.value,
   }));
+
+// ツールチップと `aria-label` は同じ文言なので 1 箇所で決める。
+const editToggleLabel = computed(() =>
+  props.allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)',
+);
+const singlePageLabel = computed(() =>
+  props.singlePageMode ? '全ページを連続表示' : '1 ページ（区切り単位）だけ表示',
+);
+const pageGuidesLabel = computed(() => (props.showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'));
 </script>
 
 <template>
@@ -170,13 +179,13 @@ const attrItems = (a: TemplateAttributes) =>
     <div class="flex shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted/50 px-1.5 py-1">
       <!-- 編集ロックの状態と解除。左ペインの「編集を許可」トグルと同一 state を、常に見える
            上部バーにも出す(左ペインを畳んでいても編集ロックに気付け、その場で解除できる)。 -->
-      <Tooltip :text="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'">
+      <Tooltip :text="editToggleLabel">
         <Button
           variant="ghost"
           size="sm"
           class="gap-1.5 px-2"
           :class="allowEdit ? 'text-primary' : 'text-muted-foreground'"
-          :aria-label="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
+          :aria-label="editToggleLabel"
           :aria-pressed="allowEdit"
           @click="emit('toggleEdit')"
         >
@@ -241,11 +250,11 @@ const attrItems = (a: TemplateAttributes) =>
       </template>
 
       <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
-      <Tooltip :text="singlePageMode ? '全ページを連続表示' : '1 ページ（区切り単位）だけ表示'">
+      <Tooltip :text="singlePageLabel">
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページ（区切り単位）だけ表示'"
+          :aria-label="singlePageLabel"
           :class="singlePageMode ? 'text-primary' : ''"
           @click="emit('toggleSinglePage')"
         >
@@ -254,11 +263,11 @@ const attrItems = (a: TemplateAttributes) =>
       </Tooltip>
 
       <!-- ページ境界 guide のトグル -->
-      <Tooltip :text="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'">
+      <Tooltip :text="pageGuidesLabel">
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+          :aria-label="pageGuidesLabel"
           :class="showPageGuides ? 'text-primary' : ''"
           @click="emit('togglePageGuides')"
         >

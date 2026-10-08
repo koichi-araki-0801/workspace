@@ -21,6 +21,7 @@ import { computed, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
 import { formatCommentAt, STATUS_LABEL, threadsOf } from './comments/commentFilter';
+import { entryKey, useThreadActions } from './comments/useThreadActions';
 import type { BubbleAnchor } from './noteBubbleLayout';
 
 const props = defineProps<{
@@ -36,19 +37,14 @@ const emit = defineEmits<{
   close: [];
 }>();
 
-// 編集中の投稿の識別子と入力中の本文。1 度に 1 件だけ編集する。
-//
-// キー・比較は `id` 単体ではなく `templateId/id` の対で行う。投稿 id の一意性はファイル
-// (= 版インスタンス)の中でだけ約束されている(`server/src/repositories/noteRepo.ts` の `locate` も
-// ファイル単位で探す)。表示は今は自版のスレッドに閉じているが、`templateId` を含めておけば
-// 他ファイル由来の投稿が並ぶ表示に変わっても、id の重なりで 2 件を同時に編集モードへ開かない。
-function entryKey(entry: PartNoteEntry): string {
-  return `${entry.templateId}/${entry.id}`;
-}
-
 const threads = computed(() => threadsOf(props.entries));
-const editingKey = ref<string | null>(null);
-const draft = ref('');
+const { editingKey, draft, startEdit, commitEdit, cancelEdit, requestRemove, toggleStatus } = useThreadActions({
+  update: (e, content) => emit('update', e, content),
+  remove: (e) => emit('remove', e),
+  setStatus: (parent, status) => emit('set-status', parent, status),
+  replyCountOf: (parent) => threads.value.find((t) => t.parent.id === parent.id)?.replies.length ?? 0,
+  confirm,
+});
 const replyingKey = ref<string | null>(null);
 const replyDraft = ref('');
 
@@ -86,16 +82,6 @@ function summaryOf(content: string): string {
   return content.split('\n', 1)[0];
 }
 
-function startEdit(entry: PartNoteEntry): void {
-  editingKey.value = entryKey(entry);
-  draft.value = entry.content;
-}
-
-function commitEdit(entry: PartNoteEntry): void {
-  if (draft.value.trim() !== '') emit('update', entry, draft.value);
-  editingKey.value = null;
-}
-
 function startReply(parent: PartNoteEntry): void {
   replyingKey.value = entryKey(parent);
   replyDraft.value = '';
@@ -104,24 +90,6 @@ function startReply(parent: PartNoteEntry): void {
 function commitReply(parent: PartNoteEntry): void {
   if (replyDraft.value.trim() !== '') emit('reply', parent, replyDraft.value);
   replyingKey.value = null;
-}
-
-async function requestRemove(entry: PartNoteEntry): Promise<void> {
-  // 親か返信かは `replyTo` を直接見れば分かる。スレッド一覧から探すのは、親を消す確認文言に
-  // 「返信も一緒に削除されます」を足すかどうか(返信の有無)を知るためだけに限る。
-  const isParent = entry.replyTo === null;
-  const hasReplies =
-    isParent && (threads.value.find((t) => t.parent.id === entry.id)?.replies.length ?? 0) > 0;
-
-  const ok = await confirm({
-    title: isParent ? 'このコメントを削除しますか？' : 'この返信を削除しますか？',
-    description: isParent
-      ? `削除したコメントは元に戻せません。${hasReplies ? '返信も一緒に削除されます。' : ''}`
-      : '削除した返信は元に戻せません。',
-    confirmLabel: '削除する',
-    variant: 'destructive',
-  });
-  if (ok) emit('remove', entry);
 }
 </script>
 
@@ -179,7 +147,7 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
             size="iconSm"
             :aria-label="t.parent.status === 'open' ? '解決にする' : '未対応に戻す'"
             :title="t.parent.status === 'open' ? '解決にする' : '未対応に戻す'"
-            @click="emit('set-status', t.parent, t.parent.status === 'open' ? 'resolved' : 'open')"
+            @click="toggleStatus(t.parent)"
           >
             <Check v-if="t.parent.status === 'open'" class="h-3 w-3" />
             <RotateCcw v-else class="h-3 w-3" />
@@ -206,7 +174,7 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
             <textarea v-model="draft" class="note-entry-input" rows="3" aria-label="コメント本文の編集" />
             <div class="mt-1.5 flex gap-1.5">
               <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
-              <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
+              <Button size="sm" variant="outline" @click="cancelEdit">取消</Button>
             </div>
           </template>
           <div v-else class="note-entry-body">
@@ -237,7 +205,7 @@ async function requestRemove(entry: PartNoteEntry): Promise<void> {
               <textarea v-model="draft" class="note-entry-input" rows="2" aria-label="返信本文の編集" />
               <div class="mt-1.5 flex gap-1.5">
                 <Button size="sm" @click="commitEdit(r)">保存</Button>
-                <Button size="sm" variant="outline" @click="editingKey = null">取消</Button>
+                <Button size="sm" variant="outline" @click="cancelEdit">取消</Button>
               </div>
             </template>
             <div v-else class="note-entry-body">
