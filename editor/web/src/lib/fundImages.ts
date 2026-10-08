@@ -87,6 +87,26 @@ export function companyCodeOfTemplateId(templateId: string): string | null {
   return parseAnyTemplateFileName(`${templateId}.html`)?.companyCode ?? null;
 }
 
+/** 論理パスの分類。`outside` = `images/` の外(解けない参照を含む)、`other` = `images/` 内でも配信しない形。 */
+export type ImageRelClass =
+  | { kind: 'outside' }
+  | { kind: 'fundImage'; ref: FundImageRef; companyMatches: boolean }
+  | { kind: 'other' };
+
+/**
+ * 参照を解いた論理パス(`resolveDocAssetPath` の結果)を、画像参照の判定の 3 分類に分ける。
+ * 警告・表示・PDF で落とす対象が、同じ手順で同じ結論になるよう 1 本にする。
+ */
+export function classifyImageRel(
+  rel: string | undefined,
+  companyCode: string | null,
+): ImageRelClass {
+  if (rel === undefined || !rel.startsWith(`${FUND_IMAGES_DIR}/`)) return { kind: 'outside' };
+  const ref = fundImageRefOf(rel);
+  if (ref === undefined) return { kind: 'other' };
+  return { kind: 'fundImage', ref, companyMatches: companyFolderMatches(ref, companyCode) };
+}
+
 /**
  * 参照値(`<img src>`・CSS の `url()`)が、表示してよいファンド別画像なら ref を返す。
  * `from` は文書なら `'doc'`、テンプレの CSS なら `TEMPLATE_CSS_FROM`。
@@ -96,9 +116,8 @@ export function servedFundImageOf(
   from: string,
   companyCode: string | null,
 ): FundImageRef | undefined {
-  const rel = resolveDocAssetPath(url, from);
-  const ref = rel === undefined ? undefined : fundImageRefOf(rel);
-  return ref !== undefined && companyFolderMatches(ref, companyCode) ? ref : undefined;
+  const c = classifyImageRel(resolveDocAssetPath(url, from), companyCode);
+  return c.kind === 'fundImage' && c.companyMatches ? c.ref : undefined;
 }
 
 /** 複数の URL を詰める属性(`srcset` は `url 1x, url 2x` の形)。 */
@@ -131,9 +150,8 @@ export function dropUnmatchedCompanyImageUrls(
   let out = css;
   // 後ろから置換して、先行する範囲のオフセットを保つ。
   for (const span of [...collectCssUrlSpans(css)].reverse()) {
-    const rel = resolveDocAssetPath(span.value, from);
-    const ref = rel === undefined ? undefined : fundImageRefOf(rel);
-    if (ref === undefined || companyFolderMatches(ref, companyCode)) continue;
+    const c = classifyImageRel(resolveDocAssetPath(span.value, from), companyCode);
+    if (c.kind !== 'fundImage' || c.companyMatches) continue;
     out = `${out.slice(0, span.start)}none${out.slice(span.end)}`;
   }
   return out;

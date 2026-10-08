@@ -4,6 +4,7 @@
 import { DOC_CSS_PATH } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
+  classifyImageRel,
   companyCodeOfTemplateId,
   companyFolderMatches,
   dropUnmatchedCompanyImageUrls,
@@ -172,5 +173,30 @@ describe('日本語名の配信 URL', () => {
     expect(raw).toEqual({ dir: 'smtam', file: JA });
     expect(enc).toEqual(raw);
     expect(fundImageUrl(raw as FundImageRef)).toBe(`/api/fund-assets/images/smtam/${JA_ENC}`);
+  });
+});
+
+describe('classifyImageRel', () => {
+  it('images/ の外・解けない参照は outside', () => {
+    expect(classifyImageRel('css/x.png', 'AM01')).toEqual({ kind: 'outside' });
+    expect(classifyImageRel('imagesx/a.png', 'AM01')).toEqual({ kind: 'outside' });
+    expect(classifyImageRel(undefined, 'AM01')).toEqual({ kind: 'outside' });
+  });
+
+  it('images/ の中でも配信しない形(深さ・拡張子)は other', () => {
+    expect(classifyImageRel('images/a/b/c.png', 'AM01')).toEqual({ kind: 'other' });
+    expect(classifyImageRel('images/a.gif', 'AM01')).toEqual({ kind: 'other' });
+    expect(classifyImageRel('images/', 'AM01')).toEqual({ kind: 'other' });
+  });
+
+  it('配信する画像は ref と会社フォルダの一致を返す', () => {
+    expect(classifyImageRel('images/a.png', null)).toEqual({
+      kind: 'fundImage',
+      ref: { dir: null, file: 'a.png' },
+      companyMatches: true,
+    });
+    expect(classifyImageRel('images/am01/a.png', 'AM01')).toMatchObject({ companyMatches: true });
+    expect(classifyImageRel('images/zz/a.png', 'AM01')).toMatchObject({ companyMatches: false });
+    expect(classifyImageRel('images/am01/a.png', null)).toMatchObject({ companyMatches: false });
   });
 });

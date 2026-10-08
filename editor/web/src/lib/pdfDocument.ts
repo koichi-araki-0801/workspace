@@ -23,9 +23,8 @@ import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { formatHtml } from '@/lib/formatOutput';
 import {
   attrUrlCandidates,
-  companyFolderMatches,
+  classifyImageRel,
   dropUnmatchedCompanyImageUrls,
-  fundImageRefOf,
   TEMPLATE_CSS_FROM,
 } from '@/lib/fundImages';
 import { renderJinjaIsolated } from '@/lib/renderHostClient';
@@ -61,9 +60,8 @@ function findExternalRefsInDom(root: Element): string[] {
  */
 function dropUnmatchedCompanyImages(root: Element, companyCode: string | null): void {
   const unmatched = (url: string): boolean => {
-    const rel = resolveDocAssetPath(url, DOC_DIR);
-    const ref = rel === undefined ? undefined : fundImageRefOf(rel);
-    return ref !== undefined && !companyFolderMatches(ref, companyCode);
+    const c = classifyImageRel(resolveDocAssetPath(url, DOC_DIR), companyCode);
+    return c.kind === 'fundImage' && !c.companyMatches;
   };
   for (const style of Array.from(root.querySelectorAll('style'))) {
     const css = style.textContent ?? '';

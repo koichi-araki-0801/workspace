@@ -21,11 +21,10 @@ import {
 } from '@editor/shared';
 import {
   attrUrlCandidates,
+  classifyImageRel,
   companyCodeOfTemplateId,
-  companyFolderMatches,
   FUND_IMAGES_DIR,
   type FundImageRef,
-  fundImageRefOf,
   servedFundImageOf,
 } from './fundImages';
 import { JINJA_OPEN_RE } from './jinjaAttrs';
@@ -59,10 +58,17 @@ export function imageRefIssue(
   if (v === '' || v.startsWith('#') || SCHEME_RE.test(v)) return null;
   const rel = resolveDocAssetPath(v, from);
   if (JINJA_OPEN_RE.test(v)) return rel?.startsWith(IMAGES_PREFIX) ? 'jinja' : null;
-  if (rel === undefined) return 'unserved';
-  const ref = fundImageRefOf(rel);
-  if (ref === undefined) return 'unserved';
-  return companyFolderMatches(ref, companyCode) ? null : 'company';
+  const c = classifyImageRel(rel, companyCode);
+  if (c.kind !== 'fundImage') return 'unserved';
+  return c.companyMatches ? null : 'company';
+}
+
+/** `images/` を指す参照の問題(`images/` の外を指す値は見ない)。 */
+function imagesRelIssue(rel: string | undefined, companyCode: string | null): ImageRefIssue | null {
+  const c = classifyImageRel(rel, companyCode);
+  if (c.kind === 'outside') return null;
+  if (c.kind === 'other') return 'unserved';
+  return c.companyMatches ? null : 'company';
 }
 
 /** CSS の `url()` のうち `images/` を指すものの問題を拾う(フォント等の他の参照は見ない)。 */
@@ -73,11 +79,8 @@ export function cssImageIssues(
 ): Array<[string, ImageRefIssue]> {
   const out: Array<[string, ImageRefIssue]> = [];
   for (const span of collectCssUrlSpans(css)) {
-    const rel = resolveDocAssetPath(span.value, from);
-    if (rel === undefined || !rel.startsWith(IMAGES_PREFIX)) continue;
-    const ref = fundImageRefOf(rel);
-    if (ref === undefined) out.push([span.value, 'unserved']);
-    else if (!companyFolderMatches(ref, companyCode)) out.push([span.value, 'company']);
+    const kind = imagesRelIssue(resolveDocAssetPath(span.value, from), companyCode);
+    if (kind !== null) out.push([span.value, kind]);
   }
   return out;
 }
@@ -99,7 +102,7 @@ export function docImageIssues(
   visitDocImageRefs(html, {
     imgSrc: (src) => push(src, imageRefIssue(src, DOC_DIR, companyCode)),
     css: (css) => out.push(...cssImageIssues(css, DOC_DIR, companyCode)),
-    attrUrl: (url) => push(url, imagesAttrIssue(url, companyCode)),
+    attrUrl: (url) => push(url, imagesRelIssue(resolveDocAssetPath(url, DOC_DIR), companyCode)),
   });
   return out;
 }
@@ -131,15 +134,6 @@ function visitDocImageRefs(html: string, visitor: DocImageRefVisitor): void {
       }
     }
   }
-}
-
-/** `images/` を指す属性値の問題(`images/` 以外を指す値は見ない)。 */
-function imagesAttrIssue(url: string, companyCode: string | null): ImageRefIssue | null {
-  const rel = resolveDocAssetPath(url, DOC_DIR);
-  if (rel === undefined || !rel.startsWith(IMAGES_PREFIX)) return null;
-  const ref = fundImageRefOf(rel);
-  if (ref === undefined) return 'unserved';
-  return companyFolderMatches(ref, companyCode) ? null : 'company';
 }
 
 function listRefs(refs: readonly string[]): string {
