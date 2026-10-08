@@ -11,7 +11,7 @@
 // server の `repositories/noteRepo.ts` と同じにする。
 import {
   type AddNoteOptions,
-  notesAtCapacity as atCapacity,
+  countAtCapacity,
   entriesCapacityMessage,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_ENTRIES_PER_PART,
@@ -82,12 +82,12 @@ function assertPathKeyLength(pathKey: string): void {
  * (`files/notesFile.ts` と同じ方針)。
  */
 function entriesAtCapacity(entries: readonly PartNoteEntry[]): boolean {
-  return atCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
+  return countAtCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
 }
 
 /** 1 版インスタンス(pathKey の件数)が上限に達しているか。新規キーの追加可否にのみ使う。 */
 function notesAtCapacity(tpl: Record<string, PartNoteEntry[]>, pathKey: string): boolean {
-  return !(pathKey in tpl) && atCapacity(Object.keys(tpl).length, MAX_NOTES_PER_TEMPLATE);
+  return !(pathKey in tpl) && countAtCapacity(Object.keys(tpl).length, MAX_NOTES_PER_TEMPLATE);
 }
 
 /** 投稿 ID から所在(パーツキー・位置)を引く。 */

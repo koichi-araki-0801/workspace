@@ -10,7 +10,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   assertAnyTemplateId,
-  notesAtCapacity as atCapacity,
+  countAtCapacity,
   entriesCapacityMessage,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTES_PER_TEMPLATE,
@@ -235,7 +235,8 @@ export function withNotesLock<T>(templateId: string, fn: () => Promise<T>): Prom
 /** 件数上限に達しているか(新規キーの追加可否の判定に使う)。 */
 export function notesAtCapacity(notes: NoteEntriesMap, pathKey: string): boolean {
   return (
-    !Object.hasOwn(notes, pathKey) && atCapacity(Object.keys(notes).length, MAX_NOTES_PER_TEMPLATE)
+    !Object.hasOwn(notes, pathKey) &&
+    countAtCapacity(Object.keys(notes).length, MAX_NOTES_PER_TEMPLATE)
   );
 }
 
@@ -250,7 +251,7 @@ export function notesCapacityError(): never {
  * 到達でき、そのテンプレの全メモが保存不能になる。
  */
 export function entriesAtCapacity(entries: readonly StoredNoteEntry[]): boolean {
-  return atCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
+  return countAtCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
 }
 
 /** 投稿数の上限超過時に返す文言。 */

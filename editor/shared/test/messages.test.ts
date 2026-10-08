@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countAtCapacity,
   EXTERNAL_REF_MESSAGE,
   entriesCapacityMessage,
   MAX_REPORTED_REFS,
-  notesAtCapacity,
   notesCapacityMessage,
 } from '../src/domain/messages';
 
@@ -21,9 +21,9 @@ describe('EXTERNAL_REF_MESSAGE', () => {
 
 describe('メモ上限', () => {
   it('件数が上限以上で達したとみなす', () => {
-    expect(notesAtCapacity(999, 1000)).toBe(false);
-    expect(notesAtCapacity(1000, 1000)).toBe(true);
-    expect(notesAtCapacity(1001, 1000)).toBe(true);
+    expect(countAtCapacity(999, 1000)).toBe(false);
+    expect(countAtCapacity(1000, 1000)).toBe(true);
+    expect(countAtCapacity(1001, 1000)).toBe(true);
   });
 
   it('文言は「メモ」で件数を含む', () => {

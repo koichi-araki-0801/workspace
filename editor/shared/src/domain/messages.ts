@@ -16,7 +16,7 @@ export const EXTERNAL_REF_MESSAGE =
 export const MAX_REPORTED_REFS = 5;
 
 /** 件数が上限に達しているか(追加の可否にだけ使う)。 */
-export function notesAtCapacity(count: number, max: number): boolean {
+export function countAtCapacity(count: number, max: number): boolean {
   return count >= max;
 }
 
