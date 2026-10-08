@@ -10,16 +10,14 @@
 // `content:"</style><script>…"` と書くだけで style 要素を閉じ、スクリプトを注入できる。
 // HTML 側は DOMPurify(`sanitizeHtml.ts`)が見るが、CSS 文字列はそこを通らないため、
 // `<style>` へ差し込む直前にここで潰す。
-import { findExternalRefsInCss, MAX_REPORTED_REFS } from '@editor/shared';
+import { findExternalRefsInCss, MAX_REPORTED_REFS, neutralizeRawTextClose } from '@editor/shared';
 
-// 置換は「`</` の `/` を CSS のエスケープ `\/` にする」だけに留める。CSS 文字列の中では
-// `\/` は `/` と同義なので見た目・意味とも変わらず、HTML パーサからは `</style` に
-// 一致しなくなる(= 要素が閉じない)。正当な CSS がこの並びを必要とすることはない。
-const STYLE_CLOSE_RE = /<\/(?=style)/gi;
-
-/** `<style>` の中身として安全な形にする(要素を閉じられなくする)。 */
+/**
+ * `<style>` の中身として安全な形にする(要素を閉じられなくする)。置換は shared の
+ * `neutralizeRawTextClose` で、サーバの PDF 経路(`inlineCss.ts`)と同じもの。
+ */
 export function sanitizeStyleContent(css: string): string {
-  return css.replace(STYLE_CLOSE_RE, '<\\/');
+  return neutralizeRawTextClose(css, 'style');
 }
 
 /**

@@ -36,6 +36,8 @@ import {
   DOC_DIR,
   DOC_FONTS_DIR,
   FONT_MIME,
+  INLINEABLE_SCRIPT_TYPES,
+  neutralizeRawTextClose,
   previewHostAssetUrl,
   replaceSpansFromEnd,
   resolveDocAssetPath,
@@ -91,12 +93,6 @@ const MAX_INLINE_FONT_BYTES = 8 * 1024 * 1024;
 
 /** data: URI 化する 1 画像のサイズ上限(フォントと同じ考え方。超えたものは埋めない)。 */
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
-
-/** `</script` の無害化(サーバ `inlineDocScripts.ts` の `SCRIPT_CLOSE_RE` と同一)。 */
-const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
-
-/** インライン化後も意味を保てる `type` 値(サーバ `INLINEABLE_TYPES` と同一)。 */
-const INLINEABLE_TYPES = new Set(['', 'module', 'text/javascript', 'application/javascript']);
 
 // 取得結果のキャッシュ(undefined = 取得失敗も含めて記憶し、再描画のたびに叩き直さない)。
 // key は論理ルート相対パス。資産は「生成時に確定し以後不変」のテンプレ資産なので、
@@ -226,7 +222,7 @@ async function inlineScripts(root: Element, fetcher: AssetFetcher): Promise<void
       if (attr.name === 'src') continue;
       if (attr.name === 'type') {
         typeValue = attr.value.trim().toLowerCase();
-        if (!INLINEABLE_TYPES.has(typeValue)) eligible = false;
+        if (!INLINEABLE_SCRIPT_TYPES.has(typeValue)) eligible = false;
         continue;
       }
       eligible = false;
@@ -236,7 +232,7 @@ async function inlineScripts(root: Element, fetcher: AssetFetcher): Promise<void
     if (rel === undefined) continue;
     const body = await fetchScriptBody(rel, fetcher);
     if (body === undefined) continue;
-    script.textContent = body.replace(SCRIPT_CLOSE_RE, '<\\/');
+    script.textContent = neutralizeRawTextClose(body, 'script');
     script.removeAttribute('src');
   }
 }

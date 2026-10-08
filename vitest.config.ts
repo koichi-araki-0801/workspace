@@ -50,6 +50,7 @@ export default defineConfig({
         'editor/shared/src/security/urlNormalize.ts',
         'editor/shared/src/security/cssRebase.ts',
         'editor/shared/src/security/svgInspect.ts',
+        'editor/shared/src/security/rawTextClose.ts',
         // 往復用の印の定義と、その検出が使う字句解析。関所・検出スクリプト・`toTemplate` の
         // 事後検査が共用するので、見落としは確定テンプレートへの印の焼き付きとして無言で出る。
         'editor/shared/src/security/editingMarkers.ts',

@@ -27,7 +27,12 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { DOC_DIR, resolveDocAssetPath } from '@editor/shared';
+import {
+  DOC_DIR,
+  INLINEABLE_SCRIPT_TYPES,
+  neutralizeRawTextClose,
+  resolveDocAssetPath,
+} from '@editor/shared';
 import { scanTags, type TagSpan } from './inlineCss.js';
 
 /**
@@ -36,16 +41,6 @@ import { scanTags, type TagSpan } from './inlineCss.js';
  * (= 従来どおり 404 で不実行。挙動は退行するが文書は壊れない)。
  */
 export const MAX_INLINE_SCRIPT_BYTES = 2 * 1024 * 1024;
-
-/**
- * `</script` を無害化する。`<style>` 側の `STYLE_CLOSE_RE`(`inlineCss.ts`)と同じ発想で、
- * raw text の終端は最初に現れる `</script` 1 つだけなので、JS 本文に字面があると
- * **要素がそこで閉じ、残りが地の HTML として再解釈される**(= 任意マークアップの注入)。
- *
- * 置換は `/` を `\/` にするだけ。JS では文字列リテラル中・正規表現リテラル中のいずれでも
- * `\/` は `/` と同義なので意味は変わらず、HTML パーサからは `</script` に一致しなくなる。
- */
-const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
 
 /**
  * 展開を諦めるべき本文か。
@@ -63,12 +58,6 @@ const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
 function isUnsafeToInline(body: string): boolean {
   return body.includes('<!--');
 }
-
-/**
- * インライン化後も意味を保てる `type` 値(小文字比較)。空 = 省略も同義で classic 扱い。
- * ここに無い `type`(`text/template` 等のデータブロック)は実行面ではないので触らない。
- */
-const INLINEABLE_TYPES = new Set(['', 'module', 'text/javascript', 'application/javascript']);
 
 /**
  * 開始タグを組み直す。**原文を編集せず、属性の許可リストで作り直す。**
@@ -89,7 +78,7 @@ function rebuildOpenTag(tag: TagSpan): string | undefined {
     if (a.name === 'src') continue;
     if (a.name === 'type') {
       type = a.value.trim().toLowerCase();
-      if (!INLINEABLE_TYPES.has(type)) return undefined;
+      if (!INLINEABLE_SCRIPT_TYPES.has(type)) return undefined;
       continue;
     }
     return undefined;
@@ -162,7 +151,7 @@ export async function inlineDocScripts(
       start: tag.start,
       end: elementEnd(scan.tags, i, tag),
       // 元の中身(空のはず)は捨てる。HTML 仕様上 `src` 付き script の中身は実行されない。
-      text: `${openTag}\n${body.replace(SCRIPT_CLOSE_RE, '<\\/')}\n</script>`,
+      text: `${openTag}\n${neutralizeRawTextClose(body, 'script')}\n</script>`,
     });
   }
   if (replacements.length === 0) return html;

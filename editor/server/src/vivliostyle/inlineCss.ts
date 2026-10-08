@@ -43,6 +43,7 @@ import {
   isAsciiAlpha,
   isHtmlSpace,
   isTagNameEnd,
+  neutralizeRawTextClose,
   newCommentEndMemo,
   readAttr,
   resolveDocAssetPath,
@@ -50,18 +51,6 @@ import {
 
 /** `servedAssets` 未指定時の既定(資産を 1 つも配置していない配信ルート)。 */
 const EMPTY_SERVED: ReadonlySet<string> = new Set<string>();
-
-/**
- * `<style>` の中身は HTML パーサにとって raw text で、終端は最初に現れる `</style` 1 つだけ。
- * CSS の文字列リテラルの内側かどうかは見ないため、`css`(= `/api/build` 等のリクエスト本文
- * そのもの)に `}</style><script>...` と書けば生成文書へ script を注入できる。プレビュー経路の
- * CSP より手前で潰す必要があり、PDF build 経路(headless で file:// を開く)には CSP が無い。
- *
- * 置換は `</` の `/` を CSS のエスケープ `\/` にするだけ。CSS 文字列中では `\/` は `/` と
- * 同義なので意味は変わらず、HTML パーサからは `</style` に一致しなくなる。
- * web 側の同義処理は `web/src/lib/sanitizeCss.ts`(こちらは DOM 組み立て用に別実装)。
- */
-const STYLE_CLOSE_RE = /<\/(?=style)/gi;
 
 /**
  * 中身を raw text / RCDATA として読む要素。開始タグの後は、対応する終了タグまで一切の
@@ -347,7 +336,9 @@ interface InlineCssOptions {
 
 /** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
 export function inlineCss(html: string, css: string, opts: InlineCssOptions = {}): string {
-  const styleTag = css ? `<style>\n${css.replace(STYLE_CLOSE_RE, '<\\/')}\n</style>` : '';
+  // `css`(= `/api/build` 等のリクエスト本文そのもの)に `}</style><script>...` と書けば生成文書へ
+  // script を注入できる。プレビュー経路の CSP より手前で潰す(PDF build 経路には CSP が無い)。
+  const styleTag = css ? `<style>\n${neutralizeRawTextClose(css, 'style')}\n</style>` : '';
   const served = opts.servedAssets ?? EMPTY_SERVED;
 
   const first = scanTags(html);
