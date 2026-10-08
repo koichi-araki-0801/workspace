@@ -601,7 +601,7 @@ describe('nudgeTextAwayFromSegment', () => {
 });
 
 describe('wrapPi', () => {
-  it('(-π, π] へ巻き戻す', () => {
+  it('[−π, π] へ巻き戻す', () => {
     expect(wrapPi(0)).toBe(0);
     expect(wrapPi(Math.PI)).toBe(Math.PI);
     expect(wrapPi(-Math.PI)).toBe(-Math.PI);
