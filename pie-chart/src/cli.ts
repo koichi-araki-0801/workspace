@@ -19,6 +19,7 @@ import {
   samples,
   type ResolveAsyncOpts,
 } from './input/load.js';
+import { extractDataItems } from './input/savedJson.js';
 import { MAX_JSON_BYTES } from './limits.js';
 import { installSeaGuards, isSea, readSeaAsset } from './runtime/seaRuntime.js';
 import { renderPdfStylePieToSvg } from './svg_export/pipeline.js';
@@ -151,7 +152,12 @@ function buildResolveOpts(options: Record<string, string | boolean>): ResolveAsy
     throw new Error(`Conflicting input sources (specify only one): ${provided.join(', ')}.`);
   }
   if (sample !== undefined) return { kind: 'sample', sample };
-  if (dataFile !== undefined) return { kind: 'data', data: readJsonFile(dataFile) as unknown[] };
+  if (dataFile !== undefined) {
+    return {
+      kind: 'data',
+      data: extractDataItems(readJsonFile(dataFile), `--data-file "${dataFile}"`),
+    };
+  }
   if (dataJson !== undefined) return { kind: 'dataJson', dataJson };
   // ここに来る時点で xlsx !== undefined が provided.length===1 から確定するが、
   // TS の narrowing では追えないので明示的に再確認する。
@@ -196,7 +202,7 @@ async function renderBatch(options: Record<string, string | boolean>): Promise<v
       .sort();
     for (const fileName of files) {
       const fullPath = path.join(inputDir, fileName);
-      const items = resolveInputData({ data: readJsonFile(fullPath) as unknown[] });
+      const items = resolveInputData({ data: extractDataItems(readJsonFile(fullPath), fullPath) });
       const outputFile = path.join(path.resolve(outputDir), `${path.parse(fileName).name}.svg`);
       const result = await renderPdfStylePieToSvg(items, overrides);
       fs.writeFileSync(outputFile, result.svg, 'utf-8');
