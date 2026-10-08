@@ -256,12 +256,25 @@ export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
  */
 export function classifySqlError(err: unknown): DbStageError {
   if (err instanceof DbStageError) return err;
-  const raw = (err as { sqlstate?: unknown } | null)?.sqlstate;
-  const sqlstate = typeof raw === 'string' ? raw : '';
-  const isConnect = sqlstate.startsWith('08') || sqlstate.startsWith('28') || sqlstate === 'IM002';
-  const message = errorMessage(err);
+  // msnodesqlv8 は接続失敗などで、エラーオブジェクトの配列をそのまま投げる(配列自体には
+  // `sqlstate` も `message` も無い)。単体の場合と同じ扱いに揃えて要素から集める。
+  const elements: unknown[] = Array.isArray(err) ? err : [err];
+  const sqlstates: string[] = [];
+  const messages: string[] = [];
+  for (const el of elements) {
+    const raw = (el as { sqlstate?: unknown } | null)?.sqlstate;
+    if (typeof raw === 'string' && raw) sqlstates.push(raw);
+    const msg = (el as { message?: unknown } | null)?.message;
+    const text =
+      typeof msg === 'string' ? msg : typeof el === 'object' && el !== null ? '' : String(el);
+    if (text && !messages.includes(text)) messages.push(text);
+  }
+  const isConnectState = (s: string) => s.startsWith('08') || s.startsWith('28') || s === 'IM002';
+  const connectState = sqlstates.find(isConnectState);
+  const sqlstate = connectState ?? sqlstates[0] ?? '';
+  const message = messages.join('; ') || 'database error';
   return new DbStageError(
-    isConnect ? 'connect' : 'query',
+    connectState ? 'connect' : 'query',
     sqlstate ? `${message} (SQLSTATE ${sqlstate})` : message,
   );
 }

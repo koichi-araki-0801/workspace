@@ -146,14 +146,14 @@ describe('resolveConnTarget', () => {
 const ARGS = { fund: '0331A', baseDate: '20260930', chartType: '資産配分' };
 
 /** 呼び出しを記録し、指定した結果か例外を返すフェイクのドライバ。 */
-function fakeDriver(result: MsSqlResults | Error) {
+function fakeDriver(result: MsSqlResults | Error | unknown[]) {
   const calls: unknown[][] = [];
   const driver: MsSqlDriver = {
     promises: {
       query: async (...args) => {
         calls.push(args);
-        if (result instanceof Error) throw result;
-        return result;
+        if (result instanceof Error || Array.isArray(result)) throw result;
+        return result as MsSqlResults;
       },
     },
   };
@@ -241,6 +241,28 @@ describe('classifySqlError', () => {
     const e = new DbStageError('load', 'y');
     expect(classifySqlError(e)).toBe(e);
   });
+  it('エラーオブジェクトの配列(接続失敗の実測の形)は、要素に 08 があれば connect', () => {
+    const arr = [
+      { sqlstate: '08001', code: 53, message: 'cannot open' },
+      { sqlstate: 'HYT00', code: 0 },
+      { sqlstate: '01S00', code: 0 },
+      { sqlstate: '08001', code: 53, message: 'cannot open' },
+    ];
+    const e = classifySqlError(arr);
+    expect(e.stage).toBe('connect');
+    expect(e.message).toBe('cannot open (SQLSTATE 08001)');
+  });
+  it('配列でも 08 / 28 / IM002 が無ければ query', () => {
+    const e = classifySqlError([{ sqlstate: '42000', message: 'a' }, { sqlstate: '42000' }]);
+    expect(e.stage).toBe('query');
+    expect(e.message).toBe('a (SQLSTATE 42000)');
+  });
+  it('message の無い要素だけの配列でも、空や undefined のメッセージにならない', () => {
+    const e = classifySqlError([{ sqlstate: '08001' }, { sqlstate: 'HYT00' }]);
+    expect(e.stage).toBe('connect');
+    expect(e.message.length).toBeGreaterThan(0);
+    expect(e.message).not.toContain('undefined');
+  });
 });
 
 describe('callSprocItems', () => {
@@ -285,6 +307,11 @@ describe('checkConnection', () => {
     const bad = fakeDriver(Object.assign(new Error('nope'), { sqlstate: '42000' }));
     await expect(checkConnection(bad.driver, 'CS', 5000)).rejects.toMatchObject({
       stage: 'connect',
+    });
+    const arr = fakeDriver([{ sqlstate: '08001', message: 'down' }, { sqlstate: 'HYT00' }]);
+    await expect(checkConnection(arr.driver, 'CS', 5000)).rejects.toMatchObject({
+      stage: 'connect',
+      message: 'down (SQLSTATE 08001)',
     });
   });
 });

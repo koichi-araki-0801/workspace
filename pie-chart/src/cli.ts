@@ -346,7 +346,10 @@ async function main(): Promise<void> {
     }
   }
   if (command === '__db-fetch') {
-    process.exitCode = await runDbChild();
+    const code = await runDbChild();
+    // ドライバがエラー後も接続のハンドルを握り続け、イベントループが空にならず親のタイムアウトまで
+    // 居残る。応答の 1 行を書き切ってから明示的に終了する。
+    process.stdout.write('', () => process.exit(code));
     return;
   }
   if (!command || command === 'help' || command === '--help') {
