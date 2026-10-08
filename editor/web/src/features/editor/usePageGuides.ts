@@ -98,23 +98,22 @@ export function usePageGuides(ctx: PageGuidesContext) {
         for (let i = 1; i < pages.length; i++) {
           // 要素の無い白紙のページ i の先頭の線は、次のページの線と同じ位置に来る。次の線へまとめる。
           if (isElementlessPage(split, i)) continue;
-          const blank = isElementlessPage(split, i - 1);
           // まとめた線は飛ばした線(続く白紙のページのうち最初のものの先頭)の位置を受け継ぐ。直前の
           // 要素のあるページの末尾に帯があれば、次の要素の上端ではなく帯の上端に引くため。
           let from = i;
           while (from >= 2 && isElementlessPage(split, from - 1)) from--;
           const prevLast = pages[from - 1].at(-1);
           const band = prevLast ? bandAfter(prevLast, from - 1) : undefined;
-          // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。白紙のページ `from` の
-          // `pageHead` は要素の無いページを読み飛ばすので、ページ i の先頭と同じ要素になる。
-          const head = pageHead(split, from) as HTMLElement;
+          // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。
+          const head = pageHead(split, i) as HTMLElement;
           const guide: PageGuide = {
             top: band ? band.top : pos(head).top,
             left: bodyPos.left,
             width: bodyPos.width,
             page: i,
           };
-          if (blank) guide.blank = true;
+          // 白紙のページをまとめた線(`from` が `i` より手前)は白紙の印を付ける。
+          if (from < i) guide.blank = true;
           out.push(guide);
         }
         pageGuides.value = out;

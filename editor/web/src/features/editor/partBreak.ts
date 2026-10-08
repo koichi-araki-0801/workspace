@@ -71,7 +71,15 @@ function locate(part: Element, root: Element): { items: Element[]; i: number } |
  */
 export function partBreakState(part: Element, root: Element): PartBreakState | null {
   const at = locate(part, root);
-  if (!at) return null;
+  return at ? stateAt(part, root, at) : null;
+}
+
+/** `locate` 済みのパーツの前後の改ページの状態。 */
+function stateAt(
+  part: Element,
+  root: Element,
+  at: { items: Element[]; i: number },
+): PartBreakState {
   const read = (edge: BreakEdge): BreakSource | null => {
     if (nearestBreak(at.items, at.i, root, edge) !== null) return 'div';
     return inlineBreak(part, edge) ? 'inline' : null;
@@ -95,10 +103,9 @@ export function planBreakToggle(
   edge: BreakEdge,
   on: boolean,
 ): BreakPlan | null {
-  const state = partBreakState(part, root);
-  if (!state || (state[edge] !== null) === on) return null;
+  const at = locate(part, root);
+  if (!at || (stateAt(part, root, at)[edge] !== null) === on) return null;
   if (on) return { insert: edge, remove: [], stripProps: ignoredInlineBreakProps(part, edge) };
-  const at = locate(part, root) as { items: Element[]; i: number };
   const nearest = nearestBreak(at.items, at.i, root, edge);
   return {
     insert: null,

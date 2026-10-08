@@ -6,7 +6,7 @@
 // vitest で全分岐を直接検証できるようにする(実レイアウトに依存しない)。どこでページが
 // 切れるかは `@/lib/pageBreaks` の `splitPages` が決め、ここはその結果を画面へ写すだけ。
 
-import { inlineBreak, type PageSplit, rootBlocks } from '@/lib/pageBreaks';
+import { inlineBreak, type PageSplit, pageBreakOn, rootBlocks } from '@/lib/pageBreaks';
 import {
   BAND_DASH,
   BAND_FONT_SIZE,
@@ -45,8 +45,7 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   // (`pagebreakCanvas.ts`)。
   split.pages.forEach((page, p) => {
     if (page.length > 0) return;
-    const k = split.breakPages.indexOf(p);
-    if (k >= 0) split.breakEls[k].setAttribute(PV_BLANK_ATTR, '');
+    pageBreakOn(split, p)?.setAttribute(PV_BLANK_ATTR, '');
   });
   const pageOf = new Map<Element, number>();
   split.pages.forEach((page, i) => {

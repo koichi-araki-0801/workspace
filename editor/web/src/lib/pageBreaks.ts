@@ -28,7 +28,7 @@
 import { splitCssRules } from '@editor/shared';
 import { BODY_STYLE_VIEW_ATTR } from './bodyStyleAttr';
 import {
-  b64decodeUtf8,
+  b64decodeSafe,
   DATA_JINJA,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
@@ -210,11 +210,7 @@ function isVanishingChip(el: Element): boolean {
 
 /** チップの属性(`data-jinja` / `data-opaque`)が運ぶ原文。読めない base64 は空として扱う。 */
 function chipSource(el: Element, attr: string): string {
-  try {
-    return b64decodeUtf8(el.getAttribute(attr) ?? '');
-  } catch {
-    return '';
-  }
+  return b64decodeSafe(el.getAttribute(attr) ?? '');
 }
 
 /**
@@ -340,6 +336,12 @@ export function splitPages<T extends Element>(blocks: readonly T[]): PageSplit<T
   return { pages, breakEls, breakPages };
 }
 
+/** ページ `p` に置かれた区切り(無ければ undefined)。 */
+export function pageBreakOn<T extends Element>(split: PageSplit<T>, p: number): T | undefined {
+  const k = split.breakPages.indexOf(p);
+  return k >= 0 ? split.breakEls[k] : undefined;
+}
+
 /**
  * ページ `i` の先頭の要素。パーツがあれば最初のパーツ、白紙のページならそのページの区切り、
  * 要素の無い白紙のページ(左右合わせで挟んだもの)なら次のページの先頭。区切りは置かれたページの
@@ -350,8 +352,8 @@ export function pageHead<T extends Element>(split: PageSplit<T>, i: number): T |
   for (let p = Math.max(i, 0); p < split.pages.length; p++) {
     const part = split.pages[p][0];
     if (part) return part;
-    const k = split.breakPages.indexOf(p);
-    if (k >= 0) return split.breakEls[k];
+    const brk = pageBreakOn(split, p);
+    if (brk) return brk;
   }
   return undefined;
 }
@@ -363,7 +365,7 @@ export function pageHead<T extends Element>(split: PageSplit<T>, i: number): T |
  */
 export function isElementlessPage<T extends Element>(split: PageSplit<T>, i: number): boolean {
   const page = split.pages[i];
-  return page !== undefined && page.length === 0 && !split.breakPages.includes(i);
+  return page !== undefined && page.length === 0 && !pageBreakOn(split, i);
 }
 
 /**
@@ -415,6 +417,28 @@ const BREAK_PROP_RE = /^break-(?:before|after)$/;
 const LEGACY_BREAK_PROP_RE = /^page-break-(?:before|after)$/;
 
 /**
+ * 規則 1 つの頭（`{` の前。コメントを除く）・セレクタの並び（`,` で分ける）・宣言。`{` の無い
+ * ものは null。判定の値の範囲は呼び出し側が持つ。
+ */
+function readRule(text: string): {
+  head: string;
+  selectors: string[];
+  decls: Array<[string, string]>;
+} | null {
+  const open = text.indexOf('{');
+  if (open < 0) return null;
+  const head = text
+    .slice(0, open)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+  return {
+    head,
+    selectors: head.split(',').map((s) => s.trim()),
+    decls: parseDecls(text.slice(open + 1, text.lastIndexOf('}'))),
+  };
+}
+
+/**
  * CSS に `.pagebreak` の改ページ指定があるか(区切りが印刷で効くかの警告用。判定には使わない)。
  * `@media print` などの入れ子の中も見る(`splitCssRules` が降りる)。CSS の規則では、style 属性と
  * 違って `page-break-*` も効く(値は `always` / `left` / `right`)。`break-*` は `always` が効かない。
@@ -424,16 +448,9 @@ const LEGACY_BREAK_PROP_RE = /^page-break-(?:before|after)$/;
  */
 export function pagebreakCssDefined(css: string): boolean {
   for (const rule of splitCssRules(css)) {
-    const open = rule.text.indexOf('{');
-    if (open < 0) continue;
-    const selectors = rule.text
-      .slice(0, open)
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split(',')
-      .map((s) => s.trim());
-    if (!selectors.some((s) => PAGEBREAK_SELECTOR_RE.test(s))) continue;
-    const body = rule.text.slice(open + 1, rule.text.lastIndexOf('}'));
-    const breaks = parseDecls(body).some(
+    const parsed = readRule(rule.text);
+    if (!parsed?.selectors.some((s) => PAGEBREAK_SELECTOR_RE.test(s))) continue;
+    const breaks = parsed.decls.some(
       ([prop, value]) =>
         (BREAK_PROP_RE.test(prop) && isBreakValue(value)) ||
         (LEGACY_BREAK_PROP_RE.test(prop) && isLegacyBreakValue(value)),
@@ -472,14 +489,9 @@ const SIDED_BREAK_VALUES = new Set(['left', 'right', 'recto', 'verso']);
 export function cssRuleBreakSelector(sources: readonly string[]): string | null {
   for (const css of sources) {
     for (const rule of splitCssRules(css)) {
-      const open = rule.text.indexOf('{');
-      if (open < 0) continue;
-      const head = rule.text
-        .slice(0, open)
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .trim();
-      if (head.startsWith('@')) continue;
-      const decls = parseDecls(rule.text.slice(open + 1, rule.text.lastIndexOf('}')));
+      const parsed = readRule(rule.text);
+      if (!parsed || parsed.head.startsWith('@')) continue;
+      const { decls } = parsed;
       const breaks = (edge: 'before' | 'after', accepts?: (v: string) => boolean) =>
         decls.some(
           ([prop, value]) =>
@@ -491,7 +503,7 @@ export function cssRuleBreakSelector(sources: readonly string[]): string | null 
       const after = breaks('after');
       if (!before && !after) continue;
       const sidedAfter = breaks('after', (v) => SIDED_BREAK_VALUES.has(v));
-      for (const sel of head.split(',').map((s) => s.trim())) {
+      for (const sel of parsed.selectors) {
         if (!PAGEBREAK_SELECTOR_RE.test(sel) || before || sidedAfter) return sel;
       }
     }
