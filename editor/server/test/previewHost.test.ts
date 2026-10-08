@@ -224,3 +224,36 @@ describe('GET /api/preview-host/vivliostyle.js', () => {
     expect(b.body).toBe(a.body);
   });
 });
+
+describe('GET /api/preview-host/index.html — 内蔵できないバンドルのとき', () => {
+  it('バンドルを内蔵せず <script src> でホストページを組み、その参照先は配信ルートで取れる', async () => {
+    // ページキャッシュはモジュール内にあるので、モジュールごと読み直して判定だけ差し替える。
+    vi.resetModules();
+    vi.doMock('../src/util/inlineBundle.js', () => ({ bundleSafeToInline: () => false }));
+    try {
+      const { previewHostRoutes } = await import('../src/vivliostyle/previewHost.js');
+      const fallback = Fastify();
+      fallback.decorateRequest('user', undefined);
+      fallback.register(previewHostRoutes, { prefix: '/api' });
+      await fallback.ready();
+      try {
+        const page = await fallback.inject({ method: 'GET', url: '/api/preview-host/index.html' });
+        expect(page.statusCode).toBe(200);
+        expect(page.body).toContain('<script src="vivliostyle.js"></script>');
+        expect(page.body).not.toContain('window.Vivliostyle=');
+        // 骨格(boot)は内蔵時と同じ。差し替わるのはバンドルの載せ方だけ。
+        expect(page.body).toContain('editor:preview-doc');
+        const script = await fallback.inject({
+          method: 'GET',
+          url: '/api/preview-host/vivliostyle.js',
+        });
+        expect(script.statusCode).toBe(200);
+        expect(script.body).toContain('window.Vivliostyle=module.exports');
+      } finally {
+        await fallback.close();
+      }
+    } finally {
+      vi.doUnmock('../src/util/inlineBundle.js');
+    }
+  });
+});
