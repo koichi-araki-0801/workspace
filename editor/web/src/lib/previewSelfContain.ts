@@ -34,7 +34,9 @@
 import {
   collectCssUrlSpans,
   DOC_DIR,
-  PREVIEW_HOST_BASE,
+  DOC_FONTS_DIR,
+  FONT_MIME,
+  previewHostAssetUrl,
   replaceSpansFromEnd,
   resolveDocAssetPath,
 } from '@editor/shared';
@@ -58,9 +60,6 @@ interface SelfContainOptions {
   companyCode?: string | null;
 }
 
-/** 親が取りに行く配信 URL の接頭辞。 */
-const ASSET_URL_PREFIX = `/api${PREVIEW_HOST_BASE}/`;
-
 /**
  * 論理ルート相対パス → 親が取りに行く URL(プレビューホストは論理ルートの `css/` `js/` を配る)。
  * `rel` は 1 回復号済みなので、部分ごとに符号化し直す。そのまま繋ぐと `#` `?` で URL が切れ、
@@ -72,7 +71,7 @@ const ASSET_URL_PREFIX = `/api${PREVIEW_HOST_BASE}/`;
 export function assetUrl(rel: string): string | undefined {
   let url: string;
   try {
-    url = `${ASSET_URL_PREFIX}${rel.split('/').map(encodeURIComponent).join('/')}`;
+    url = previewHostAssetUrl(rel);
   } catch {
     return undefined;
   }
@@ -98,14 +97,6 @@ const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
 
 /** インライン化後も意味を保てる `type` 値(サーバ `INLINEABLE_TYPES` と同一)。 */
 const INLINEABLE_TYPES = new Set(['', 'module', 'text/javascript', 'application/javascript']);
-
-/** フォント拡張子 → data: URI の MIME(`cssExternalRefs.ALLOWED_DATA_PREFIXES` に収まる形)。 */
-const FONT_MIME: Readonly<Record<string, string>> = {
-  '.woff2': 'font/woff2',
-  '.woff': 'font/woff',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-};
 
 // 取得結果のキャッシュ(undefined = 取得失敗も含めて記憶し、再描画のたびに叩き直さない)。
 // key は論理ルート相対パス。資産は「生成時に確定し以後不変」のテンプレ資産なので、
@@ -274,7 +265,7 @@ async function inlineStyleAssets(
       const rel = resolveDocAssetPath(span.value, DOC_DIR);
       if (rel === undefined) continue;
       let dataUri: string | undefined;
-      if (rel.startsWith('css/fonts/')) {
+      if (rel.startsWith(`${DOC_FONTS_DIR}/`)) {
         dataUri = await fetchFontDataUri(rel, fetcher);
       } else {
         const ref = fundImageRefOf(rel);

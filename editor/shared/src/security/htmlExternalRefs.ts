@@ -245,6 +245,38 @@ export function findExternalRefsInTag(
 /** 論理ルートでの文書の置き場(1 段下)。文書の相対参照はここを基準に解く。 */
 export const DOC_DIR = 'doc';
 
+/**
+ * 論理ルートでのファンド別画像の置き場(参照を解いた論理パスの先頭)。サーバの配置・配信と web の
+ * 判定が同じ名前を使う。
+ */
+export const FUND_IMAGES_DIR = 'images';
+
+/** 論理ルートでの共通フォントの置き場(テンプレの CSS からは `url(fonts/…)` と書かれる)。 */
+export const DOC_FONTS_DIR = 'css/fonts';
+
+/**
+ * ファンド別画像の拡張子 → MIME。web の判定・data URI 化とサーバの配信の Content-Type が同じ表を
+ * 使う(片方だけ広げると、取りに行っても 404 になる参照を作る)。`Map` なのは、利用者入力の拡張子で
+ * `Object.prototype` を引かないため。
+ */
+export const IMAGE_MIME: ReadonlyMap<string, string> = new Map([
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+]);
+
+/**
+ * フォントの拡張子 → MIME。web が data URI にするとき(`cssExternalRefs.ts` の data: 許可リストに
+ * 収まる形)と、サーバのプレビューホストの Content-Type が同じ表を使う。
+ */
+export const FONT_MIME: Readonly<Record<string, string>> = {
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+};
+
 /** scheme 付き(`data:` やドライブ指定 `C:` を含む)の形。資産のパスにはならない。 */
 const SCHEME_PREFIX_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 

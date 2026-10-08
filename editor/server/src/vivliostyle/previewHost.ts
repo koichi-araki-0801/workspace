@@ -34,6 +34,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  FONT_MIME,
   PREVIEW_HOST_BASE,
   PREVIEW_MSG_CMD,
   PREVIEW_MSG_DOC,
@@ -106,15 +107,15 @@ const VIEWER_BUNDLE_SOURCE = path.resolve(
   'node_modules/@vivliostyle/core/lib/vivliostyle.js',
 );
 
-/** 資産の拡張子 → Content-Type。許可リスト外の拡張子はそもそも解決器が弾く。 */
+/**
+ * 資産の拡張子 → Content-Type。許可リスト外の拡張子はそもそも解決器が弾く。フォントは web が
+ * data URI にするときと同じ shared の表を使う。
+ */
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
+  ...FONT_MIME,
 };
 
 /** 読み込んだバンドルのキャッシュ(765KB を毎回読まない)。 */

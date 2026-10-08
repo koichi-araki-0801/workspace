@@ -144,6 +144,12 @@ export function formatBaseDate(baseDate: string): string {
 // 一元定義し、I/O 層の入口で強制する。`node:path` に依存しないのは web からも使うため。
 
 /**
+ * Windows の予約デバイス名(拡張子付きを含む)。`CON.html` もデバイスとして扱われ、lstat が装置として
+ * 成功しうるので、実体に触れる前に名前で落とす。サーバの画像の配信ルートも同じ表で落とす。
+ */
+export const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
  * 単一のファイル名セグメントとして安全か。パス区切り・`..`・制御文字に加え、Windows で
  * 特別扱いされる字面(ドライブ指定子 `:`・ワイルドカード・末尾ドット/空白)も落とす。
  */
@@ -156,7 +162,7 @@ function isSafeFileNameSegment(s: string): boolean {
   // 末尾のドット/空白は Windows が黙って落とすため、検査をすり抜けた別名になりうる。
   if (s !== s.trim() || s.endsWith('.')) return false;
   // Windows の予約デバイス名は拡張子付き(`CON.html`)でもデバイスとして扱われる。
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(s)) return false;
+  if (WINDOWS_RESERVED_RE.test(s)) return false;
   return true;
 }
 

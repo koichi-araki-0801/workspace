@@ -5,9 +5,9 @@
 // 1 段下の会社フォルダ(`images/<会社フォルダ>/<名前>`)だけで、web はサーバの
 // `GET /api/fund-assets/images/:file` と `…/:dir/:file` だけから取る(SVG 検査と認証を通る経路)。
 // 画面内プレビュー(`previewSelfContain.ts`)・編集画面(`features/editor/`)・PDF 文書
-// (`pdfDocument.ts`)が同じ判定と URL を使うよう、ここに 1 つだけ置く。拡張子はサーバの
-// `vivliostyle/docAssets.ts` の images グループと揃える — 片方だけ広げると、取りに行っても 404 に
-// なるだけの参照を作る。
+// (`pdfDocument.ts`)が同じ判定と URL を使うよう、ここに 1 つだけ置く。置き場の名前と拡張子の表は
+// サーバの配置・配信と同じ shared の `FUND_IMAGES_DIR` / `IMAGE_MIME` を使う — 片方だけ広げると、
+// 取りに行っても 404 になるだけの参照を作る。
 //
 // 会社フォルダはテンプレの会社コードと大文字小文字の違いだけを許す。テンプレ ID が分かる経路
 // (編集画面・プレビュー・承認と比較・editor から出す PDF)はすべて `companyFolderMatches` で
@@ -18,14 +18,13 @@ import {
   apiPaths,
   buildPath,
   DOC_CSS_PATH,
+  FUND_IMAGES_DIR,
+  IMAGE_MIME,
   parseAnyTemplateFileName,
   resolveDocAssetPath,
   rewriteCssUrlSpans,
   splitSrcsetUrls,
 } from '@editor/shared';
-
-/** 論理ルートでの置き場の名前(参照を解いた論理パスの先頭)。 */
-export const FUND_IMAGES_DIR = 'images';
 
 /**
  * テンプレの CSS の参照元として `resolveDocAssetPath` に渡す論理パス。shared の `DOC_CSS_PATH`
@@ -33,14 +32,6 @@ export const FUND_IMAGES_DIR = 'images';
  * 基準がずれる。
  */
 export const TEMPLATE_CSS_FROM: string = DOC_CSS_PATH;
-
-/** 拡張子 → MIME。`Map` なのは、利用者入力の拡張子で `Object.prototype` を引かないため。 */
-const FUND_IMAGE_MIME: ReadonlyMap<string, string> = new Map([
-  ['.svg', 'image/svg+xml'],
-  ['.png', 'image/png'],
-  ['.jpg', 'image/jpeg'],
-  ['.jpeg', 'image/jpeg'],
-]);
 
 /** 配信する 1 画像。`dir` は会社フォルダ(直下なら null)。 */
 export interface FundImageRef {
@@ -51,7 +42,7 @@ export interface FundImageRef {
 /** ファイル名の拡張子から MIME を引く。許可外は `undefined`。 */
 export function fundImageMime(file: string): string | undefined {
   const dot = file.lastIndexOf('.');
-  return dot < 0 ? undefined : FUND_IMAGE_MIME.get(file.slice(dot).toLowerCase());
+  return dot < 0 ? undefined : IMAGE_MIME.get(file.slice(dot).toLowerCase());
 }
 
 /**

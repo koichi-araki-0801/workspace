@@ -30,24 +30,20 @@ import type {
   FundAssetInspectResult,
   FundAssetRef,
 } from '@editor/shared';
-import { apiPaths, inspectSvg, resolveServedRoutePath } from '@editor/shared';
+import {
+  apiPaths,
+  FUND_IMAGES_DIR,
+  IMAGE_MIME,
+  inspectSvg,
+  resolveServedRoutePath,
+  WINDOWS_RESERVED_RE,
+} from '@editor/shared';
 import { FundAssetInspectRequest as FundAssetInspectRequestSchema } from '@editor/shared/schemas';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { warnSvgRejected } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { FUND_IMAGES_MOUNT, resolveServedAssetSource } from '../vivliostyle/docAssets.js';
-
-/** 拡張子 → Content-Type。許可リスト外の拡張子は解決器が先に弾く。 */
-const IMAGE_CONTENT_TYPES: ReadonlyMap<string, string> = new Map([
-  ['.svg', 'image/svg+xml'],
-  ['.png', 'image/png'],
-  ['.jpg', 'image/jpeg'],
-  ['.jpeg', 'image/jpeg'],
-]);
-
-/** Windows の予約デバイス名(拡張子付きを含む)。 */
-const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+import { resolveServedAssetSource } from '../vivliostyle/docAssets.js';
 
 /**
  * 直接開かれた SVG を opaque オリジンに閉じ込める CSP。`<img>` / CSS `content:url()` として
@@ -68,7 +64,7 @@ async function resolveFundImageSource(
   if (segments.some((s) => s.includes('/') || s.includes('\\') || WINDOWS_RESERVED_RE.test(s))) {
     return undefined;
   }
-  const wanted = [FUND_IMAGES_MOUNT, ...segments].join('/');
+  const wanted = [FUND_IMAGES_DIR, ...segments].join('/');
   if (resolveServedRoutePath(wanted) !== wanted) return undefined;
   return resolveServedAssetSource(wanted);
 }
@@ -86,7 +82,7 @@ type FundImageInspection =
 async function inspectFundImage(dir: string | null, file: string): Promise<FundImageInspection> {
   const source = await resolveFundImageSource(dir, file);
   const type =
-    source === undefined ? undefined : IMAGE_CONTENT_TYPES.get(path.extname(source).toLowerCase());
+    source === undefined ? undefined : IMAGE_MIME.get(path.extname(source).toLowerCase());
   if (source === undefined || type === undefined) return { status: 'missing' };
   let body: Buffer;
   try {
@@ -110,7 +106,7 @@ async function sendFundImage(
   const inspected = await inspectFundImage(dir, file);
   if (inspected.status === 'svg_rejected') {
     warnSvgRejected(
-      [FUND_IMAGES_MOUNT, ...(dir === null ? [] : [dir]), file].join('/'),
+      [FUND_IMAGES_DIR, ...(dir === null ? [] : [dir]), file].join('/'),
       inspected.violations,
       'SVG の検査に違反したため配信しません',
     );

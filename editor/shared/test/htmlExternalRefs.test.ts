@@ -8,8 +8,12 @@ import { describe, expect, it } from 'vitest';
 import { decodeHtmlEntities, normalizeHtmlUrlValue } from '../src/security/htmlEntities.js';
 import {
   DOC_DIR,
+  DOC_FONTS_DIR,
+  FONT_MIME,
+  FUND_IMAGES_DIR,
   fetchUrlAttrsFor,
   findExternalRefsInTag,
+  IMAGE_MIME,
   isFetchUrlAttr,
   nestedHtmlAttrsFor,
   resolveDocAssetPath,
@@ -533,5 +537,37 @@ describe('splitSrcsetUrls — 複数の URL を詰めた属性値の候補', () 
     expect(splitSrcsetUrls('a.png 1x, b.png 2x')).toEqual(['a.png', 'b.png']);
     expect(splitSrcsetUrls('a.png 1x', { includeWhole: true })).toEqual(['a.png 1x', 'a.png']);
     expect(splitSrcsetUrls('a.jar b.jar', { allTokens: true })).toEqual(['a.jar', 'b.jar']);
+  });
+});
+
+// web とサーバの表を 1 つにしたので、どちらの表とも中身が同じであることを固定する(片方だけ
+// 広げると、取りに行っても 404 になる参照を作る)。
+describe('配置の定数と拡張子 → MIME の表', () => {
+  it('置き場の名前', () => {
+    expect(FUND_IMAGES_DIR).toBe('images');
+    expect(DOC_FONTS_DIR).toBe('css/fonts');
+    expect(resolveDocAssetPath('../images/a.png', DOC_DIR)?.startsWith(`${FUND_IMAGES_DIR}/`)).toBe(
+      true,
+    );
+    expect(
+      resolveDocAssetPath('../css/fonts/a.woff2', DOC_DIR)?.startsWith(`${DOC_FONTS_DIR}/`),
+    ).toBe(true);
+  });
+  it('画像の MIME は Map で、利用者入力の拡張子で Object.prototype を引かない', () => {
+    expect([...IMAGE_MIME]).toEqual([
+      ['.svg', 'image/svg+xml'],
+      ['.png', 'image/png'],
+      ['.jpg', 'image/jpeg'],
+      ['.jpeg', 'image/jpeg'],
+    ]);
+    expect(IMAGE_MIME.get('constructor')).toBeUndefined();
+  });
+  it('フォントの MIME', () => {
+    expect(FONT_MIME).toEqual({
+      '.woff2': 'font/woff2',
+      '.woff': 'font/woff',
+      '.ttf': 'font/ttf',
+      '.otf': 'font/otf',
+    });
   });
 });

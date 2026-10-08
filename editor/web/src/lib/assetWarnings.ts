@@ -16,6 +16,7 @@ import {
   collectCssUrlSpans,
   cssFileNameOf,
   DOC_DIR,
+  FUND_IMAGES_DIR,
   type FundAssetInspectResult,
   resolveDocAssetPath,
 } from '@editor/shared';
@@ -23,7 +24,6 @@ import {
   attrUrlCandidates,
   classifyImageRel,
   companyCodeOfTemplateId,
-  FUND_IMAGES_DIR,
   type FundImageRef,
   servedFundImageOf,
 } from './fundImages';

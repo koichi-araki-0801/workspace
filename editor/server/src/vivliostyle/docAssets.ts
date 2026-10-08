@@ -24,7 +24,14 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { collectCssUrlCandidates, inspectSvg, resolveDocAssetPath } from '@editor/shared';
+import {
+  collectCssUrlCandidates,
+  DOC_FONTS_DIR,
+  FUND_IMAGES_DIR,
+  IMAGE_MIME,
+  inspectSvg,
+  resolveDocAssetPath,
+} from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
 import { warnSvgRejected } from '../logger.js';
 import { MAX_ASSET_REF_DEPTH } from './docRefs.js';
@@ -58,11 +65,11 @@ const MAX_ASSET_DEPTH = 4;
 
 const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
 
-/** ファンド別画像として配る拡張子。web の `lib/fundImages.ts` の MIME 表と揃える。 */
-const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.svg', '.png', '.jpg', '.jpeg']);
-
-/** 配信ルートでのファンド別画像の置き場(テンプレの相対参照 `images/…` の先頭)。 */
-export const FUND_IMAGES_MOUNT = 'images';
+/**
+ * ファンド別画像として配る拡張子。web の判定・配信ルートの Content-Type と同じ shared の
+ * `IMAGE_MIME` から作る(片方だけ広げると、取りに行っても 404 になる参照を作る)。
+ */
+const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(IMAGE_MIME.keys());
 
 /**
  * 配信してよい資産の全体。**ここに無いものは配信ルートへ出ない。**
@@ -84,7 +91,7 @@ export const FUND_IMAGES_MOUNT = 'images';
  */
 const ASSET_GROUPS: readonly AssetGroup[] = [
   {
-    mount: 'css/fonts',
+    mount: DOC_FONTS_DIR,
     sourceDir: () => path.join(config.cssDir, 'fonts'),
     extensions: FONT_EXTENSIONS,
     maxDepth: MAX_ASSET_DEPTH,
@@ -103,7 +110,7 @@ const ASSET_GROUPS: readonly AssetGroup[] = [
     maxDepth: MAX_ASSET_DEPTH,
   },
   {
-    mount: FUND_IMAGES_MOUNT,
+    mount: FUND_IMAGES_DIR,
     sourceDir: () => config.imagesDir,
     extensions: FUND_IMAGE_EXTENSIONS,
     // 直下(`images/<名前>`)と、委託会社共通の会社フォルダ 1 段(`images/<会社>/<名前>`)まで。
@@ -117,7 +124,7 @@ const ASSET_GROUPS: readonly AssetGroup[] = [
  * 置き場では `Images/x.svg` も同じ実体に届くため(配信面を絞る側の判定は広く取る)。
  */
 export function isFundImagePath(rel: string): boolean {
-  return rel.split('/')[0].toLowerCase() === FUND_IMAGES_MOUNT;
+  return rel.split('/')[0].toLowerCase() === FUND_IMAGES_DIR;
 }
 
 /**
@@ -158,7 +165,7 @@ function isAliasingSegment(seg: string): boolean {
  */
 function foldImageDirKey(rel: string): string | undefined {
   const segs = rel.split('/');
-  if (segs.length !== 3 || segs[0] !== FUND_IMAGES_MOUNT) return undefined;
+  if (segs.length !== 3 || segs[0] !== FUND_IMAGES_DIR) return undefined;
   if (segs.some(isAliasingSegment)) return undefined;
   return `${segs[0]}/${segs[1].toLowerCase()}/${segs[2]}`;
 }
@@ -283,8 +290,7 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   for (const [i, seg] of rest.entries()) {
     const last = i === rest.length - 1;
     // images の会社フォルダだけは名前の大小文字を問わない(`foldImageDirKey` の理由)。
-    const name =
-      !last && group.mount === FUND_IMAGES_MOUNT ? await matchDirName(current, seg) : seg;
+    const name = !last && group.mount === FUND_IMAGES_DIR ? await matchDirName(current, seg) : seg;
     if (name === undefined) return undefined;
     current = path.join(current, name);
     try {

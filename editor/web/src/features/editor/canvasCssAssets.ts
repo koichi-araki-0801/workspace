@@ -34,24 +34,25 @@ import {
   type CssUrlSpan,
   collectCssUrlSpans,
   collectCssUrlSpansInContext,
+  DOC_FONTS_DIR,
+  FUND_IMAGES_DIR,
   findExternalRefsInCss,
   isAllowedDataUrl,
-  PREVIEW_HOST_BASE,
+  previewHostAssetUrl,
   replaceSpansFromEnd,
   resolveDocAssetPath,
   splitCssRules,
 } from '@editor/shared';
 import {
   companyFolderMatches,
-  FUND_IMAGES_DIR,
   fundImageRefOf,
   fundImageUrl,
   TEMPLATE_CSS_FROM,
 } from '@/lib/fundImages';
 import { cssString } from './fundImages';
 
-/** フォントの論理ルートでの置き場(CSS からは `url(fonts/…)` と書かれる)。 */
-const FONTS_PREFIX = 'css/fonts/';
+/** フォントの論理パスの接頭辞(CSS からは `url(fonts/…)` と書かれる)。 */
+const FONTS_PREFIX = `${DOC_FONTS_DIR}/`;
 
 /** 論理パス → canvas が取りに行く配信 URL。配らないもの(会社フォルダ不一致を含む)は undefined。 */
 export function canvasAssetUrl(rel: string, companyCode: string | null): string | undefined {
@@ -61,7 +62,7 @@ export function canvasAssetUrl(rel: string, companyCode: string | null): string 
     return fundImageUrl(ref);
   }
   if (!rel.startsWith(FONTS_PREFIX)) return undefined;
-  return `/api${PREVIEW_HOST_BASE}/${rel.split('/').map(encodeURIComponent).join('/')}`;
+  return previewHostAssetUrl(rel);
 }
 
 /** 先頭のコメントと空白を飛ばして `@font-face` で始まる規則か。 */
