@@ -308,7 +308,7 @@ export function outsideFormForRank(
 }
 
 /** inside 配置の draft (wedge 中心・leader なし)。 */
-export function buildInsideDraft(form: LabelForm, fit: InsideFit): PlacementDraft {
+export function buildInsideDraft(fit: InsideFit): PlacementDraft {
   const cx = fit.centerX!;
   const cy = fit.centerY!;
   return {
@@ -460,7 +460,6 @@ function clusterTopBandBottomRight(
 function bottomCenterBelow(
   item: LayoutItemReady,
   cfg: PieLayoutConfig,
-  form: LabelForm,
   opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   if (!item.bottomCenterBelow) return null;
@@ -510,7 +509,7 @@ export function buildOutsideRimDraft(
   cfg: PieLayoutConfig,
   form: LabelForm,
 ): PlacementDraft {
-  const bottomCenter = bottomCenterBelow(item, cfg, form, {
+  const bottomCenter = bottomCenterBelow(item, cfg, {
     allowSegmentNudge: false,
   });
   if (bottomCenter) return bottomCenter;
@@ -650,11 +649,7 @@ const LOWER_LEFT_DROP_Y_FACTOR = 0.9;
  * item.anchorX/anchorY (slice rim) から自動接続し、computeDrawnLeader の円弦リルートで円外を回る
  * 斜めリーダーになる (参考PDF「オーストラリア」)。
  */
-export function buildLowerLeftDropLeaderDraft(
-  item: LayoutItemReady,
-  cfg: PieLayoutConfig,
-  form: LabelForm,
-): PlacementDraft {
+export function buildLowerLeftDropLeaderDraft(cfg: PieLayoutConfig): PlacementDraft {
   const textY = -cfg.pieRadius * LOWER_LEFT_DROP_Y_FACTOR;
   const textX = -cfg.pieRadius; // pieClearance が現在 y の円左縁へクランプする初期値
   return {

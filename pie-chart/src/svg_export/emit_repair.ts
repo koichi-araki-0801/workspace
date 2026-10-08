@@ -15,7 +15,6 @@
 import {
   normalizeAngle,
   angleInBand,
-  estimateVerifyTextExtent,
   nudgeTextAwayFromPie,
   pieYAtX,
   placementBox,
@@ -24,9 +23,7 @@ import {
   labelHeightUnits,
   leaderCrossesBox,
   degToRad,
-  upperLeftBendPoint,
   isOtherCategory,
-  boxOverlapAmount,
   pxToLogical,
 } from '../layout/geometry.js';
 import type { BBox } from '../layout/geometry.js';
@@ -34,11 +31,9 @@ import type { PieLayoutConfig, Diagnostics, Placement } from '../types.js';
 import {
   resolveLabelOverlaps,
   clampPlacement,
-  runCompactCascade,
   applyVisualViewBoxNudge,
   applyFinalCondenseToFit,
   relaxNameCondense,
-  blockedInY,
 } from './post_layout.js';
 import {
   computeDrawnLeader,
@@ -49,7 +44,6 @@ import {
   countLeaderThroughLabels,
   leaderThroughPairs,
   leaderCrossingPairs,
-  countBundledRimStubs,
   boxOverlapMax,
   boxPieIntrusionMax,
   boxViewOverflowMax,
@@ -1733,11 +1727,6 @@ export function enforceFinalPieClearance(
       s.p.y = s.y;
     }
   }
-}
-
-/** leader path が pie 円に侵入している本数 (pieRPx-1 余裕)。 */
-function leaderPieCrossCount(placements: Placement[], cfg: PieLayoutConfig, coord: Coord): number {
-  return leaderPieCrossCountFrom(realLeaderPaths(placements, cfg, coord), cfg, coord);
 }
 
 /** `leaderPieCrossCount` の path 配列版。 */

@@ -222,10 +222,10 @@ function collectSliceCounts(profiles: LayoutItem[]) {
 }
 
 /**
- * 件数統計と cfg から密集度モードタグを diag.modeTags に追記し、
+ * 件数統計から密集度モードタグを diag.modeTags に追記し、
  * 派生フラグ (dominantWithDensePeriphery / leftStackMode 等) を diag に設定する。
  */
-function deriveModeTags(diag: Diagnostics, cfg: PieLayoutConfig): void {
+function deriveModeTags(diag: Diagnostics): void {
   if (diag.manyItems) diag.modeTags.push('many_items');
   if (diag.ultraDenseItems) diag.modeTags.push('ultra_dense_items');
   if (diag.oneSideDense) diag.modeTags.push('one_side_dense');
@@ -318,7 +318,7 @@ function runDiagnostics(profiles: LayoutItem[], cfg: PieLayoutConfig): Diagnosti
       Boolean(diag.manyItems || diag.oneSideDense || diag.topSmallDense || diag.longLabelDense),
     modeTags: [] as string[],
   };
-  deriveModeTags(diag, cfg);
+  deriveModeTags(diag);
   return diag;
 }
 

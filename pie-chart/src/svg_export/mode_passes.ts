@@ -18,18 +18,16 @@ import {
   normalizeAngle,
   angleInBand,
   nudgeTextAwayFromPie,
-  pieYAtX,
   placementBox,
   placementExtent,
   radialFraction,
   degToRad,
   isOtherCategory,
-  boxOverlapAmount,
   pxToLogical,
 } from '../layout/geometry.js';
-import { TOP_BAND_HALF_WIDTH_DEG, topBandSonohokaZone } from '../layout/placement.js';
+import { topBandSonohokaZone } from '../layout/placement.js';
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
-import { clampPlacement, blockedInY } from './post_layout.js';
+import { clampPlacement } from './post_layout.js';
 import { boxPieIntrusionMax, boxViewOverflowMax, countLeaderCrossings } from './leader_geometry.js';
 import type { Coord } from './leader_geometry.js';
 // do-no-harm ゲート・採点は emit_repair.ts の共通基盤を使う (循環 import だが関数宣言のみ参照で安全)。

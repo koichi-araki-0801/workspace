@@ -16,19 +16,11 @@ import { assertItemCount, assertTotalValue } from '../limits.js';
 import { normalizeInputItems } from '../input/load.js';
 import { layoutLabels } from '../layout/diagnostics.js';
 import {
-  normalizeAngle,
-  angleInBand,
-  estimateTextExtent,
-  estimateVerifyTextExtent,
   nudgeTextAwayFromPie,
-  pieClearanceWithinViewBox,
-  pieYAtX,
   placementBox,
   placementExtent,
   leaderCrossesBox,
   radialFraction,
-  degToRad,
-  upperLeftBendPoint,
   labelCongestionOffsetDeg,
   isOtherCategory,
   boxOverlapAmount,
@@ -43,8 +35,6 @@ import {
   buildOutsideLeaderDraft,
   buildLowerLeftDropLeaderDraft,
   finalizePlacement,
-  TOP_BAND_HALF_WIDTH_DEG,
-  BOTTOM_BAND_HALF_WIDTH_DEG,
   topBandSonohokaZone,
 } from '../layout/placement.js';
 import type { InsideOption } from '../layout/placement.js';
@@ -84,48 +74,31 @@ import {
   isRedundantDominantRimLeader,
   distPointToSegment,
   pathsCross,
-  realLeaderPaths,
-  countLeaderCrossings,
   countLeaderThroughLabels,
   leaderThroughPairs,
   leaderCrossingPairs,
   countBundledRimStubs,
-  boxOverlapMax,
   boxPieIntrusionMax,
   boxViewOverflowOf,
-  boxViewOverflowMax,
-  projectBoxesToPixels,
-  oobLeaderCount,
   countAngularDiscordantPairs,
-  LEADER_MAX_ANGULAR_DIFF_RAD,
 } from './leader_geometry.js';
 import type { Pt, Coord } from './leader_geometry.js';
 // 採点・計測ゲート・emit 修復列は emit_repair.ts へ集約 (循環 import だが関数宣言のみ参照で安全)。
 import {
-  VIEW_OVERFLOW_CAP_PX,
   applyEmitRepairPasses,
-  applyOutsideLeaderAngularOrder,
-  captureEmitDefectVec,
   countDefects,
   countVerifyIssues,
   countVerifyIssuesDetailed,
-  emitDefectsWorsened,
   enforceFinalPieClearance,
   finalizeForScoring,
   gateNotWorseExceptClips,
   hasNewPair,
-  logicalYAtViewBoxYPx,
   measureDefectGate,
-  measureRepairVec,
   overlapsOf,
   placementPixelRect,
   repairResidualLeaderDefects,
-  seamRestore,
-  seamSnapshot,
-  tryMoveWithGuard,
-  trySeamMutation,
 } from './emit_repair.js';
-import type { DefectCounts, SeamSnap } from './emit_repair.js';
+import type { DefectCounts } from './emit_repair.js';
 // モード特化パス (左列 / top-band / 右上逃がし) は mode_passes.ts へ集約。
 import {
   applyLeftStackGapClose,
@@ -136,10 +109,6 @@ import {
   spreadLeftStackByAngle,
   stackTopRightLiftedLabels,
 } from './mode_passes.js';
-
-export { distPointToSegment, pathsCross } from './leader_geometry.js';
-const TOP_BAND_RIGHT_ANGLE_MIN_DEG = 90 - TOP_BAND_HALF_WIDTH_DEG;
-const TOP_BAND_RIGHT_ANGLE_MAX_DEG = 90;
 
 // =============================================================================
 // 統一カスケード (①〜⑨) — leader は最終手段、ラベルは円の近くに
@@ -169,8 +138,7 @@ function buildPlacementForRank(
   if (CASCADE_INSIDE_RANKS.has(rank)) {
     const opt = insideOpts[rank];
     if (opt) {
-      return finalizePlacement(item, cfg, buildInsideDraft(opt.form, opt.fit), opt.form)
-        .textPlacement;
+      return finalizePlacement(item, cfg, buildInsideDraft(opt.fit), opt.form).textPlacement;
     }
   }
   const form = outsideFormForRank(item, cfg, rank);
@@ -677,7 +645,7 @@ export function applyLowerLeftDropFallback(
     const dropP = finalizePlacement(
       item,
       cfg,
-      buildLowerLeftDropLeaderDraft(item, cfg, form),
+      buildLowerLeftDropLeaderDraft(cfg),
       form,
     ).textPlacement;
     item.forceHorizontalLowerLeftDrop = prevDrop;

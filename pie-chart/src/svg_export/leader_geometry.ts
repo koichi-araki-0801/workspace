@@ -1135,15 +1135,6 @@ export function projectBoxesToPixels(
   return placements.map((p) => projectBoxToPixels(placementBox(p, cfg), coord));
 }
 
-/** いずれかの点が viewBox を 1px 超はみ出す leader の本数 (do-no-harm の oob 指標)。 */
-export function oobLeaderCount(
-  placements: Placement[],
-  cfg: PieLayoutConfig,
-  coord: Coord,
-): number {
-  return oobLeaderCountFrom(realLeaderPaths(placements, cfg, coord), coord);
-}
-
 /** `oobLeaderCount` の path 配列版。 */
 export function oobLeaderCountFrom(paths: (Pt[] | null)[], coord: Coord): number {
   let c = 0;

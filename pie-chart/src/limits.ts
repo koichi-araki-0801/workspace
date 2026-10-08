@@ -33,7 +33,7 @@ function envPositiveInt(name: string, def: number): number {
 export const PIE_MAX_ITEMS = envPositiveInt('PIE_MAX_ITEMS', 32);
 
 /** この件数を超えたら「時間がかかる」と stderr へ警告する(待たされていることの可視化)。 */
-export const PIE_WARN_ITEMS = 16;
+const PIE_WARN_ITEMS = 16;
 
 /**
  * 項目数の上限判定。**割り当ての直前** (`renderPdfStylePieToSvg` が唯一の funnel) から

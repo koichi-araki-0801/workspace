@@ -14,7 +14,8 @@
 // =============================================================================
 
 import { resolveInputData, samples as jsSamples } from '../input/load.js';
-import { renderPdfStylePieToSvg, pathsCross, distPointToSegment } from '../svg_export/pipeline.js';
+import { renderPdfStylePieToSvg } from '../svg_export/pipeline.js';
+import { pathsCross, distPointToSegment } from '../svg_export/leader_geometry.js';
 
 type Pt = { x: number; y: number };
 

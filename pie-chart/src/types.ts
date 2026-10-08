@@ -26,7 +26,6 @@ export interface LayoutItem {
   signedValue?: number;
   percent?: number;
   percentText?: string;
-  color?: string;
 
   // 角度・分類 (buildProfiles)
   midAngle?: number;
@@ -366,10 +365,7 @@ export interface PieLayoutConfig {
   // 密集側 (片側に外側ラベルが多く寄った列) の rim ラベル半径倍率。1.0 で従来。密集側だけ
   // ラベルを円から少し離して窮屈さと leader 交差圧を緩和する (`markDenseSideOutsidePush`)。
   denseSideOutsideRadiusFactor: number;
-  radialExitRenderScale: number;
   radialExitLen: number;
-  yTop: number;
-  yBottom: number;
   minGap: number;
   minGapMultiline: number;
   minGapDense: number;
@@ -442,7 +438,6 @@ export interface PieLayoutConfig {
   readonly scaledLabelRadius: number;
   readonly renderLabelRadius: number;
   readonly scaledRadialExitLen: number;
-  readonly renderRadialExitLen: number;
   readonly scaledMinGap: number;
   readonly scaledMinGapMultiline: number;
   readonly scaledMinGapDense: number;
@@ -459,7 +454,6 @@ export interface PieLayoutConfig {
   readonly leftInitTopInset: number;
   readonly bottomSpecialY: number;
   readonly lowerBandYThreshold: number;
-  readonly flipHorizontalCap: number;
   readonly flipPieClearance: number;
   readonly singleSliceLabelOffset: number;
 }
