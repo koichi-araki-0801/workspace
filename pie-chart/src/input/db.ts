@@ -33,7 +33,7 @@ export interface ConnOpts {
 }
 
 /** 検証済みの接続先。JSON の `source` に server / database を記録するためにも使う。 */
-export interface ConnTarget {
+interface ConnTarget {
   driver: string;
   server: string;
   database: string;
@@ -180,7 +180,7 @@ export interface MsSqlDriver {
   };
 }
 
-export interface SprocCallOpts {
+interface SprocCallOpts {
   connectionString: string;
   proc: string;
   args: SprocArgs;

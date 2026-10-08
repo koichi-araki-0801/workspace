@@ -24,7 +24,7 @@ import {
 import { DbStageError, InterruptedError, errorMessage } from './dbStage.js';
 import { type SprocArgs, resolveSprocName } from './sprocArgs.js';
 
-export interface SprocFetchResult {
+interface SprocFetchResult {
   items: Array<[string, number]>;
   server: string;
   database: string;
@@ -82,9 +82,9 @@ export async function fetchSprocItems(
   return { items, server: target.server, database: target.database, proc };
 }
 
-export type CheckStage = 'extract' | 'verify' | 'load' | 'connect' | 'cleanup' | 'child';
+type CheckStage = 'extract' | 'verify' | 'load' | 'connect' | 'cleanup' | 'child';
 
-export interface DbCheckLine {
+interface DbCheckLine {
   stage: CheckStage;
   status: 'OK' | 'NG' | 'skipped';
   detail: string;

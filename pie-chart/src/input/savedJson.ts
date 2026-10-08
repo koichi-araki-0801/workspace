@@ -14,7 +14,7 @@ import path from 'node:path';
 import type { Item } from '../types.js';
 import { formatBaseDateIso, type SprocArgs } from './sprocArgs.js';
 
-export interface SavedSource {
+interface SavedSource {
   fund: string;
   /** `YYYYMMDD`。 */
   baseDate: string;
@@ -26,7 +26,7 @@ export interface SavedSource {
   proc: string;
 }
 
-export interface SavedEntry {
+interface SavedEntry {
   description: string;
   source: SavedSource;
   items: Item[];

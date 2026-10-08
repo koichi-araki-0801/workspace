@@ -55,7 +55,7 @@ export interface ChildRequest extends HelperRequest {
   driverPath: string;
 }
 
-export type ChildResponse =
+type ChildResponse =
   | { ok: true; items: Array<[string, number]> }
   | { ok: false; stage: DbStage; message: string };
 

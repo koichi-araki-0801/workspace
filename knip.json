@@ -13,6 +13,9 @@
         "scripts/e2e-rest-server.ts"
       ]
     },
+    "pie-chart": {
+      "entry": ["src/runtime/sqlserverv8Shim.cjs"]
+    },
     "editor/web": {
       "ignoreDependencies": ["@vivliostyle/core"]
     }
