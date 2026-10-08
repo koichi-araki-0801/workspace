@@ -28,7 +28,6 @@ import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFi
 import { findInProgressIds } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
-  attrKey,
   filledExists,
   findTemplateId,
   listFilledFiles,
@@ -36,7 +35,6 @@ import {
   readFilledHtml,
   readTemplateCss,
   readTemplateHtml,
-  templateAttrKeys,
   templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
@@ -180,7 +178,6 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       // テンプレートは基準日で使い回さないので、テンプレートフォルダ(templates/)に 3 つ区切りの
       // ファイルがあるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
       const files = await listTemplateFiles();
-      const templateKeys = templateAttrKeys(files);
       const templateId = findTemplateId(files, companyCode, fundCode, editionType);
       const created = templateId !== null;
       // 作業中は、作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している下書きは
@@ -209,7 +206,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         .map(([code]) => ({
           fundCode: code,
           fundName: names.get(code) ?? '',
-          hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
+          hasTemplate: findTemplateId(files, companyCode, code, editionType) !== null,
         }))
         .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
       return { created, ...extra, seriesFunds };
@@ -285,9 +282,14 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     async getDraft(templateId) {
       const draft = await readDraft(templateId);
       if (!draft) return null;
-      const { html, css } = draft;
       // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
-      return { templateId, html, css, savedAt: (await draftMtime(templateId)) ?? '', savedBy: '' };
+      return {
+        templateId,
+        html: draft.html,
+        css: draft.css,
+        savedAt: (await draftMtime(templateId)) ?? '',
+        savedBy: '',
+      };
     },
 
     /** 確定保存せずメニューへ戻った際に、未確定の下書き作業コピーを破棄する。 */

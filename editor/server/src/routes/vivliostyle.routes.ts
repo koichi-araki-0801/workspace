@@ -55,6 +55,19 @@ function actorOf(request: FastifyRequest): PreviewActor {
   return { loginId: u.username, isAdmin: u.role === 'admin' };
 }
 
+/** PDF 書き出しを `pdf.export` の監査付きで走らせる。成功時は `pdfBytes` を detail へ足す。 */
+function auditPdfExport(
+  request: FastifyRequest,
+  detail: Record<string, unknown>,
+  run: () => Promise<Buffer>,
+): Promise<Buffer> {
+  return auditedRethrow(request, 'pdf.export', run, {
+    success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+    failure: () => ({ detail }),
+    failureMessage: 'PDF generation failed',
+  });
+}
+
 function sendPdf(reply: FastifyReply, pdf: Buffer): void {
   reply
     .header('Content-Type', 'application/pdf')
@@ -97,11 +110,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = request.body;
       const detail = { mode: 'inline', htmlBytes: body.html.length, cssBytes: body.css.length };
-      const pdf = await auditedRethrow(request, 'pdf.export', () => buildInlinePdf(body), {
-        success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-        failure: () => ({ detail }),
-        failureMessage: 'PDF generation failed',
-      });
+      const pdf = await auditPdfExport(request, detail, () => buildInlinePdf(body));
       sendPdf(reply, pdf);
     },
   );
@@ -124,26 +133,18 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
         try {
           // `entry` 検証も try の内側に置く。外に出すと 400 の時だけ展開ディレクトリが残る。
           const opts = projectOptions(request, project.dir);
-          return await auditedRethrow(
-            request,
-            'pdf.export',
-            () =>
-              buildProjectInSlot(
-                {
-                  dir: project.dir,
-                  cwd: project.cwd,
-                  config: project.config,
-                  entry: opts.entry,
-                  size: opts.size,
-                  singleDoc: opts.singleDoc,
-                },
-                runBuild,
-              ),
-            {
-              success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-              failure: () => ({ detail }),
-              failureMessage: 'PDF generation failed',
-            },
+          return await auditPdfExport(request, detail, () =>
+            buildProjectInSlot(
+              {
+                dir: project.dir,
+                cwd: project.cwd,
+                config: project.config,
+                entry: opts.entry,
+                size: opts.size,
+                singleDoc: opts.singleDoc,
+              },
+              runBuild,
+            ),
           );
         } finally {
           await cleanupProject(project.dir);
@@ -169,11 +170,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
         docCount: body.documents.length,
         htmlBytes: body.documents.reduce((n, d) => n + d.html.length, 0),
       };
-      const pdf = await auditedRethrow(request, 'pdf.export', () => buildMergedPdf(body), {
-        success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-        failure: () => ({ detail }),
-        failureMessage: 'PDF generation failed',
-      });
+      const pdf = await auditPdfExport(request, detail, () => buildMergedPdf(body));
       sendPdf(reply, pdf);
     },
   );

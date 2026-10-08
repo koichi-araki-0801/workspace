@@ -30,7 +30,11 @@ async function loadStage(
     envPositiveNumber: (name: string, _v: string | undefined, def: number) =>
       limits[name as keyof typeof limits] ?? def,
   }));
-  vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: { warn },
+    warnSvgRejected: (file: string, violations: string[], message: string) =>
+      warn({ type: 'asset.svg_rejected', file, violations }, message),
+  }));
   const mod = await import('../src/vivliostyle/docAssets.js');
   // opts を省くと、置き場にある全ファイルを参照された扱いにする(配置の可否だけを見るテスト用)。
   return async (dir, opts) => mod.stageDocAssets(dir, opts ?? { referenced: await everyRel() });
@@ -235,7 +239,11 @@ async function loadResolve(): Promise<(rel: string) => Promise<string | undefine
     config: { cssDir, jsDir, imagesDir },
     envPositiveNumber: (_n: string, _v: string | undefined, def: number) => def,
   }));
-  vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: { warn },
+    warnSvgRejected: (file: string, violations: string[], message: string) =>
+      warn({ type: 'asset.svg_rejected', file, violations }, message),
+  }));
   const mod = await import('../src/vivliostyle/docAssets.js');
   return mod.resolveServedAssetSource;
 }

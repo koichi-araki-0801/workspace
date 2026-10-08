@@ -26,7 +26,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { collectCssUrlCandidates, inspectSvg, resolveDocAssetPath } from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
-import { logger } from '../logger.js';
+import { warnSvgRejected } from '../logger.js';
 import { MAX_ASSET_REF_DEPTH } from './docRefs.js';
 
 /** 配信ルートに作るサブディレクトリと、その中身として許す拡張子(小文字・末尾一致)。 */
@@ -376,8 +376,9 @@ async function readInspectedSvg(file: AssetFile): Promise<Buffer | undefined> {
   }
   const violations = inspectSvg(body.toString('utf8'));
   if (violations.length === 0) return body;
-  logger.warn(
-    { type: 'asset.svg_rejected', file: file.rel, violations },
+  warnSvgRejected(
+    file.rel,
+    violations,
     'SVG の検査に違反したため配信ルートへ置きません(この画像は表示されません)',
   );
   return undefined;

@@ -33,7 +33,7 @@ import type {
 import { apiPaths, inspectSvg, resolveServedRoutePath } from '@editor/shared';
 import { FundAssetInspectRequest as FundAssetInspectRequestSchema } from '@editor/shared/schemas';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { logger } from '../logger.js';
+import { warnSvgRejected } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { FUND_IMAGES_MOUNT, resolveServedAssetSource } from '../vivliostyle/docAssets.js';
@@ -109,12 +109,9 @@ async function sendFundImage(
 ): Promise<FastifyReply> {
   const inspected = await inspectFundImage(dir, file);
   if (inspected.status === 'svg_rejected') {
-    logger.warn(
-      {
-        type: 'asset.svg_rejected',
-        file: [FUND_IMAGES_MOUNT, ...(dir === null ? [] : [dir]), file].join('/'),
-        violations: inspected.violations,
-      },
+    warnSvgRejected(
+      [FUND_IMAGES_MOUNT, ...(dir === null ? [] : [dir]), file].join('/'),
+      inspected.violations,
       'SVG の検査に違反したため配信しません',
     );
   }
