@@ -50,7 +50,7 @@ import {
   resolveFilled,
   tx,
   uid,
-  uniq,
+  uniqSorted,
   write,
 } from './store';
 
@@ -309,16 +309,16 @@ export const localTemplateRepo: TemplateRepository = {
           return !want || (m.attributes[f] ?? '').toLowerCase() === want.toLowerCase();
         });
       return delay({
-        companyCodes: uniq(metas.map((m) => m.attributes.companyCode)),
-        fundCodes: uniq(
+        companyCodes: uniqSorted(metas.map((m) => m.attributes.companyCode)),
+        fundCodes: uniqSorted(
           metas.filter((m) => matchesUpper(m, ['companyCode'])).map((m) => m.attributes.fundCode),
         ),
-        baseDates: uniq(
+        baseDates: uniqSorted(
           metas
             .filter((m) => matchesUpper(m, ['companyCode', 'fundCode']))
             .flatMap((m) => m.attributes.baseDate ?? []),
         ),
-        editionTypes: uniq(
+        editionTypes: uniqSorted(
           metas
             .filter((m) => matchesUpper(m, ['companyCode', 'fundCode', 'baseDate']))
             .map((m) => m.attributes.editionType),

@@ -195,7 +195,7 @@ export const uid = (p: string) =>
 export const delay = <T>(value: T) => new Promise<T>((r) => setTimeout(() => r(value), 80));
 
 /** 文字列リストを重複排除してソートする(dropdown 候補の構築に使う)。 */
-export const uniq = (xs: string[]) => [...new Set(xs)].sort();
+export const uniqSorted = (xs: string[]) => [...new Set(xs)].sort();
 
 const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 

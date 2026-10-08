@@ -48,7 +48,7 @@ const PREVIEW_HOST = config.vivliostyle.preview.host;
  * ローカルモード(`requireAuth=false`)は単一端末利用が前提なので、センチネル actor で
  * 意図的に全一致させる(素通しであることは `previewOwnership.test.ts` が固定する)。
  */
-function actorOf(request: FastifyRequest): PreviewActor {
+function previewActorOf(request: FastifyRequest): PreviewActor {
   if (!config.requireAuth) return { loginId: '@local', isAdmin: true };
   const u = request.user;
   if (!u) throw notFound('プレビューセッションが見つかりません');
@@ -178,7 +178,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ・自分の分だけ)。
   // 全件返すと、id を列挙してプロキシ経由で他人の作業を読める(IDOR の足場)。
   app.get(apiPaths.preview, { preHandler: requireAuth }, async (request) => {
-    return previewManager.list(actorOf(request));
+    return previewManager.list(previewActorOf(request));
   });
 
   // POST /api/preview — ライブプレビューを起動(inline JSON または project zip)。
@@ -215,7 +215,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
             workDir: project.dir,
             docBase: project.docBase,
           },
-          actorOf(request),
+          previewActorOf(request),
         );
       } else {
         const parsed = BuildInlineRequest.safeParse(request.body);
@@ -233,7 +233,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
             // config の base は `mergeConfigObject` が `DEFAULT_DOC_BASE` に固定している。
             docBase: DEFAULT_DOC_BASE,
           },
-          actorOf(request),
+          previewActorOf(request),
         );
       }
       audit({
@@ -253,7 +253,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAuth },
     async (request) => {
       // 他人のセッションも「見つかりません」に合流させる(403 は存在オラクルになる)。
-      const meta = previewManager.get(request.params.id, actorOf(request));
+      const meta = previewManager.get(request.params.id, previewActorOf(request));
       if (!meta) throw notFound('プレビューセッションが見つかりません');
       return meta;
     },
@@ -267,7 +267,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       const id = request.params.id;
       // 空振りは workDir も消さない(`stop` は cleanupProject まで行うため、素通しすると
       // 他人の作業ディレクトリを消せる)。
-      const stopped = await previewManager.stop(id, actorOf(request));
+      const stopped = await previewManager.stop(id, previewActorOf(request));
       if (!stopped) throw notFound('プレビューセッションが見つかりません');
       audit({
         event: 'vivliostyle.preview.stop',
@@ -300,7 +300,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       // セッション id は `crypto.randomUUID`。literal UUID 以外は受けない(encode 揺れを
       // 型ごと排除する)。
       if (!UUID_RE.test(rawId)) throw notFound('プレビューセッションが見つかりません');
-      const target = previewManager.resolveFor(rawId, actorOf(request));
+      const target = previewManager.resolveFor(rawId, previewActorOf(request));
       if (!target) throw notFound('プレビューセッションが見つかりません');
       const forward = allowForwardPath(m[2] || '/', target.docBase);
       // 許可リスト非該当は**上流へ 1 バイトも出さずに**落とす。上流へ届けてから 404 に

@@ -8,6 +8,7 @@
 // 判定は字句解析(`jinjaLex.ts`)と HTML 走査(`htmlScan.ts`)の結果だけで行い、原文を書き換えた
 // 文字列の上では位置を数えない。描画は呼び出し側(`fillJinja.ts`)が受け持つ。
 
+import { isHtmlSpace } from '@editor/shared';
 import {
   type HtmlScan,
   maskJinja,
@@ -80,9 +81,6 @@ const TABLE_CONTEXT = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'colgro
 const SELECT_CONTEXT = new Set(['select', 'optgroup', 'datalist']);
 /** GrapesJS が要素として保てない(本文中の `<style>` は CSS 規則へ吸い上げる)ためチップにする。 */
 const CHIP_TAGS = new Set(['style', 'textarea', 'title']);
-
-const isSpace = (c: string | undefined) =>
-  c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
 
 type Block = Extract<JinjaNode, { type: 'if' | 'for' | 'raw' | 'opaqueBlock' }>;
 
@@ -242,7 +240,7 @@ export function analyzeFill(raw: string): FillAnalysis {
   let pos = 0;
   for (const t of [...parse.tokens, { start: raw.length, end: raw.length }]) {
     for (; pos < t.start; pos++) {
-      if (isSpace(raw[pos])) continue;
+      if (isHtmlSpace(raw[pos])) continue;
       const ctx = scan.contextAt(pos);
       const g = ctx.kind === 'text' ? gapTarget(ctx.parent) : null;
       if (g) add(g.el, g.reason);
