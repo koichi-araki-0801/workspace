@@ -674,8 +674,11 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       cvScrollHandler = () => {
         if (pending) return;
         pending = true;
-        remeasureNextFrame(() => {
+        requestAnimationFrame(() => {
+          // 先に下ろす。測り直しが投げても次の scroll を受け付けられる。
           pending = false;
+          refreshRect();
+          refreshPageGuides();
           updateScrollFraction();
         });
       };

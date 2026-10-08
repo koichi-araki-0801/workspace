@@ -16,8 +16,9 @@ export function syncUi<K extends keyof EditorUiState>(
   source: Ref<EditorUiState[K]>,
   key: K,
 ): void {
+  const ui = store.ensure(templateId).ui;
   watch(source, (v) => {
-    store.sessions[templateId].ui[key] = v;
+    ui[key] = v;
     store.persistUi(templateId);
   });
 }
