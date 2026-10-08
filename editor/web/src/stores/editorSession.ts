@@ -23,7 +23,7 @@ export interface EditorSnapshot {
  * (SPA 遷移)では丸ごと保持する。倍率・表示系だけは `persistUi` で localStorage へも永続し
  * リロード後も戻す。`allowEdit`/`selectedKey` は永続しない(リロード後は安全側の既定へ戻る)。
  */
-interface EditorUiState {
+export interface EditorUiState {
   /** 「編集を許可」トグル(永続しない — リロード後は安全側の既定 OFF)。 */
   allowEdit: boolean;
   /** 赤入れ表示。既定 OFF(ボタンで明示したときだけ差分を出す)。ON/OFF は永続する。 */

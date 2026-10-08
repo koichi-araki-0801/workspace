@@ -7,11 +7,10 @@
 // ので、線の本数は `pageCount - 1` から要素の無い白紙のページの数を引いたものになる(白紙の
 // ページの前後の線は同じ位置に来るので 1 本にまとめる)。
 
-import { toAppError } from '@editor/shared';
 import type { Editor } from 'grapesjs';
 import { ref, type ShallowRef } from 'vue';
-import { logError } from '@/lib/appError';
 import { isElementlessPage, pageHead } from '@/lib/pageBreaks';
+import { measureOrClear } from './canvasGeometry';
 
 /**
  * A4 sheet 上に描く 1 本のページ境界 guide(canvas 相対 / zoom 考慮の座標、
@@ -72,56 +71,58 @@ export function usePageGuides(ctx: PageGuidesContext) {
       pageGuides.value = [];
       return;
     }
-    try {
-      // `noScroll: true`: 既定の `getElementPos` は内部 `offset()` で iframe document の
-      // scroll 量を足し戻し、戻り値が content 基準(scroll 非依存)になる。overlay guide は
-      // 非スクロールの `<main>` 上に置くため、iframe スクロール時に追従させるには viewport
-      // 相対が要る。GrapesJS 自身も tool 配置で同じ opts を使う(grapesjs canvas の
-      // `CommandSelectComponent.getElementPos`)。`refreshRect` も同様。
-      const pos = (el: HTMLElement) => ed.Canvas.getElementPos(el, { noScroll: true });
-      const bodyPos = pos(body);
-      const pages = ctx.pageBlocks.value;
-      const breaks = ctx.breakEls.value;
-      const breakPages = ctx.breakPages.value;
-      const split = { pages, breakEls: breaks, breakPages };
-      const out: PageGuide[] = [];
-      /** ページ `page` の末尾のパーツ `last` の後ろにある、描かれた(高さのある)最初の帯の位置。 */
-      const bandAfter = (last: HTMLElement, page: number) => {
-        for (let j = 0; j < breaks.length; j++) {
-          if (breakPages[j] !== page || !precedes(last, breaks[j])) continue;
-          const p = pos(breaks[j]);
-          if (p.height > 0) return p;
-        }
-        return undefined;
-      };
-      for (let i = 1; i < pages.length; i++) {
-        // 要素の無い白紙のページ i の先頭の線は、次のページの線と同じ位置に来る。次の線へまとめる。
-        if (isElementlessPage(split, i)) continue;
-        const blank = isElementlessPage(split, i - 1);
-        // まとめた線は飛ばした線(続く白紙のページのうち最初のものの先頭)の位置を受け継ぐ。直前の
-        // 要素のあるページの末尾に帯があれば、次の要素の上端ではなく帯の上端に引くため。
-        let from = i;
-        while (from >= 2 && isElementlessPage(split, from - 1)) from--;
-        const prevLast = pages[from - 1].at(-1);
-        const band = prevLast ? bandAfter(prevLast, from - 1) : undefined;
-        // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。白紙のページ `from` の
-        // `pageHead` は要素の無いページを読み飛ばすので、ページ i の先頭と同じ要素になる。
-        const head = pageHead(split, from) as HTMLElement;
-        const guide: PageGuide = {
-          top: band ? band.top : pos(head).top,
-          left: bodyPos.left,
-          width: bodyPos.width,
-          page: i,
+    // 失敗(canvas の一時的な状態)は guide を静かに隠す。
+    measureOrClear(
+      () => {
+        // `noScroll: true`: 既定の `getElementPos` は内部 `offset()` で iframe document の
+        // scroll 量を足し戻し、戻り値が content 基準(scroll 非依存)になる。overlay guide は
+        // 非スクロールの `<main>` 上に置くため、iframe スクロール時に追従させるには viewport
+        // 相対が要る。GrapesJS 自身も tool 配置で同じ opts を使う(grapesjs canvas の
+        // `CommandSelectComponent.getElementPos`)。`refreshRect` も同様。
+        const pos = (el: HTMLElement) => ed.Canvas.getElementPos(el, { noScroll: true });
+        const bodyPos = pos(body);
+        const pages = ctx.pageBlocks.value;
+        const breaks = ctx.breakEls.value;
+        const breakPages = ctx.breakPages.value;
+        const split = { pages, breakEls: breaks, breakPages };
+        const out: PageGuide[] = [];
+        /** ページ `page` の末尾のパーツ `last` の後ろにある、描かれた(高さのある)最初の帯の位置。 */
+        const bandAfter = (last: HTMLElement, page: number) => {
+          for (let j = 0; j < breaks.length; j++) {
+            if (breakPages[j] !== page || !precedes(last, breaks[j])) continue;
+            const p = pos(breaks[j]);
+            if (p.height > 0) return p;
+          }
+          return undefined;
         };
-        if (blank) guide.blank = true;
-        out.push(guide);
-      }
-      pageGuides.value = out;
-    } catch (e) {
-      // 幾何の再計算に失敗(canvas の一時的な状態) — guide を静かに隠す。
-      logError(toAppError(e));
-      pageGuides.value = [];
-    }
+        for (let i = 1; i < pages.length; i++) {
+          // 要素の無い白紙のページ i の先頭の線は、次のページの線と同じ位置に来る。次の線へまとめる。
+          if (isElementlessPage(split, i)) continue;
+          const blank = isElementlessPage(split, i - 1);
+          // まとめた線は飛ばした線(続く白紙のページのうち最初のものの先頭)の位置を受け継ぐ。直前の
+          // 要素のあるページの末尾に帯があれば、次の要素の上端ではなく帯の上端に引くため。
+          let from = i;
+          while (from >= 2 && isElementlessPage(split, from - 1)) from--;
+          const prevLast = pages[from - 1].at(-1);
+          const band = prevLast ? bandAfter(prevLast, from - 1) : undefined;
+          // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。白紙のページ `from` の
+          // `pageHead` は要素の無いページを読み飛ばすので、ページ i の先頭と同じ要素になる。
+          const head = pageHead(split, from) as HTMLElement;
+          const guide: PageGuide = {
+            top: band ? band.top : pos(head).top,
+            left: bodyPos.left,
+            width: bodyPos.width,
+            page: i,
+          };
+          if (blank) guide.blank = true;
+          out.push(guide);
+        }
+        pageGuides.value = out;
+      },
+      () => {
+        pageGuides.value = [];
+      },
+    );
     // guide と同じ scroll/zoom/content の契機でメモ目印も測り直す(位置追従)。
     ctx.afterGuides?.();
   }

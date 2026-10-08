@@ -27,6 +27,7 @@ import {
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
+import { canvasRoot } from './canvasGeometry';
 import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
@@ -45,7 +46,9 @@ import {
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
+import { syncUi } from './syncUi';
 import { afterTextEdit } from './textEditFinish';
+import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
@@ -201,17 +204,23 @@ export function useTemplateEditor(
       equals: (a, b) => a.html === b.html && a.css === b.css,
     },
   );
+  const undoStep = { beginUndo, commitUndo, cancelUndo };
+
+  /**
+   * 選択パーツのキー(修正履歴・コメント・右ペインのコメント一覧の絞り込み基準)。選択/編集で
+   * 再評価させるため reactive 値を読む。
+   */
+  const currentNoteKeyRef = computed<string | null>(() => {
+    void g.selected.value;
+    void g.revision.value;
+    return currentNoteKey();
+  });
 
   const { record: recordChange, displayHistory } = usePartEditHistory(
     id,
     // 版を跨いで安定な構造キーで紐づける(メモと共用)。GrapesJS の component id は
-    // リロード/版再生成で再採番され、永続履歴が孤児化するため使わない。選択/編集で
-    // displayHistory を再評価させるため reactive 値を読む(computed の依存に含める)。
-    () => {
-      void g.selected.value;
-      void g.revision.value;
-      return currentNoteKey() ?? undefined;
-    },
+    // リロード/版再生成で再採番され、永続履歴が孤児化するため使わない。
+    () => currentNoteKeyRef.value ?? undefined,
     () => auth.user?.displayName ?? '編集者',
     // 永続 history の getter。選択中はそのパーツに絞り、未選択(全パーツ表示)では全件を返す。
     (key) => (key ? allPartHistory.value.filter((e) => e.partKey === key) : allPartHistory.value),
@@ -231,20 +240,11 @@ export function useTemplateEditor(
   // 繰り越しもしない)。パーツの同定は版内で安定な構造キー(`partKey.ts`)で行う。
   const noteRepo = useNoteRepo();
 
-  /**
-   * canvas のルート要素(GrapesJS の wrapper)。パーツ列挙/キー解決の基準。まだ描かれていなければ
-   * 無しとする — canvas の body の直下は wrapper 1 つでパーツの並びではないので、body へ代えると
-   * 全体が 1 パーツに数えられ、キーもラベルも静的な文書側と食い違う(`useCanvasMarkers.ts` と同じ)。
-   */
-  function canvasRoot(): HTMLElement | undefined {
-    return g.editor.value?.getWrapper()?.getEl?.() as HTMLElement | undefined;
-  }
-
   /** 現在の canvas 選択を、版を跨いで安定なパーツ構造キーへ解決する(無ければ null)。 */
   function currentNoteKey(): string | null {
     const ed = g.editor.value;
     const el = ed?.getSelected()?.getEl?.() as HTMLElement | undefined;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     if (!ed || !el || !root) return null;
     return partPathKeyFor(el, root, canvasRawKey(ed));
   }
@@ -259,7 +259,7 @@ export function useTemplateEditor(
     // `pageBlocks`(ページの数え直しの結果)も依存に含め、ページ確定後の再評価を取りこぼさない。
     void g.pageBlocks.value;
     const ed = g.editor.value;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
   });
 
@@ -271,27 +271,15 @@ export function useTemplateEditor(
     void g.revision.value;
     void g.pageBlocks.value;
     const ed = g.editor.value;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     return ed && root ? jinjaAnchoredParts(root, canvasRawKey(ed)).length : 0;
   });
 
   const note = useComments(
     () => template.value?.meta.id ?? '',
-    () => {
-      // 選択/編集で再評価させるため reactive 値を読む(computed の依存に含める)。
-      void g.selected.value;
-      void g.revision.value;
-      return currentNoteKey();
-    },
+    () => currentNoteKeyRef.value,
     noteRepo,
   );
-
-  /** 選択パーツのキー(右ペインのコメント一覧へ渡す。選択・編集で再評価)。 */
-  const currentNoteKeyRef = computed<string | null>(() => {
-    void g.selected.value;
-    void g.revision.value;
-    return currentNoteKey();
-  });
 
   /**
    * コメント一覧の行から、そのパーツを canvas 上で選択して見えるようにする。
@@ -302,7 +290,7 @@ export function useTemplateEditor(
    */
   function selectPartByKey(key: string): void {
     const ed = g.editor.value;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     if (!ed || !root) return;
     // ページ番号は `useGrapes.ts` の `pageBlocks` と同じ `splitPages` の番号なので、`goToPage` へ
     // そのまま渡せる。
@@ -338,12 +326,7 @@ export function useTemplateEditor(
    * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。
    */
   function setPartBreak(edge: BreakEdge, on: boolean) {
-    beginUndo();
-    if (!g.setPartBreak(g.editor.value?.getSelected(), edge, on)) {
-      cancelUndo();
-      return;
-    }
-    commitUndo();
+    if (!undoable(undoStep, () => g.setPartBreak(g.editor.value?.getSelected(), edge, on))) return;
     // 挿入した区切りも現在の lock state に従わせる(`onPartInsert` と同じ)。
     g.setEditable(allowEdit.value);
     recordChange(partBreakLabel(edge, on));
@@ -376,15 +359,14 @@ export function useTemplateEditor(
       durationMs: 6000,
       action: {
         label: '元に戻す',
-        onClick: async () => {
-          // 深さを比べる前に閉じる。閉じたテキスト編集が 1 手積まれれば「その後の編集」になる。
-          if (!(await g.finishTextEdit())) return;
+        // 深さを比べる前に閉じる。閉じたテキスト編集が 1 手積まれれば「その後の編集」になる。
+        onClick: afterTextEdit(g.finishTextEdit, () => {
           if (undoDepth() !== depthAtOp) {
             toast('その後の編集があるため、Ctrl+Z で順に戻してください');
             return;
           }
           undo();
-        },
+        }),
       },
     });
   }
@@ -394,12 +376,7 @@ export function useTemplateEditor(
     if (!g.selected.value) return;
     // 既定の配置のパーツや区切りの帯(style を持たない)では何も変わらない。無変更でも積むと Redo が
     // 消え、修正履歴に実際には無い変更が残るので、変わったときだけ確定する。
-    beginUndo();
-    if (!g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM))) {
-      cancelUndo();
-      return;
-    }
-    commitUndo();
+    if (!undoable(undoStep, () => g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM)))) return;
     recordChange('配置を初期化');
     toastUndoable('配置を初期化しました');
   }
@@ -454,26 +431,14 @@ export function useTemplateEditor(
   watch(allowEdit, (v) => {
     sess.ui.allowEdit = v;
   });
-  watch(redline.enabled, (v) => {
-    sess.ui.redlineEnabled = v;
-    sessionStore.persistUi(id);
-  });
-  watch(g.zoom, (v) => {
-    sess.ui.zoom = v;
-    sessionStore.persistUi(id);
-  });
-  watch(g.singlePageMode, (v) => {
-    sess.ui.singlePageMode = v;
-    sessionStore.persistUi(id);
-  });
-  watch(g.currentPageIndex, (v) => {
-    sess.ui.currentPage = v;
-    sessionStore.persistUi(id);
-  });
+  syncUi(sessionStore, id, redline.enabled, 'redlineEnabled');
+  syncUi(sessionStore, id, g.zoom, 'zoom');
+  syncUi(sessionStore, id, g.singlePageMode, 'singlePageMode');
+  syncUi(sessionStore, id, g.currentPageIndex, 'currentPage');
   watch(
     () => g.selected.value,
     () => {
-      sess.ui.selectedKey = currentNoteKey();
+      sess.ui.selectedKey = currentNoteKeyRef.value;
     },
   );
   // 選択の復元は canvas の描画確定(ページ要素が出揃う)を待つ 1 回きりの watch。早すぎると

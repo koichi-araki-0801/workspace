@@ -23,6 +23,7 @@ import { INSERT_BLOCKED_MESSAGE } from './insertTarget';
 import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
+import { syncUi } from './syncUi';
 import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
 import { useTemplateEditor } from './useTemplateEditor';
@@ -102,10 +103,7 @@ const sessionStore = useEditorSessionStore();
 // ── 右ペインの表示(プロパティ / コメント)。編集セッションの ui 状態を継ぐ
 // (プレビュー往復で保持、倍率・表示系と同じく永続ミラー経由でリロードでも復元)。 ──
 const paneTab = ref<'props' | 'comments'>(ui.paneTab);
-watch(paneTab, (v) => {
-  ui.paneTab = v;
-  sessionStore.persistUi(props.id);
-});
+syncUi(sessionStore, props.id, paneTab, 'paneTab');
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
 const pairSyncBanner = computed(() => pairSyncConflictText(syncStatus.value));
@@ -194,10 +192,7 @@ watch(noteEntries, refreshBubbleAnchorEstimate, { immediate: true });
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。ui 状態を継ぐ(paneTab と同じ理由)。
 const showPageGuides = ref(ui.showPageGuides);
-watch(showPageGuides, (v) => {
-  ui.showPageGuides = v;
-  sessionStore.persistUi(props.id);
-});
+syncUi(sessionStore, props.id, showPageGuides, 'showPageGuides');
 
 // `PageRail` 用の現在ページ(1 起点)。1 ページ表示は表示中 index、全ページ連続表示は
 // 実スクロール位置(`scrollFraction`)から逆算する(目盛りのハイライトをスクロールに追従)。
@@ -262,11 +257,7 @@ onMounted(() => {
   const el = canvasEl.value;
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
-    requestAnimationFrame(() => {
-      g.refreshRect();
-      g.refreshPageGuides();
-      g.updateScrollMode();
-    });
+    g.remeasureNextFrame(g.updateScrollMode);
   });
   canvasResizeObserver.observe(el);
 });

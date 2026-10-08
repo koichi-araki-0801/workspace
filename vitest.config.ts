@@ -203,6 +203,10 @@ export default defineConfig({
         'editor/web/src/features/editor/insertTarget.ts',
         // パーツの追加で Undo・修正履歴・プレビュー選択を積むかの分岐。
         'editor/web/src/features/editor/partInsert.ts',
+        // 保留した Undo を、変化の有無で確定か破棄かに分ける 1 手の包み。
+        'editor/web/src/features/editor/undoStep.ts',
+        // 同じ処理の連続予約を次の描画フレーム 1 回へ集約する。
+        'editor/web/src/lib/rafOnce.ts',
         'editor/web/src/features/editor/textEditFinish.ts',
         'editor/web/src/features/editor/pageWarnings.ts',
         'editor/web/src/features/editor/usePageGuides.ts',

@@ -35,8 +35,6 @@ export interface GrapesCallbacks {
 export interface GrapesEventDeps {
   selected: Ref<SelectedInfo | null>;
   selectedRect: Ref<SelectedRect | null>;
-  /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
-  revision: Ref<number>;
   /** inline text 編集(RTE)中フラグ。`rte:enable`/`rte:disable` でここを上げ下げする。 */
   editing: Ref<boolean>;
   refreshRect: () => void;
@@ -44,10 +42,16 @@ export interface GrapesEventDeps {
   /** ページ境界 guide の位置を読み直す(scroll 時に cache 済み集合を再利用 — 軽い)。 */
   refreshPageGuides: () => void;
   /**
-   * content/構成変更後の正典の再計測(break 集合 → guide → ページ列挙 → 縦配置)。
-   * 重い(全要素 `getComputedStyle`)ため、呼び出し側で rAF 集約してから渡す。
+   * content/構成変更後の正典の再計測(break 集合 → guide → ページ列挙 → 縦配置)。`load` で
+   * 一度だけ同期に走らせる。
    */
   recomputeLayout: () => void;
+  /**
+   * layout に効く変更の通知。revision を進め、選択枠を即時に測り直し、重い再計測(全要素
+   * `getComputedStyle` = 強制リフロー O(n))は rAF 1 フレーム 1 回へ集約して予約する。
+   * `change` は呼ばない。
+   */
+  notifyLayoutChanged: () => void;
   /** canvas load 後に初期倍率を当てる(既定 100%。画面には合わせない)。 */
   applyInitialZoom: () => void;
   /** canvas load 時に呼ぶ(useGrapes が可視制御用 style を canvas head へ注入する)。 */
@@ -93,11 +97,11 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   const {
     selected,
     selectedRect,
-    revision,
     refreshRect,
     refreshMove,
     refreshPageGuides,
     recomputeLayout,
+    notifyLayoutChanged,
     toInfo,
     callbacks,
   } = deps;
@@ -146,28 +150,11 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
   };
   ed.on('canvas:update frame:scroll', onScroll);
 
-  // content/style 変更(`component:update` 等)はテキスト入力中などに高頻度で連続発火する。
-  // 重い再計測 `recomputeLayout`(全要素 `getComputedStyle` = 強制リフロー O(n))をイベントごとに
-  // 同期実行すると編集がジャンクするため、rAF で 1 フレーム 1 回へ集約する。break 集合更新 →
-  // guide → ページ列挙 → 縦配置の順序は `recomputeLayout` 側で担保。editor 破棄後に保留フレームが
-  // 発火しても各関数は `editor.value` を null ガードして no-op になるため cancel は不要。
-  let heavyScheduled = false;
-  const scheduleHeavyRecompute = () => {
-    if (heavyScheduled) return;
-    heavyScheduled = true;
-    requestAnimationFrame(() => {
-      heavyScheduled = false;
-      recomputeLayout();
-    });
-  };
-
   const fireChange = (opts: { saveNeutral?: boolean } = {}) => {
     // revision/rect/move/change は即時のまま(体感応答 + autosave 側で別途 debounce 済み)。
-    revision.value++;
-    refreshRect();
-    refreshMove();
     // content/style が page break やページ数を増減した可能性 — 重い再走査は次フレームへ集約。
-    scheduleHeavyRecompute();
+    notifyLayoutChanged();
+    refreshMove();
     // 編集可否切替中の component:update は内容変更ではない(`isApplyingLockState` の doc を
     // 見よ)。dirty/autosave へは流さず、幾何の追随(上の即時部)だけ行う。
     if (deps.isApplyingLockState()) return;
@@ -213,11 +200,9 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     deps.editing.value = false;
     const changed = (view?.el?.innerHTML ?? '') !== rteStartHtml;
     if (changed) {
-      revision.value++;
-      refreshRect();
       // テキスト編集で sheet 高さ / 境界 / ページ数が変わりうるため、guide だけでなく
-      // break 集合・ページ列挙・縦配置まで `recomputeLayout`(rAF 集約)で測り直す。
-      scheduleHeavyRecompute();
+      // break 集合・ページ列挙・縦配置まで測り直す。
+      notifyLayoutChanged();
       callbacks.change?.();
     }
     callbacks.textEnd?.(changed);

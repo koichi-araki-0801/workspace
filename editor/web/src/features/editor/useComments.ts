@@ -6,7 +6,13 @@
 // 保留中の保存という状態は持たない(旧実装の debounce と `flush` は廃止した)。選択やテンプレ
 // 読込への追従は getter 注入で行い、単体テスト可能に保つ(`usePartEditHistory.ts` と同様)。
 
-import { isErr, type NoteRepository, type NoteStatus, type PartNoteEntry } from '@editor/shared';
+import {
+  isErr,
+  type NoteRepository,
+  type NoteStatus,
+  type PartNoteEntry,
+  type Result,
+} from '@editor/shared';
 import { computed, ref } from 'vue';
 import { logError } from '@/lib/appError';
 import { useLatest } from '@/lib/useLatest';
@@ -68,6 +74,15 @@ export function useComments(
     all.value = res.value;
   }
 
+  /** 書き込み操作の結果を受ける。失敗は log して終え、成功なら投稿を読み直す。 */
+  async function settle(res: Result<unknown>): Promise<void> {
+    if (isErr(res)) {
+      logError(res.error);
+      return;
+    }
+    await reload();
+  }
+
   /**
    * 親投稿を追加する。宛先は第 2 引数 `pathKey` を優先し、省略時のみ `currentKey()` を使う
    * (承認タブは区画〈申請〉ごとに宛先を持ち、呼び出し側が表示中の宛先を明示する。
@@ -79,11 +94,7 @@ export function useComments(
     const tid = templateId();
     if (!key || !tid || content.trim() === '') return;
     const res = await repo.addNote(tid, key, content);
-    if (isErr(res)) {
-      logError(res.error);
-      return;
-    }
-    await reload();
+    await settle(res);
   }
 
   /**
@@ -95,42 +106,26 @@ export function useComments(
     const res = await repo.addNote(parent.templateId, parent.pathKey, content, {
       replyTo: parent.id,
     });
-    if (isErr(res)) {
-      logError(res.error);
-      return;
-    }
-    await reload();
+    await settle(res);
   }
 
   /** 親投稿の状態を切り替える(返信への伝播はリポジトリが行う)。 */
   async function setStatus(parent: PartNoteEntry, status: NoteStatus): Promise<void> {
     const res = await repo.updateNote(parent.templateId, parent.id, { status });
-    if (isErr(res)) {
-      logError(res.error);
-      return;
-    }
-    await reload();
+    await settle(res);
   }
 
   /** 投稿の本文を編集する。宛先は `entry.templateId`(投稿が属する版)。 */
   async function update(entry: PartNoteEntry, content: string): Promise<void> {
     if (content.trim() === '') return;
     const res = await repo.updateNote(entry.templateId, entry.id, { content });
-    if (isErr(res)) {
-      logError(res.error);
-      return;
-    }
-    await reload();
+    await settle(res);
   }
 
   /** 投稿を削除する。親なら返信も消える(リポジトリが道連れにする)。 */
   async function remove(entry: PartNoteEntry): Promise<void> {
     const res = await repo.deleteNote(entry.templateId, entry.id);
-    if (isErr(res)) {
-      logError(res.error);
-      return;
-    }
-    await reload();
+    await settle(res);
   }
 
   return {

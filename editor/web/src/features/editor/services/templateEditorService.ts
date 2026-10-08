@@ -70,6 +70,13 @@ export function createTemplateEditorService(
   parts: PartRepository,
   owner: DraftOwner = draftOwner,
 ): TemplateEditorService {
+  /** 下書きを破棄し、成功したときだけこのセッションの所有記録を外す。 */
+  async function discardAndRelease(id: string): Promise<Result<void>> {
+    const res = await templates.discardDraft(id);
+    if (isOk(res)) owner.release(id);
+    return res;
+  }
+
   return {
     async loadForEdit(id) {
       const tplRes = await templates.getTemplate(id);
@@ -88,8 +95,7 @@ export function createTemplateEditorService(
       // 下書きを採用しない形で吸収する — 古い下書きを黙って復元するより確定版から開く方が
       // 規則に沿い、残った実体は次の autosave が上書きする。
       if (draft && !owner.belongsToSession(id)) {
-        const dropped = await templates.discardDraft(id);
-        if (isOk(dropped)) owner.release(id);
+        await discardAndRelease(id);
         draft = null;
         discardedStaleDraft = true;
       }
@@ -97,8 +103,7 @@ export function createTemplateEditorService(
       // 同じく破棄して確定版から開く(破棄の失敗も同じく下書きを採用しない形で吸収する)。
       let discardedLegacyDraft = false;
       if (draft && isLegacyDraft(draft.html, tpl.filled ? 'filled' : 'template')) {
-        const dropped = await templates.discardDraft(id);
-        if (isOk(dropped)) owner.release(id);
+        await discardAndRelease(id);
         draft = null;
         discardedLegacyDraft = true;
       }
@@ -165,11 +170,7 @@ export function createTemplateEditorService(
       return res;
     },
 
-    async discardDraft(id) {
-      const res = await templates.discardDraft(id);
-      if (isOk(res)) owner.release(id);
-      return res;
-    },
+    discardDraft: discardAndRelease,
 
     listPartHistory: (templateId) => parts.listPartHistory(templateId),
 

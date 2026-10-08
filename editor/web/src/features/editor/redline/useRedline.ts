@@ -15,6 +15,7 @@ import { onUnmounted, type Ref, ref, type ShallowRef, watch } from 'vue';
 import { createLcsBudget } from '@/features/compare/htmlBlockDiff';
 import { logError } from '@/lib/appError';
 import { getBodyInner } from '@/lib/templateDoc';
+import { canvasRoot } from '../canvasGeometry';
 import { applyRedline, clearRedline, clearRedlineWithin } from './redlineApply';
 import { REDLINE_BODY_CLASS } from './redlineCss';
 import { diffRedline } from './redlineDiff';
@@ -53,7 +54,7 @@ export function useRedline(deps: RedlineDeps) {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function rootEl(): HTMLElement | undefined {
-    return deps.editor.value?.getWrapper()?.getEl() ?? undefined;
+    return canvasRoot(deps.editor) ?? undefined;
   }
 
   function applyBodyClass(): void {

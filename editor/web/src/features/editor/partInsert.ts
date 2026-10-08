@@ -5,6 +5,7 @@
 // 受け取り、挿入しなかったときに何も積まないことを単体で検証できるようにする。
 
 import type { PartCatalogItem } from '@editor/shared';
+import { undoable } from './undoStep';
 
 /** パーツの追加が使う操作(`useTemplateEditor.ts` が Undo・canvas・修正履歴へつなぐ)。 */
 export interface PartInsertDeps {
@@ -29,12 +30,7 @@ export interface PartInsertDeps {
  */
 export function insertPartUndoable(deps: PartInsertDeps, p: PartCatalogItem): boolean {
   if (!deps.canInsert()) return false;
-  deps.beginUndo();
-  if (!deps.insertPart(p.content, p.id)) {
-    deps.cancelUndo();
-    return false;
-  }
-  deps.commitUndo();
+  if (!undoable(deps, () => deps.insertPart(p.content, p.id))) return false;
   deps.setEditable();
   deps.setPreview(p);
   deps.recordChange(`パーツ「${p.name}」を追加`);

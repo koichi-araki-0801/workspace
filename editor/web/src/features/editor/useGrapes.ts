@@ -24,8 +24,10 @@ import {
   findIgnoredInlineBreaks,
   findUncountedBreaks,
   isElementlessPage,
+  type PageSplit,
   pageHead,
 } from '@/lib/pageBreaks';
+import { rafOnce } from '@/lib/rafOnce';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
 import {
@@ -35,6 +37,7 @@ import {
   containsBodyStyle,
   registerBodyStyleComponent,
 } from './bodyStyle';
+import { canvasRoot } from './canvasGeometry';
 import {
   attachFundImages,
   type FundImageLayer,
@@ -141,6 +144,29 @@ interface UseGrapesOptions {
   inspectFundImages?: FundImageLayerOptions['inspect'];
 }
 
+/** inline style マップ 2 つが同じ property 集合・同じ値かを判定する。 */
+function sameStyleMap(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ak = Object.keys(a);
+  if (ak.length !== Object.keys(b).length) return false;
+  return ak.every((k) => a[k] === b[k]);
+}
+
+/**
+ * `comp` の inline style へパッチを当てる(`''` 値は該当プロパティを除去)。結果が現在の style と
+ * 同一なら何もしない。変えたら true。通知(`change`・再計測)は呼び出し側が行う。
+ */
+function patchStyle(comp: Component, patch: Record<string, string>): boolean {
+  const cur = comp.getStyle() as Record<string, string>;
+  const next: Record<string, string> = { ...cur };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === '') delete next[k];
+    else next[k] = v;
+  }
+  if (sameStyleMap(cur, next)) return false;
+  comp.setStyle(next);
+  return true;
+}
+
 export function useGrapes(options: UseGrapesOptions = {}) {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
@@ -230,10 +256,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     void pageBreakEls.value;
     void selected.value;
     const wrapper = editor.value?.getWrapper();
-    const root = wrapper?.getEl();
-    if (!wrapper || !root) return true;
-    const topEl = topLevelOf(wrapper, editor.value?.getSelected())?.getEl();
-    return insertTarget(root, currentPageIndex.value, topEl).kind !== 'blocked';
+    const target = wrapper ? insertTargetAt(wrapper, editor.value?.getSelected()) : null;
+    return target === null || target.kind !== 'blocked';
   });
   /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
@@ -339,17 +363,22 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   // guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
 
+  /** 数え直し済みの現在のページ分け(`recomputePages` の結果)。 */
+  function currentSplit(): PageSplit<HTMLElement> {
+    return {
+      pages: pageBlocks.value,
+      breakEls: pageBreakEls.value,
+      breakPages: pageBreakPages.value,
+    };
+  }
+
   /**
    * page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。要素の無い
    * 白紙のページを表示しているときは白紙のページの帯も出す。
    */
   function applyPageVisibility(): void {
     if (!pageViewStyleEl) return;
-    const split = {
-      pages: pageBlocks.value,
-      breakEls: pageBreakEls.value,
-      breakPages: pageBreakPages.value,
-    };
+    const split = currentSplit();
     pageViewStyleEl.textContent = pageViewCss(
       currentPageIndex.value,
       pageCount.value,
@@ -370,7 +399,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * まだ描かれていなければ数えない(`load` の `requestAnimationFrame` / `load` イベントで確定する)。
    */
   function recomputePages(): void {
-    const root = editor.value?.getWrapper()?.getEl();
+    const root = canvasRoot(editor);
     if (!root) {
       pageBlocks.value = [];
       pageBreakEls.value = [];
@@ -414,15 +443,28 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。スクロールは外側 `.gjs-cv-canvas`
     // へ移ったため、iframe document に加えてそちらの scrollTop も 0 へ戻す(背の高いページを送った
     // 直後でも当該ページ先頭が見えるように)。
-    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
-    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    resetCanvasScroll();
     // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。`updateScrollMode` も
     // 併せて呼ぶ: ページごとに高さが異なると(content がページ実寸を超える等)送り先で
     // 収まり判定が変わり、縦中央寄せ/上揃えの出し分けが要るため。
+    remeasureNextFrame(updateScrollMode);
+  }
+
+  /** iframe document と外側 `.gjs-cv-canvas` のスクロールを先頭へ戻す。 */
+  function resetCanvasScroll(): void {
+    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
+    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+  }
+
+  /**
+   * 再レイアウト後(次フレーム)に選択枠と guide を測り直し、続けて `extra` を呼ぶ。`extra` は
+   * 測り直しの後に走る(縦配置の出し分け `updateScrollMode` やスクロール比率)。
+   */
+  function remeasureNextFrame(extra?: () => void): void {
     requestAnimationFrame(() => {
       refreshRect();
       refreshPageGuides();
-      updateScrollMode();
+      extra?.();
     });
   }
 
@@ -444,18 +486,11 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const idx = clampPageIndex(i, pageCount.value);
     currentPageIndex.value = idx;
     // ページの先頭の要素へ送る(区切りの帯は前のページの末尾に属する)。白紙のページは帯へ送る。
-    const el = pageHead(
-      { pages: pageBlocks.value, breakEls: pageBreakEls.value, breakPages: pageBreakPages.value },
-      idx,
-    );
+    const el = pageHead(currentSplit(), idx);
     if (!cvScrollEl || !el) return;
     const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
     cvScrollEl.scrollTop += delta;
-    requestAnimationFrame(() => {
-      refreshRect();
-      refreshPageGuides();
-      updateScrollFraction();
-    });
+    remeasureNextFrame(updateScrollFraction);
   }
 
   /** 1 ページ表示の ON/OFF を切り替える(OFF で全ページ連続スクロールへ戻る)。 */
@@ -466,8 +501,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // 座標が旧レイアウトのまま残る。ON 化時のみ隠れたページの選択を外し、スクロールを先頭へ戻して
     // 再レイアウト後に縦配置(`ret-canvas-fits`)と guide/選択枠を測り直す(`goToPage`/`setZoom` と同手法)。
     if (on) deselectIfHidden();
-    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
-    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    resetCanvasScroll();
     requestAnimationFrame(() => {
       updateScrollMode();
       refreshRect();
@@ -605,12 +639,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     wireGrapesEvents(ed, {
       selected,
       selectedRect,
-      revision,
       editing,
       refreshRect,
       refreshMove,
       refreshPageGuides,
       recomputeLayout,
+      notifyLayoutChanged,
       applyInitialZoom: () => setZoom(initialZoom),
       onCanvasLoad,
       toInfo,
@@ -640,10 +674,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       cvScrollHandler = () => {
         if (pending) return;
         pending = true;
-        requestAnimationFrame(() => {
+        remeasureNextFrame(() => {
           pending = false;
-          refreshRect();
-          refreshPageGuides();
           updateScrollFraction();
         });
       };
@@ -669,20 +701,21 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   }
 
   /**
-   * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する薄ラッパ。`patchSelectedStyle` の
-   * geom ハンドルは mousemove ごとにライブ適用されるため、毎回 `recomputeLayout`(ページの
-   * 数え直しと全 guide の測位)を同期実行すると drag がジャンクする。`grapesEvents.ts` の
-   * `scheduleHeavyRecompute` と同型(あちらは GrapesJS イベント駆動、こちらは setStyle が
-   * イベントを出さない programmatic 経路用)。editor 破棄後の保留フレームは各関数の null ガードで no-op。
+   * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する。GrapesJS のイベント(`grapesEvents.ts`)
+   * も `setStyle` 経由の programmatic 経路(`patchSelectedStyle`)も、重い再計測(ページの数え直しと
+   * 全 guide の測位)が高頻度で要求されるので、予約をここ 1 本に束ねて 1 フレームに 2 回走らせない。
+   * editor 破棄後の保留フレームは各関数の null ガードで no-op。
    */
-  let layoutScheduled = false;
-  function scheduleLayoutRecompute(): void {
-    if (layoutScheduled) return;
-    layoutScheduled = true;
-    requestAnimationFrame(() => {
-      layoutScheduled = false;
-      recomputeLayout();
-    });
+  const scheduleLayoutRecompute = rafOnce(recomputeLayout);
+
+  /**
+   * layout に効く変更の通知。revision を進め、選択枠は即時(ライブ値ラベルの体感応答)、
+   * break/guide/ページ列挙/縦配置は次フレームへ集約して測り直す。`callbacks.change` は呼ばない。
+   */
+  function notifyLayoutChanged(): void {
+    revision.value++;
+    refreshRect();
+    scheduleLayoutRecompute();
   }
 
   /**
@@ -754,13 +787,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     editor.value?.getSelected()?.remove();
   }
 
-  /** inline style マップ 2 つが同じ property 集合・同じ値かを判定する。 */
-  function sameStyleMap(a: Record<string, string>, b: Record<string, string>): boolean {
-    const ak = Object.keys(a);
-    if (ak.length !== Object.keys(b).length) return false;
-    return ak.every((k) => a[k] === b[k]);
-  }
-
   /** 現在の選択の inline style マップ(未選択時は空)。 */
   function selectedStyle(): Record<string, string> {
     return (editor.value?.getSelected()?.getStyle() ?? {}) as Record<string, string>;
@@ -774,22 +800,12 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function patchSelectedStyle(patch: Record<string, string>): boolean {
     const comp = editor.value?.getSelected();
-    if (!comp) return false;
-    const cur = comp.getStyle() as Record<string, string>;
-    const next: Record<string, string> = { ...cur };
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === '') delete next[k];
-      else next[k] = v;
-    }
-    if (sameStyleMap(cur, next)) return false;
-    comp.setStyle(next);
+    if (!comp || !patchStyle(comp, patch)) return false;
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
     // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時
     // (ライブ値ラベルの体感応答)、break/guide/ページ列挙/縦配置は幅・余白変更で動くため
     // `scheduleLayoutRecompute` で次フレームへ集約する(ハンドル drag の連続適用を間引く)。
-    revision.value++;
-    refreshRect();
-    scheduleLayoutRecompute();
+    notifyLayoutChanged();
     callbacks.change?.();
     return true;
   }
@@ -849,9 +865,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
         ?.remove();
     }
     if (plan.stripProps.length > 0) {
-      const next = { ...(top.getStyle() as Record<string, string>) };
-      for (const k of plan.stripProps) delete next[k];
-      top.setStyle(next);
+      patchStyle(top, Object.fromEntries(plan.stripProps.map((k) => [k, ''])));
     }
     if (plan.insert) {
       const i = top.index();
@@ -864,6 +878,19 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   }
 
   /**
+   * 今のページ(と選択)の挿入先(`insertTarget.ts`)。canvas が未描画で根が無ければ null。
+   * `canInsertPart` と `insertIndex` が同じ手順で決める。
+   */
+  function insertTargetAt(
+    wrapper: Component,
+    sel: Component | undefined,
+  ): ReturnType<typeof insertTarget> | null {
+    const root = wrapper.getEl();
+    if (!root) return null;
+    return insertTarget(root, currentPageIndex.value, topLevelOf(wrapper, sel)?.getEl());
+  }
+
+  /**
    * 新しいパーツの挿入先(wrapper の `components()` の中の index)。挿入できなければ null。位置の
    * 決め方は `insertTarget.ts` の `insertTarget`。位置は呼んだ時点の DOM を数え直して決め、要素 →
    * component は同じ時点の `getEl()` で照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ
@@ -873,9 +900,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function insertIndex(wrapper: Component, sel: Component | undefined): number | null {
     const comps = wrapper.components();
-    const root = wrapper.getEl();
-    if (!root) return comps.length;
-    const target = insertTarget(root, currentPageIndex.value, topLevelOf(wrapper, sel)?.getEl());
+    const target = insertTargetAt(wrapper, sel);
+    if (!target) return comps.length;
     if (target.kind === 'blocked') return null;
     if (target.kind === 'end') return comps.length;
     const i = comps.findIndex((c: Component) => c.getEl() === target.el);
@@ -1188,6 +1214,7 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     setSinglePageMode,
     refreshRect,
     refreshPageGuides,
+    remeasureNextFrame,
     refreshPageMarks: recomputePages,
     updateScrollMode,
     startMove,
