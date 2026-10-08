@@ -455,7 +455,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     const middle = optText(a, '中分類');
     const minor = optText(a, '小分類');
     const edition = optText(a, '版種');
-    // sproc と同じ条件: 版種の指定が無いか、対象版種が空(両版共通)か一致する行だけ。
+    // sproc と同じ条件: 版種の指定が無いか、対象版種が NULL・空文字列(両版共通)か一致する行だけ。
     const visible = parts.filter(
       (q) => !edition || !q.targetEdition || q.targetEdition === edition,
     );

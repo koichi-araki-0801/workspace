@@ -45,6 +45,17 @@ describe('partRepo', () => {
     }
   });
 
+  it('editionType が空・未指定なら 版種 引数を送らない', async () => {
+    const { sproc, calls } = stub([]);
+    const repo = createPartRepo(sproc);
+    for (const q of [{}, { editionType: '' }]) {
+      await repo.getPartClassificationOptions(q);
+      await repo.listParts(q);
+    }
+    expect(calls).toHaveLength(4);
+    for (const c of calls) expect(c.params.some((x) => x.name === '版種')).toBe(false);
+  });
+
   it('対象版種 を targetEdition に写し、NULL は null にする', async () => {
     const { sproc } = stub([row(null), row('全体版')]);
     const items = await createPartRepo(sproc).listParts({});

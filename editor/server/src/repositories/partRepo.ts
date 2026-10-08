@@ -20,7 +20,8 @@ function classParams(q: PartClassificationQuery): Param[] {
     p('大分類', q.majorClass),
     p('中分類', q.middleClass),
     p('小分類', q.minorClass),
-    p('版種', q.editionType),
+    // 版種が空なら引数ごと省く。全件取得の呼び出し元が `@版種` の無い旧 sproc でも動くようにする。
+    ...(q.editionType ? [p('版種', q.editionType)] : []),
   ];
 }
 

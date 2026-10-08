@@ -49,7 +49,7 @@ const EMPTY: PartClassificationOptions = {
 const withEdition = (q: PartClassificationQuery): PartClassificationQuery =>
   props.editionType ? { ...q, editionType: props.editionType } : q;
 
-const { query, options, list: parts, loading, onLevelChange, refresh } = useCascadingSelect<
+const { query, options, list: parts, loading, onLevelChange, reset } = useCascadingSelect<
   PartClassificationQuery,
   PartClassificationOptions,
   PartCatalogItem
@@ -68,10 +68,11 @@ useUrlQuerySync(query, {
   prefix: 'pc',
 });
 
-// 別テンプレートへ切り替わる等で版種が変わったら、候補と一覧を取り直す。
+// 別テンプレートへ切り替わる等で版種が変わったら、選択を解いて候補と一覧を取り直す。
+// 選択が残ると、新しい版種で隠れる分類を選んだまま一覧が空になる。
 watch(
   () => props.editionType,
-  () => void refresh(),
+  () => reset(),
 );
 
 const optionsByLevel: Record<LevelKey, () => string[]> = {

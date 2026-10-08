@@ -100,4 +100,17 @@ describe('PartCatalog の版種', () => {
     expect(w.parts.getPartClassificationOptions).toHaveBeenCalledWith({ editionType: '全体版' });
     expect(w.parts.listParts).toHaveBeenCalledWith({ editionType: '全体版' });
   });
+
+  it('prop を変えると選択中の分類を解いてから取り直す', async () => {
+    const w = await mountCatalog(null, '交付版');
+    const vm = w.vm as unknown as { query: { category?: string } };
+    vm.query.category = '注記';
+    w.parts.listParts.mockClear();
+    await w.setProps({ editionType: '全体版' });
+    await flushPromises();
+    expect(w.parts.listParts).toHaveBeenCalledWith({ editionType: '全体版' });
+    expect(w.parts.listParts).not.toHaveBeenCalledWith(
+      expect.objectContaining({ category: '注記' }),
+    );
+  });
 });

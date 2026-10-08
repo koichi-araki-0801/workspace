@@ -290,6 +290,17 @@ describe('localPartRepo', () => {
       for (const p of other) expect(ids).not.toContain(p.id);
     });
 
+    it('対象版種が空文字列のパーツも null と同じく両方の版に出る', async () => {
+      const blank = { ...partCatalog[0], id: 'blank-edition', targetEdition: '' };
+      partCatalog.push(blank);
+      try {
+        expect(await idsOf('交付版')).toContain('blank-edition');
+        expect(await idsOf('全体版')).toContain('blank-edition');
+      } finally {
+        partCatalog.pop();
+      }
+    });
+
     it('分類候補のカテゴリ区分も同じ条件で絞る', async () => {
       const r = await localPartRepo.getPartClassificationOptions({ editionType: '交付版' });
       expect(isOk(r)).toBe(true);

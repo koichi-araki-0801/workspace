@@ -353,6 +353,7 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
         part('both', '共通', null),
         part('delivered', '交付', '交付版'),
         part('whole', '全体', '全体版'),
+        part('blank', '空', ''),
       ],
     };
     const cls = [
@@ -366,11 +367,11 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
       const sproc = await createFakeSproc(seed);
       const ids = async (extra: ReturnType<typeof p>[]) =>
         (await sproc.callSproc(SP.part, '一覧', [...cls, ...extra])).map((r) => r.パーツID);
-      expect(await ids([p('版種', '交付版')])).toEqual(['both', 'delivered']);
-      expect(await ids([p('版種', '全体版')])).toEqual(['both', 'whole']);
-      expect(await ids([])).toEqual(['both', 'delivered', 'whole']);
+      expect(await ids([p('版種', '交付版')])).toEqual(['both', 'delivered', 'blank']);
+      expect(await ids([p('版種', '全体版')])).toEqual(['both', 'whole', 'blank']);
+      expect(await ids([])).toEqual(['both', 'delivered', 'whole', 'blank']);
       const rows = await sproc.callSproc(SP.part, '一覧', cls);
-      expect(rows.map((r) => r.対象版種)).toEqual([null, '交付版', '全体版']);
+      expect(rows.map((r) => r.対象版種)).toEqual([null, '交付版', '全体版', '']);
     });
 
     it('分類候補 drops categories that only the other edition uses', async () => {
@@ -379,8 +380,8 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
         (await sproc.callSproc(SP.part, '分類候補', [...cls, ...extra]))
           .filter((r) => r.区分 === 'カテゴリ')
           .map((r) => String(r.値));
-      expect(await cats([p('版種', '交付版')])).toEqual(['共通', '交付']);
-      expect(await cats([])).toEqual(['共通', '交付', '全体']);
+      expect(await cats([p('版種', '交付版')])).toEqual(['共通', '交付', '空']);
+      expect(await cats([])).toEqual(['共通', '交付', '全体', '空']);
     });
   });
 
