@@ -24,13 +24,7 @@ import {
 } from '@editor/shared';
 import { asString, asStringOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import {
-  deleteDraft,
-  draftExists,
-  draftMtime,
-  readDraft,
-  writeDraft,
-} from '../files/draftFiles.js';
+import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
 import { findInProgressIds } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
@@ -46,15 +40,14 @@ import {
   templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
-import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
 
 const ATTR_KEYS = ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const;
 
 /** 大文字小文字を区別しない一致。ファイル名由来の属性と利用者の選択を照合する。 */
-export const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-export const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
+const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
 
 /** dropdown query の先頭 `depth` 個の設定済みフィールドにメタが一致するか。 */
 function matchesUpTo(m: TemplateMeta, q: DropdownQuery, depth: number): boolean {
@@ -142,7 +135,7 @@ export interface TemplateRepo {
   getDropdownOptions(q: DropdownQuery, scope: DropdownScope): Promise<DropdownOptions>;
   listTemplates(q: DropdownQuery): Promise<TemplateMeta[]>;
   getTemplate(id: string): Promise<Template>;
-  saveDraft(templateId: string, html: string, css: string, loginId: string): Promise<void>;
+  saveDraft(templateId: string, html: string, css: string): Promise<void>;
   getDraft(templateId: string): Promise<TemplateDraft | null>;
   discardDraft(templateId: string): Promise<void>;
   getSampleData(fundCode: string): Promise<SampleData>;
@@ -285,13 +278,14 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     },
 
     /** 自動保存ドラフトはファイルのみ(`<dataRoot>/drafts`、git 管理外)。DB は引かない。 */
-    async saveDraft(templateId, html, css, _loginId) {
+    async saveDraft(templateId, html, css) {
       await writeDraft(templateId, html, css);
     },
 
     async getDraft(templateId) {
-      if (!(await draftExists(templateId))) return null;
-      const { html, css } = await readDraft(`${templateId}.html`, `${templateId}.css`);
+      const draft = await readDraft(templateId);
+      if (!draft) return null;
+      const { html, css } = draft;
       // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
       return { templateId, html, css, savedAt: (await draftMtime(templateId)) ?? '', savedBy: '' };
     },
@@ -314,24 +308,4 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       return buildSampleData(master, fundCode);
     },
   };
-}
-
-/**
- * 確定内容を実ファイルへ反映する(承認ワークフロー専用の入口)。実体は
- * `confirmedWrite.applyConfirmedWrite` にあり、ここは呼び出し側
- * (`reviewRepo.approveReview`)の参照を保つための薄い委譲。名前検査・CSS の書き先の決定(id から)・
- * 実行コード不変性の照合・snapshot/restore・git コミット・監査はすべてチョークポイント側。
- *
- * sproc に依存しないため `createTemplateRepo` の中へは入れない — 入れると
- * `createReviewRepo` がテンプレート集約ごと受け取る必要が生じ、承認の依存が広がる。
- */
-export function applyConfirmedSave(req: {
-  templateId: string;
-  target: ConfirmedTarget;
-  html: string;
-  css: string;
-  commitMessage: string;
-  author: string;
-}): Promise<TemplateMeta> {
-  return applyConfirmedWrite({ kind: 'review-approve', ...req });
 }

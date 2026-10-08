@@ -2,12 +2,12 @@
 // parts.routes.ts — パーツカタログのルート(エディタ左ペイン)+ パーツ単位履歴
 // =============================================================================
 import { apiPaths, type PartClassificationQuery } from '@editor/shared';
+import { RecordPartChangeRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { RecordPartChangeRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';

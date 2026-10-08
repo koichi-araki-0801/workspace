@@ -106,14 +106,7 @@ async function snapshotCurrent(
   fileName: string,
   stylePath: string | null,
 ): Promise<Snapshot> {
-  const read = async (resolve: () => string): Promise<FileSnapshot> => {
-    let p: string;
-    try {
-      p = resolve();
-    } catch {
-      // 規約外の名前は解決できない = そもそも書けないので、補償の対象にしない。
-      return { state: 'unknown' };
-    }
+  const read = async (p: string): Promise<FileSnapshot> => {
     try {
       return { state: 'content', text: await fs.readFile(p, 'utf8') };
     } catch (e) {
@@ -124,8 +117,8 @@ async function snapshotCurrent(
     }
   };
   return {
-    html: await read(() => htmlPathOf(target, fileName)),
-    css: stylePath === null ? { state: 'unknown' } : await read(() => stylePath),
+    html: await read(htmlPathOf(target, fileName)),
+    css: stylePath === null ? { state: 'unknown' } : await read(stylePath),
   };
 }
 
@@ -228,7 +221,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
       );
     }
   }
-  const cssText: string | undefined = op.css;
+  const cssText = op.css;
   let stylePath: string | null = null;
   if (cssText !== undefined) {
     stylePath = await resolveTemplateCssPath(templateId);

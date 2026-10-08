@@ -34,7 +34,7 @@ import http from 'node:http';
 export type ForwardPath = string & { readonly __previewForwardPath: unique symbol };
 
 /** ビューアアプリの接頭辞(cli の `VIEWER_ROOT_PATH` と対)。 */
-export const VIEWER_ROOT_PREFIX = '/__vivliostyle-viewer';
+const VIEWER_ROOT_PREFIX = '/__vivliostyle-viewer';
 
 /** 文書 base の既定値(cli の `config.base ?? "/vivliostyle"` と対)。 */
 export const DEFAULT_DOC_BASE = '/vivliostyle';

@@ -277,6 +277,10 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     generateMock.mockClear();
     const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '999999' });
     expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      kind: 'validation',
+      message: 'コピー元のテンプレートがありません: 999999',
+    });
     expect(generateMock).not.toHaveBeenCalled();
   });
 

@@ -158,9 +158,9 @@ describe('draftFiles.readDraft', () => {
     fs.mkdirSync(draftsDir, { recursive: true });
   });
 
-  it('下書きが無ければ空文字(正常な「無い」)', async () => {
+  it('下書きが無ければ null(正常な「無い」)', async () => {
     const id = 'AM01_777777_交付版';
-    expect(await drafts.readDraft(`${id}.html`, `${id}.css`)).toEqual({ html: '', css: '' });
+    expect(await drafts.readDraft(id)).toBeNull();
   });
 
   it('CSS の読み取り失敗は例外にする', async () => {
@@ -168,12 +168,12 @@ describe('draftFiles.readDraft', () => {
     const id = 'AM01_555555_交付版';
     fs.writeFileSync(path.join(draftsDir, `${id}.html`), '<p>D</p>', 'utf8');
     fs.mkdirSync(path.join(draftsDir, `${id}.css`), { recursive: true });
-    await expect(drafts.readDraft(`${id}.html`, `${id}.css`)).rejects.toThrow();
+    await expect(drafts.readDraft(id)).rejects.toThrow();
   });
 
   it('HTML の読み取り失敗は例外にする', async () => {
     const id = 'AM01_444444_交付版';
     fs.mkdirSync(path.join(draftsDir, `${id}.html`), { recursive: true });
-    await expect(drafts.readDraft(`${id}.html`, `${id}.css`)).rejects.toThrow();
+    await expect(drafts.readDraft(id)).rejects.toThrow();
   });
 });

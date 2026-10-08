@@ -46,13 +46,17 @@ export const EXTERNAL_REF_MESSAGE =
   'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… css/fonts/… js/…)で' +
   '指定してください。';
 
-/** 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。 */
+/**
+ * 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。
+ * テストから直接検証するために公開する。
+ */
 export const EXTERNAL_REF_CODE = 'DOCUMENT_EXTERNAL_REF';
 
 /** タグ境界が一意に決まらない HTML を拒んだときの文言とコード。 */
-export const UNPARSABLE_MESSAGE =
+const UNPARSABLE_MESSAGE =
   'HTMLのタグが閉じていないためPDFを作成できません。' +
   '閉じていないタグ・コメント・<style>/<script> を閉じてから送信してください。';
+// テストから直接検証するために公開する。
 export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
 
 /**
@@ -60,7 +64,7 @@ export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
  * `UNPARSABLE_CODE` を使う — クライアントから見た意味は「中身を検査できないので受け取れない」
  * で同じであり、コードを増やすと外部契約が理由なく太る。
  */
-export const JSON_UNPARSABLE_MESSAGE =
+const JSON_UNPARSABLE_MESSAGE =
   'JSONファイルを読めないためPDFを作成できません。' +
   '構文を確認してから送信してください(検査できないファイルは受け取れません)。';
 

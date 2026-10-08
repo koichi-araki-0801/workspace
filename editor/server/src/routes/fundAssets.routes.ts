@@ -31,11 +31,11 @@ import type {
   FundAssetRef,
 } from '@editor/shared';
 import { apiPaths, inspectSvg, resolveServedRoutePath } from '@editor/shared';
+import { FundAssetInspectRequest as FundAssetInspectRequestSchema } from '@editor/shared/schemas';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { logger } from '../logger.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { FundAssetInspectRequest as FundAssetInspectRequestSchema } from '../openapi/schemas.js';
 import { FUND_IMAGES_MOUNT, resolveServedAssetSource } from '../vivliostyle/docAssets.js';
 
 /** 拡張子 → Content-Type。許可リスト外の拡張子は解決器が先に弾く。 */
@@ -60,7 +60,7 @@ const SVG_CSP = 'sandbox';
  * 引数は 1 回だけ復号されたものとして扱い、もう一度は解かない(`%41` はその字面の名前)。
  * 正規化で形が変わる入力(`..`・区切り・末尾の空白)は、どこを指すかを推測せずに拒む。
  */
-export async function resolveFundImageSource(
+async function resolveFundImageSource(
   dir: string | null,
   file: string,
 ): Promise<string | undefined> {
@@ -78,15 +78,12 @@ export async function resolveFundImageSource(
  * ずれが起きない。`missing` は存在しない・経路が不正・許可外の拡張子をまとめたもので、
  * どれに当たったかは区別しない(置き場の外の名前の有無を確かめる手段にしない)。
  */
-export type FundImageInspection =
+type FundImageInspection =
   | { status: 'ok'; body: Buffer; type: string }
   | { status: 'missing' }
   | { status: 'svg_rejected'; violations: string[] };
 
-export async function inspectFundImage(
-  dir: string | null,
-  file: string,
-): Promise<FundImageInspection> {
+async function inspectFundImage(dir: string | null, file: string): Promise<FundImageInspection> {
   const source = await resolveFundImageSource(dir, file);
   const type =
     source === undefined ? undefined : IMAGE_CONTENT_TYPES.get(path.extname(source).toLowerCase());

@@ -2,9 +2,8 @@
 // draftFiles.ts — 自動保存ドラフトの作業コピー(ディスク I/O)
 // =============================================================================
 // 自動保存(autosave)のドラフト作業コピーをディスク上に持つ
-// (`<dataRoot>/drafts/<id>.{html,css}`)。台帳(ledger)の行は保存者/タイムスタンプと
-// これら相対ファイル名だけを保持し、本体(body)はここに置く。ドラフトは
-// template ごとに 1 件で、autosave のたびに上書きする。
+// (`<dataRoot>/drafts/<id>.{html,css}`)。ドラフトは template ごとに 1 件で、
+// autosave のたびに上書きする。
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -20,57 +19,45 @@ const htmlName = (templateId: string): string => `${assertAnyTemplateId(template
 const cssName = (templateId: string): string => `${assertAnyTemplateId(templateId)}.css`;
 
 /**
- * 台帳が持つドラフトファイル名を、drafts ディレクトリ内の実パスへ解決する。台帳の値も
- * 元をたどれば request 由来なので、`<検証済み templateId>.{html,css}` の形以外は受け付けない
- * (規約外なら null を返し、呼び出し側は「無い」として扱う)。
+ * 検証済みの `templateId` を、drafts ディレクトリ内の `.html` / `.css` の実パスへ解決する。
+ * 規約外の id なら null を返し、呼び出し側は「無い」として扱う。
  */
-function draftFilePath(fileName: string): string | null {
-  const m = /^(.+)\.(html|css)$/.exec(fileName);
-  if (!m || !isValidAnyTemplateId(m[1])) return null;
-  return path.join(config.draftsDir, fileName);
+function draftFilePath(templateId: string, ext: 'html' | 'css'): string | null {
+  if (!isValidAnyTemplateId(templateId)) return null;
+  return path.join(config.draftsDir, `${templateId}.${ext}`);
 }
 
-interface DraftFileRefs {
-  htmlFile: string;
-  cssFile: string;
-}
-
-export async function writeDraft(
-  templateId: string,
-  html: string,
-  css: string,
-): Promise<DraftFileRefs> {
+export async function writeDraft(templateId: string, html: string, css: string): Promise<void> {
   // 検査を先に済ませてからディレクトリを作る(不正 id で drafts だけ生える副作用を避ける)。
   const htmlFile = htmlName(templateId);
   const cssFile = cssName(templateId);
   await fs.mkdir(config.draftsDir, { recursive: true });
   await atomicWrite(path.join(config.draftsDir, htmlFile), html);
   await atomicWrite(path.join(config.draftsDir, cssFile), css);
-  return { htmlFile, cssFile };
 }
 
 /**
- * 下書きの HTML/CSS を読む。規約外の名前と ENOENT だけを空文字へ倒し、それ以外の読み取り失敗は
- * 例外にする — 一過性の失敗を `''` へ倒すと、空で復元された下書きが次の自動保存で上書きされる。
+ * 下書きの HTML/CSS を読む。規約外の id と HTML の ENOENT は null(下書き無し)、CSS の ENOENT は
+ * 空文字に倒し、それ以外の読み取り失敗は例外にする — 一過性の失敗を `''` へ倒すと、空で復元された
+ * 下書きが次の自動保存で上書きされる。
  */
-export async function readDraft(
-  htmlFile: string | null,
-  cssFile: string | null,
-): Promise<{ html: string; css: string }> {
-  const read = (f: string | null): Promise<string> => {
-    const p = f ? draftFilePath(f) : null;
-    if (!p) return Promise.resolve('');
+export async function readDraft(templateId: string): Promise<{ html: string; css: string } | null> {
+  const read = (ext: 'html' | 'css'): Promise<string | null> => {
+    const p = draftFilePath(templateId, ext);
+    if (!p) return Promise.resolve(null);
     return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
-      if (e?.code === 'ENOENT') return '';
+      if (e?.code === 'ENOENT') return null;
       throw e;
     });
   };
-  return { html: await read(htmlFile), css: await read(cssFile) };
+  const html = await read('html');
+  if (html === null) return null;
+  return { html, css: (await read('css')) ?? '' };
 }
 
 /** template の下書き(HTML)が存在するか。台帳を引かずファイル有無で判定する。 */
 export function draftExists(templateId: string): Promise<boolean> {
-  const p = draftFilePath(`${templateId}.html`);
+  const p = draftFilePath(templateId, 'html');
   if (!p) return Promise.resolve(false);
   return fs
     .stat(p)
@@ -80,7 +67,7 @@ export function draftExists(templateId: string): Promise<boolean> {
 
 /** 下書き(HTML)の最終更新時刻(ISO)。無ければ(id が規約外なら)null。 */
 export function draftMtime(templateId: string): Promise<string | null> {
-  const p = draftFilePath(`${templateId}.html`);
+  const p = draftFilePath(templateId, 'html');
   if (!p) return Promise.resolve(null);
   return fs
     .stat(p)

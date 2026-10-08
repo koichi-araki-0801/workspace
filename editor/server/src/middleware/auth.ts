@@ -125,8 +125,8 @@ export async function requireEditor(request: FastifyRequest, _reply: FastifyRepl
 
 /**
  * `requireAuth` の後に実行する前提。精査者(承認者)ロールを強制する(`approver` または
- * `admin`)。確定保存の承認・却下、および緊急の直接確定保存(`PUT /templates/:id`)を
- * 施錠し、編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
+ * `admin`)。確定保存の承認・却下(`reviews.routes.ts`)を施錠し、
+ * 編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
  */
 export async function requireApprover(
   request: FastifyRequest,

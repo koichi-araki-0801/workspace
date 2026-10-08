@@ -141,13 +141,6 @@ export const VIEWER_ALLOWED_MUTATIONS: Readonly<Record<string, string>> = {
     '画像が配信されるかの確認(読むだけでサーバ状態を変えない。画像の閲覧と同じ権限)',
 };
 
-/** 各レベルで preHandler 配列に**参照一致**で含まれていなければならないガード。 */
-const REQUIRED_GUARD: Readonly<Record<Exclude<GuardLevel, 'public' | 'auth'>, unknown>> = {
-  editor: requireEditor,
-  approver: requireApprover,
-  admin: requireAdmin,
-};
-
 /**
  * ローカルモード(`AUTH_REQUIRED=false`)でも施錠されねばならないルート。
  *
@@ -224,10 +217,6 @@ export function assertRoutePolicy(routeOptions: RouteOptions): void {
         `[routeGuards] ${key} は ROUTE_POLICY で '${declared}' ですが、実際のガードは ` +
           `'${actual}' です — preHandler と表のどちらかが誤っています`,
       );
-    }
-    const guard = declared === 'public' || declared === 'auth' ? null : REQUIRED_GUARD[declared];
-    if (guard && !preHandlers.includes(guard)) {
-      throw new Error(`[routeGuards] ${key} に '${declared}' のガードが付いていません`);
     }
     if (LOCAL_MODE_ENFORCED.has(key) && !preHandlers.includes(requireIdentifiedUser)) {
       throw new Error(

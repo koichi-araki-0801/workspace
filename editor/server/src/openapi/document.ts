@@ -12,9 +12,9 @@
 //   POST /api/build, POST /api/build/project, /api/preview*.
 // 以下のその他のパスは design-first(契約のみ文書化、ハンドラ未実装)。
 import { apiPaths, toOpenApiPath } from '@editor/shared';
+import * as s from '@editor/shared/schemas';
 import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
-import * as s from './schemas.js';
 
 // ── 1. response helpers — レスポンス定義のヘルパ ──
 

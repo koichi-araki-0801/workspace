@@ -2,11 +2,11 @@
 // notes.routes.ts — パーツ単位コメント(1 段の入れ子スレッド)の取得・追加・更新・削除
 // =============================================================================
 import { apiPaths } from '@editor/shared';
+import { AddNoteRequest, UpdateNoteRequest } from '@editor/shared/schemas';
 import type { FastifyInstance } from 'fastify';
 import type { z } from 'zod';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { AddNoteRequest, UpdateNoteRequest } from '../openapi/schemas.js';
 import * as notes from '../repositories/noteRepo.js';
 
 const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';

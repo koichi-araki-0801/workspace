@@ -158,8 +158,6 @@ interface BuildInlineInput {
   css?: string;
   /** vivliostyle へ渡すページサイズ(既定 'A4')。 */
   size?: string;
-  /** inline の build と preview では無視される(CLI へ渡さない。理由は `buildInlinePdf`)。 */
-  singleDoc?: boolean;
 }
 
 /**
@@ -306,7 +304,7 @@ export async function buildProjectInSlot(
 
 /**
  * 複数のレンダリング済み文書を 1 つの PDF へ結合ビルドする。文書群と entry 配列 config の
- * 実体化は `mergeInput.ts` が担い、ビルド自体は既存の `buildProjectPdf`(config 経路)へ
+ * 実体化は `mergeInput.ts` が担い、ビルド自体は既存の `buildProjectInSlot`(config 経路)へ
  * 委譲する — worker/daemon は build オプションを無検査で CLI へ渡すため変更不要。
  */
 export async function buildMergedPdf(input: {

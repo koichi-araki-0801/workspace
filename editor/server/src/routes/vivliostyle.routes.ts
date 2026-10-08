@@ -14,13 +14,13 @@
 // ⚠ そのパーサの登録は**この plugin の中**でしか行わない(ルートインスタンスへ戻すと
 // 全ルートへ伝播し、`bodyLimit` の効かない 64MB バッファが任意の POST で開く)。
 import { apiPaths, notFound, validation } from '@editor/shared';
+import { BuildInlineRequest, BuildMergeRequest } from '@editor/shared/schemas';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import { actorFromReq, audit, auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { BuildInlineRequest, BuildMergeRequest } from '../openapi/schemas.js';
 import {
   buildInlinePdf,
   buildMergedPdf,

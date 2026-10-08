@@ -1,7 +1,7 @@
 // =============================================================================
 // reviews.metaFailure.test.ts — 承認確定メタ更新の部分失敗(リトライ/明示エラー)
 // =============================================================================
-// `applyConfirmedSave`(実ファイル反映 + git commit)成功後の `updateReviewMeta` 失敗を
+// `applyConfirmedWrite`(実ファイル反映 + git commit)成功後の `updateReviewMeta` 失敗を
 // 部分モックで再現し、(a) 一時失敗はリトライで回復する、(b) 恒常失敗は
 // `REVIEW_META_UPDATE_FAILED` の明示エラーになり実ファイルは反映済みのまま残る、を検証する。
 // vi.mock は hoist されるため `reviews.test.ts` とはファイルを分ける。

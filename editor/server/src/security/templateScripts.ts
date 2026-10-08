@@ -152,18 +152,10 @@ export function expandEncodedChips(html: string): string {
 
 // ── 2. HTML 実体参照の復号 ──
 
-/**
- * 属性値・CSS 値の比較前に実体参照を解く。`javascript&#58;alert(1)` や
- * `&lt;script&gt;` のように、パーサが解いてから解釈するものを解かずに比べると
- * 「基準に無い実行面」を実体参照の衣で通せる。
- *
- * 実装は `@editor/shared` の `decodeHtmlEntities` **1 本**に寄せる。ここに私有の複製を
- * 置いていた版では、外部参照ゲート(`security/externalRefs.ts` が呼ぶ
- * `findExternalRefsInTag`)が復号を**しない**まま判定しており、`&#104;ttps://evil/x` は
- * 不変性照合には掛かるのに 400 ゲートは素通りする、という非対称ができていた。
- * 復号器が 1 つなら、その形の食い違いを構造的に作れない。
- */
-const decodeEntities = decodeHtmlEntities;
+// 属性値・CSS 値は比較前に `@editor/shared` の `decodeHtmlEntities` で実体参照を解く。
+// `javascript&#58;alert(1)` や `&lt;script&gt;` のように、パーサが解いてから解釈するものを解かずに
+// 比べると「基準に無い実行面」を実体参照の衣で通せる。外部参照ゲート(`security/externalRefs.ts`
+// の `findExternalRefsInTag`)と復号器を共有するので、両者の判定が実体参照の形で食い違わない。
 
 // ── 3. 許可リスト ──
 
@@ -648,7 +640,7 @@ function collapse(value: string): string {
 
 function normalizedAttrs(attrs: readonly ParsedAttr[]): string {
   return [...attrs]
-    .map((a) => `${a.name}=${collapse(decodeEntities(a.value))}`)
+    .map((a) => `${a.name}=${collapse(decodeHtmlEntities(a.value))}`)
     .sort()
     .join(' ');
 }
@@ -704,7 +696,7 @@ function isInertUrlLiteral(decoded: string): boolean {
  * トークンを空文字へ潰した残りにも同じ判定を掛け、どちらかが活性なら単位化する。
  */
 function isInertUrl(value: string): boolean {
-  const decoded = decodeEntities(value);
+  const decoded = decodeHtmlEntities(value);
   if (!isInertUrlLiteral(decoded)) return false;
   const stripped = stripJinjaTokens(decoded);
   return stripped === decoded || isInertUrlLiteral(stripped);
@@ -719,7 +711,7 @@ function isInertUrl(value: string): boolean {
  * 形が構造的に作れない。
  */
 function pushCssUnits(css: string, at: number, out: PositionedUnit[]): void {
-  for (const ref of findExternalRefsInCss(decodeEntities(css))) {
+  for (const ref of findExternalRefsInCss(decodeHtmlEntities(css))) {
     out.push({ at, seq: out.length, unit: `css-ref:${collapse(ref)}` });
   }
 }
@@ -776,7 +768,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
           out.push({
             at: tag.at,
             seq: out.length,
-            unit: `attr:style.${a.name}=${collapse(decodeEntities(a.value))}`,
+            unit: `attr:style.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
           });
         }
       }
@@ -797,7 +789,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
         out.push({
           at: tag.at,
           seq: out.length,
-          unit: `attr:${tag.name}.${a.name}=${collapse(decodeEntities(a.value))}`,
+          unit: `attr:${tag.name}.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
         });
         continue;
       }
@@ -805,7 +797,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
         out.push({
           at: tag.at,
           seq: out.length,
-          unit: `url:${tag.name}.${a.name}=${collapse(decodeEntities(a.value))}`,
+          unit: `url:${tag.name}.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
         });
       }
       if (a.name === 'style') pushCssUnits(a.value, tag.at, out);
@@ -849,7 +841,7 @@ function unitsEqual(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /** 照合失敗時にユーザーへ返す文言。経路(申請/承認/転写)を問わず同じ案内にする。 */
-export const SCRIPT_IMMUTABLE_MESSAGE =
+const SCRIPT_IMMUTABLE_MESSAGE =
   '実行コード・外部参照は編集できません。変更が必要なら開発者へ依頼してください';
 
 /**

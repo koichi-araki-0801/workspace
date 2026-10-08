@@ -232,7 +232,7 @@ export function safeEntryPath(root: string, name: string): string {
 }
 
 /**
- * クエリ `entry` を展開ディレクトリ配下の絶対パスへ解決する(`buildProjectPdf` /
+ * クエリ `entry` を展開ディレクトリ配下の絶対パスへ解決する(`buildProjectInSlot` /
  * `previewManager.start` へ渡す前の唯一の関所)。
  *
  * vivliostyle CLI は `input` を `upath.resolve(cwd, input)` で解くだけで封じ込めを見ず、

@@ -349,7 +349,7 @@ export function parseProjectConfig(
 }
 
 /** 展開ルート直下に置く config のファイル名(小文字で照合する)。 */
-export const CONFIG_FILE_NAME = 'vivliostyle.config.json';
+const CONFIG_FILE_NAME = 'vivliostyle.config.json';
 
 /** `path.basename` を小文字化して比較するためのヘルパ(探索側は fold して広く拾う)。 */
 export const isConfigFileName = (name: string): boolean =>

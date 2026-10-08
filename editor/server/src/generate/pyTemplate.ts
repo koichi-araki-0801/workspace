@@ -37,7 +37,10 @@ export interface GenerateAttributes {
   isRedemption?: boolean;
 }
 
-/** 指紋が合わないときに利用者へ出す文言(生成器の差し替えは管理者の対応事項)。 */
+/**
+ * 指紋が合わないときに利用者へ出す文言(生成器の差し替えは管理者の対応事項)。
+ * テストから直接検証するために公開する。
+ */
 export const GENERATOR_FINGERPRINT_MISMATCH_MESSAGE =
   'テンプレート生成器の指紋が設定と一致しないため、生成を中止しました。管理者に連絡してください';
 
@@ -88,7 +91,10 @@ async function assertGeneratorFingerprint(): Promise<void> {
   }
 }
 
-/** 生成の待ち行列が満杯のときに利用者へ出す文言(PDF ビルドの満杯時と同じ形)。 */
+/**
+ * 生成の待ち行列が満杯のときに利用者へ出す文言(PDF ビルドの満杯時と同じ形)。
+ * テストから直接検証するために公開する。
+ */
 export const GENERATE_QUEUE_FULL_MESSAGE =
   'テンプレート生成の順番待ちが混み合っています。しばらく待ってから再実行してください';
 

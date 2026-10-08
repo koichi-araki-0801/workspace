@@ -20,6 +20,7 @@ import {
   templateIdFromFileName,
   validation,
 } from '@editor/shared';
+import { GenerateRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
@@ -28,17 +29,11 @@ import { deleteDraft } from '../files/draftFiles.js';
 import { findInProgressIds } from '../files/inProgress.js';
 import { deletePending, writePending } from '../files/pendingFiles.js';
 import { hasPendingCreateReview } from '../files/reviewFiles.js';
-import {
-  findTemplateId,
-  hasTemplateFor,
-  listTemplateFiles,
-  readTemplateCss,
-} from '../files/templateFiles.js';
+import { findTemplateId, listTemplateFiles, readTemplateCss } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { GenerateRequest } from '../openapi/schemas.js';
 import { recordCreate } from '../repositories/historyRepo.js';
 
 // トークン単位の検査はここに私有の複製を置かず `@editor/shared` の
@@ -71,10 +66,16 @@ export const generateRoutes: FastifyPluginAsync<{
             ? assertTemplateAttributeToken('コピー元ファンドコード', body.sourceFundCode)
             : undefined;
           // 画面はコピー元テンプレートが無い候補で作成を止めるが、API を直接呼ばれても同じ結果にする。
-          if (
-            sourceFundCode &&
-            !(await hasTemplateFor(attributes.companyCode, sourceFundCode, attributes.editionType))
-          ) {
+          // 照合は大文字小文字を区別しない(CSS の初期値にもこの id を使う)。
+          const sourceId = sourceFundCode
+            ? findTemplateId(
+                await listTemplateFiles(),
+                attributes.companyCode,
+                sourceFundCode,
+                attributes.editionType,
+              )
+            : null;
+          if (sourceFundCode && sourceId === null) {
             throw validation(`コピー元のテンプレートがありません: ${sourceFundCode}`);
           }
           const fileName = skeletonFileName(attributes);
@@ -123,15 +124,7 @@ export const generateRoutes: FastifyPluginAsync<{
             attributes.editionType,
           );
           // CSS の初期値: コピー元テンプレの CSS → 同じ名前の既存 CSS → 空(`readTemplateCss` は無ければ空)。
-          // コピー元の有無は上で検査済み(大文字小文字を区別しない照合も `hasTemplateFor` と同じ)。
-          const sourceId = sourceFundCode
-            ? findTemplateId(
-                await listTemplateFiles(),
-                attributes.companyCode,
-                sourceFundCode,
-                attributes.editionType,
-              )
-            : null;
+          // コピー元の有無は上で検査済み。
           const css = await readTemplateCss(sourceId ?? id);
           const meta: TemplateMeta = {
             id,

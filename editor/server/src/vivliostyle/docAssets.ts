@@ -297,17 +297,14 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   return current;
 }
 
-/** `stageDocAssets` の任意設定。 */
+/** `stageDocAssets` の設定。 */
 export interface StageDocAssetsOptions {
   /**
    * 文書が実際に参照している配信ルート相対パス(`docRefs.collectDocumentAssetRefs` の戻り値)。
-   *
-   * 与えると**参照されたものだけ**を配置する(参照 CSS がさらに引くフォント等は
-   * `expandReferenced` が段階的に足す)。省略すると許可リスト配下を全件配置する —
-   * zip 展開物のように文書が事前に判らない配信ルート向けの逃げ道で、通常の経路
-   * (inline / merge / preview-inline)では必ず渡すこと。
+   * **参照されたものだけ**を配置する(参照 CSS がさらに引くフォント等は `expandReferenced` が
+   * 段階的に足す)。
    */
-  referenced?: ReadonlySet<string>;
+  referenced: ReadonlySet<string>;
 }
 
 /**
@@ -399,16 +396,13 @@ async function readInspectedSvg(file: AssetFile): Promise<Buffer | undefined> {
  */
 export async function stageDocAssets(
   destDir: string,
-  opts: StageDocAssetsOptions = {},
+  opts: StageDocAssetsOptions,
 ): Promise<Set<string>> {
   const catalog = new Map<string, AssetFile>();
   for (const group of ASSET_GROUPS) {
     for (const file of await collectGroup(group)) catalog.set(file.rel, file);
   }
-  const wanted =
-    opts.referenced === undefined
-      ? [...catalog.values()]
-      : await expandReferenced(catalog, opts.referenced);
+  const wanted = await expandReferenced(catalog, opts.referenced);
 
   const served = new Set<string>();
   let files = 0;

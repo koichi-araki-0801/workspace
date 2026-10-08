@@ -23,7 +23,7 @@ const warn = vi.fn();
  */
 async function loadStage(
   limits: Partial<Record<'VIVLIO_MAX_ASSET_FILES' | 'VIVLIO_MAX_ASSET_BYTES', number>> = {},
-): Promise<(dir: string, opts?: { referenced?: ReadonlySet<string> }) => Promise<Set<string>>> {
+): Promise<(dir: string, opts?: { referenced: ReadonlySet<string> }) => Promise<Set<string>>> {
   vi.resetModules();
   vi.doMock('../src/config.js', () => ({
     config: { cssDir, jsDir, imagesDir },
@@ -32,7 +32,24 @@ async function loadStage(
   }));
   vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
   const mod = await import('../src/vivliostyle/docAssets.js');
-  return mod.stageDocAssets;
+  // opts を省くと、置き場にある全ファイルを参照された扱いにする(配置の可否だけを見るテスト用)。
+  return async (dir, opts) => mod.stageDocAssets(dir, opts ?? { referenced: await everyRel() });
+}
+
+/** 置き場(css / js / images)配下の全ファイルを、配信ルート相対パスの集合にして返す。 */
+async function everyRel(): Promise<Set<string>> {
+  const out = new Set<string>();
+  const walk = async (abs: string, rel: string): Promise<void> => {
+    const entries = await fs.readdir(abs, { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+      if (e.isDirectory()) await walk(path.join(abs, e.name), `${rel}/${e.name}`);
+      else out.add(`${rel}/${e.name}`);
+    }
+  };
+  await walk(cssDir, 'css');
+  await walk(jsDir, 'js');
+  await walk(imagesDir, 'images');
+  return out;
 }
 
 beforeEach(async () => {
@@ -283,7 +300,7 @@ describe('resolveServedAssetSource — 引けるもの / 引けないもの', ()
 // 全件配置は (a) 単一ファンドのビルドの配信ルートへ他ファンドの CSS が載り、文書が
 // `<link href="css/<他ファンド>.css">` と書けば解決してしまう (b) 共通フォント一式が
 // PDF 1 本ごと・プレビュー起動ごとに丸ごとコピーされる、の 2 つを生む。
-describe('stageDocAssets — referenced を渡すと参照されたものだけ置く', () => {
+describe('stageDocAssets — 参照されたものだけ置く', () => {
   it('他ファンドの CSS は配信ルートへ載らない', async () => {
     await write(path.join(cssDir, '510037.css'), 'p{color:red}');
     await write(path.join(cssDir, '510155.css'), 'p{color:blue}');
@@ -314,13 +331,6 @@ describe('stageDocAssets — referenced を渡すと参照されたものだけ�
     await write(path.join(cssDir, 'notes.json'), '{}');
     const served = await (await loadStage())(dest, { referenced: new Set(['css/notes.json']) });
     expect(served.size).toBe(0);
-  });
-
-  it('referenced 省略は従来どおり全件(zip 展開物のように文書が事前に判らない配信ルート用)', async () => {
-    await write(path.join(cssDir, '510037.css'), 'p{}');
-    await write(path.join(cssDir, '510155.css'), 'p{}');
-    const served = await (await loadStage())(dest);
-    expect(served.size).toBe(2);
   });
 });
 
@@ -406,7 +416,6 @@ describe('stageDocAssets — ファンド別画像(images/)', () => {
     }
     const stage = await loadStage();
     expect((await stage(dest, { referenced: new Set(['images/linked/x.svg']) })).size).toBe(0);
-    expect([...(await stage(dest))]).not.toContain('images/linked/x.svg');
   });
 
   it('違反した SVG は置かずに警告する', async () => {
@@ -447,7 +456,7 @@ describe('stageDocAssets — ファンド別画像(images/)', () => {
     expect(await fs.readFile(path.join(dest, 'images', '510037_logo.svg'), 'utf8')).toBe(GOOD_SVG);
   });
 
-  it('referenced 省略(全件)でも違反 SVG は置かない', async () => {
+  it('全件を参照していても違反 SVG は置かない', async () => {
     await write(path.join(imagesDir, '510037_bad.svg'), BAD_SVG);
     await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
     const served = await (await loadStage())(dest);

@@ -2,8 +2,8 @@
 // reviewRepo.ts — 確定保存の精査者承認ワークフロー(サーバ REST 実装)
 // =============================================================================
 // 確定保存を「申請(submit)→ 承認(approve)/却下(reject)」の 2 段に割る。申請は実ファイルを
-// 一切更新せず `<dataRoot>/reviews/` に積み(`reviewFiles.ts`)、承認時に限り `applyConfirmedSave`
-// (`templateRepo.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
+// 一切更新せず `<dataRoot>/reviews/` に積み(`reviewFiles.ts`)、承認時に限り `applyConfirmedWrite`
+// (`confirmedWrite.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
 // ルートは `requireApprover` で施錠する(`reviews.routes.ts`)。各関数は失敗時に `AppError`
 // を throw し、HTTP 変換は中央 `errorHandler` に委ねる(`templateRepo.ts` と同方針)。
 import { createHash, randomUUID } from 'node:crypto';
@@ -47,9 +47,12 @@ import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
 import type { PairCssSource, PairSyncService } from '../sync/pairSyncService.js';
-import { baselineTemplateHtml, type ConfirmedTarget } from './confirmedWrite.js';
+import {
+  applyConfirmedWrite,
+  baselineTemplateHtml,
+  type ConfirmedTarget,
+} from './confirmedWrite.js';
 import { assertNoEditingMarkers } from './editingMarkerGate.js';
-import { applyConfirmedSave } from './templateRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
 export interface ReviewActor {
@@ -121,7 +124,7 @@ async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSour
 }
 
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
-export function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
+function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
   return origin === 'edit' ? 'filled' : 'template';
 }
 
@@ -162,7 +165,7 @@ function assertUndecided(review: ReviewRequest): void {
 }
 
 /**
- * 承認確定のメタ更新。実ファイル反映(`applyConfirmedSave`)の後段で失敗すると「反映済みなのに
+ * 承認確定のメタ更新。実ファイル反映(`applyConfirmedWrite`)の後段で失敗すると「反映済みなのに
  * pending」が残り、再承認で二重反映されるため、一時失敗(ウイルス対策・インデクサ由来の
  * EPERM/EBUSY 等)は短い backoff で再試行し、それでも駄目なら手動復旧の手順を載せた明示エラー
  * にする。順序を逆(メタ先行)にするとクラッシュ時に「approved なのに未反映」というサイレント
@@ -347,7 +350,8 @@ export function createReviewRepo({
         // baseline(確定版の CSS を編集画面が読み込んだ直後の形)は申請に載ったものを使う。どちらかが
         // 欠けても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
         const cssSource = await pairCssSourceOf(review);
-        const meta = await applyConfirmedSave({
+        const meta = await applyConfirmedWrite({
+          kind: 'review-approve',
           templateId: review.templateId,
           target,
           html: review.html,

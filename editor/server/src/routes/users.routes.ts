@@ -4,13 +4,13 @@
 // 作成(201)とリセット(200)は一時パスワードの平文を応答ボディで返す。監査ログには
 // **絶対に載せない** — 監査ログは長期保存されるため、載せた瞬間に「保存しない」前提が崩れる。
 import { apiPaths, conflict, forbidden, notFound, type User } from '@editor/shared';
+import { CreateUserRequest, UpdateUserRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { actorFromReq, audit } from '../logger.js';
 import { requireAdmin, requireAuth, requireIdentifiedUser } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { CreateUserRequest, UpdateUserRequest } from '../openapi/schemas.js';
 import type { UserRepo } from '../repositories/userRepo.js';
 
 type UserPatch = z.infer<typeof UpdateUserRequest>;

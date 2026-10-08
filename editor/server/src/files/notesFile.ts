@@ -229,10 +229,6 @@ export function withNotesLock<T>(templateId: string, fn: () => Promise<T>): Prom
   return withFileLock(fileFor(templateId), fn);
 }
 
-// `MAX_NOTES_PER_TEMPLATE` は shared 正典を再輸出する(web の local 実装と値を共有するため
-// shared へ移した。既存の import 元(本モジュール経由)を壊さないための再輸出)。
-export { MAX_NOTES_PER_TEMPLATE };
-
 /** 件数上限に達しているか(新規キーの追加可否の判定に使う)。 */
 export function notesAtCapacity(notes: NoteEntriesMap, pathKey: string): boolean {
   return !Object.hasOwn(notes, pathKey) && Object.keys(notes).length >= MAX_NOTES_PER_TEMPLATE;
