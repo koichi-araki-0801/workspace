@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lexJinja } from '../src/jinja/jinjaLex';
+import { JINJA_DELIMS, jinjaCloserOf, lexJinja } from '../src/jinja/jinjaLex';
 
 const toks = (s: string) => {
   const r = lexJinja(s);
@@ -67,5 +67,22 @@ describe('lexJinja', () => {
 
   it('Jinja でない { は地の文', () => {
     expect(toks('a { b } {x} $$ {')).toEqual([]);
+  });
+});
+
+describe('JINJA_DELIMS / jinjaCloserOf', () => {
+  it('開き記号 3 種と対の閉じ記号', () => {
+    expect(JINJA_DELIMS.map((d) => [d.open, d.close])).toEqual([
+      ['{{', '}}'],
+      ['{%', '%}'],
+      ['{#', '#}'],
+    ]);
+    expect(jinjaCloserOf('{{')).toBe('}}');
+    expect(jinjaCloserOf('{%')).toBe('%}');
+    expect(jinjaCloserOf('{#')).toBe('#}');
+  });
+
+  it('Jinja の開き記号でなければ undefined', () => {
+    for (const s of ['{', '{x', '}}', '', '{{{']) expect(jinjaCloserOf(s)).toBeUndefined();
   });
 });

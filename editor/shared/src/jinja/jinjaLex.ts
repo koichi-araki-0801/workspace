@@ -21,11 +21,25 @@ export type LexResult =
   | { ok: true; tokens: JinjaToken[] }
   | { ok: false; error: { message: string; at: number } };
 
-const OPEN: Record<string, { kind: JinjaTokenKind; close: string }> = {
-  '{{': { kind: 'output', close: '}}' },
-  '{%': { kind: 'stmt', close: '%}' },
-  '{#': { kind: 'comment', close: '#}' },
-};
+/**
+ * Jinja の区切り記号の正典。関所の印の検出(`security/editingMarkers.ts`)、不変性の照合
+ * (`server/src/security/templateScripts.ts`)、web の最短一致の正規表現(`web/src/lib/jinjaAttrs.ts`
+ * の `JINJA_TOKEN_RE`)がここから組む。片側だけ区切りを足すと、伏せる範囲がずれて印を見落とす。
+ */
+export const JINJA_DELIMS = [
+  { open: '{{', close: '}}', kind: 'output' },
+  { open: '{%', close: '%}', kind: 'stmt' },
+  { open: '{#', close: '#}', kind: 'comment' },
+] as const satisfies ReadonlyArray<{ open: string; close: string; kind: JinjaTokenKind }>;
+
+const OPEN: ReadonlyMap<string, { kind: JinjaTokenKind; close: string }> = new Map(
+  JINJA_DELIMS.map((d) => [d.open, { kind: d.kind, close: d.close }]),
+);
+
+/** 開き記号(`{{` `{%` `{#` のどれか 2 文字)に対の閉じ記号。開き記号でなければ undefined。 */
+export function jinjaCloserOf(open: string): string | undefined {
+  return OPEN.get(open)?.close;
+}
 const RAW_END: Record<string, RegExp> = {
   raw: /\{%[-+]?\s*endraw\s*[-+]?%\}/g,
   verbatim: /\{%[-+]?\s*endverbatim\s*[-+]?%\}/g,
@@ -66,7 +80,7 @@ export function lexJinja(src: string): LexResult {
   while (i < src.length) {
     const j = src.indexOf('{', i);
     if (j < 0) break;
-    const spec = OPEN[src.slice(j, j + 2)];
+    const spec = OPEN.get(src.slice(j, j + 2));
     if (!spec) {
       i = j + 1;
       continue;
