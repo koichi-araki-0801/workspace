@@ -17,7 +17,7 @@ import fsp from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 
 import { loadDbItems } from './db.js';
-import { cellValueAsNumber, parseDecimalText } from './number.js';
+import { cellValueAsNumber, parseDecimalText, rowToItem } from './number.js';
 import samplesData from '../../samples.json' with { type: 'json' };
 import type { Item, Samples } from '../types.js';
 import {
@@ -115,8 +115,9 @@ function cellAsText(cell: { value: unknown }): string {
 }
 
 /**
- * 数値として読めなければ null を返す(規則は `number.ts` の `cellValueAsNumber`。DB 経路と共有)。
- * 読めない値は null にして呼び出し側の明示エラー(`Non-numeric value at row N`)へ倒す。
+ * セルを数値として読む。読めなければ null(規則は `number.ts` の `cellValueAsNumber`。DB 経路と共有)。
+ * 行の読み取りは `rowToItem` が同じ規則で行う。テストから直接検証するために公開する。
+ * @public
  */
 export function cellAsNumber(cell: { value: unknown }): number | null {
   return cellValueAsNumber(unwrapCellValue(cell.value));
@@ -181,17 +182,10 @@ async function loadXlsxItems({
         throw new Error(`Excel error value ${error} at row ${r} (${column} column).`);
       }
     }
-    const name = cellAsText(nameCell);
-    const value = cellAsNumber(valueCell);
-    const valueRaw = unwrapCellValue(valueCell.value);
-    const valueIsBlank = valueRaw == null || valueRaw === '';
-
-    if (!name && valueIsBlank) continue;
-    if (!name) throw new Error(`Empty name at row ${r}.`);
-    if (value == null) {
-      throw new Error(`Non-numeric value at row ${r} (got "${cellAsText(valueCell)}").`);
-    }
-    items.push([name, value]);
+    const item = rowToItem(cellAsText(nameCell), unwrapCellValue(valueCell.value), r, () =>
+      cellAsText(valueCell),
+    );
+    if (item) items.push(item);
   }
   if (items.length === 0) {
     throw new Error(`No data rows found in range "${range}" of sheet "${sheet}".`);

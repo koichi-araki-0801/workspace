@@ -40,3 +40,25 @@ export function cellValueAsNumber(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   return parseDecimalText(String(v), true);
 }
+
+/**
+ * 1 行ぶんの名前と値を `[name, value]` にする(xlsx / DB の 2 経路で共有)。名前も値も空の行は
+ * 区切りとして null を返し、名前だけ空・値が読めない行は行番号付きで明示エラーにする。`name` は
+ * 呼び出し側で正規化済みの文字列、`valueRaw` は包みを剥がした素の値。エラー文の値表記は経路ごとに
+ * 違う(xlsx はセル表示、DB は列値の文字列化)ため `describeValue` で受け取る。
+ */
+export function rowToItem(
+  name: string,
+  valueRaw: unknown,
+  rowNo: number,
+  describeValue: () => string,
+): [string, number] | null {
+  const valueIsBlank = valueRaw == null || valueRaw === '';
+  if (!name && valueIsBlank) return null;
+  if (!name) throw new Error(`Empty name at row ${rowNo}.`);
+  const value = cellValueAsNumber(valueRaw);
+  if (value == null) {
+    throw new Error(`Non-numeric value at row ${rowNo} (got "${describeValue()}").`);
+  }
+  return [name, value];
+}

@@ -23,7 +23,7 @@
 import { createRequire } from 'node:module';
 
 import { MAX_DB_ROWS } from '../limits.js';
-import { cellValueAsNumber } from './number.js';
+import { rowToItem } from './number.js';
 import { isSea } from '../runtime/seaRuntime.js';
 
 // 通常の ESM(tsx)では `require` が無いので createRequire で作る。SEA(esbuild の cjs
@@ -307,15 +307,8 @@ export function rowsToItems(
     const nameRaw = row[nameKey];
     const valueRaw = row[valueKey];
     const name = nameRaw == null ? '' : String(nameRaw).trim();
-    const valueIsBlank = valueRaw == null || valueRaw === '';
-
-    if (!name && valueIsBlank) continue;
-    if (!name) throw new Error(`Empty name at row ${i + 1}.`);
-    const value = cellValueAsNumber(valueRaw);
-    if (value == null) {
-      throw new Error(`Non-numeric value at row ${i + 1} (got "${String(valueRaw)}").`);
-    }
-    items.push([name, value]);
+    const item = rowToItem(name, valueRaw, i + 1, () => String(valueRaw));
+    if (item) items.push(item);
   }
   if (items.length === 0) {
     throw new Error('No usable data rows (all blank).');
