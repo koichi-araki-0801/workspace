@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
@@ -30,7 +30,6 @@ const REQ: ChildRequest = {
   args: ARGS,
   timeoutMs: 1000,
   driverPath: 'C:\\x\\sqlserverv8.node',
-  driverSha256: 'abc',
 };
 
 function okDriver(rows: unknown[][]): MsSqlDriver {
@@ -41,8 +40,22 @@ function okDriver(rows: unknown[][]): MsSqlDriver {
   };
 }
 
+// 子の側の検査は実ファイルで行う: `<親>/<実行ごと>/sqlserverv8.node` を作り、親を許可する。
+let childParent: string;
+let driverFile: string;
+beforeEach(() => {
+  childParent = mkdtempSync(join(tmpdir(), 'piechart-child-'));
+  const run = join(childParent, '1234-abcdef');
+  mkdirSync(run);
+  driverFile = join(run, 'sqlserverv8.node');
+  writeFileSync(driverFile, 'x');
+});
+afterEach(() => rmSync(childParent, { recursive: true, force: true }));
+
 function childDeps(over: Partial<ChildDeps> = {}): ChildDeps {
   return {
+    expectedSha256: () => 'embedded',
+    allowedParent: () => childParent,
     loadDriver: () => okDriver([['A', 1]]),
     verify: () => {},
     register: () => {},
@@ -54,7 +67,7 @@ describe('handleChildRequest(子の側)', () => {
   it('照合 → 登録 → 読み込み → ストアド呼び出しの順に進み、items を返す', async () => {
     const order: string[] = [];
     const res = await handleChildRequest(
-      REQ,
+      { ...REQ, driverPath: driverFile },
       childDeps({
         verify: () => order.push('verify'),
         register: () => order.push('register'),
@@ -69,7 +82,7 @@ describe('handleChildRequest(子の側)', () => {
   });
   it('読み込みの失敗は load 段階にし、アプリ制御のヒントを付ける', async () => {
     const res = await handleChildRequest(
-      REQ,
+      { ...REQ, driverPath: driverFile },
       childDeps({
         loadDriver: () => {
           throw new Error('The specified module could not be found.');
@@ -81,7 +94,7 @@ describe('handleChildRequest(子の側)', () => {
   });
   it('照合の失敗は verify 段階のまま返す', async () => {
     const res = await handleChildRequest(
-      REQ,
+      { ...REQ, driverPath: driverFile },
       childDeps({
         verify: () => {
           throw new DbStageError('verify', 'mismatch');
@@ -91,7 +104,12 @@ describe('handleChildRequest(子の側)', () => {
     expect(res).toEqual({ ok: false, stage: 'verify', message: 'mismatch' });
   });
   it('load モードは読み込めた時点で成功', async () => {
-    expect(await handleChildRequest({ ...REQ, mode: 'load', args: null }, childDeps())).toEqual({
+    expect(
+      await handleChildRequest(
+        { ...REQ, driverPath: driverFile, mode: 'load', args: null },
+        childDeps(),
+      ),
+    ).toEqual({
       ok: true,
       items: [],
     });
@@ -99,14 +117,50 @@ describe('handleChildRequest(子の側)', () => {
   it('connect モードは SELECT 1 まで確かめる', async () => {
     const query = vi.fn(async () => ({ meta: [], results: [] }));
     const res = await handleChildRequest(
-      { ...REQ, mode: 'connect', args: null },
+      { ...REQ, driverPath: driverFile, mode: 'connect', args: null },
       childDeps({ loadDriver: () => ({ promises: { query } }) }),
     );
     expect(res).toEqual({ ok: true, items: [] });
     expect(query).toHaveBeenCalledWith('CS', 'SELECT 1', [], { timeoutMs: 1000, raw: true });
   });
+  it('検証には要求ではなく埋め込みのハッシュを使う', async () => {
+    const verify = vi.fn();
+    await handleChildRequest(
+      { ...REQ, driverPath: driverFile, driverSha256: 'from-request' } as ChildRequest,
+      childDeps({ verify }),
+    );
+    expect(verify).toHaveBeenCalledWith(driverFile, 'embedded');
+  });
+  it('埋め込みのハッシュが無ければ verify 段階で止まる', async () => {
+    const loadDriver = vi.fn();
+    const res = await handleChildRequest(
+      { ...REQ, driverPath: driverFile },
+      childDeps({ expectedSha256: () => '', loadDriver }),
+    );
+    expect(res).toMatchObject({ ok: false, stage: 'verify' });
+    expect(loadDriver).not.toHaveBeenCalled();
+  });
+  it('許可された親の外・深さの違う場所・別名のファイルは読み込まない', async () => {
+    const direct = join(childParent, 'sqlserverv8.node');
+    writeFileSync(direct, 'x');
+    const deep = join(childParent, 'a', 'b');
+    mkdirSync(deep, { recursive: true });
+    const deepFile = join(deep, 'sqlserverv8.node');
+    writeFileSync(deepFile, 'x');
+    const other = join(childParent, '1234-abcdef', 'other.node');
+    writeFileSync(other, 'x');
+    for (const driverPath of [direct, deepFile, other, join(childParent, 'nothing.node')]) {
+      const loadDriver = vi.fn();
+      const res = await handleChildRequest({ ...REQ, driverPath }, childDeps({ loadDriver }));
+      expect(res).toMatchObject({ ok: false, stage: 'verify' });
+      expect((res as { message: string }).message).toMatch(/outside the working folder/);
+      expect(loadDriver).not.toHaveBeenCalled();
+    }
+  });
   it('fetch なのに args が無ければ child 段階', async () => {
-    expect(await handleChildRequest({ ...REQ, args: null }, childDeps())).toMatchObject({
+    expect(
+      await handleChildRequest({ ...REQ, driverPath: driverFile, args: null }, childDeps()),
+    ).toMatchObject({
       ok: false,
       stage: 'child',
     });
@@ -137,7 +191,7 @@ describe('runDbChild', () => {
   it('stdin の要求を処理し、印付きの 1 行を書いて終了コードを返す', async () => {
     let out = '';
     const code = await runDbChild(
-      Readable.from([JSON.stringify(REQ)]),
+      Readable.from([JSON.stringify({ ...REQ, driverPath: driverFile })]),
       (s) => (out += s),
       childDeps(),
     );
@@ -218,7 +272,7 @@ describe('runDbHelper(親の側)', () => {
     expect(existsSync(runDir)).toBe(false);
     const sent = JSON.parse(child.received);
     expect(sent.driverPath).toBe(join(runDir, 'sqlserverv8.node'));
-    expect(sent.driverSha256).toBe(sha256Hex(bytes));
+    expect(sent).not.toHaveProperty('driverSha256');
   });
   it('子のエラー応答は段階付きで投げ、フォルダは消す', async () => {
     const child = new FakeChild();

@@ -8,9 +8,14 @@
 // やり取り: 親は要求(JSON)を子の stdin に書き、子は応答を `RESPONSE_MARKER` で始まる 1 行の
 // JSON として stdout に書く。ドライバや Node が stdout に何か書いても応答を取り違えないよう、
 // 親は印の付いた行だけを読む。
+// 信頼の置き方: `__db-fetch` は誰でも任意の stdin で呼べるので、子は要求のハッシュを信用せず、
+// exe に埋め込んだハッシュだけで照合する。ドライバの場所も `<作業フォルダの親>/<実行ごと>/
+// sqlserverv8.node` の形に限る(任意の DLL を読み込む踏み台にしない)。
 // =============================================================================
 
 import { type ChildProcess, spawn as nodeSpawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { type MsSqlDriver, callSprocItems, checkConnection } from '../input/db.js';
 import { type DbStage, DbStageError, InterruptedError, errorMessage } from '../input/dbStage.js';
@@ -18,6 +23,7 @@ import type { SprocArgs } from '../input/sprocArgs.js';
 import { loadMsSqlDriver } from './msDriver.js';
 import {
   DRIVER_ASSET_KEY,
+  DRIVER_FILE_NAME,
   createRunDir,
   embeddedDriverSha256,
   registerDriverPath,
@@ -43,7 +49,6 @@ export interface HelperRequest {
 
 export interface ChildRequest extends HelperRequest {
   driverPath: string;
-  driverSha256: string;
 }
 
 export type ChildResponse =
@@ -66,13 +71,43 @@ export interface ChildDeps {
   loadDriver: () => MsSqlDriver;
   verify: (file: string, sha: string) => void;
   register: (file: string) => void;
+  /** exe に埋め込んだドライバのハッシュ。照合はこれだけを基準にする。 */
+  expectedSha256: () => string;
+  /** 実行ごとのフォルダを作る親フォルダ。ドライバはこの直下のフォルダの中に限る。 */
+  allowedParent: () => string;
 }
 
 const defaultChildDeps: ChildDeps = {
   loadDriver: loadMsSqlDriver,
   verify: verifyDriverFile,
   register: registerDriverPath,
+  expectedSha256: embeddedDriverSha256,
+  allowedParent: runDirParent,
 };
+
+function samePath(a: string, b: string): boolean {
+  return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/** ドライバが `<許可された親>/<実行ごとのフォルダ>/sqlserverv8.node` の形か確かめる。 */
+function assertDriverLocation(driverPath: string, allowedParent: string): void {
+  const outside = (): DbStageError =>
+    new DbStageError('verify', `driver path is outside the working folder: ${driverPath}`);
+  let realDriver: string;
+  let realParent: string;
+  try {
+    realDriver = fs.realpathSync(driverPath);
+    realParent = fs.realpathSync(allowedParent);
+  } catch {
+    throw outside();
+  }
+  if (
+    !samePath(path.basename(realDriver), DRIVER_FILE_NAME) ||
+    !samePath(path.dirname(path.dirname(realDriver)), realParent)
+  ) {
+    throw outside();
+  }
+}
 
 /** 照合 → 登録 → 読み込み → (モードに応じて)接続確認かストアド呼び出し。 */
 export async function handleChildRequest(
@@ -81,7 +116,12 @@ export async function handleChildRequest(
 ): Promise<ChildResponse> {
   try {
     // 親が照合してから子が読み込むまでの間に差し替えられていないか、読み込む直前にもう一度見る。
-    deps.verify(req.driverPath, req.driverSha256);
+    const expected = deps.expectedSha256();
+    if (!expected) {
+      throw new DbStageError('verify', 'this executable has no embedded DB driver hash.');
+    }
+    assertDriverLocation(req.driverPath, deps.allowedParent());
+    deps.verify(req.driverPath, expected);
     deps.register(req.driverPath);
     let driver: MsSqlDriver;
     try {
@@ -116,7 +156,7 @@ export async function handleChildRequest(
 export function parseChildRequest(text: string): ChildRequest {
   const v = JSON.parse(text) as Record<string, unknown>;
   if (typeof v.mode !== 'string' || !MODES.has(v.mode)) throw new Error('invalid mode.');
-  for (const key of ['driverPath', 'driverSha256', 'connectionString', 'proc'] as const) {
+  for (const key of ['driverPath', 'connectionString', 'proc'] as const) {
     if (typeof v[key] !== 'string') throw new Error(`invalid ${key}.`);
   }
   if (typeof v.timeoutMs !== 'number' || !(v.timeoutMs > 0)) throw new Error('invalid timeoutMs.');
@@ -292,7 +332,7 @@ export async function runDbHelper(
           );
         }
       });
-      const request: ChildRequest = { ...req, driverPath, driverSha256: deps.driverSha256 };
+      const request: ChildRequest = { ...req, driverPath };
       child.stdin?.end(JSON.stringify(request));
     });
     if (!response.ok) throw new DbStageError(response.stage, response.message);
