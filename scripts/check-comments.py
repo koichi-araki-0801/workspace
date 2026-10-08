@@ -88,7 +88,6 @@ REPO_CONFIGS: dict[str, dict] = {
                 "build",
                 "vendor",
                 "git-tools",
-                ".claude-security-run",
                 ".code-review-graph",
             }
         ),

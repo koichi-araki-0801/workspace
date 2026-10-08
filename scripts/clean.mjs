@@ -82,14 +82,7 @@ const BUNDLE_FILES = [
 ];
 
 // 容量計算をスキップする大容量ディレクトリ (du が遅いだけで意味が薄いため `(大容量)` 表示)。
-const HEAVY = new Set([
-  'node_modules',
-  '.pnpm-store',
-  'ms-playwright',
-  'python-wheelhouse',
-  '.venv-build',
-  '.venv',
-]);
+const HEAVY = new Set([...DEEP_DIRS.map((d) => d.split('/').pop()), ...DEEP_WHOLE_DIR_NAMES]);
 
 // ── 3. 引数解釈 ──
 const argv = process.argv.slice(2);

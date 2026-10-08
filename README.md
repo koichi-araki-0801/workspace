@@ -79,7 +79,7 @@ BIZ UDPGothic は pie-chart が埋込サイズ優先の WOFF2 形式
 | コマンド | 役割 |
 |---|---|
 | `pnpm run dev` | editor を開発モードで起動 |
-| `pnpm run build` | 全パッケージをビルド |
+| `pnpm run build` | editor（shared+server の `tsc -b` と web の `vite build`）をビルド。pie-chart は含まない（`pnpm --filter pie-chart run build` / `build:exe` を別に実行） |
 | `pnpm run test` | 単体テスト一式 |
 | `pnpm run check:comments` | コメント規約・スクリプト配置の機械検査 |
 | `pnpm run knip` | 未使用 export / 依存の検出（`knip.json`） |
@@ -88,6 +88,15 @@ BIZ UDPGothic は pie-chart が埋込サイズ優先の WOFF2 形式
 | `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート＋pie-chart の SVG byte 比較。clone 直後は下記「フル `ci` の前提」を先に） |
 | `pnpm run ci:affected` | 変更領域だけ CI を実行（`scripts/ci-affected.mjs`。**pre-push で実行**） |
 | `pnpm run ci:editor` / `ci:pie-chart` | 領域別 CI を手動実行 |
+
+手動で使うスクリプト（`ci` には組み込まれない）:
+
+| コマンド | 用途 |
+|---|---|
+| `pnpm run dev:web` / `dev:server` | editor の web / server を片方だけ起動 |
+| `pnpm run test:e2e:install` | e2e 用の Chromium を導入（初回のみ） |
+| `pnpm run pie-chart:cli` | pie-chart の CLI を直接実行 |
+| `pnpm --filter <pkg> run build` | 各パッケージ単体のビルド |
 
 その他のコマンドは各 `package.json` の `scripts` を参照。
 

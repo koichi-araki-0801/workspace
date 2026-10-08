@@ -209,7 +209,7 @@ if (-not $SkipBuild) {
       if ($pbTar.Name -notlike "*v$instVer*") {
         Write-Error "[error] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"; exit 1
       }
-      & (Resolve-Tar) -xzf $pbTar.FullName -C $pbPkg.FullName
+      & $TarExe -xzf $pbTar.FullName -C $pbPkg.FullName
       if ($LASTEXITCODE -ne 0) {
         Write-Error '[error] msnodesqlv8 prebuild の展開に失敗しました。'; exit 1
       } else {
