@@ -19,6 +19,7 @@ import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { routeOrigin } from '@/features/layout/tabOf';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
 import { editorRoute } from '@/features/templates/editorRoute';
 import {
@@ -154,9 +155,7 @@ onMounted(async () => {
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
-const origin = computed<ReviewOrigin>(() =>
-  route.query.created === '1' ? 'create' : 'edit',
-);
+const origin = computed<ReviewOrigin>(() => routeOrigin(route.query));
 
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {

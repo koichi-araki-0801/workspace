@@ -11,6 +11,8 @@
 
 /** Jinja の開始記号（式 `{{`・文 `{%`・コメント `{#`）。 */
 export const JINJA_OPEN_RE = /\{[{%#]/;
+/** Jinja のトークン 1 個(`{{ … }}`・`{% … %}`・`{# … #}`)。全件を拾う `g` 付き。 */
+export const JINJA_TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 /** inline chip の厳密ソース(base64)。書: `tokenChip` → 復: `toTemplate` step 3a */
 export const DATA_JINJA = 'data-jinja';
 /** opaque mask した verbatim ソース(base64)。書: `opaqueChip` 等 → 復: `toTemplate` step 3b */

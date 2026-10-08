@@ -24,11 +24,10 @@ import {
   readConfirmedCanonical,
   writeConfirmedCanonical,
 } from '@/lib/confirmedCanonical';
-import { companyCodeOfTemplateId } from '@/lib/fundImages';
+import { companyCodeOfTemplateId, fundCodeOfTemplateId } from '@/lib/fundImages';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { canvasRoot } from './canvasGeometry';
-import { fundCodeOfTemplateId } from './fundImages';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';

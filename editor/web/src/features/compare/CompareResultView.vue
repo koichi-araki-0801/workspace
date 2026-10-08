@@ -14,11 +14,13 @@ import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { DropdownMenu, DropdownMenuItem, Tooltip } from '@/components/ui/overlays';
 import { logError } from '@/lib/appError';
+import { isEditableTarget } from '@/lib/dom';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { cn } from '@/lib/utils';
 import { htmlWorker } from '@/workers';
-import { buildDiffDoc, diffHighlightCss, type HtmlDiff, type PagePair } from './htmlBlockDiff';
+import { buildFramedDiffDoc } from './framedDiffDoc';
+import type { HtmlDiff, PagePair } from './htmlBlockDiff';
 import PageMatchInput from './PageMatchInput.vue';
 import { alignWarningText, directOffset, layoutRows } from './pageMatch';
 
@@ -80,12 +82,7 @@ function goNextChanged() {
 
 // ── グローバルキーボード送り(←/→、Shift で変更ページ間) ──────────────────
 // `PageNav` の入力欄にフォーカスしないとキー操作できなかったのを補う。入力系への
-// フォーカス中はキーを奪わない(`useEditorShortcuts.ts` の isEditableTarget と同方針)。
-function isEditableTarget(t: EventTarget | null): boolean {
-  if (!(t instanceof HTMLElement)) return false;
-  const tag = t.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
-}
+// フォーカス中はキーを奪わない(`isEditableTarget`)。
 function onKeydown(e: KeyboardEvent): void {
   if (isEditableTarget(e.target)) return;
   if (e.key === 'ArrowLeft') {
@@ -223,15 +220,12 @@ const afterMatch = matchModel('after');
 // ブロック級(要素まるごと)は左帯+淡い背景、語句級(テキスト中)は前景の下線で区別する
 // (挿入=緑下線 / 削除=赤下線。打消線は使わず色で挿入・削除を分ける)。語句級は要素級と
 // 入れ子になっても潰れないよう前景寄りの強調にしている。
-const HIGHLIGHT_CSS = diffHighlightCss(18);
+const buildDoc = buildFramedDiffDoc(18);
 
 // `iframe` を中身の高さに合わせる(承認プレビューと共有)。高さは子からの postMessage で
 // 受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
 // 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
-const { fitFrame, withHeightReporter } = useIframeAutoFit();
-
-const buildDoc = (fragment: string, css: string): string =>
-  withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
+const { fitFrame } = useIframeAutoFit();
 
 const beforeDoc = computed(() => buildDoc(page.value?.beforeHtml ?? '', props.cssBefore));
 const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssAfter));

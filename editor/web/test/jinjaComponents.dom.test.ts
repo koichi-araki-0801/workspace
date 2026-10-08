@@ -13,7 +13,8 @@ import type { Component } from 'grapesjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { JINJA_COMPONENT_TYPES } from '@/features/editor/jinjaComponents';
 import { useGrapes } from '@/features/editor/useGrapes';
-import { b64encode, toTemplate } from '@/lib/jinjaMask';
+import { b64encodeUtf8 as b64encode } from '@/lib/jinjaAttrs';
+import { toTemplate } from '@/lib/jinjaMask';
 
 const LOCKED_PROPS = [
   'selectable',

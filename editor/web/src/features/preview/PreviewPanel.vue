@@ -31,6 +31,7 @@ import { Loader2 } from '@lucide/vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { logError } from '@/lib/appError';
 import { selfContainPreviewDoc } from '@/lib/previewSelfContain';
+import { RENDER_HOST_BOOT_TIMEOUT_MS } from '@/lib/renderHostClient';
 
 const props = defineProps<{
   html: string;
@@ -76,7 +77,7 @@ const hostReady = ref(false);
  * バンドル欠落)やブラウザの sandbox 制約など、子が沈黙する形の失敗は親からは
  * 区別できないため、時間で切ってフォールバック表示へ倒す。
  */
-const HOST_BOOT_TIMEOUT_MS = 15_000;
+const HOST_BOOT_TIMEOUT_MS = RENDER_HOST_BOOT_TIMEOUT_MS;
 /** 組版が終わらない場合のローダー強制解除。 */
 const RENDER_LOADER_FAILSAFE_MS = 30_000;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;

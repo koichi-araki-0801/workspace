@@ -8,6 +8,7 @@
 //   2. 編集 canvas — GrapesJS のパーサが作った node ツリーを、component 化される前に
 //      刈り取る(`pruneCanvasActiveContent`)。文字列を再直列化しないのが要点。
 import DOMPurify, { type Config as PurifyConfig } from 'dompurify';
+import { JINJA_TOKEN_RE } from './jinjaAttrs';
 import { sanitizeStyleContent } from './sanitizeCss';
 
 // ── 1. プレビュー / PDF 経路 ──
@@ -516,7 +517,7 @@ function isAllowedUrlValue(value: string): boolean {
   // 無条件で通す」とすると `{{''}}javascript:alert(1)` が通る(実測)。トークンを
   // 空へ潰してから判定し、残りが危険なスキームを名乗るなら落とす
   // (サーバ側の `security/templateScripts.ts` の `isInertUrl` と同じ形)。
-  const stripped = normalized.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g, '');
+  const stripped = normalized.replace(JINJA_TOKEN_RE, '');
   if (stripped !== normalized) return stripped === '' || isAllowedUrlValue(stripped);
   const lower = normalized.toLowerCase();
   if (lower.startsWith('#')) return true;

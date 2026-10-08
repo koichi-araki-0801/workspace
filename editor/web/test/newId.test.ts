@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { newId } from '@/lib/newId';
+import { newId, randomHex } from '@/lib/newId';
 
 const V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -33,5 +33,22 @@ describe('newId', () => {
     const b = newId();
     expect(a).toMatch(V4);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('randomHex', () => {
+  it('n バイトぶんの小文字 hex(2n 桁)を返し、バイトは 0 埋めする', () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: (a: Uint8Array) => {
+        a.set([0x01, 0xab, 0x00, 0xff].slice(0, a.length));
+        return a;
+      },
+    });
+    expect(randomHex(4)).toBe('01ab00ff');
+    expect(randomHex(2)).toBe('01ab');
+  });
+
+  it('実際の乱数でも桁数と文字種が合う', () => {
+    expect(randomHex(8)).toMatch(/^[0-9a-f]{16}$/);
   });
 });

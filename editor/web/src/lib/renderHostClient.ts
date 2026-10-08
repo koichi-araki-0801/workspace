@@ -45,9 +45,9 @@ import type { RenderResult } from '@/lib/nunjucksRender';
 /**
  * 子の `READY` を待つ期限。ホストページの配信失敗(認証切れ・バンドル欠落)やブラウザの
  * sandbox 制約など、子が沈黙する形の失敗は親からは区別できないため時間で切る
- * (`PreviewPanel.HOST_BOOT_TIMEOUT_MS` と同値)。
+ * プレビュー画面(`PreviewPanel`)の子フレームの待ちも同じ値を使う。
  */
-const RENDER_HOST_BOOT_TIMEOUT_MS = 15_000;
+export const RENDER_HOST_BOOT_TIMEOUT_MS = 15_000;
 
 /**
  * 1 要求あたりの期限。子は 1 要求 1 応答で状態を持たないので、応答が返らないのは

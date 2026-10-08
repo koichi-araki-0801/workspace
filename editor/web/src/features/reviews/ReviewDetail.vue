@@ -23,12 +23,8 @@ import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
-import {
-  type BlockStatus,
-  buildDiffDoc,
-  diffHighlightCss,
-  hasCoarseDiff,
-} from '@/features/compare/htmlBlockDiff';
+import { buildFramedDiffDoc } from '@/features/compare/framedDiffDoc';
+import { type BlockStatus, hasCoarseDiff } from '@/features/compare/htmlBlockDiff';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
@@ -92,6 +88,9 @@ const changedNames = computed(() => {
 const MAX_RENDERED_ROWS = 200;
 const cappedRows = computed(() => visibleRows.value.slice(0, MAX_RENDERED_ROWS));
 const hiddenRowCount = computed(() => Math.max(0, visibleRows.value.length - MAX_RENDERED_ROWS));
+
+// iframe ドキュメントの組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差)。
+const buildDoc = buildFramedDiffDoc(14);
 
 /**
  * 各行の `srcdoc` を**データ依存の computed で 1 度だけ**組み立てる。`buildDoc` は
@@ -180,17 +179,10 @@ watch([loading, loadError], ([l, e]) => {
 });
 defineExpose({ gotoPage });
 
-// ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
-const HIGHLIGHT_CSS = diffHighlightCss(14);
-
 // `iframe` を中身の高さに合わせる(CompareResultView と共有)。高さは子からの postMessage
 // で受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
 // 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
-const { fitFrame, withHeightReporter } = useIframeAutoFit();
-
-function buildDoc(fragment: string, css: string): string {
-  return withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
-}
+const { fitFrame } = useIframeAutoFit();
 
 /**
  * 変更箇所の色分けを面積上限(`MAX_LCS_CELLS`)で諦め、全文まとめての色分けに落ちたパーツか。

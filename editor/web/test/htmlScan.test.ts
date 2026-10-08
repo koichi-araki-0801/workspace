@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskJinja, scanHtml } from '../src/lib/htmlScan';
+import { maskJinja, scanHtml, scanMaskedHtml } from '../src/lib/htmlScan';
 
 const ctx = (html: string, needle: string) => {
   const s = scanHtml(html);
@@ -148,5 +148,29 @@ describe('scanHtml 省略された終了タグの表', () => {
   it('tbody は閉じ忘れた td・tr ごと前の節を閉じる', () => {
     const h = '<table><tbody><tr><td>a<tbody><tr><td>b</table>';
     expect(parentOf(h, 'tbody', 1)).toBe('table');
+  });
+});
+
+describe('scanMaskedHtml', () => {
+  it('Jinja を伏せてから走査する(トークン内の `>` や引用符でタグの解釈が狂わない)', () => {
+    const src = '<div a="{{ x > 1 }}"><p>{{ "<b>" }}</p></div>';
+    const s = scanMaskedHtml(src);
+    expect(s.elements.map((e) => e.tag)).toEqual(['div', 'p']);
+  });
+
+  it('字句解析できない原文はそのまま走査し、トークンを渡せばそれで伏せる', () => {
+    expect(scanMaskedHtml('<p>{{ unclosed</p>').elements.map((e) => e.tag)).toEqual(['p']);
+    const src = '<p a=">">x</p>';
+    expect(scanMaskedHtml(src, [{ start: 5, end: 8 }]).elements.map((e) => e.tag)).toEqual(['p']);
+  });
+});
+
+describe('innermostContaining の includeStartTag', () => {
+  it('開始タグの中から始まる範囲は、指定したときだけその要素が覆う', () => {
+    const h = '<div><p class="a">t</p></div>';
+    const s = scanHtml(h);
+    const start = h.indexOf('class');
+    expect(s.innermostContaining(start, start + 5)?.tag).toBe('div');
+    expect(s.innermostContaining(start, start + 5, true)?.tag).toBe('p');
   });
 });

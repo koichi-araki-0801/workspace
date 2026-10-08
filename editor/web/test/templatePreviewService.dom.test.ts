@@ -110,7 +110,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('returns a validation err when a draft carries an un-restorable Jinja mask', async () => {
     // canvas 入口を素通りした攻撃形の draft(data-opaque に任意 HTML)。toTemplate が
     // 復元段で throw し、それが Result の validation エラーとして届くこと(throw が漏れない)。
-    const { b64encode } = await import('@/lib/jinjaMask');
+    const { b64encodeUtf8: b64encode } = await import('@/lib/jinjaAttrs');
     const enc = b64encode('<img src=x onerror=alert(1)>');
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),

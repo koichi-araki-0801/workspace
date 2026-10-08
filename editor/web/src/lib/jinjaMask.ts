@@ -14,7 +14,7 @@ import { findEditingMarkers } from '@editor/shared';
 import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
-import { maskJinja, scanHtml } from './htmlScan';
+import { scanMaskedHtml } from './htmlScan';
 import {
   b64decodeUtf8,
   b64encodeUtf8,
@@ -22,6 +22,7 @@ import {
   DATA_JINJA_LOOP_ROW,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
+  JINJA_TOKEN_RE,
   parseRtCommentData,
   type RtMarker,
 } from './jinjaAttrs';
@@ -34,7 +35,6 @@ import {
   parseJinja,
 } from './jinjaLex';
 
-const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
 const PH_START = String.fromCharCode(0xe000);
 const PH_END = String.fromCharCode(0xe001);
@@ -50,13 +50,7 @@ export const LEGACY_ATTR_SELECTOR =
 
 /** テンプレ文字列から Jinja のトークン(`{{ }}` / `{% %}` / `{# #}`)を出現順に取り出す。テストから直接検証するために公開する。 */
 export function extractJinjaTokens(s: string): string[] {
-  return s.match(TOKEN_RE) ?? [];
-}
-
-export { b64encodeUtf8 as b64encode };
-
-function b64decode(b: string): string {
-  return b64decodeUtf8(b);
+  return s.match(JINJA_TOKEN_RE) ?? [];
 }
 
 export function htmlEscape(s: string): string {
@@ -79,7 +73,7 @@ export interface ToTemplateOptions {
 /** 不正 base64(`atob` が throw する攻撃入力)を検査対象から外し、違反として計上するため。 */
 function tryB64decode(b: string): string | null {
   try {
-    return b64decode(b);
+    return b64decodeUtf8(b);
   } catch {
     return null;
   }
@@ -139,7 +133,7 @@ function isOpaqueShape(dec: string, kind: string | null): boolean {
   // 固めた要素は原文の 1 要素そのもの。外側へ HTML を足した形を弾く。
   const lexed = lexJinja(dec);
   if (!lexed.ok) return false;
-  const tops = scanHtml(maskJinja(dec, lexed.tokens)).elements.filter((e) => e.parent === null);
+  const tops = scanMaskedHtml(dec, lexed.tokens).elements.filter((e) => e.parent === null);
   if (tops.length !== 1 || tops[0].start !== 0 || tops[0].end !== dec.length) return false;
   return kind === 'frozen' || RAWTEXT_CHIP_TAGS.has(tops[0].tag);
 }
@@ -283,9 +277,9 @@ function removeSiblings(from: Node, until: Node): void {
  * 判定はタグの走査で行い、コメントや属性値の中の字面には反応しない。
  */
 function asDocument(editable: string): string {
-  const lexed = lexJinja(editable);
-  const masked = lexed.ok ? maskJinja(editable, lexed.tokens) : editable;
-  const hasShell = scanHtml(masked).elements.some((e) => e.tag === 'html' || e.tag === 'body');
+  const hasShell = scanMaskedHtml(editable).elements.some(
+    (e) => e.tag === 'html' || e.tag === 'body',
+  );
   if (hasShell || /^\s*<!doctype/i.test(editable)) return editable;
   return `<!doctype html><html><head></head><body>${editable}</body></html>`;
 }
@@ -370,7 +364,7 @@ export function toTemplate(
       violations.push('placeholder');
       return '';
     }
-    return b64decode(enc);
+    return b64decodeUtf8(enc);
   });
 
   // 8. 事後検査。窓ごとの形が正しくても、組み合わせた結果のブロックが閉じない形や、外しきれ
@@ -401,7 +395,7 @@ const RAW_WS_TAGS = new Set(['PRE', 'TEXTAREA', 'SCRIPT', 'STYLE']);
 function tokensToComments(src: string): string {
   const lexed = lexJinja(src);
   if (!lexed.ok) return src;
-  const scan = scanHtml(maskJinja(src, lexed.tokens));
+  const scan = scanMaskedHtml(src, lexed.tokens);
   let out = '';
   let at = 0;
   for (const t of lexed.tokens) {

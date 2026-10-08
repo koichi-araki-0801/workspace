@@ -12,9 +12,17 @@ import {
   type TemplateMeta,
   type TemplateSnapshot,
 } from '@editor/shared';
-import { fixtureCss, fixtureFilled, fixtureTemplates, K, META_KEY, read, write } from './store';
+import {
+  fixtureCss,
+  fixtureFilled,
+  fixtureTemplates,
+  K,
+  META_KEY,
+  read,
+  SEED_KEY,
+  write,
+} from './store';
 
-const SEED_KEY = 'editor:seed:compare';
 const SEED_USER = '佐藤花子';
 
 interface SeedVersion {

@@ -82,13 +82,21 @@ export function companyFolderMatches(ref: FundImageRef, companyCode: string | nu
   return companyCode !== null && ref.dir.toLowerCase() === companyCode.toLowerCase();
 }
 
+/**
+ * テンプレ ID(値入り HTML `<会社>_<ファンド>_<基準日>_<版>`、テンプレート `<会社>_<ファンド>_<版>`)から
+ * ファンドコードを取り出す。規約外は null。
+ */
+export function fundCodeOfTemplateId(templateId: string): string | null {
+  return parseAnyTemplateFileName(`${templateId}.html`)?.fundCode ?? null;
+}
+
 /** テンプレ ID(4 つ区切り・3 つ区切り)から会社コードを取り出す。規約外は null。 */
 export function companyCodeOfTemplateId(templateId: string): string | null {
   return parseAnyTemplateFileName(`${templateId}.html`)?.companyCode ?? null;
 }
 
 /** 論理パスの分類。`outside` = `images/` の外(解けない参照を含む)、`other` = `images/` 内でも配信しない形。 */
-export type ImageRelClass =
+type ImageRelClass =
   | { kind: 'outside' }
   | { kind: 'fundImage'; ref: FundImageRef; companyMatches: boolean }
   | { kind: 'other' };

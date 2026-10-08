@@ -18,7 +18,7 @@
 // ないので、`display:inline-block` を詳細度 0(`:where`)で足す(テンプレの `display` が勝つ)。
 // GrapesJS への配線は `fundImageLayer.ts`。
 
-import { DOC_DIR, parseAnyTemplateFileName, resolveDocAssetPath } from '@editor/shared';
+import { DOC_DIR, resolveDocAssetPath } from '@editor/shared';
 import { type ImageRefIssue, imageIssueMessages, imageRefIssue } from '@/lib/assetWarnings';
 import {
   companyFolderMatches,
@@ -40,14 +40,6 @@ export interface FundImageContext {
 }
 
 const FUND_CODE_EXPR_RE = /\{\{\s*fund\.code\s*\}\}/g;
-
-/**
- * テンプレ ID(値入り HTML `<会社>_<ファンド>_<基準日>_<版>`、テンプレート `<会社>_<ファンド>_<版>`)から
- * ファンドコードを取り出す。
- */
-export function fundCodeOfTemplateId(templateId: string): string | null {
-  return parseAnyTemplateFileName(`${templateId}.html`)?.fundCode ?? null;
-}
 
 /**
  * Jinja 本文の `{{ fund.code }}` をファンドコードへ置き換える。値入り本文は置き換えない。Jinja 本文で

@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { toFilled } from '../src/lib/fillJinja';
 import type { HtmlParser } from '../src/lib/htmlParser';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
-import { rtComment } from '../src/lib/jinjaAttrs';
-import { b64encode, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
+import { b64encodeUtf8 as b64encode, rtComment } from '../src/lib/jinjaAttrs';
+import { normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { htmlWorkerImpl } from '../src/workers/htmlWorkerImpl';
 
 const o = (id: number, payload: string) => rtComment({ kind: 'o', id, payload });

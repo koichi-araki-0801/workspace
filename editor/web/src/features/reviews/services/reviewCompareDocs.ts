@@ -17,6 +17,7 @@
 //   `pageItems` + `splitPages` で数えるため、index と本文のページ順は対応する。
 
 import { rebaseCssForDoc } from '@editor/shared';
+import { randomHex } from '@/lib/newId';
 import { pageHead, pageItems, splitPages } from '@/lib/pageBreaks';
 
 interface CompareDocsInput {
@@ -92,9 +93,7 @@ function annotatePages(
 
 /** マーカー装飾。レイヤ名は文書ごとに CSPRNG で変え、申請者 CSS からの同名上書きを防ぐ。 */
 function markerCss(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  const layer = `rvm${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const layer = `rvm${randomHex(8)}`;
   return [
     `@layer ${layer};`,
     `@layer ${layer} {`,

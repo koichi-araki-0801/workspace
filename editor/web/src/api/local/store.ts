@@ -143,6 +143,9 @@ export function tx<T>(keys: readonly string[], fn: () => T): T {
 
 export const META_KEY = 'editor:meta';
 
+/** compare の seed 済みを示す印の localStorage キー(`seed.ts` が書く)。 */
+export const SEED_KEY = 'editor:seed:compare';
+
 /**
  * local store のスキーマ版。古い永続 working-state が新しい fixtures を覆い隠すような
  * 変更(例: 版種リネーム + report 再テーマ)を入れたら bump する。`migrateStore()` が
@@ -170,7 +173,7 @@ const WORKING_KEYS = [
   confirmedCanonicalKey(),
   editorUiKey(),
   K.reviews,
-  'editor:seed:compare', // compare-seed ガード。現行 id で再 seed させるため
+  SEED_KEY, // compare-seed ガード。現行 id で再 seed させるため
 ] as const;
 
 /**

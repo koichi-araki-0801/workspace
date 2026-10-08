@@ -21,6 +21,7 @@
 
 import { occurrenceKeys, rawKey } from '@/lib/blockKey';
 import { defaultHtmlParser, type HtmlParser } from '@/lib/htmlParser';
+import { randomHex } from '@/lib/newId';
 import { inlineBreak, pageItems, splitPages } from '@/lib/pageBreaks';
 import { styleTag } from '@/lib/sanitizeCss';
 
@@ -143,9 +144,7 @@ export function hasCoarseDiff(...htmls: string[]): boolean {
  * ソース順で決まり、レイヤの守りが働かない)。名前を知られなければこの経路が消える。
  */
 function diffLayerName(): string {
-  const buf = new Uint8Array(8);
-  crypto.getRandomValues(buf);
-  return `d${Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return `d${randomHex(8)}`;
 }
 
 /**

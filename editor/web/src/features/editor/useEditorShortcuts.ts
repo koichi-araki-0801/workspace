@@ -8,6 +8,7 @@
 // 情報源はここに集約する。
 
 import { onBeforeUnmount, onMounted } from 'vue';
+import { isEditableTarget } from '@/lib/dom';
 
 /** ヘルプ表示用のショートカット 1 件。`keys` は kbd で並べる表示トークン列。 */
 interface ShortcutInfo {
@@ -53,13 +54,6 @@ interface EditorShortcutHandlers {
   /** 削除可否(編集許可かつ選択あり)。 */
   canRemove: () => boolean;
   isTextEditing: () => boolean;
-}
-
-/** `input` / `textarea` / `select` / contenteditable へフォーカス中か(キーを横取りしない)。 */
-function isEditableTarget(t: EventTarget | null): boolean {
-  if (!(t instanceof HTMLElement)) return false;
-  const tag = t.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
 }
 
 /**

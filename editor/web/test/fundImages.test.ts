@@ -8,12 +8,12 @@ import { buildSampleData, parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   cssString,
-  fundCodeOfTemplateId,
   fundImageCss,
   fundImageWarnings,
   resolveFundImageSrc,
 } from '@/features/editor/fundImages';
 import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
+import { fundCodeOfTemplateId } from '@/lib/fundImages';
 
 const ID = 'AM01_510037_20250105_交付版';
 const JINJA = { mode: 'jinja' as const, fundCode: '510037', companyCode: 'AM01' };

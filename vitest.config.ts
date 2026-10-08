@@ -146,6 +146,7 @@ export default defineConfig({
         'editor/web/src/lib/fillRender.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/newId.ts',
+        'editor/web/src/lib/dom.ts',
         // 改ページの位置の判定。canvas・承認・比較・ページ線・警告が共有し、ずれるとページ数と
         // パーツのキーが画面ごとに食い違う。
         'editor/web/src/lib/pageBreaks.ts',
@@ -252,6 +253,7 @@ export default defineConfig({
         // 下書きの所属判定。退行は「閉じたはずの下書きが黙って復元される」形で出る。
         'editor/web/src/lib/draftOwner.ts',
         'editor/web/src/features/compare/htmlBlockDiff.ts',
+        'editor/web/src/features/compare/framedDiffDoc.ts',
         'editor/web/src/features/compare/services/compareService.ts',
         // ページ対応の直接指定。退行は「番号を打っても飛ばない / 対応なしへ落ちる」形で出る。
         'editor/web/src/features/compare/pageMatch.ts',
@@ -283,6 +285,7 @@ export default defineConfig({
         'editor/web/src/api/repositories.ts',
         // editor/web (ui プリミティブ層。headless 一元化リファクタでテスト追加済みの分)
         'editor/web/src/components/ui/comboboxFilter.ts',
+        'editor/web/src/components/ui/options.ts',
         'editor/web/src/components/ui/confirm.ts',
         'editor/web/src/components/ui/overlays.ts',
         'editor/web/src/components/ui/toast.ts',

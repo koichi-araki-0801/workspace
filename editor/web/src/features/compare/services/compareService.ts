@@ -25,7 +25,7 @@ export const COMPARE_RENDER_ERROR =
 // 1 件も無いテンプレートでも、現行版を 1 版として比較できるようにする。`historyId` は
 // 接頭辞で識別し、`renderVersionHtml` で snapshot 経路と分岐する。
 const BASELINE_PREFIX = 'baseline:';
-export const baselineHistoryId = (templateId: string) => `${BASELINE_PREFIX}${templateId}`;
+const baselineHistoryId = (templateId: string) => `${BASELINE_PREFIX}${templateId}`;
 const baselineTemplateId = (historyId: string) => historyId.slice(BASELINE_PREFIX.length);
 const isBaselineId = (historyId: string) => historyId.startsWith(BASELINE_PREFIX);
 

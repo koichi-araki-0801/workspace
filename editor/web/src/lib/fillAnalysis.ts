@@ -8,12 +8,17 @@
 // 判定は字句解析(`jinjaLex.ts`)と HTML 走査(`htmlScan.ts`)の結果だけで行い、原文を書き換えた
 // 文字列の上では位置を数えない。描画は呼び出し側(`fillJinja.ts`)が受け持つ。
 
-import { type HtmlScan, maskJinja, type ScannedElement, scanHtml } from './htmlScan';
+import {
+  type HtmlScan,
+  maskJinja,
+  type ScannedElement,
+  scanHtml,
+  scanMaskedHtml,
+} from './htmlScan';
 import {
   type JinjaBranch,
   type JinjaNode,
   type JinjaToken,
-  lexJinja,
   type ParseResult,
   parseJinja,
 } from './jinjaLex';
@@ -157,10 +162,9 @@ interface TokenInfo {
 export function analyzeFill(raw: string): FillAnalysis {
   const parse = parseJinja(raw);
   if (!parse.ok) {
-    const lexed = lexJinja(raw);
     return {
       parse,
-      scan: scanHtml(lexed.ok ? maskJinja(raw, lexed.tokens) : raw),
+      scan: scanMaskedHtml(raw),
       frozen: [{ start: 0, end: raw.length, tag: 'body', reason: 'parse-error', form: 'body' }],
       opaque: [],
       attrTokens: new Set(),
@@ -264,7 +268,7 @@ export function analyzeFill(raw: string): FillAnalysis {
     if (ctxs.length === tags.length && new Set(ctxs).size === 1) {
       for (const t of parse.tokens)
         if (t.start >= b.start && t.end <= b.end) attrTokens.add(t.start);
-    } else add(smallestCovering(scan, b.start, b.end), 'attr-crossing');
+    } else add(scan.innermostContaining(b.start, b.end, true), 'attr-crossing');
   }
 
   // 枝の本文が HTML として閉じていない。
@@ -314,16 +318,6 @@ export function analyzeFill(raw: string): FillAnalysis {
     attrTokens: notFrozen(attrTokens),
     commentOnlyTokens: notFrozen(commentOnly),
   };
-}
-
-/** 範囲をタグごと含む最も狭い要素。属性値をまたぐブロックは開始タグの中から始まるため。 */
-function smallestCovering(scan: HtmlScan, start: number, end: number): ScannedElement | null {
-  let best: ScannedElement | null = null;
-  for (const e of scan.elements) {
-    if (e.start <= start && end <= e.end && (!best || e.end - e.start <= best.end - best.start))
-      best = e;
-  }
-  return best;
 }
 
 // ── 5. 固める範囲 ──

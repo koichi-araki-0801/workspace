@@ -3,12 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { toFilled } from '../src/lib/fillJinja';
 import type { HtmlParser } from '../src/lib/htmlParser';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
-import {
-  b64encode,
-  extractJinjaTokens,
-  normalizeForRoundTrip,
-  toTemplate,
-} from '../src/lib/jinjaMask';
+import { b64encodeUtf8 as b64encode } from '../src/lib/jinjaAttrs';
+import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { renderJinja } from './helpers/renderJinja';
 
 const cases: Record<string, string> = {

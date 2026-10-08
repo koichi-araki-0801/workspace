@@ -7,6 +7,8 @@
 // 入力は Jinja トークンを同じ長さの `J` で伏せた文字列(`maskJinja`)なので、トークン内の引用符や
 // `>` が属性の解釈を狂わせない。近似が外れる壊れた HTML は呼び出し側の自己検査が受け止める。
 
+import { lexJinja } from '@editor/shared';
+
 // ── 1. 型 ──
 
 export interface ScannedElement {
@@ -31,11 +33,17 @@ export type PositionContext =
 export interface HtmlScan {
   elements: ScannedElement[];
   contextAt(pos: number): PositionContext;
-  /** 範囲を中身として丸ごと含む最も内側(最も狭い)の要素。無ければ null。 */
-  innermostContaining(start: number, end: number): ScannedElement | null;
+  /**
+   * 範囲を中身として丸ごと含む最も内側(最も狭い)の要素。無ければ null。`includeStartTag` を立てると
+   * 開始タグの中から始まる範囲も覆う(属性値をまたぐブロックは開始タグの中から始まる)。
+   */
+  innermostContaining(start: number, end: number, includeStartTag?: boolean): ScannedElement | null;
 }
 
 // ── 2. 伏せ字 ──
+
+/** 伏せ字の 1 文字。規則表の判定も、トークンが占める位置をこの文字で見分ける。 */
+const MASK_CHAR = 'J';
 
 /** トークンの範囲を同じ長さの `J` に置き換える。改行は残し、行の数を変えない。 */
 export function maskJinja(src: string, tokens: readonly { start: number; end: number }[]): string {
@@ -48,9 +56,20 @@ export function maskJinja(src: string, tokens: readonly { start: number; end: nu
   return out + src.slice(at);
 }
 
-// ── 3. 規則表 ──
+/**
+ * `src` の Jinja を伏せて走査する。`tokens` を省くと自分で字句解析し、解析できない原文は伏せずに
+ * そのまま走査する(呼び出し側は壊れた原文でも位置の目安だけは要る)。
+ */
+export function scanMaskedHtml(
+  src: string,
+  tokens?: readonly { start: number; end: number }[],
+): HtmlScan {
+  if (tokens) return scanHtml(maskJinja(src, tokens));
+  const lexed = lexJinja(src);
+  return scanHtml(lexed.ok ? maskJinja(src, lexed.tokens) : src);
+}
 
-const MASK_CHAR = 'J';
+// ── 3. 規則表 ──
 
 const VOID = new Set('area base br col embed hr img input link meta source track wbr'.split(' '));
 const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title']);
@@ -319,11 +338,11 @@ function makeScan(elements: ScannedElement[], spans: Span[], len: number): HtmlS
       if (!s || pos >= len) return { kind: 'text', parent: null };
       return s.ctx;
     },
-    innermostContaining(start, end) {
+    innermostContaining(start, end, includeStartTag = false) {
       let best: ScannedElement | null = null;
       for (const e of elements) {
-        // 開始タグの内側から数えるので、範囲が要素ちょうどなら、その要素ではなく親を返す。
-        const inside = e.startTagEnd <= start && end <= e.end;
+        // 既定は開始タグの内側から数えるので、範囲が要素ちょうどなら、その要素ではなく親を返す。
+        const inside = (includeStartTag ? e.start : e.startTagEnd) <= start && end <= e.end;
         if (inside && (!best || e.end - e.start <= best.end - best.start)) best = e;
       }
       return best;
