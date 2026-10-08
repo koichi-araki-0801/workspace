@@ -195,6 +195,9 @@ function canonicalAttrQuotes(sel: string): string {
 /**
  * 属性値を `from` から読み、エスケープを解いた値と終わりの位置を返す。引用符つきは `quote` の
  * 手前まで、引用符なしは空白か `]` の手前まで。
+ *
+ * エスケープの解き方は `security/cssExternalRefs.ts` の `readEscape` と似るが統合しない。
+ * サロゲートの扱い(こちらは U+FFFD、あちらはそのまま)と空白の定義が違い、出力が変わる。
  */
 function readAttrValue(
   sel: string,
