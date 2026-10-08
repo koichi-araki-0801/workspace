@@ -6,6 +6,13 @@
 // 保たないため、位置を保つ近似として開始・終了タグだけを読み、開いた要素のスタックを持つ。
 // 入力は Jinja トークンを同じ長さの `J` で伏せた文字列(`maskJinja`)なので、トークン内の引用符や
 // `>` が属性の解釈を狂わせない。近似が外れる壊れた HTML は呼び出し側の自己検査が受け止める。
+//
+// 関所ではないので失敗せず、読めない入力も末尾までの近似で答える。この倒し方は申請の関所
+// (`shared/src/security/editingMarkers.ts`)や PDF 経路(`server/src/vivliostyle/inlineCss.ts`)と
+// 違うので走査器は 1 本にしない(設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。空白・英字・タグ名の
+// 終わり・コメントの終わりは `@editor/shared` の `html/htmlLex.ts`、raw text の終わり探しと要素の
+// 集合は `html/rawText.ts`、伏せ字は `security/editingMarkers.ts` の `maskRanges` を共有する。
+// 属性の読み取りは `attrValue` / `tagOther` の区間を切る必要があるのでここ独自に持つ。
 
 import {
   commentEnd,

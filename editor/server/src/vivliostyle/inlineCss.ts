@@ -23,6 +23,15 @@
 // 上記の span 食いが即座に復活する。DOM 実装を依存に足せるようになったら、本ファイルは
 // linkedom でのパース + `head.appendChild` へ置き換えるのが本来の姿(`docs` の申し送り)。
 //
+// ── 走査器を専用に持つ理由 ──
+// 読むのは描画後の文書で、確信が持てない入力は `ok:false` で加工を諦める(fail closed)。この
+// 倒し方は、誤検出側へ倒す申請の関所(`shared/src/security/editingMarkers.ts`)や拾いすぎる側へ
+// 倒す不変性の照合(`security/templateScripts.ts`)と逆なので、走査器は 1 本にしない
+// (設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。raw text 要素の集合
+// (`noscript` などを含む 10 個)もここだけのもの。空白・英字・タグ名の終わり・コメントの終わり・
+// 属性 1 つの読み取りは `@editor/shared` の `html/htmlLex.ts`、raw text の終わり探しは
+// `html/rawText.ts` を共有する(ブラウザと同じ答えになるべき部品なので、片方だけ変えない)。
+//
 // 文字列連結で差し込むのも意図的: `String.prototype.replace` は置換文字列中の `$&` `$'`
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
 

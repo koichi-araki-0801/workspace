@@ -41,6 +41,16 @@
 // 再提案する場合は `test/templateScripts.test.ts` の
 // 「描画前テンプレ特有の隠し方」を先に読むこと。
 // なお `parse5` は現状 server の依存に無く、追加はオフライン重量物バンドルの再生成を伴う。
+//
+// ── ほかの走査器と 1 本にしない理由 ──
+// 同じ理由で、PDF 経路(`vivliostyle/inlineCss.ts`)や申請の関所(`@editor/shared` の
+// `editingMarkers.ts`)の走査器とも共通化しない。ここは描画前の Jinja を読み、コメントの中まで
+// 走査し、raw text は `script` / `style` だけ、タグ内の Jinja を読み飛ばし、作業量の予算で打ち切った
+// ら拒否する。どれもほかの走査器とは違う倒し方である(設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。
+// 共有するのは、ブラウザと同じ答えになるべき部品だけ: `@editor/shared` の `html/htmlLex.ts`(空白・
+// 英字・タグ名の終わり)と `html/rawText.ts` の `findRawTextEnd`(予算は `scanned` でここが数える)。
+// 属性の読み取りは共有の `readAttr` を使わない。タグ内の Jinja を属性の手前で読み飛ばすのと、
+// `=` で始まる名前を空名として捨てる(`<a =x>` は単位を作らない)現行の単位列を保つため。
 
 import {
   decodeHtmlEntities,

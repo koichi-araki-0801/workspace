@@ -2,7 +2,7 @@
 // htmlLex.ts — HTML の字句解析の小さな部品(文字の分類・コメントの終わり・属性 1 つ)
 // =============================================================================
 // タグを読む走査器は 5 本あり、用途ごとに失敗時の倒し方が違うので 1 本にはしない
-// (`docs/editor/src/設計正典.md` の「HTML の走査器を 1 本にしない理由」)。共有するのは、どの
+// (`docs/editor/src/設計正典.md` の却下済み設計「HTML の走査器を 1 本にまとめる」)。共有するのは、どの
 // 走査器でもブラウザと同じ答えになるべき部品だけで、ここに置く。raw text の終わり探しは
 // `html/rawText.ts`。使う側: `security/editingMarkers.ts`、`server/src/vivliostyle/inlineCss.ts`、
 // `server/src/security/templateScripts.ts`、`server/src/sync/partSync.ts`、`web/src/lib/htmlScan.ts`。
