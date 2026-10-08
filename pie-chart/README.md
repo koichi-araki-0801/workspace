@@ -233,11 +233,11 @@ pie-chart/
 Item[] {name, value}
    │
    ▼
-renderPdfStylePieToSvg (async, svg_export/pipeline.ts)   ← 最終アセンブリ・ヘアピン leader 省略・leader 交差検査
+renderPdfStylePieToSvg (async, svg_export/pipeline.ts)   ← 最終アセンブリ・leader 磨き Pass 群
    ├─→ config.ts             createPieLayoutConfig / makeColors          (寸法・スケール・配色)
    ├─→ layout/diagnostics.ts layoutLabels                                (論理座標でラベル位置決定)
    ├─→ svg_export/rendering.ts  createCoordinateSystem / buildSlicePath / computeArcs / textFragment
-   ├─→ layout/placement.ts   build*Draft / finalizePlacement / leaderPath           (経路選択 + 引出線 path)
+   ├─→ layout/placement.ts   build*Draft / finalizePlacement / leaderPath (経路選択 + 引出線 path)
    ├─→ svg_export/post_layout.ts  resolveLabelOverlaps / runCompactCascade /
    │                              applyVisualViewBoxNudge
    └─→ svg_export/font.ts    buildFontFaceDefs                           (TTF → WOFF2 埋込)
@@ -258,7 +258,7 @@ RenderResult { svg, diagnostics, config }
 | 描画 | `src/svg_export/rendering.ts` | 論理座標 → SVG pt への座標変換、スライス path・テキスト要素、視覚 em 幅推定(純粋関数) |
 | 後処理 | `src/svg_export/post_layout.ts` | overlap 解消(対角押し + 縦分離の 2 パス）・compact cascade・半角カナ fallback・視覚 viewBox nudge |
 | フォント | `src/svg_export/font.ts` | WOFF2 サブセット埋込(async I/O + キャッシュ。`subset-font` 依存、失敗時は full TTF に fallback) |
-| 統合 | `src/svg_export/pipeline.ts` + `mode_passes.ts` + `emit_repair.ts` | `renderPdfStylePieToSvg` の最終アセンブリ、ヘアピン leader 省略(なす角 > 135°）、leader 交差検査 |
+| 統合 | `src/svg_export/pipeline.ts` + `mode_passes.ts` + `emit_repair.ts` | `renderPdfStylePieToSvg` の最終アセンブリ、leader 磨き Pass 群 |
 | エントリ | `src/cli.ts` / `src/test_batch.ts` / `src/verify/svg.ts` / `src/verify/consistency.ts` | CLI / 一括生成 + ビューア / 自動検証 / 採点↔emit 一致検証 |
 
 ### ラベル配置の流れ(`layout/diagnostics.ts` 核心部）
