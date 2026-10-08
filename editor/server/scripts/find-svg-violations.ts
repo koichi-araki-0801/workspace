@@ -12,7 +12,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { inspectSvg } from '@editor/shared';
 
-export interface SvgFinding {
+interface SvgFinding {
   file: string;
   violation: string;
 }

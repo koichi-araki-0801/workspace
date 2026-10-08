@@ -298,7 +298,7 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
 }
 
 /** `stageDocAssets` の設定。 */
-export interface StageDocAssetsOptions {
+interface StageDocAssetsOptions {
   /**
    * 文書が実際に参照している配信ルート相対パス(`docRefs.collectDocumentAssetRefs` の戻り値)。
    * **参照されたものだけ**を配置する(参照 CSS がさらに引くフォント等は `expandReferenced` が

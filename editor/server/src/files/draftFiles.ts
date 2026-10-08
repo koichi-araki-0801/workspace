@@ -55,7 +55,11 @@ export async function readDraft(templateId: string): Promise<{ html: string; css
   return { html, css: (await read('css')) ?? '' };
 }
 
-/** template の下書き(HTML)が存在するか。台帳を引かずファイル有無で判定する。 */
+/**
+ * template の下書き(HTML)が存在するか。台帳を引かずファイル有無で判定する。
+ * テストから直接検証するために公開する。
+ * @public
+ */
 export function draftExists(templateId: string): Promise<boolean> {
   const p = draftFilePath(templateId, 'html');
   if (!p) return Promise.resolve(false);

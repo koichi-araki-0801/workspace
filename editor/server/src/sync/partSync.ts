@@ -24,7 +24,7 @@ import type { CssRuleConflict } from './cssSync.js';
 // ── 1. パーツ抽出(生テキストスキャン) ──
 
 /** 抽出した 1 パーツ。`start`/`end` は元 HTML 文字列上の outerHTML 範囲(end は排他)。 */
-export interface SyncPart {
+interface SyncPart {
   partId: string;
   /** `partId#n`(n = 同一 partId の文書内出現順、1 始まり)。状態ファイルのキーにも使う。 */
   key: string;
@@ -322,7 +322,7 @@ export interface PairSyncComputeInput {
   now: string;
 }
 
-export interface PairSyncComputeResult {
+interface PairSyncComputeResult {
   targetHtml: string;
   /** target HTML に転写(置換/挿入)が発生したか。 */
   changed: boolean;
@@ -334,7 +334,7 @@ export interface PairSyncComputeResult {
 }
 
 /** target HTML への編集操作。span は互いに重ならない(パーツ範囲は排他 + 挿入は境界点)。 */
-export interface EditOp {
+interface EditOp {
   start: number;
   end: number;
   text: string;

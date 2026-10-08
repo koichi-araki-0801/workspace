@@ -74,7 +74,7 @@ export const LOGIN_RATE_LIMITED_CODE = 'LOGIN_RATE_LIMITED';
 export const LOGIN_BUSY_CODE = 'LOGIN_BUSY';
 
 /** 試行の種別。login と init-password でカウンタを混ぜない。 */
-export type AttemptScope = 'login' | 'init-password';
+type AttemptScope = 'login' | 'init-password';
 
 /** `beginCredentialAttempt` が通した 1 試行の引換券。必ず `settleCredentialAttempt` へ返す。 */
 export interface AttemptTicket {
@@ -86,7 +86,7 @@ export interface AttemptTicket {
   readonly ipKey: string;
 }
 
-export type BeginResult =
+type BeginResult =
   | { readonly ok: true; readonly ticket: AttemptTicket }
   | { readonly ok: false; readonly error: AppError };
 

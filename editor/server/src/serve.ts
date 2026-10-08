@@ -16,7 +16,7 @@ import { logger } from './logger.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
 import { previewManager } from './vivliostyle/previewServer.js';
 
-export interface StartServerOptions {
+interface StartServerOptions {
   /** DB 実行面。既定は本番のプール接続で、rest e2e は in-memory フェイクを渡す。 */
   sproc?: SprocClient;
 }

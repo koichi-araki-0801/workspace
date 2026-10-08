@@ -149,7 +149,7 @@ export type ConfirmedTarget = 'filled' | 'template';
  * 確定書込の操作。discriminated union にして「どの経路からの書込か」を型で明示し、
  * 監査へもそのまま載せる(capability 引数。宣言であって強制ではないが、監査で追える)。
  */
-export type ConfirmedWriteOp =
+type ConfirmedWriteOp =
   | {
       kind: 'review-approve';
       target: ConfirmedTarget;

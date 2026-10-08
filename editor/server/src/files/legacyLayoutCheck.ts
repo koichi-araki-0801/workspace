@@ -11,12 +11,12 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 
 /** 警告の出力先(既定はサーバのロガー。テストで差し替える)。 */
-export interface LegacyLayoutLog {
+interface LegacyLayoutLog {
   warn(msg: string): void;
 }
 
 /** 旧構成の残り。 */
-export interface LegacyLayoutFindings {
+interface LegacyLayoutFindings {
   /** 残っている `<dataRoot>/assets`(ディレクトリでなければ null)。 */
   assetsDir: string | null;
   /** `url(../fonts/` を含む cssDir 直下の CSS のファイル名(名前順)。 */

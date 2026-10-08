@@ -394,7 +394,7 @@ function dropEndOf(tags: TagSpan[], index: number, tag: TagSpan): number {
 }
 
 /** `inlineCss` の任意設定。 */
-export interface InlineCssOptions {
+interface InlineCssOptions {
   /**
    * 配信ルートへ実際に配置した資産の相対パス集合(`docAssets.stageDocAssets` の戻り値)。
    * 省略 = 何も配置していない、なので相対参照を持つ `<link>`/`<script src>` は全部落ちる

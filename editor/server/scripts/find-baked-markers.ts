@@ -12,13 +12,13 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { findEditingMarkers } from '@editor/shared';
 
-export interface ScanDirs {
+interface ScanDirs {
   templates: string;
   pending: string;
   reviews: string;
   filled: string;
 }
-export interface ScanFinding {
+interface ScanFinding {
   file: string;
   marker: string;
   index: number;

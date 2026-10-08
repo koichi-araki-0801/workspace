@@ -26,7 +26,7 @@ import {
 } from '../middleware/auth.js';
 
 /** 必要ロール。`auth` = ログイン済みなら誰でも(= viewer も可)。 */
-export type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
+type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
 
 /** `/api` prefix 付きの完全パスへ合成する。register の prefix と一致させるための唯一の場所。 */
 const api = (p: string): string => `/api${p}`;

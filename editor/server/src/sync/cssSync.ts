@@ -41,7 +41,7 @@ export interface CssRuleConflict {
   sourceEdition?: string;
 }
 
-export interface CssSyncInput {
+interface CssSyncInput {
   /** 承認の直前の source の CSS(ファイルの原文)。ペア側の規則が手つかずかの照合に使う。 */
   base: string;
   /**
@@ -61,7 +61,7 @@ export interface CssSyncInput {
   sourceEdition: string;
 }
 
-export interface CssSyncResult {
+interface CssSyncResult {
   /** 承認で CSS が変わったか(`baseline !== next`)。 */
   ran: boolean;
   /** ペアへ書く CSS。書く必要が無ければ null。 */

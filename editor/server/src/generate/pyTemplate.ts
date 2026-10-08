@@ -40,6 +40,7 @@ export interface GenerateAttributes {
 /**
  * 指紋が合わないときに利用者へ出す文言(生成器の差し替えは管理者の対応事項)。
  * テストから直接検証するために公開する。
+ * @public
  */
 export const GENERATOR_FINGERPRINT_MISMATCH_MESSAGE =
   'テンプレート生成器の指紋が設定と一致しないため、生成を中止しました。管理者に連絡してください';

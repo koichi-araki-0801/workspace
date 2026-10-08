@@ -40,7 +40,7 @@ import {
 import { scanTags } from '../vivliostyle/inlineCss.js';
 
 /** 拒否時にクライアントへ返す文言。外部クライアントの契約になるので変えるときは OpenAPI も。 */
-export const EXTERNAL_REF_MESSAGE =
+const EXTERNAL_REF_MESSAGE =
   'CSSまたはHTMLに外部参照(@import / 絶対URLのurl() / 絶対URLのhref・src)が含まれるため' +
   'PDFを作成できません。' +
   'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… css/fonts/… js/…)で' +
@@ -187,7 +187,7 @@ export function assertNoDocumentExternalRefs(html: string, css: string, where: s
 }
 
 /** 展開済みファイルの検査のしかた。`inert` = バイナリ資産で参照を書けない。 */
-export type InspectionKind = 'css' | 'doc' | 'markdown' | 'json' | 'inert';
+type InspectionKind = 'css' | 'doc' | 'markdown' | 'json' | 'inert';
 
 /**
  * 展開を許す拡張子ごとの検査のしかた。

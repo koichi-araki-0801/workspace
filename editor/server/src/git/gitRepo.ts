@@ -67,7 +67,7 @@ function checkRelPath(relPath: string): string {
 }
 
 /** git log の 1 コミット分のメタ(版一覧/編集履歴の素)。 */
-export interface GitCommitMeta {
+interface GitCommitMeta {
   hash: string;
   /** author date(ISO 8601)。 */
   date: string;
@@ -359,6 +359,7 @@ const LOG_FORMAT = '%H%x09%aI%x09%an%x09%s';
  * 1 回の `git log` が返すコミット数の上限。履歴は承認のたび単調に伸びるので、上限が
  * 無いと「古いリポジトリほど 1 リクエストが重い」= 時間とともに悪化する経路になる。
  * テストから直接検証するために公開する。
+ * @public
  */
 export const MAX_LOG_COMMITS = 500;
 
@@ -392,7 +393,7 @@ export async function logForFile(relPath: string): Promise<GitCommitMeta[]> {
 }
 
 /** コミットメタ + そのコミットで変更されたファイル(pathspec に一致するもの)。 */
-export interface GitCommitWithFiles extends GitCommitMeta {
+interface GitCommitWithFiles extends GitCommitMeta {
   files: string[];
 }
 

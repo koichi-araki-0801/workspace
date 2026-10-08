@@ -8,7 +8,7 @@
 import { listDraftIds } from './draftFiles.js';
 import { listPendingIds } from './pendingFiles.js';
 
-export interface InProgressIds {
+interface InProgressIds {
   pending: string[];
   drafts: string[];
 }
