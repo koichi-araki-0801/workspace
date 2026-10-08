@@ -1,7 +1,7 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "1.5"
+version: "1.6"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
@@ -9,9 +9,10 @@ rev:
   - 1.3 | 2026-10-03 | 作成タブの候補を Rep1 のファンド属性へ（companies / funds / creatable）、sproc `シリーズ` 追加、テンプレート台帳と `/templates/series` の削除
   - 1.4 | 2026-10-03 | テンプレートの ID から基準日を外す（作成タブの基準日の項目を削除、既存・作成中を開くボタン、creatable の templateId / inProgressId、generate の 409 の 3 種類と replaceExisting）
   - 1.5 | 2026-10-05 | Template の cssMissing、申請の fundCode の削除と cssBaseline の追加、同期状態の CSS の競合、build の singleDoc の扱い
+  - 1.6 | 2026-10-08 | パーツカタログの対象版種と分類の英名、パーツ一覧と分類候補の版種による絞り込み（`@版種` と `editionType`）
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.5 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.6 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -57,8 +58,8 @@ rev:
 | 15 | `GET` | `/templates/:id/sync-status` | ○ | id | 交付版⇄全体版パーツ同期の状態（パーツの競合と、テンプレの CSS の競合 cssConflicts） |
 | 16 | `GET` | `/funds/:fundCode/sample-data` | ○ | fundCode | SampleData（プレビュー context） |
 | 17 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。生成される id は `会社_ファンド_版種`（基準日なし）。作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、同じ id の下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
-| 18 | `GET` | `/parts` | ○ | 分類フィルタ | PartCatalogItem[] |
-| 19 | `GET` | `/parts/classification-options` | ○ | — | 分類ドロップダウン候補 |
+| 18 | `GET` | `/parts` | ○ | 分類フィルタ、editionType（任意。編集中テンプレートの版種） | PartCatalogItem[]（対象版種 `targetEdition` を含む） |
+| 19 | `GET` | `/parts/classification-options` | ○ | editionType（任意。分類ドロップダウン候補の絞り込み） | 分類ドロップダウン候補 |
 | 20 | `GET` | `/templates/:templateId/part-history` | ○ | templateId | パーツ変更履歴 |
 | 21 | `POST` | `/templates/:templateId/part-history` | editor | RecordPartChangeRequest | 204（パーツ変更の記録） |
 | 22 | `GET` | `/templates/:templateId/notes` | ○ | templateId | パーツ単位メモ一覧 |
@@ -118,6 +119,11 @@ rev:
 | パーツカタログ | 更新者 | `NVARCHAR(64)` |  | ○ |  |  |
 | パーツカタログ | 同期既定 | `NVARCHAR(16)` |  | ○ |  | 交付版⇄全体版パーツ同期のポリシー（同期 / 非同期 / 交付版のみ / 全体版のみ / NULL=未判断） |
 | パーツカタログ | 次回反映既定 | `NVARCHAR(16)` |  | ○ |  | 承認確定パーツの注記マスタ書き戻し（反映 / 非反映 / NULL=未判断=反映しない） |
+| パーツカタログ | 対象版種 | `NVARCHAR(32)` |  | ○ |  | 一覧に出す版種（NULL=両版共通）。値はテンプレートの版種と同じ文字列で、固定しない。表示の絞り込みだけに使い、ペア同期のポリシーは同期既定だけで決める |
+| パーツカタログ | カテゴリ英名 | `NVARCHAR(128)` |  | ○ |  | 別ツール用。editor は読まない |
+| パーツカタログ | 大分類英名 | `NVARCHAR(128)` |  | ○ |  | 同上 |
+| パーツカタログ | 中分類英名 | `NVARCHAR(128)` |  | ○ |  | 同上 |
+| パーツカタログ | 小分類英名 | `NVARCHAR(128)` |  | ○ |  | 同上 |
 | 監査ログ | 監査ID | `BIGINT IDENTITY` | ○ |  |  | Rep1_運報自動化_Editor_監査ログ |
 | 監査ログ | イベント | `NVARCHAR(64)` |  |  |  |  |
 | 監査ログ | 結果 | `NVARCHAR(8)` |  |  |  | success / failure |
@@ -158,8 +164,8 @@ rev:
 | 7 | `user` | PWリセット | 管理者によるPWリセット（要PW変更） |
 | 8 | `user` | 認証情報取得 | ログイン認証用のハッシュ取得 |
 | 9 | `user` | PW初期化 | 初回PW設定（旧セッションの失効と同一トランザクション） |
-| 10 | `part` | 分類候補 | 分類ドロップダウン候補（カテゴリ/大/中/小） |
-| 11 | `part` | 一覧 | 分類フィルタでパーツカタログ一覧 |
+| 10 | `part` | 分類候補 | 分類ドロップダウン候補（カテゴリ/大/中/小）。`@版種` を渡すと、その版種のパーツと両版共通のパーツ（対象版種が NULL）の分類だけを返す。空なら全件 |
+| 11 | `part` | 一覧 | 分類フィルタでパーツカタログ一覧（`対象版種` を含む）。`@版種` の扱いは分類候補と同じ |
 | 12 | `sample` | 取得 | ファンド別サンプルデータ取得 |
 | 13 | `session` | 作成 | セッション発行 |
 | 14 | `session` | 取得 | セッション検証（期限/失効）＋ユーザー結合 |
