@@ -102,12 +102,24 @@ export async function requireIdentifiedUser(
   if (!request.user) throw unauthorized('ログインが必要です');
 }
 
-/** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
-export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  if (!config.requireAuth) return;
-  if (!request.user) throw unauthorized('ログインが必要です');
-  if (!ADMIN_ROLES.includes(request.user.role)) throw forbidden('管理者権限が必要です');
+/**
+ * ロール強制のガードを作る。`requireAuth` の後に実行する前提。
+ * `routes/routeGuards.ts` の `levelOf` は `preHandlers.includes()` でガード関数の参照同一性を
+ * 見るので、呼び出しはモジュール直下で 1 回だけにして、ルートごとに作り直さない。
+ */
+function makeRoleGuard(
+  roles: readonly string[],
+  message: string,
+): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
+    if (!config.requireAuth) return;
+    if (!request.user) throw unauthorized('ログインが必要です');
+    if (!roles.includes(request.user.role)) throw forbidden(message);
+  };
 }
+
+/** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
+export const requireAdmin = makeRoleGuard(ADMIN_ROLES, '管理者権限が必要です');
 
 /**
  * `requireAuth` の後に実行する前提。編集者以上(`editor` / `approver` / `admin`)を強制する。
@@ -117,22 +129,11 @@ export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply
  * 必ずこのガードを通すこと。適用の網羅は `routes/routeGuards.ts` の `ROUTE_POLICY` が
  * 正典で、表に無いルートはサーバ起動時に落ちる(付け忘れが本番まで届かない)。
  */
-export async function requireEditor(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  if (!config.requireAuth) return;
-  if (!request.user) throw unauthorized('ログインが必要です');
-  if (!EDITOR_ROLES.includes(request.user.role)) throw forbidden('編集者権限が必要です');
-}
+export const requireEditor = makeRoleGuard(EDITOR_ROLES, '編集者権限が必要です');
 
 /**
  * `requireAuth` の後に実行する前提。精査者(承認者)ロールを強制する(`approver` または
  * `admin`)。確定保存の承認・却下(`reviews.routes.ts`)を施錠し、
  * 編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
  */
-export async function requireApprover(
-  request: FastifyRequest,
-  _reply: FastifyReply,
-): Promise<void> {
-  if (!config.requireAuth) return;
-  if (!request.user) throw unauthorized('ログインが必要です');
-  if (!APPROVER_ROLES.includes(request.user.role)) throw forbidden('精査者(承認者)権限が必要です');
-}
+export const requireApprover = makeRoleGuard(APPROVER_ROLES, '精査者(承認者)権限が必要です');

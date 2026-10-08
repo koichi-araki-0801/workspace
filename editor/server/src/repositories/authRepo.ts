@@ -28,7 +28,15 @@ import {
 } from '@editor/shared';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import type { SessionStore } from '../auth/session.js';
-import { asBool, asBuffer, asNumberOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
+import {
+  asBool,
+  asBuffer,
+  asNumberOrNull,
+  firstRow,
+  p,
+  type Row,
+  type SprocClient,
+} from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { audit } from '../logger.js';
 import { rowToUser } from './userRepo.js';
@@ -41,6 +49,28 @@ export interface AuthRepo {
     req: Pick<PasswordInitRequest, 'currentPassword' | 'newPassword'>,
     exceptSessionId?: string,
   ): Promise<void>;
+}
+
+/**
+ * 資格情報を引いてパスワードを検証する。判定は溜めて返し、throw は呼び出し側が
+ * 1 回だけ行う(存在オラクルを避けるため、行が無い時も無効の時も同じ経路に載せる)。
+ */
+async function verifyCredential(
+  sproc: SprocClient,
+  loginId: string,
+  password: string,
+): Promise<{ row: Row | null; ok: boolean; disabled: boolean }> {
+  const row = firstRow(await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]));
+  const disabled = row ? asBool(row.無効) : false;
+  const ok = row
+    ? await verifyPassword(
+        password,
+        asBuffer(row.PWハッシュ),
+        asBuffer(row.PWソルト),
+        asNumberOrNull(row.PW反復回数),
+      )
+    : false;
+  return { row, ok, disabled };
 }
 
 export function createAuthRepo({
@@ -58,18 +88,7 @@ export function createAuthRepo({
      * 「正規化前の値を DB へ渡す」経路が型の上で作れてしまう)。
      */
     async login(loginId, password) {
-      const row = firstRow(
-        await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]),
-      );
-      const disabled = row ? asBool(row.無効) : false;
-      const ok = row
-        ? await verifyPassword(
-            password,
-            asBuffer(row.PWハッシュ),
-            asBuffer(row.PWソルト),
-            asNumberOrNull(row.PW反復回数),
-          )
-        : false;
+      const { row, ok, disabled } = await verifyCredential(sproc, loginId, password);
       if (!row || !ok || disabled) {
         // 無効アカウントへの試行は応答からは判別できないが、運用が追えるよう証跡は残す。
         if (row && ok && disabled)
@@ -100,18 +119,11 @@ export function createAuthRepo({
      * 「パスワードは変わったが旧セッションは生きている」という最悪の中間状態が残る。
      */
     async initPassword(loginId, req, exceptSessionId) {
-      const row = firstRow(
-        await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]),
-      );
-      const disabled = row ? asBool(row.無効) : false;
-      const owns = row
-        ? await verifyPassword(
-            req.currentPassword,
-            asBuffer(row.PWハッシュ),
-            asBuffer(row.PWソルト),
-            asNumberOrNull(row.PW反復回数),
-          )
-        : false;
+      const {
+        row,
+        ok: owns,
+        disabled,
+      } = await verifyCredential(sproc, loginId, req.currentPassword);
       if (!row || !owns || disabled) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
       // 閾値は UI と同じ `PASSWORD_MIN_LENGTH`。空白のみ(実質空)も弾くため trim 後で測る。
       if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)

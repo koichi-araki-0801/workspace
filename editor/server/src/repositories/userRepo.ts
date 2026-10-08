@@ -15,7 +15,7 @@ import {
   type UserRole,
 } from '@editor/shared';
 import { generateTemporaryPassword, hashPassword } from '../auth/password.js';
-import { asBool, asString, firstRow, p, type SprocClient } from '../db/sproc.js';
+import { asBool, asString, firstRow, type Param, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 
 export function rowToUser(r: Record<string, unknown>): User {
@@ -26,6 +26,16 @@ export function rowToUser(r: Record<string, unknown>): User {
     role: asString(r.ロール) as UserRole,
     disabled: asBool(r.無効),
     mustChangePassword: asBool(r.要パスワード変更),
+  };
+}
+
+/** 払い出す一時パスワードと、それをハッシュ化して sproc へ渡す 3 パラメータ。 */
+async function issueTemporaryPassword(): Promise<{ temporaryPassword: string; pwParams: Param[] }> {
+  const temporaryPassword = generateTemporaryPassword();
+  const { hash, salt, iterations } = await hashPassword(temporaryPassword);
+  return {
+    temporaryPassword,
+    pwParams: [p('PWハッシュ', hash), p('PWソルト', salt), p('PW反復回数', iterations)],
   };
 }
 
@@ -48,8 +58,7 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
     async createUser(input) {
       const id = randomUUID();
       // 初期パスワードは払い出しごとに新しいランダム値。初回ログインで変更を強制する。
-      const temporaryPassword = generateTemporaryPassword();
-      const { hash, salt, iterations } = await hashPassword(temporaryPassword);
+      const { temporaryPassword, pwParams } = await issueTemporaryPassword();
       const row = firstRow(
         await sproc.callSproc(SP.user, '作成', [
           p('公開ID', id),
@@ -58,9 +67,7 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
           p('ロール', input.role),
           p('無効', input.disabled ? 1 : 0),
           p('要パスワード変更', input.mustChangePassword ? 1 : 0),
-          p('PWハッシュ', hash),
-          p('PWソルト', salt),
-          p('PW反復回数', iterations),
+          ...pwParams,
         ]),
       );
       if (!row) throw notFound('作成したユーザーを取得できません');
@@ -86,14 +93,8 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
       // 存在しない公開ID への無言 no-op を避けるため、先に一覧で実在を確かめる。
       const user = (await listUsers()).find((u) => u.id === id);
       if (!user) throw notFound(`ユーザーが見つかりません: ${id}`);
-      const temporaryPassword = generateTemporaryPassword();
-      const { hash, salt, iterations } = await hashPassword(temporaryPassword);
-      await sproc.callSproc(SP.user, 'PWリセット', [
-        p('公開ID', id),
-        p('PWハッシュ', hash),
-        p('PWソルト', salt),
-        p('PW反復回数', iterations),
-      ]);
+      const { temporaryPassword, pwParams } = await issueTemporaryPassword();
+      await sproc.callSproc(SP.user, 'PWリセット', [p('公開ID', id), ...pwParams]);
       return { temporaryPassword };
     },
   };
