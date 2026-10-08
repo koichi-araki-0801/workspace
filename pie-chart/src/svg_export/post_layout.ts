@@ -33,6 +33,7 @@ import {
   pieClampXLimits,
   horizontalLabelLimits,
   pxToLogical,
+  boxDistToOrigin,
 } from '../layout/geometry.js';
 import { layoutLabels } from '../layout/diagnostics.js';
 import { TOP_BAND_HALF_WIDTH_DEG } from '../layout/placement.js';
@@ -675,9 +676,7 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
   const STEP = 0.025; // applyFinalCondenseToFit と同じ格子
   const pieClearance = Math.max(cfg.pieLabelClearance, radialFraction(cfg, 0.01, 0.1));
   const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
-    const nx = Math.max(b.left, Math.min(0, b.right));
-    const ny = Math.max(b.bottom, Math.min(0, b.top));
-    return Math.hypot(nx, ny);
+    return boxDistToOrigin(b);
   };
   const candidates = textPlacements.filter((p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9);
   if (candidates.length === 0) return;

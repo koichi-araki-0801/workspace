@@ -24,6 +24,7 @@ import {
   degToRad,
   isOtherCategory,
   pxToLogical,
+  boxDistToOrigin,
 } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
@@ -204,8 +205,7 @@ export function applyLeftStackClusterEvenSpread(
   // 12 時 (midAngle=90°) 近傍の小スライスは「上部左の縦列」ではないので run から外す
   // (top-right 逃がし対象。境界は狭い: 香港 13° vs スイス 21°)。
   const isTopBand = (p: Placement): boolean =>
-    Math.abs(((((p.item.midAngle ?? 0) % 360) + 360) % 360) - 90) <=
-    LEFT_CLUSTER_TOP_BAND_EXCLUDE_DEG;
+    Math.abs(normalizeAngle(p.item.midAngle ?? 0) - 90) <= LEFT_CLUSTER_TOP_BAND_EXCLUDE_DEG;
   const left = placements
     .filter(
       (p) =>
@@ -765,9 +765,7 @@ export function applyTopBandClusterReorder(
         top = p.y + measured.height / 2;
         bot = p.y - measured.height / 2;
       }
-      const closestX = Math.max(left, Math.min(0, right));
-      const closestY = Math.max(bot, Math.min(0, top));
-      const dist = Math.hypot(closestX, closestY);
+      const dist = boxDistToOrigin({ left, right, top, bottom: bot });
       if (dist >= pieR + clearance) return;
       // pie 上側 (y > 0) に居る前提: y を上げて離す
       const need = pieR + clearance - dist + 1e-3;
@@ -981,9 +979,7 @@ function restackLiftedIfOverlapping(
       p.y = before - (need * step) / RESTACK_DROP_STEPS;
       clampPlacement(p);
       const moved = placementBox(p, cfg);
-      const nx = Math.max(moved.left, Math.min(moved.right, 0));
-      const ny = Math.max(moved.bottom, Math.min(moved.top, 0));
-      if (Math.hypot(nx, ny) >= cfg.pieRadius) break;
+      if (boxDistToOrigin(moved) >= cfg.pieRadius) break;
       p.y = before;
       clampPlacement(p);
     }

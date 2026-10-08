@@ -26,6 +26,7 @@ import {
   isOtherCategory,
   pxToLogical,
   wrapPi,
+  boxDistToOrigin,
 } from '../layout/geometry.js';
 import type { BBox } from '../layout/geometry.js';
 import type { PieLayoutConfig, Diagnostics, Placement } from '../types.js';
@@ -860,9 +861,7 @@ function relaxStructuralCondense(
   const hardClip = (b: { left: number; right: number }): number =>
     Math.max(0, -hardHalf - b.left, b.right - hardHalf);
   const distToPie = (b: { left: number; right: number; top: number; bottom: number }): number => {
-    const nx = Math.max(b.left, Math.min(0, b.right));
-    const ny = Math.max(b.bottom, Math.min(0, b.top));
-    return Math.hypot(nx, ny);
+    return boxDistToOrigin(b);
   };
   // 各候補の開始時 (relax 前) の見切れ量。見切れガードはこの絶対基準で測る (ステップごとの相対基準だと
   // 許容が毎ステップ累積し、収まっていたラベルが徐々に viewBox を割る)。
@@ -1706,9 +1705,7 @@ export function enforceFinalPieClearance(
   for (const p of placements) {
     if (p.insideSlice) continue;
     const bx = placementBox(p, cfg);
-    const nx = Math.max(bx.left, Math.min(bx.right, 0));
-    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-    if (pieR - Math.hypot(nx, ny) <= tol) continue; // このラベルは侵入していない。
+    if (pieR - boxDistToOrigin(bx) <= tol) continue; // このラベルは侵入していない。
     const ext = placementExtent(p, cfg);
     const nudged = nudgeTextAwayFromPie(p.x, p.y, p.anchor, p.baseline, ext, cfg);
     p.x = nudged.x;
@@ -1799,9 +1796,7 @@ function collectDefectInvolved(
     const p = placements[i];
     if (p.insideSlice) continue;
     const bx = placementBox(p, cfg);
-    const nx = Math.max(bx.left, Math.min(bx.right, 0));
-    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-    if (cfg.pieRadius - Math.hypot(nx, ny) > tol) involved.add(i);
+    if (cfg.pieRadius - boxDistToOrigin(bx) > tol) involved.add(i);
   }
   const order = [...involved].sort((a, b) =>
     placements[a].item.name.localeCompare(placements[b].item.name, 'ja'),

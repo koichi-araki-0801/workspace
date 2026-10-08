@@ -17,6 +17,7 @@ import {
   leaderCrossesBox,
   isOtherCategory,
   wrapPi,
+  boxDistToOrigin,
 } from '../layout/geometry.js';
 import { topBandSonohokaZone } from '../layout/placement.js';
 import type { BBox } from '../layout/geometry.js';
@@ -1077,9 +1078,7 @@ export function boxPieIntrusionMaxOf(
   for (let i = 0; i < placements.length; i += 1) {
     if (placements[i].insideSlice) continue;
     const bx = boxes[i];
-    const nx = Math.max(bx.left, Math.min(bx.right, 0));
-    const ny = Math.max(bx.bottom, Math.min(bx.top, 0));
-    m = Math.max(m, cfg.pieRadius - Math.hypot(nx, ny));
+    m = Math.max(m, cfg.pieRadius - boxDistToOrigin(bx));
   }
   return m;
 }

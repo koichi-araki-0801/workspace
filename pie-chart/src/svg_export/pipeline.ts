@@ -25,6 +25,7 @@ import {
   isOtherCategory,
   boxOverlapAmount,
   pxToLogical,
+  boxDistToOrigin,
 } from '../layout/geometry.js';
 import {
   leaderPath,
@@ -184,9 +185,7 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
   const [ymin, ymax] = cfg.canvasYlim;
   if (box.left < xmin - vboxTol || box.right > xmax + vboxTol) return true;
   if (box.bottom < ymin - vboxTol || box.top > ymax + vboxTol) return true;
-  const nearX = Math.max(box.left, Math.min(box.right, 0));
-  const nearY = Math.max(box.bottom, Math.min(box.top, 0));
-  if (Math.hypot(nearX, nearY) < cfg.pieRadius - vboxTol) return true;
+  if (boxDistToOrigin(box) < cfg.pieRadius - vboxTol) return true;
   for (const q of others) {
     if (q === placement) continue;
     const b = placementBox(q, cfg);
