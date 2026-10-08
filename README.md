@@ -87,7 +87,7 @@ BIZ UDPGothic は pie-chart が埋込サイズ優先の WOFF2 形式
 | `pnpm run clean:deep` / `clean:bundles` | `node_modules` 等 / 大容量バンドルも対象に含める |
 | `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート＋pie-chart の SVG byte 比較。clone 直後は下記「フル `ci` の前提」を先に） |
 | `pnpm run ci:affected` | 変更領域だけ CI を実行（`scripts/ci-affected.mjs`。**pre-push で実行**） |
-| `pnpm run ci:editor` / `ci:pie-chart` | 領域別 CI を手動実行 |
+| `pnpm run ci:editor` / `ci:pie-chart` | 領域別 CI を手動実行（共有ゲートと領域の全段。`ci:affected` の `AREAS` と同じ） |
 
 手動で使うスクリプト（`ci` には組み込まれない）:
 

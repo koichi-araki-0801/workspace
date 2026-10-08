@@ -19,7 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { classifyChanges } from './ci-affected.mjs';
+import { AREAS, classifyChanges } from './ci-affected.mjs';
 
 const REAL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(REAL_ROOT, 'scripts', 'ci-affected.mjs');
@@ -502,4 +502,45 @@ test('parseWorkflowSteps は run: | の継続行を連結し uses だけの step
     ],
   );
   assert.deepEqual(stagesOfRun(steps[2].run), ['test:docs']);
+});
+
+// ── --area: 変更の有無に関わらず領域の段と共有ゲートを走らせる ──
+// `ci:editor` / `ci:pie-chart` はこれを呼ぶだけなので、領域の段の正典は `AREAS` 1 か所になる。
+
+test('--area は共有ゲートと AREAS の段を、git の差分に関係なく走らせる', () => {
+  for (const area of ['editor', 'pie-chart']) {
+    assert.deepEqual(planFor(REAL_ROOT, ['--area', area, '--dry-run']), [...SHARED_GATES, ...AREAS[area].stages], area);
+  }
+});
+
+test('--area pie-chart は batch の byte 比較まで含み、editor は e2e まで含む', () => {
+  const pie = planFor(REAL_ROOT, ['--area', 'pie-chart', '--dry-run']);
+  assert.ok(pie.includes('pie-chart:batch') && pie.includes('pie-chart:batch:diff'));
+  const editor = planFor(REAL_ROOT, ['--area', 'editor', '--dry-run']);
+  assert.ok(editor.includes('e2e:editor') && editor.includes('test:scripts'));
+});
+
+test('--area に未知の領域名を渡すと exit 2 で何も走らせない', () => {
+  const res = spawnSync(process.execPath, [SRC, '--area', 'nope', '--dry-run'], { cwd: REAL_ROOT, encoding: 'utf8' });
+  assert.equal(res.status, 2);
+  assert.ok(!res.stdout.includes('(dry-run)'));
+  assert.match(res.stderr, /nope/);
+});
+
+test('--area に値が無いときも exit 2', () => {
+  const res = spawnSync(process.execPath, [SRC, '--area', '--dry-run'], { cwd: REAL_ROOT, encoding: 'utf8' });
+  assert.equal(res.status, 2);
+});
+
+test('package.json の ci:editor / ci:pie-chart は --area を呼ぶだけ', () => {
+  const pkg = JSON.parse(readFileSync(join(REAL_ROOT, 'package.json'), 'utf8'));
+  assert.equal(pkg.scripts['ci:editor'], 'node scripts/ci-affected.mjs --area editor');
+  assert.equal(pkg.scripts['ci:pie-chart'], 'node scripts/ci-affected.mjs --area pie-chart');
+});
+
+test('e2e:editor も test:e2e と同じポート確認を先頭に持つ', () => {
+  const pkg = JSON.parse(readFileSync(join(REAL_ROOT, 'package.json'), 'utf8'));
+  const PREFIX = 'node scripts/check-ports.mjs 24680 24681 24682 && ';
+  assert.ok(pkg.scripts['e2e:editor'].startsWith(PREFIX));
+  assert.ok(pkg.scripts['test:e2e'].startsWith(PREFIX));
 });

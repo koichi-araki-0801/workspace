@@ -48,7 +48,7 @@ test('CLI は使用中のポートがあると exit 1 で理由を出す', async
     const res = spawnSync(process.execPath, [SCRIPT, String(l.port)], { encoding: 'utf8' });
     assert.equal(res.status, 1, res.stdout + res.stderr);
     assert.match(res.stderr, new RegExp(`使用中: 127\\.0\\.0\\.1:${l.port}`));
-    assert.match(res.stderr, /古いコードのサーバ/);
+    assert.match(res.stderr, /起動が衝突/);
   } finally {
     await l.close();
   }

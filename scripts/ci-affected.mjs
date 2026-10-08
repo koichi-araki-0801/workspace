@@ -131,6 +131,9 @@ export function classifyChanges(paths) {
 // だけが差分になり最速。upstream 未設定(初回 push 等)は `origin/main` へフォールバック。
 // `--base <ref>` / 環境変数 `CI_AFFECTED_BASE` で上書き、`--all` でフル `ci` を強制。
 // `--dry-run` は実行計画(検出領域と走らせる script)だけ出力して何も実行しない。
+// `--area <名前>` は `package.json` の `ci:editor` / `ci:pie-chart` 用で、git の差分を見ずに
+// その領域の段と共有ゲートを走らせる(領域の段の正典を `AREAS` 1 か所にするため)。未知の
+// 領域名は exit 2。
 // `--pre-push` は `.husky/pre-push` 用で、git が stdin に渡す push 対象の ref を検査する
 // (下の `pushRanges`)。現ブランチの upstream...HEAD だけを見ると、`git push origin other` で
 // 送る別ブランチの変更が 1 段も検査されずに出ていく。
@@ -234,6 +237,38 @@ function runFullCi(reason) {
   process.exit(0);
 }
 
+// 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
+// claude-hooks と canon-summary も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の
+// 対象にできず、diff の中身に関わらず常時検査する側に置くしかない (canon-summary は正典の
+// `docs/*/src/設計正典.md` だけが変わった場合も、要約とのずれをここで捕まえる)。test:scripts も同列: `scripts/` の
+// `ci-machinery` 領域は段を持たず、`scripts/*.test.mjs` はここで常時実行する。
+export const SHARED_GATES = [
+  'check:comments',
+  'check:claude-hooks',
+  'check:canon-summary',
+  'check:ci',
+  'knip',
+  'test:scripts',
+];
+
+function runShared() {
+  for (const gate of SHARED_GATES) runPnpm(gate);
+}
+
+// `--area <名前>`: 差分を見ずに共有ゲートと指定領域の段だけを走らせる。
+function runArea() {
+  const name = argv[argv.indexOf('--area') + 1];
+  if (!name || !Object.hasOwn(AREAS, name)) {
+    console.error(`[ci:affected] 未知の領域名: ${name ?? '(未指定)'} (候補: ${Object.keys(AREAS).join(', ')})`);
+    process.exit(2);
+  }
+  console.log(`[ci:affected] --area ${name}: 共有ゲートと ${AREAS[name].label} の段を実行します。`);
+  runShared();
+  for (const stage of AREAS[name].stages) runPnpm(stage);
+  console.log('\n[ci:affected] 完了。');
+  process.exit(0);
+}
+
 // ── 4. メイン ──
 // 直接起動時のみ実行する。テストは `classifyChanges` を import するだけで git に触れない。
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -241,6 +276,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 function main() {
+  if (argv.includes('--area')) runArea();
   if (argv.includes('--all')) runFullCi('--all 指定');
 
   // 明示のベース指定(`--base` / `CI_AFFECTED_BASE`)は pre-push の stdin より優先する。
@@ -285,17 +321,7 @@ function main() {
   console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
   if (benign.length) console.log(`[ci:affected] 領域 CI 不要の変更: ${benign.length} 件 (${benign.join(', ')})`);
 
-  // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
-  // claude-hooks と canon-summary も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の
-  // 対象にできず、diff の中身に関わらず常時検査する側に置くしかない (canon-summary は正典の
-  // `docs/*/src/設計正典.md` だけが変わった場合も、要約とのずれをここで捕まえる)。test:scripts も同列: `scripts/` の
-  // `ci-machinery` 領域は段を持たず、`scripts/*.test.mjs` はここで常時実行する。
-  runPnpm('check:comments');
-  runPnpm('check:claude-hooks');
-  runPnpm('check:canon-summary');
-  runPnpm('check:ci');
-  runPnpm('knip');
-  runPnpm('test:scripts');
+  runShared();
 
   if (areas.length === 0) {
     console.log('\n[ci:affected] 変更領域なし。共有ゲートのみで完了。');
