@@ -25,8 +25,8 @@ export function toReviewResponse(r: StoredReviewRequest): ReviewRequest {
   return rest;
 }
 
-/** 申請日時の表示。`YYYY/MM/DD HH:mm` のゼロ埋めで、実行環境の現地時刻で数える。 */
-export function formatSubmittedAt(iso: string): string {
+/** 日時の表示(申請日時など)。`YYYY/MM/DD HH:mm` のゼロ埋めで、実行環境の現地時刻で数える。 */
+export function formatDateTimeYmdHm(iso: string): string {
   const d = new Date(iso);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
@@ -38,7 +38,7 @@ export function formatSubmittedAt(iso: string): string {
  */
 export function duplicateReviewMessage(existingSubmittedAt: string): string {
   return (
-    `同じ内容の確定保存申請が既に承認待ちです（${formatSubmittedAt(existingSubmittedAt)}に申請）。` +
+    `同じ内容の確定保存申請が既に承認待ちです（${formatDateTimeYmdHm(existingSubmittedAt)}に申請）。` +
     '新しい申請は作りませんでした。'
   );
 }

@@ -14,12 +14,21 @@ describe('createHtmlApi', () => {
     expect(api.buildHtmlDiffAligned('<p>x</p>', '<p>y</p>', '', '', []).pages).toBeDefined();
   });
 
-  it('渡したパーサを各メソッドで使う', () => {
+  it('渡したパーサを 4 メソッドそれぞれで使う', () => {
     const parser = vi.fn((html: string) => new DOMParser().parseFromString(html, 'text/html'));
     const api = createHtmlApi(parser);
-    api.buildHtmlDiff('<p>x</p>', '<p>y</p>');
-    api.toTemplate('<p>t</p>', { asFragment: true });
-    expect(parser).toHaveBeenCalled();
+    const calls = () => parser.mock.calls.length;
+    const step = (run: () => void): number => {
+      const before = calls();
+      run();
+      return calls() - before;
+    };
+    expect(step(() => api.buildHtmlDiff('<p>x</p>', '<p>y</p>'))).toBeGreaterThan(0);
+    expect(
+      step(() => api.buildHtmlDiffAligned('<p>x</p>', '<p>y</p>', '', '', [])),
+    ).toBeGreaterThan(0);
+    expect(step(() => api.toTemplate('<p>t</p>', { asFragment: true }))).toBeGreaterThan(0);
+    expect(step(() => api.toFilled('<p>{{ a }}</p>', { a: 'v' }))).toBeGreaterThan(0);
   });
 });
 

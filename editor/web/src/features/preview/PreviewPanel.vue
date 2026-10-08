@@ -72,12 +72,7 @@ const nav = ref<PreviewHostState>({
 // 子の boot 完了。未完了の間に届いた文書は保留し、ready 受信時に送る。
 const hostReady = ref(false);
 
-/**
- * 子から `ready` も状態通知も来ない場合の保険。ホストページの配信失敗(認証切れ・
- * バンドル欠落)やブラウザの sandbox 制約など、子が沈黙する形の失敗は親からは
- * 区別できないため、時間で切ってフォールバック表示へ倒す。
- */
-const HOST_BOOT_TIMEOUT_MS = RENDER_HOST_BOOT_TIMEOUT_MS;
+// 子から `ready` も状態通知も来ない場合の保険の期限は `RENDER_HOST_BOOT_TIMEOUT_MS`(理由はそちら)。
 /** 組版が終わらない場合のローダー強制解除。 */
 const RENDER_LOADER_FAILSAFE_MS = 30_000;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;
@@ -202,7 +197,7 @@ function onFrameLoad() {
   bootTimer = setTimeout(() => {
     bootTimer = null;
     if (!hostReady.value) fallback('ビューアの起動確認が取れませんでした');
-  }, HOST_BOOT_TIMEOUT_MS);
+  }, RENDER_HOST_BOOT_TIMEOUT_MS);
 }
 
 const send = (cmd: PreviewCommand, page?: number) => {
