@@ -38,11 +38,12 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 - `npm run cli -- one --data-file data/example.json --output-file out/test.svg`
 - `npm run cli -- one --data-json '[{"name":"A","value":60},{"name":"B","value":40}]' --output-file out/test.svg`
 - `npm run cli -- one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg`
-- `npm run cli -- one --sql "SELECT 区分, 比率 FROM dbo.資産配分" --db-name usrap --output-file out/test.svg`
+- `npm run cli -- one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file out/test.svg`
+- `npm run cli -- db-check --db-name usrap`(DB ドライバを読み込めるか、接続できるかの確認)
 - `npm run cli -- batch --output-dir out/svg`
 - `npm run cli -- batch --input-dir data --output-dir out/svg`
 
-`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` / `--sql` のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
+`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` / `--fund + --base-date + --chart-type`(ストアド)のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
 
 #### Excel 入力の決まり
 
@@ -55,27 +56,44 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 
 #### DB(SQL Server)入力の決まり
 
-- 入力は 1 本の読み取りクエリ。空文字・文中 `;`・SELECT/WITH 以外で始まる文は
-  `assertLooksLikeSelect` が拒否するが、これは**指定ミスを早く見つけるための形式チェックで、
-  読み取り専用の強制ではない**(`SELECT ... INTO` / `WITH ... DELETE` は形の上では通るし、
-  T-SQL は文の区切りに `;` を要求しない)。**読み取り専用は DB 側で担保する** — 接続に使う
-  Windows アカウントは対象 DB で `db_datareader` だけを持つログインにすること。
-- 列解決は Excel と同思想: `--name-col` / `--value-col` を**両方**指定すれば列名で、無指定なら
-  結果セットの**先頭 2 列**を name/value とする(3 列以上で未指定はあいまいエラー)。
-- 接続先は `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
-  認証は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。
-  ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER` で変更可)。
-- 接続文字列に入る値は**許可リストで検証**する: driver は既知ドライバ名の集合、server は
-  `[tcp:]host[\instance][,port]`、database は識別子の文字種、`DB_CONN_EXTRA` は
-  `Encrypt` / `TrustServerCertificate` / `ApplicationIntent` / `MultiSubnetFailover` /
-  `Connection Timeout` / `Login Timeout` のみ(値の形も個別に検査)。ODBC 接続文字列は
-  `;` 区切りの key=value 列なので、無検証だと値の `;` から `FILEDSN=\\host\share\x.dsn` の
-  ようなキーワードを注入されて統合認証のチャレンジレスポンスが外部ホストへ出る。
-- ネイティブドライバ `msnodesqlv8` は `optionalDependencies`。**遅延 require** のため、未導入でも
-  他入力(sample/json/xlsx)と `tsc` は動く。DB 入力使用時のみ導入が必要。
-- 制御文字など XML に載らない文字を含む name 列も明示エラーになる(切り詰めや除去はしない)。
-- 接続・SQL 依存は `src/input/db.ts` に隔離(`buildConnectionString` / `normalizeConnExtra` /
-  `assertLooksLikeSelect` / `rowsToItems` / `loadDbItems`)。editor フェーズ2(`editor/server/src/db/pool.ts`)と同パターン。
+- 入力はストアド 1 本。`--fund` / `--base-date` / `--chart-type` を**3 つそろえて**指定する
+  (1 つでも欠けたらエラー)。呼び出しは `EXEC <ストアド> @ファンドコード=?, @基準日=?, @グラフ種別=?`
+  で、値は位置バインド。ストアド名の既定は `dbo.pie_chart_items`(仮置き。env `PIE_DB_PROC` で
+  上書きでき、`[schema.]name` の形を検査する。各部分に使えるのは文字(日本語の文字も可)・数字・`_` だけで、先頭は文字か `_`、
+  `$` / `#` / 角括弧は受け付けない)。
+- 基準日は `YYYY-MM-DD` か `YYYYMMDD`。実在する日付かを検査し、`YYYYMMDD` の文字列で渡す
+  (サーバの DATEFORMAT 設定に左右されない)。ファンドコードとグラフ種別は 64 文字まで。
+- 結果は**列のある結果セットがちょうど 1 つ**、**先頭 2 列**を name / value とする。件数だけの結果
+  (`SET NOCOUNT ON` の無いストアドの INSERT など)は無視する。列のある結果が 2 つ以上・列が 2 列で
+  ない・0 行はエラー。
+- 取得した結果は samples 形式の JSON で残す。既定は `--output-file` の拡張子を `.json` にした場所で、
+  `--save-json <path>` で変えられる。書くのは描画の前なので、描画で失敗しても JSON は残る。
+  `--data-file` にこの JSON を渡すと、DB に接続せずに同じ SVG(byte 一致)を描ける。
+- 接続は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。接続先は
+  `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
+  ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER`)。Driver 18 は
+  `Encrypt` の既定が yes なので、サーバ証明書が自己署名なら `DB_CONN_EXTRA=Encrypt=no;` を足す。
+- 前提は「実行するユーザーの Windows アカウントが対象ストアドを実行できること」。権限の付け方は
+  DB 管理者が決める。読むだけであることはストアドの中身で担保する。
+- 接続文字列に入る値は**許可リストで検証**する(driver は既知名の集合、server は
+  `[tcp:]host[\instance][,port]`、database は識別子の文字種、`DB_CONN_EXTRA` は `Encrypt` /
+  `TrustServerCertificate` / `ApplicationIntent` / `MultiSubnetFailover` / `Connection Timeout` /
+  `Login Timeout` のみ)。無検証だと値の `;` から `FILEDSN=\\host\share\x.dsn` のようなキーワードを
+  注入されて統合認証のチャレンジレスポンスが外部ホストへ出る。
+- ストアドの実行は既定 60 秒で取り消す(env `PIE_DB_QUERY_TIMEOUT_S`、1〜3600)。
+- 失敗したときは、止まった段階を `[db:<段階>]` で表示する(`extract` / `verify` / `load` /
+  `connect` / `query` / `child`)。`load` で止まる場合は、AppLocker / WDAC / ウイルス対策ソフトが
+  `%TEMP%` の DLL の読み込みを止めている可能性がある。`pie-chart db-check [--db-name <db>]` で
+  ストアド無しに切り分けられる。
+- 既知の制限: SQL Server のエラーメッセージに含まれる日本語(`THROW N'…'` など)は、ドライバ
+  (msnodesqlv8)自身の都合で文字化けする。ストアドのエラーメッセージは英数字で書くか、エラー番号で
+  判別する。
+- 開発版はネイティブドライバ `msnodesqlv8`(`optionalDependencies`)をその場で読む。未導入でも
+  他入力と `tsc` は動く。exe 版はドライバを内蔵する(次節)。
+- 実装の置き場: `src/input/db.ts`(接続文字列・呼び出し・結果の判定)、`src/input/sproc.ts`
+  (開発版 / exe の振り分けと `db-check`)、`src/input/sprocArgs.ts`(引数の検査)、
+  `src/input/savedJson.ts`(JSON)、`src/runtime/nativeDriver.ts` / `dbChild.ts`(exe の
+  ドライバの書き出しと子プロセス)。
 
 ### exe 配布(Node SEA + 外部参照)
 
@@ -87,13 +105,18 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 - **`npm run build:exe` / `pnpm run build:exe`(= `node scripts/build-exe.mjs`、開発機向け)**:
   install はせず、既存の `node_modules` でビルドのみ行う。pnpm ワークスペースの依存解決を保つ。
 
-**配布物は 4 点だけ**(フォルダをコピーせず、`pie-chart.exe` 単体でも動く):
+**配布物は 2 点だけ**(`--sign` で署名したときは `pie-chart-codesign.cer` と `SIGNING-INFO.txt` を加えた 4 点。フォルダをコピーせず、`pie-chart.exe` 単体でも動く):
 
 ```
 dist-exe/
-├── pie-chart.exe          — Node SEA 実行体(cli + subset-font + wasm + フォントを全同梱)
+├── pie-chart.exe          — Node SEA 実行体(cli + subset-font + wasm + フォント + DB ドライバを全同梱)
+└── OFL-BIZUDPGothic.txt   — 埋込フォントの SIL Open Font License(再配布条件)
+```
+
+`--sign` のときは、この 2 点に次の 2 点が加わる。
+
+```
 ├── pie-chart-codesign.cer — 署名の公開証明書(配布先で信頼登録すると署名が Valid に)
-├── OFL-BIZUDPGothic.txt   — 埋込フォントの SIL Open Font License(再配布条件)
 └── SIGNING-INFO.txt       — どの鍵で署名した配布物かの記録(thumbprint / 有効期限)
 ```
 
@@ -110,20 +133,27 @@ dist-exe/
   SEA では例外にして落とす(dev は `out/_baseline` の byte-diff が検知するので従来どおり)。
 - 使い方は CLI と同じ: `pie-chart.exe one --sample asset_gbca_pdf_like --output-file t.svg` など。
   `pie-chart.exe license` で埋込フォントの OFL 本文を表示できる。
+  DB から作る例: `pie-chart.exe one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file t.svg`。
 - ビルド依存は `esbuild` / `postject`(devDependencies)のみ。ビルド中に `npm install` は
   走らないので、**完全オフラインで exe を作れる**。
-- **DB 入力(`--sql`)は exe 版では非対応**。ネイティブ `msnodesqlv8` はバンドルできず、
-  exe の隣へ後から置く運用は上記の「署名の外のコードを読む」経路そのものになるため。
-  DB 入力が要る場合は開発版(Node + `npm run cli`)を使う。
+- **DB ドライバだけは exe の外へ書き出して読む**(唯一の例外)。ネイティブモジュールは実ファイル
+  からしか読めないため、ストアド入力と `db-check` のときだけ `%TEMP%\pie-chart-db\<pid>-xxxxxx` へ
+  新規作成で書き出し、照合(書き出し直後と読み込み直前の 2 回)してから子プロセスが読み込む。
+  フォルダは子の終了後に消し、強制終了で残ったものは次の起動時に消す。
+- DB 機能つきの exe は**開発機(pnpm / Node 24)でだけ**作る。ドライバは NAN 製で、ビルドに使った
+  Node のメジャー版でしか読めないため、ビルドは実際に dlopen して確かめ、合わなければ止まる。
+  `build-exe.bat`(Node20 の単独環境)は DB 機能を外して作る(`--no-db`)。
 - ビルドは前提が崩れたら **落ちる**(黙って劣化させない): ①Node < 20.12(SEA アセット非対応)
   ②`scripts/sidecar-pins.json` の `subset-font` 版・wasm SHA256 が実解決値と不一致
-  ③バンドル内の `require.resolve('harfbuzzjs/hb-subset.wasm')` が 1 箇所でない。
+  ③バンドル内の `require.resolve('harfbuzzjs/hb-subset.wasm')` が 1 箇所でない
+  ④`sidecar-pins.json` の `msnodesqlv8` 版・`sqlserverv8NodeSha256` が実解決値と不一致、または
+  ドライバを dlopen できない(DB 機能つきのとき)。
   ②が出たら依存を上げた合図なので、`npm run batch` → `npm run batch:diff` と
   `test/render_hash.test.ts` で埋込フォントのバイトが変わっていないかを必ず確認する。
 
 #### コード署名
 
-ビルド時(Windows)に `scripts/sign-exe.ps1` が exe を SHA256 署名する。
+**既定は未署名**。`node scripts/build-exe.mjs --sign` のときだけ、`scripts/sign-exe.ps1` が exe を SHA256 署名する。配布先に AppLocker / WDAC の発行者ルールが無ければ署名は要らない。
 
 - **署名の役割は「発行元の表示」と「AppLocker / WDAC の発行者ルール」**であって、配布物の
   完全性検証ではない。完全性は上記の全同梱(実行されるものが 100% 署名の内側)で担保する。
@@ -131,8 +161,8 @@ dist-exe/
   作り、表示された thumbprint を `scripts/signing.local.json`(git 管理外)へ書くか、環境変数
   `PIECHART_SIGN_THUMBPRINT` に設定する。以前は「無ければ作る」実装だったため、ビルドした
   端末の数だけ同名の別ルート証明書ができ、「どの `.cer` を配ったか」が追跡不能になっていた。
-- **署名に失敗したらビルドも失敗する**(未署名の配布物が黙って出来ないように)。意図的に
-  未署名で作るときだけ `node scripts/build-exe.mjs --allow-unsigned` を使う。
+- `--sign` を付けた場合、thumbprint が無い・署名に失敗したらビルドも失敗する(署名したつもりの
+  配布物が未署名で出ないように)。
 - 鍵は `NonExportable`(持ち出し不可)・有効期間 **1 年**・TPM 保管が既定。タイムスタンプを
   付けない構成では**期限切れ = 既配布 exe の署名も無効**になるので、期限の 1 か月前に
   再発行・再署名・再配布する。オンラインの署名端末なら `signing.local.json` の
@@ -142,7 +172,7 @@ dist-exe/
   構造そのものが消える。自己署名を Root へ入れる手順は最終手段で、鍵の保護と撤去手順
   (旧鍵の棚卸し → 配布物の入れ替え → 配布先ストアから削除 → 必要なら Disallowed 登録 →
   ビルド端末で `Remove-Item Cert:\CurrentUser\My\<旧thumbprint> -DeleteKey`)とセットで運用する。
-- 配布先で署名を Valid にする(SmartScreen を抑止する)には、同梱の `pie-chart-codesign.cer` を
+- `--sign` で署名した配布物では、配布先で署名を Valid にする(SmartScreen を抑止する)には、同梱の `pie-chart-codesign.cer` を
   信頼ストアへ取り込む(**管理者権限が必要**):
 
   ```bat
@@ -156,11 +186,12 @@ dist-exe/
 
 #### 配布前チェック(必須)
 
-`scripts/verify-dist.bat` を通してから配る。次の 3 点を機械検査し、1 つでも欠ければ非ゼロ終了する。
+`scripts/verify-dist.bat` を通してから配る。次の 4 点を機械検査し、1 つでも欠ければ非ゼロ終了する。
 
-1. `dist-exe/` の中身が上記 4 点のみであること(= **sidecar が復活していない**ことの検査)
-2. exe の署名者 thumbprint が期待値と一致すること
+1. `dist-exe/` の中身が想定どおり(未署名は 2 点、署名ありは 4 点)であること(= **sidecar が復活していない**ことの検査)
+2. 署名ありなら署名と thumbprint が期待値と一致すること、未署名なら NotSigned であること
 3. exe を空ディレクトリへ 1 個だけコピーして描画した SVG が、開発版(tsx)の出力と byte 一致すること
+4. `pie-chart.exe db-check` が成功し、実行ごとのフォルダが残らないこと(DB 機能を外した exe を配らないため)
 
 ### 全件生成 + ビューア
 
@@ -180,7 +211,11 @@ pie-chart/
 │   ├── config.ts               — createPieLayoutConfig + makeColors
 │   ├── input/
 │   │   ├── load.ts             — samples / xlsx 入力 + normalizeInputItems / resolveInputData*
-│   │   └── db.ts               — DB(SQL Server)SELECT 入力 (msnodesqlv8 依存隔離)
+│   │   ├── db.ts               — DB(SQL Server)ストアド呼び出しと結果の判定
+│   │   ├── sproc.ts            — ストアド入力の入口 (開発版 / exe の振り分け・db-check)
+│   │   ├── sprocArgs.ts        — ストアド入力の引数検査 (基準日・ストアド名)
+│   │   ├── savedJson.ts        — 取得結果の samples 形式 JSON の保存・読み込み
+│   │   └── dbStage.ts          — DB 取得の失敗を段階 (`[db:<段階>]`) 付きで表すエラー型
 │   ├── glyph_advance/          — 生成物 (npm run gen:widths)。ウェイト別実 glyph advance 表
 │   │   ├── weight_400.ts
 │   │   └── weight_700.ts
@@ -206,7 +241,12 @@ pie-chart/
 │   │   └── font.ts             — TTF → WOFF2 サブセット埋込 (async I/O + キャッシュ)
 │   ├── runtime/                — SEA(単一 exe)実行時のガード
 │   │   ├── seaRuntime.ts       — アセット許可リスト + builtin 以外のモジュール解決封鎖
-│   │   └── subsetFontFs.ts     — subset-font へだけ差し込む fs shim (wasm を SEA アセットへ)
+│   │   ├── subsetFontFs.ts     — subset-font へだけ差し込む fs shim (wasm を SEA アセットへ)
+│   │   ├── nativeDriver.ts     — exe に埋め込んだ DB ドライバの書き出し・照合・後片付け
+│   │   ├── dbChild.ts          — DB 取得を行う子プロセス (`__db-fetch`) の親側と子側
+│   │   ├── msDriver.ts         — msnodesqlv8 の読み込み (開発版 / exe の違いを吸収)
+│   │   └── sqlserverv8Shim.cjs — msnodesqlv8 のドライバ読み込みの差し替え先
+│   │                             (ビルドの esbuild plugin だけが読むので knip.json に entry 登録)
 │   ├── types/
 │   │   └── subset-font.d.ts    — subset-font の型宣言 (公式の型が無いため)
 │   ├── verify/
