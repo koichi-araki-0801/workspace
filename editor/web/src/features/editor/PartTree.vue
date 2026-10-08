@@ -12,6 +12,8 @@ import PartCatalog from './PartCatalog.vue';
 defineProps<{
   /** 今のページに挿入できないときの理由(`PartCatalog` へ渡す)。 */
   insertBlockedReason?: string | null;
+  /** 編集中テンプレートの版種(`PartCatalog` へ渡す)。 */
+  editionType?: string | null;
 }>();
 
 const allowAdd = defineModel<boolean>('allowAdd', { default: false });
@@ -65,6 +67,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem];
     <div v-else class="flex-1 overflow-hidden">
       <PartCatalog
         :insert-blocked-reason="insertBlockedReason"
+        :edition-type="editionType"
         @select="emit('select', $event)"
         @insert="emit('insert', $event)"
       />

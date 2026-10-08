@@ -145,6 +145,30 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     masterReflectDefault: null,
     targetEdition: null,
   },
+  {
+    id: 'p-guide-delivery',
+    category: '版種別',
+    majorClass: '案内',
+    middleClass: '見出し',
+    minorClass: '交付版',
+    name: '交付版専用の案内',
+    content: '<p>交付版だけの案内文</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: '交付版',
+  },
+  {
+    id: 'p-guide-whole',
+    category: '版種別',
+    majorClass: '案内',
+    middleClass: '見出し',
+    minorClass: '全体版',
+    name: '全体版専用の案内',
+    content: '<p>全体版だけの案内文</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: '全体版',
+  },
 ];
 
 // ── 2. 行の形と補助 ──

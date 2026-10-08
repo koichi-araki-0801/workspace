@@ -265,6 +265,62 @@ describe('localPartRepo', () => {
     }
   });
 
+  describe('版種での絞り込み', () => {
+    const withEdition = (edition: string) => partCatalog.filter((i) => i.targetEdition === edition);
+    const idsOf = async (editionType?: string) => {
+      const r = await localPartRepo.listParts(editionType === undefined ? {} : { editionType });
+      return isOk(r) ? r.value.map((i) => i.id) : [];
+    };
+
+    it('版種が空なら全件を返す', async () => {
+      expect(await idsOf('')).toHaveLength(partCatalog.length);
+      expect(await idsOf()).toHaveLength(partCatalog.length);
+    });
+
+    it('対象版種が null のパーツは両方の版に出て、一致するパーツだけが専用で出る', async () => {
+      const own = withEdition('交付版');
+      const other = withEdition('全体版');
+      expect(own.length).toBeGreaterThan(0);
+      expect(other.length).toBeGreaterThan(0);
+      const ids = await idsOf('交付版');
+      for (const p of partCatalog.filter((i) => i.targetEdition == null)) {
+        expect(ids).toContain(p.id);
+      }
+      for (const p of own) expect(ids).toContain(p.id);
+      for (const p of other) expect(ids).not.toContain(p.id);
+    });
+
+    it('分類候補のカテゴリ区分も同じ条件で絞る', async () => {
+      const r = await localPartRepo.getPartClassificationOptions({ editionType: '交付版' });
+      expect(isOk(r)).toBe(true);
+      if (!isOk(r)) return;
+      const visible = partCatalog.filter(
+        (i) => i.targetEdition == null || i.targetEdition === '交付版',
+      );
+      expect(r.value.categories).toEqual([
+        ...new Set(visible.map((i) => i.classification.category)),
+      ]);
+    });
+
+    it('専用パーツだけの分類は他の版の候補から消える', async () => {
+      const only = partCatalog.filter((i) => i.targetEdition === '全体版');
+      const mixedMinors = new Set(
+        partCatalog
+          .filter((i) => i.targetEdition !== '全体版')
+          .map((i) => i.classification.minorClass),
+      );
+      const hidden = only.find((i) => !mixedMinors.has(i.classification.minorClass));
+      if (!hidden) return;
+      const r = await localPartRepo.getPartClassificationOptions({
+        editionType: '交付版',
+        category: hidden.classification.category,
+        majorClass: hidden.classification.majorClass,
+        middleClass: hidden.classification.middleClass,
+      });
+      expect(isOk(r) && r.value.minorClasses).not.toContain(hidden.classification.minorClass);
+    });
+  });
+
   it('cascades classification options (major classes scoped to the chosen category)', async () => {
     const category = partCatalog[0].classification.category;
     const r = await localPartRepo.getPartClassificationOptions({ category });

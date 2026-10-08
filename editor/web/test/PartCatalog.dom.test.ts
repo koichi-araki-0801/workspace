@@ -7,12 +7,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { REPOS_KEY } from '@/api/repositories';
 import PartCatalog from '@/features/editor/PartCatalog.vue';
 
+const { replace } = vi.hoisted(() => ({ replace: vi.fn(() => Promise.resolve()) }));
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
-  useRouter: () => ({
-    currentRoute: { value: { query: {} } },
-    replace: vi.fn(() => Promise.resolve()),
-  }),
+  useRouter: () => ({ currentRoute: { value: { query: {} } }, replace }),
 }));
 
 const PART: PartCatalogItem = {
@@ -26,7 +24,7 @@ const PART: PartCatalogItem = {
   content: '<p>注</p>',
 };
 
-async function mountCatalog(insertBlockedReason: string | null) {
+async function mountCatalog(insertBlockedReason: string | null, editionType?: string | null) {
   const parts = {
     getPartClassificationOptions: vi.fn(async () =>
       ok({ categories: ['注記'], majorClasses: [], middleClasses: [], minorClasses: [] }),
@@ -34,7 +32,7 @@ async function mountCatalog(insertBlockedReason: string | null) {
     listParts: vi.fn(async () => ok([PART])),
   };
   const w = mount(PartCatalog, {
-    props: { insertBlockedReason },
+    props: { insertBlockedReason, editionType },
     global: {
       provide: { [REPOS_KEY as symbol]: { parts } },
       stubs: {
@@ -47,7 +45,7 @@ async function mountCatalog(insertBlockedReason: string | null) {
     },
   });
   await flushPromises();
-  return w;
+  return Object.assign(w, { parts });
 }
 
 const insertButton = (w: Awaited<ReturnType<typeof mountCatalog>>) =>
@@ -68,5 +66,38 @@ describe('PartCatalog の追加ボタン', () => {
     expect(w.find('[data-tip]').exists()).toBe(false);
     await insertButton(w).trigger('click');
     expect(w.emitted('insert')).toEqual([[PART]]);
+  });
+});
+
+describe('PartCatalog の版種', () => {
+  it('版種を渡すと分類候補と一覧の取得に editionType を付ける', async () => {
+    const w = await mountCatalog(null, '交付版');
+    expect(w.parts.getPartClassificationOptions).toHaveBeenCalledWith({ editionType: '交付版' });
+    expect(w.parts.listParts).toHaveBeenCalledWith({ editionType: '交付版' });
+  });
+
+  it('版種が空・null・未指定なら editionType を付けない', async () => {
+    for (const e of ['', null, undefined]) {
+      const w = await mountCatalog(null, e);
+      expect(w.parts.listParts).toHaveBeenCalledWith({});
+      expect(w.parts.getPartClassificationOptions).toHaveBeenCalledWith({});
+    }
+  });
+
+  it('版種は URL クエリへ載せない', async () => {
+    replace.mockClear();
+    await mountCatalog(null, '交付版');
+    const written = JSON.stringify(replace.mock.calls);
+    expect(written).not.toMatch(/edition|交付版/i);
+  });
+
+  it('prop を変えると取り直す', async () => {
+    const w = await mountCatalog(null, '交付版');
+    w.parts.listParts.mockClear();
+    w.parts.getPartClassificationOptions.mockClear();
+    await w.setProps({ editionType: '全体版' });
+    await flushPromises();
+    expect(w.parts.getPartClassificationOptions).toHaveBeenCalledWith({ editionType: '全体版' });
+    expect(w.parts.listParts).toHaveBeenCalledWith({ editionType: '全体版' });
   });
 });

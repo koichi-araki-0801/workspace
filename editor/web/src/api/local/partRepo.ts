@@ -14,8 +14,11 @@ import { currentUser, delay, K, now, partCatalog, read, uid, write } from './sto
 // 分類フィルタは「上位が一致して初めて下位を見る」cascade。各段の述語を 1 か所に
 // 定義し、候補生成(段階別)と一覧(最下位まで)の両方で共有する。
 const cls = (i: PartCatalogItem) => i.classification;
+// 版種が空なら全件。そうでなければ対象版種なし(両版共通)か一致するものだけを通す。
+const matchEdition = (i: PartCatalogItem, q: PartClassificationQuery) =>
+  !q.editionType || i.targetEdition == null || i.targetEdition === q.editionType;
 const matchCat = (i: PartCatalogItem, q: PartClassificationQuery) =>
-  !q.category || cls(i).category === q.category;
+  matchEdition(i, q) && (!q.category || cls(i).category === q.category);
 const matchMajor = (i: PartCatalogItem, q: PartClassificationQuery) =>
   matchCat(i, q) && (!q.majorClass || cls(i).majorClass === q.majorClass);
 const matchMiddle = (i: PartCatalogItem, q: PartClassificationQuery) =>
@@ -27,7 +30,9 @@ export const localPartRepo: PartRepository = {
   getPartClassificationOptions: (query: PartClassificationQuery) =>
     attempt(() =>
       delay({
-        categories: uniq(partCatalog.map((i) => cls(i).category)),
+        categories: uniq(
+          partCatalog.filter((i) => matchEdition(i, query)).map((i) => cls(i).category),
+        ),
         majorClasses: uniq(
           partCatalog.filter((i) => matchCat(i, query)).map((i) => cls(i).majorClass),
         ),

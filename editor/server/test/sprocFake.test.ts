@@ -331,7 +331,7 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
       p('小分類', undefined),
     ]);
     const pick = (区分: string) => rows.filter((r) => r.区分 === 区分).map((r) => String(r.値));
-    expect(pick('カテゴリ')).toEqual(['表紙', '注記']);
+    expect(pick('カテゴリ')).toEqual(['表紙', '注記', '版種別']);
     expect(pick('大分類')).toEqual(['税制']);
   });
 

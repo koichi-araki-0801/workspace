@@ -18,9 +18,11 @@ import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 import { cn } from '@/lib/utils';
 import PartPreview from './PartPreview.vue';
 
-defineProps<{
+const props = defineProps<{
   /** 今のページに挿入できないときの理由。null なら挿入できる。 */
   insertBlockedReason?: string | null;
+  /** 編集中テンプレートの版種。空なら全件。一覧と分類候補をこの版で絞る(URL には載せない)。 */
+  editionType?: string | null;
 }>();
 const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] }>();
 
@@ -42,15 +44,20 @@ const EMPTY: PartClassificationOptions = {
   minorClasses: [],
 };
 
-const { query, options, list: parts, loading, onLevelChange } = useCascadingSelect<
+// 版種は分類の選択ではなく編集中テンプレートの属性なので、`query`(= URL 同期の対象)へは
+// 入れず、取得の直前にだけ足す。
+const withEdition = (q: PartClassificationQuery): PartClassificationQuery =>
+  props.editionType ? { ...q, editionType: props.editionType } : q;
+
+const { query, options, list: parts, loading, onLevelChange, refresh } = useCascadingSelect<
   PartClassificationQuery,
   PartClassificationOptions,
   PartCatalogItem
 >({
   levels: levels.map((l) => l.key),
   emptyOptions: EMPTY,
-  fetchOptions: (q) => repo.getPartClassificationOptions(q),
-  fetchList: (q) => repo.listParts(q),
+  fetchOptions: (q) => repo.getPartClassificationOptions(withEdition(q)),
+  fetchList: (q) => repo.listParts(withEdition(q)),
 });
 
 // 分類4段を URL クエリへ同期し、編集画面を離れて戻っても絞り込みを復元する。
@@ -60,6 +67,12 @@ useUrlQuerySync(query, {
   keys: levels.map((l) => l.key),
   prefix: 'pc',
 });
+
+// 別テンプレートへ切り替わる等で版種が変わったら、候補と一覧を取り直す。
+watch(
+  () => props.editionType,
+  () => void refresh(),
+);
 
 const optionsByLevel: Record<LevelKey, () => string[]> = {
   category: () => options.value.categories,

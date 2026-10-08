@@ -69,6 +69,13 @@ describe('TemplateEditorService.loadForEdit', () => {
     }
   });
 
+  it('パーツの全件取得には版種を渡さない', async () => {
+    const { templates, parts } = repos({ draft: null });
+    const svc = createTemplateEditorService(templates, parts);
+    await svc.loadForEdit('t1');
+    expect(parts.listParts).toHaveBeenCalledWith({});
+  });
+
   it('値の差込に使ったサンプルを返す(作成タブの canvas で Jinja を含む <style> を描画する)', async () => {
     const { templates, parts } = repos({ draft: null });
     (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>

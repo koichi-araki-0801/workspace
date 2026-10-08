@@ -400,6 +400,7 @@ const statusText = computed(() => {
         v-model:allow-add="allowAdd"
         v-model:allow-edit="allowEdit"
         :insert-blocked-reason="g.canInsertPart.value ? null : INSERT_BLOCKED_MESSAGE"
+        :edition-type="template?.meta.attributes.editionType"
         @select="onPartSelect"
         @insert="onPartInsert"
         @collapse="leftCollapsed = true"
