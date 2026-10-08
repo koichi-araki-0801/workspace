@@ -9,9 +9,11 @@
 import {
   conflict,
   DOC_DIR,
+  EXTERNAL_REF_MESSAGE,
   err,
   fetchUrlAttrsFor,
   findExternalRefsInTag,
+  MAX_REPORTED_REFS,
   ok,
   type Result,
   resolveDocAssetPath,
@@ -32,13 +34,6 @@ import { sanitizePdfRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
 
 /** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
 export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
-
-/** CSS/HTML が外部参照を含むため PDF を作らなかったときの文言(該当参照は cause へ入れる)。 */
-export const PDF_CSS_EXTERNAL_REF_MSG =
-  'CSSまたはHTMLに外部参照（@import / 絶対URLのurl() / 絶対URLのhref・src）が含まれるため' +
-  'PDFを作成できません。' +
-  'フォントや画像やスクリプトはテンプレートに同梱し、文書からの相対パス' +
-  '（../css/… ../js/… ../images/…。CSS の中では fonts/… ../images/…）で指定してください。';
 
 /**
  * サニタイズ済み DOM から、オリジン外を指す取得系属性を洗い出す(早期フィードバック用)。
@@ -141,7 +136,9 @@ export async function renderPdfDocument(
   // 無検査で headless へ届く(UI を経由しない経路が関門を迂回する形)。
   const refs = [...findExternalRefsInCss(pdfCss), ...findExternalRefsInDom(root)];
   if (refs.length > 0) {
-    return err(conflict(PDF_CSS_EXTERNAL_REF_MSG, { cause: refs.slice(0, 5).join(', ') }));
+    return err(
+      conflict(EXTERNAL_REF_MESSAGE, { cause: refs.slice(0, MAX_REPORTED_REFS).join(', ') }),
+    );
   }
   return ok({ html: serializePreviewRoot(root), css: pdfCss });
 }

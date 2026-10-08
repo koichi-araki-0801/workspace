@@ -31,26 +31,29 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   decodeHtmlEntities,
+  EXTERNAL_REF_MESSAGE,
   findExternalRefsInCss,
   findExternalRefsInTag,
   isSelfContainedUrl,
+  MAX_REPORTED_REFS,
   nestedHtmlAttrsFor,
   validation,
 } from '@editor/shared';
 import { scanTags } from '../vivliostyle/inlineCss.js';
-
-/** 拒否時にクライアントへ返す文言。外部クライアントの契約になるので変えるときは OpenAPI も。 */
-const EXTERNAL_REF_MESSAGE =
-  'CSSまたはHTMLに外部参照(@import / 絶対URLのurl() / 絶対URLのhref・src)が含まれるため' +
-  'PDFを作成できません。' +
-  'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… css/fonts/… js/…)で' +
-  '指定してください。';
 
 /**
  * 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。
  * テストから直接検証するために公開する。
  */
 export const EXTERNAL_REF_CODE = 'DOCUMENT_EXTERNAL_REF';
+
+/** 外部参照の拒否(400)。応答には参照の頭だけと総数を載せる。 */
+function throwExternalRef(where: string, refs: readonly string[]): never {
+  throw validation(EXTERNAL_REF_MESSAGE, {
+    code: EXTERNAL_REF_CODE,
+    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
+  });
+}
 
 /** タグ境界が一意に決まらない HTML を拒んだときの文言とコード。 */
 const UNPARSABLE_MESSAGE =
@@ -67,9 +70,6 @@ export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
 const JSON_UNPARSABLE_MESSAGE =
   'JSONファイルを読めないためPDFを作成できません。' +
   '構文を確認してから送信してください(検査できないファイルは受け取れません)。';
-
-/** 応答へ載せる参照の最大件数。全部返すと入力の反射になるので頭だけ返す。 */
-const MAX_REPORTED_REFS = 5;
 
 /**
  * 文書(HTML + 付随 CSS)に含まれる外部参照をすべて列挙する。空配列 = 参照なし。
@@ -180,10 +180,7 @@ export function assertNoDocumentExternalRefs(html: string, css: string, where: s
   }
   const refs = findDocumentExternalRefs(html, css);
   if (refs.length === 0) return;
-  throw validation(EXTERNAL_REF_MESSAGE, {
-    code: EXTERNAL_REF_CODE,
-    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
-  });
+  throwExternalRef(where, refs);
 }
 
 /** 展開済みファイルの検査のしかた。`inert` = バイナリ資産で参照を書けない。 */
@@ -300,10 +297,7 @@ export function assertNoJsonExternalRefs(text: string, where: string): void {
     throw validation(JSON_UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE, cause: { where } });
   }
   if (refs.length === 0) return;
-  throw validation(EXTERNAL_REF_MESSAGE, {
-    code: EXTERNAL_REF_CODE,
-    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
-  });
+  throwExternalRef(where, refs);
 }
 
 /**
@@ -333,19 +327,11 @@ function findMarkdownExternalRefs(md: string): string[] {
 /** markdown 原稿の外部参照を拒む(生 HTML ブロックも同時に見る)。 */
 export function assertNoMarkdownExternalRefs(md: string, where: string): void {
   const refs = findMarkdownExternalRefs(md);
-  if (refs.length > 0)
-    throw validation(EXTERNAL_REF_MESSAGE, {
-      code: EXTERNAL_REF_CODE,
-      cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
-    });
+  if (refs.length > 0) throwExternalRef(where, refs);
   // markdown 内の生 HTML は HTML として検査する。走査できない字面は markdown では
   // 珍しくない(`<` を素で書ける)ので、ここでは参照だけを見て未走査には倒さない。
   const htmlRefs = findDocumentExternalRefs(md, '');
-  if (htmlRefs.length > 0)
-    throw validation(EXTERNAL_REF_MESSAGE, {
-      code: EXTERNAL_REF_CODE,
-      cause: { where, refs: htmlRefs.slice(0, MAX_REPORTED_REFS), total: htmlRefs.length },
-    });
+  if (htmlRefs.length > 0) throwExternalRef(where, htmlRefs);
 }
 
 /**

@@ -10,9 +10,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   assertAnyTemplateId,
+  notesAtCapacity as atCapacity,
+  entriesCapacityMessage,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTES_PER_TEMPLATE,
   type NoteStatus,
+  notesCapacityMessage,
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
@@ -231,12 +234,14 @@ export function withNotesLock<T>(templateId: string, fn: () => Promise<T>): Prom
 
 /** 件数上限に達しているか(新規キーの追加可否の判定に使う)。 */
 export function notesAtCapacity(notes: NoteEntriesMap, pathKey: string): boolean {
-  return !Object.hasOwn(notes, pathKey) && Object.keys(notes).length >= MAX_NOTES_PER_TEMPLATE;
+  return (
+    !Object.hasOwn(notes, pathKey) && atCapacity(Object.keys(notes).length, MAX_NOTES_PER_TEMPLATE)
+  );
 }
 
 /** 上限超過時に返す文言(ルート・repo で同じ案内にする)。 */
 export function notesCapacityError(): never {
-  throw validation(`このテンプレートのメモは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`);
+  throw validation(notesCapacityMessage(MAX_NOTES_PER_TEMPLATE));
 }
 
 /**
@@ -245,13 +250,10 @@ export function notesCapacityError(): never {
  * 到達でき、そのテンプレの全メモが保存不能になる。
  */
 export function entriesAtCapacity(entries: readonly StoredNoteEntry[]): boolean {
-  return entries.length >= MAX_NOTE_ENTRIES_PER_PART;
+  return atCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
 }
 
 /** 投稿数の上限超過時に返す文言。 */
 export function entriesCapacityError(): never {
-  throw validation(
-    `このパーツのメモは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
-      '不要なメモを削除してください。',
-  );
+  throw validation(entriesCapacityMessage(MAX_NOTE_ENTRIES_PER_PART));
 }

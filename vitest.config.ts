@@ -43,6 +43,7 @@ export default defineConfig({
         'editor/shared/src/domain/sampleCommon.ts',
         'editor/shared/src/domain/user.ts',
         'editor/shared/src/domain/history.ts',
+        'editor/shared/src/domain/messages.ts',
         'editor/shared/src/security/cssExternalRefs.ts',
         'editor/shared/src/security/htmlExternalRefs.ts',
         'editor/shared/src/security/htmlEntities.ts',

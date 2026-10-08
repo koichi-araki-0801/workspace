@@ -1,8 +1,8 @@
-import { isErr, isOk } from '@editor/shared';
+import { EXTERNAL_REF_MESSAGE, isErr, isOk } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
-import { PDF_CSS_EXTERNAL_REF_MSG, PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
 import { sanitizePdfRoot, sanitizePreviewRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
@@ -79,7 +79,7 @@ describe('renderPdfDocument', () => {
   ])('HTML の絶対参照(%s = %s)で PDF を作らない', async (html) => {
     const res = await renderPdfDocument(html, '', {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
+    if (isErr(res)) expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
   });
 
   it('appends trim-mark CSS only when cropMarks is on', async () => {
@@ -106,7 +106,7 @@ describe('renderPdfDocument', () => {
   ])('外部参照を含む CSS(%s = %s)で PDF を作らない', async (css) => {
     const res = await renderPdfDocument('<p>x</p>', css, {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
+    if (isErr(res)) expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
   });
 
   // 承認者は実行結果しか見ない運用(DECISIONS の Q10)なので、「PDF では動くのに
@@ -152,8 +152,8 @@ describe('renderPdfDocument', () => {
   });
 
   it('外部参照の文言は文書基準の相対パスを案内する', () => {
-    expect(PDF_CSS_EXTERNAL_REF_MSG).toContain('../css/');
-    expect(PDF_CSS_EXTERNAL_REF_MSG).toContain('../images/');
+    expect(EXTERNAL_REF_MESSAGE).toContain('../css/');
+    expect(EXTERNAL_REF_MESSAGE).toContain('../images/');
   });
   it('会社フォルダが会社コードと合わない画像は style 属性の url() からも落とし、合うものは残す', async () => {
     const html =

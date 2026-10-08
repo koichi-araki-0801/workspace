@@ -261,6 +261,7 @@ export * from './api-paths.js';
 export * from './css/cssRules.js';
 export * from './domain/history.js';
 // 承認ワークフローの純関数(メタ抽出)。
+export * from './domain/messages.js';
 export * from './domain/review.js';
 // パーツ別共通ダミー + ファンド固有マスタ合成(プレビュー文脈の組立)。
 export * from './domain/sampleCommon.js';
