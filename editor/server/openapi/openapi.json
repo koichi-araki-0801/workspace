@@ -930,6 +930,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
+              "type": "string"
+            },
+            "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
           }
         ],
         "responses": {
@@ -991,6 +1000,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
+              "type": "string"
+            },
+            "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
           }
         ],
         "responses": {
@@ -3921,6 +3939,17 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/PartMasterReflectDefault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "targetEdition": {
+            "description": "対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める",
+            "anyOf": [
+              {
+                "type": "string"
               },
               {
                 "type": "null"

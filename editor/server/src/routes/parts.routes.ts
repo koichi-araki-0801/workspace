@@ -12,7 +12,13 @@ import * as history from '../repositories/historyRepo.js';
 import { actorOf, pickQuery } from './routeHelpers.js';
 
 function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
-  return pickQuery(q, ['category', 'majorClass', 'middleClass', 'minorClass'] as const);
+  return pickQuery(q, [
+    'category',
+    'majorClass',
+    'middleClass',
+    'minorClass',
+    'editionType',
+  ] as const);
 }
 
 type ClassQuery = { Querystring: Record<string, unknown> };

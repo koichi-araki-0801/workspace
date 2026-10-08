@@ -655,6 +655,10 @@ export const PartCatalogItem = z
     masterReflectDefault: PartMasterReflectDefault.nullable()
       .optional()
       .meta({ description: '注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)' }),
+    targetEdition: z.string().nullable().optional().meta({
+      description:
+        '対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める',
+    }),
   })
   .meta({ id: 'PartCatalogItem' });
 
@@ -664,6 +668,10 @@ export const PartClassificationQuery = z.object({
   majorClass: z.string().optional(),
   middleClass: z.string().optional(),
   minorClass: z.string().optional(),
+  editionType: z
+    .string()
+    .optional()
+    .meta({ description: 'テンプレートの版種。指定時は対象版種が空か一致するパーツだけ' }),
 });
 
 /** コメントの状態。返信は親と同じ値を持ち、切り替えは親投稿にだけ許す。 */

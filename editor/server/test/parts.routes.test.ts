@@ -34,7 +34,9 @@ process.env.LOG_DIR = path.join(root, 'logs');
 
 const as = (username: string) => ({ cookie: username });
 
-async function buildApp(): Promise<FastifyInstance> {
+async function buildApp(
+  parts?: import('./fakes/sprocFake.js').FakePartSeed[],
+): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { createDeps } = await import('../src/deps.js');
@@ -69,7 +71,7 @@ async function buildApp(): Promise<FastifyInstance> {
   }
 
   const store = createSessionStub({ getSessionUser: (sid) => userOf(sid) });
-  const deps = createDeps(await createFakeSproc(), store);
+  const deps = createDeps(await createFakeSproc(parts ? { parts } : {}), store);
   const app = Fastify();
   decorateSessionStore(app, store);
   app.setErrorHandler(errorHandler);
@@ -105,6 +107,42 @@ describe('parts.routes', () => {
     });
     expect(list.statusCode).toBe(200);
     expect((list.json() as Array<{ id: string }>).some((p) => p.id === 'p-cover-title')).toBe(true);
+  });
+
+  it('GET /parts は editionType を sproc の版種へ渡し、戻りに targetEdition を載せる', async () => {
+    const seed = (id: string, targetEdition: string | null) => ({
+      id,
+      category: '表紙',
+      majorClass: '見出し',
+      middleClass: 'タイトル',
+      minorClass: '標準',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition,
+    });
+    const scoped = await buildApp([
+      seed('both', null),
+      seed('only-delivered', '交付版'),
+      seed('only-whole', '全体版'),
+    ]);
+    try {
+      const filtered = await scoped.inject({
+        method: 'GET',
+        url: `/parts?editionType=${encodeURIComponent('交付版')}`,
+        headers: as('editor'),
+      });
+      const items = filtered.json() as Array<{ id: string; targetEdition: string | null }>;
+      expect(items.map((i) => [i.id, i.targetEdition])).toEqual([
+        ['both', null],
+        ['only-delivered', '交付版'],
+      ]);
+      const all = await scoped.inject({ method: 'GET', url: '/parts', headers: as('editor') });
+      expect((all.json() as unknown[]).length).toBe(3);
+    } finally {
+      await scoped.close();
+    }
   });
 
   it('POST /templates/:templateId/part-history は 204 で追記し、GET に user 付きで現れる(partKey 欠落は 400)', async () => {

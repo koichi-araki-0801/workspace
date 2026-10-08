@@ -78,6 +78,28 @@ IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'�
     ADD [次回反映既定] NVARCHAR(16) COLLATE Japanese_CI_AS NULL;
 GO
 
+/* 一覧の版種による絞り込み(後付け列のため COL_LENGTH で冪等追加)。NULL = 両版共通。
+ * 値はテンプレートの版種と同じ文字列で、値は固定しない(CHECK を付けない)。表示だけに使い、
+ * ペア同期のポリシーは `同期既定` 列だけで決める。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'対象版種') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD [対象版種] NVARCHAR(32) COLLATE Japanese_CI_AS NULL;
+GO
+
+/* 分類の英名(別ツール用。editor は読まない)。後付け列のため COL_LENGTH で冪等追加。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'カテゴリ英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [カテゴリ英名] NVARCHAR(128) NULL;
+GO
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'大分類英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [大分類英名] NVARCHAR(128) NULL;
+GO
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'中分類英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [中分類英名] NVARCHAR(128) NULL;
+GO
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'小分類英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [小分類英名] NVARCHAR(128) NULL;
+GO
+
 /* --- 3. 監査ログ ---------------------------------------------------------- */
 /* logger.ts の AuditEvent を列化(ファイルログとの二重化)。JSON はテキスト保管。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_監査ログ]', N'U') IS NULL

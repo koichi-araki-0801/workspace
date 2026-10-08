@@ -20,6 +20,7 @@ function classParams(q: PartClassificationQuery): Param[] {
     p('大分類', q.majorClass),
     p('中分類', q.middleClass),
     p('小分類', q.minorClass),
+    p('版種', q.editionType),
   ];
 }
 
@@ -61,6 +62,7 @@ export function createPartRepo(sproc: SprocClient): PartRepo {
         // 値域は DDL の CHECK([CK_パーツ_同期既定] 等)が保証するため cast で写す。NULL = 未判断。
         syncDefault: asStringOrNull(r.同期既定) as PartSyncDefault | null,
         masterReflectDefault: asStringOrNull(r.次回反映既定) as PartMasterReflectDefault | null,
+        targetEdition: asStringOrNull(r.対象版種),
       }));
     },
   };

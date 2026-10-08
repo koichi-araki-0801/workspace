@@ -53,6 +53,8 @@ export interface FakePartSeed {
   content: string;
   syncDefault: string | null;
   masterReflectDefault: string | null;
+  /** null = 両版共通。 */
+  targetEdition: string | null;
 }
 export interface FakeSeed {
   users?: readonly FakeUserSeed[];
@@ -129,6 +131,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     content: '<h1>運用報告書</h1>',
     syncDefault: null,
     masterReflectDefault: null,
+    targetEdition: null,
   },
   {
     id: 'p-note-tax',
@@ -140,6 +143,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     content: '<p>税制は変更される場合があります。</p>',
     syncDefault: null,
     masterReflectDefault: null,
+    targetEdition: null,
   },
 ];
 
@@ -426,17 +430,23 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     const major = optText(a, '大分類');
     const middle = optText(a, '中分類');
     const minor = optText(a, '小分類');
+    const edition = optText(a, '版種');
+    // sproc と同じ条件: 版種の指定が無いか、対象版種が空(両版共通)か一致する行だけ。
+    const visible = parts.filter(
+      (q) => !edition || !q.targetEdition || q.targetEdition === edition,
+    );
     if (op === '分類候補') {
       const out: Row[] = [];
       const push = (区分: string, 値: string) => {
         if (!out.some((r) => r.区分 === 区分 && r.値 === 値)) out.push({ 区分, 値 });
       };
-      for (const q of parts) push('カテゴリ', q.category);
-      for (const q of parts) if (!category || q.category === category) push('大分類', q.majorClass);
-      for (const q of parts)
+      for (const q of visible) push('カテゴリ', q.category);
+      for (const q of visible)
+        if (!category || q.category === category) push('大分類', q.majorClass);
+      for (const q of visible)
         if ((!category || q.category === category) && (!major || q.majorClass === major))
           push('中分類', q.middleClass);
-      for (const q of parts)
+      for (const q of visible)
         if (
           (!category || q.category === category) &&
           (!major || q.majorClass === major) &&
@@ -447,7 +457,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     }
 
     if (op === '一覧') {
-      return parts
+      return visible
         .filter(
           (q) =>
             (!category || q.category === category) &&
@@ -469,6 +479,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
           更新者: null,
           同期既定: q.syncDefault,
           次回反映既定: q.masterReflectDefault,
+          対象版種: q.targetEdition,
         }));
     }
 
