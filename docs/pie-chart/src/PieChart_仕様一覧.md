@@ -27,26 +27,27 @@ title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
 | 1 | コマンド | `list` |  | サンプル一覧表示 |
 | 2 | コマンド | `one` |  | 1件レンダリング |
 | 3 | コマンド | `batch` |  | 全件生成（out/） |
-| 4 | コマンド | `license` |  | 埋込フォントの OFL ライセンス本文を表示 || 5 | オプション | `--sample` |  | サンプル名で選択 |
-| 6 | オプション | `--data-file` |  | JSONファイル指定 |
-| 7 | オプション | `--data-json` |  | JSON文字列を直渡し |
-| 8 | オプション | `--xlsx / --sheet / --range` |  | Excel範囲入力（3 つとも必須。例 A2:B11） |
-| 9 | オプション | `--fund / --base-date / --chart-type` |  | ストアドへ位置バインドで渡す。3 つそろえて指定。基準日は YYYY-MM-DD か YYYYMMDD |
-| 10 | オプション | `--db-server / --db-name` | `env DB_SERVER / DB_NAME` | 接続先（既定 localhost / env）。Windows統合認証固定 |
-| 11 | オプション | `--save-json` | `--output-file の拡張子を .json に` | 取得結果（samples 形式）の保存先 |
-| 12 | オプション | `--font-weight` | `400 \| 700` | フォントウェイト切替 |
-| 13 | オプション | `--stroke-ratio` | `number` | faux-bold のストローク調整 |
-| 14 | オプション | `--output-file / --output-dir` |  | 出力先指定 |
-| 15 | コマンド | `db-check` | `--db-name` | DB ドライバを読み込めるか（`--db-name` 付きなら接続できるか）を段階ごとに表示 |
-| 15 | 設定 | `svgWidthPx / svgHeightPx` | `600 / 450` | SVG寸法（固定） |
-| 16 | 設定 | `pieHeightRatio` | `0.7` | 直径 = 450 × 0.7 = 315px |
-| 17 | 設定 | `baselineFontSize` | `20` | 基準フォントサイズ |
-| 18 | 設定 | `fontSize` | `40` | 実描画。40 × 0.68 ≈ 27.2px |
-| 19 | 設定 | `labelRadius` | `1.19` | ラベル配置半径倍率 |
-| 20 | 設定 | `startangle` | `90.0` | 12時を0°に |
-| 21 | 設定 | `minGap` | `0.16` | ラベル最小間隔 |
-| 22 | 設定 | `smallSliceThreshold` | `6.0` | 小スライス判定（%） |
-| 23 | 設定 | `denseCountThreshold` | `9` | 密判定のスライス数閾値 |
+| 4 | コマンド | `license` |  | 埋込フォントの OFL ライセンス本文を表示 |
+| 5 | コマンド | `db-check` | `--db-name` | DB ドライバを読み込めるか（`--db-name` 付きなら接続できるか）を段階ごとに表示 |
+| 6 | オプション | `--sample` |  | サンプル名で選択 |
+| 7 | オプション | `--data-file` |  | JSONファイル指定 |
+| 8 | オプション | `--data-json` |  | JSON文字列を直渡し |
+| 9 | オプション | `--xlsx / --sheet / --range` |  | Excel範囲入力（3 つとも必須。例 A2:B11） |
+| 10 | オプション | `--fund / --base-date / --chart-type` |  | ストアドへ位置バインドで渡す。3 つそろえて指定。基準日は YYYY-MM-DD か YYYYMMDD |
+| 11 | オプション | `--db-server / --db-name` | `env DB_SERVER / DB_NAME` | 接続先（既定 localhost / env）。Windows統合認証固定 |
+| 12 | オプション | `--save-json` | `--output-file の拡張子を .json に` | 取得結果（samples 形式）の保存先 |
+| 13 | オプション | `--font-weight` | `400 \| 700` | フォントウェイト切替 |
+| 14 | オプション | `--stroke-ratio` | `number` | faux-bold のストローク調整 |
+| 15 | オプション | `--output-file / --output-dir` |  | 出力先指定 |
+| 16 | 設定 | `svgWidthPx / svgHeightPx` | `600 / 450` | SVG寸法（固定） |
+| 17 | 設定 | `pieHeightRatio` | `0.7` | 直径 = 450 × 0.7 = 315px |
+| 18 | 設定 | `baselineFontSize` | `20` | 基準フォントサイズ |
+| 19 | 設定 | `fontSize` | `40` | 実描画。40 × 0.68 ≈ 27.2px |
+| 20 | 設定 | `labelRadius` | `1.19` | ラベル配置半径倍率 |
+| 21 | 設定 | `startangle` | `90.0` | 12時を0°に |
+| 22 | 設定 | `minGap` | `0.16` | ラベル最小間隔 |
+| 23 | 設定 | `smallSliceThreshold` | `6.0` | 小スライス判定（%） |
+| 24 | 設定 | `denseCountThreshold` | `9` | 密判定のスライス数閾値 |
 
 # テスト仕様
 
