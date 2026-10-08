@@ -388,9 +388,7 @@ export function computeDrawnLeader(
       // 角度差が大きすぎると W が極端に遠くなる (rc/cos(Δ/2) 発散)。150° 以上は現状維持。
       if (Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD) {
         const rc = cfg.pieRadius + 2.5 * pxUnit;
-        const midTh = thA + dTh / 2;
-        const rw = rc / Math.cos(Math.abs(dTh) / 2);
-        bend = { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
+        bend = tangentTentPoint(thA, dTh, tangentTentRadius(dTh, rc));
         drawEndpoint = clampOutsidePie(
           truncateLeaderEndpointAtBox(bend, endpoint, finalBox, cfg.cornerGap),
         );
@@ -446,12 +444,10 @@ export function computeDrawnLeader(
           const dTh = wrapPi(thE - thA);
           if (Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD) {
             const rc = cfg.pieRadius + 2.5 * pxUnit; // 上の `intrudes` リルートと同値
-            const midTh = thA + dTh / 2;
-            const rw = rc / Math.cos(Math.abs(dTh) / 2);
-            const w = { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
+            const w = tangentTentPoint(thA, dTh, tangentTentRadius(dTh, rc));
             // W テント先頭セグメント a→W が依然 rim をなぞる (anchor が rim 上だと a→W は二等分接線
             // ゆえ `rc` 不問で minR≈pieRadius に固定され、テントでは grazing が解消しない: 例
-            // currency_many_small_10「イギリスポンド」) 場合は、2 点版 (line376) と同形の放射スタブへ
+            // currency_many_small_10「イギリスポンド」) 場合は、2 点版と同形の放射スタブへ
             // フォールバックする。anchor をスライス角範囲内でラベル端点角側へクランプした rim 点 `na`
             // から放射状に降ろし、円周なぞりを解消する。`tentLifts` (テントが実際に円縁から内側へ持ち
             // 上がった) ときのみ従来どおり W テントを採用する。
@@ -465,15 +461,10 @@ export function computeDrawnLeader(
               pathPoints = [a, w, de];
               detectPathPoints = [a, w, endpoint]; // 持ち上げ後の到達域 (上の `intrudes` と同形)
             } else {
-              // 放射スタブ (line409-429 と同形)。`detectPathPoints` は元 anchor 据え置きのまま
-              // (交差判定・採点を baseline 維持)。`na` は放射的 (dotRadial>閾値) なので下の 2 点
-              // tangent ハンドラ (line376) では非発火 = 二重クランプは起きない。
-              const anchorAng = thA;
-              const spanRad = ((placement.item.percent ?? 0) / 100) * 2 * Math.PI;
-              const half = Math.max(0, spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180));
-              const rel = wrapPi(thE - anchorAng);
-              const ang = anchorAng + Math.max(-half, Math.min(half, rel));
-              const na = { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
+              // 放射スタブ (2 点 leader の近 rim 分岐と同形)。`detectPathPoints` は元 anchor 据え置き
+              // のまま (交差判定・採点を baseline 維持)。`na` は放射的 (dotRadial>閾値) なので下の
+              // 2 点 tangent ハンドラでは非発火 = 二重クランプは起きない。
+              const na = radialStubAnchor(thA, thE, placement.item.percent, cfg);
               const de = clampOutsidePie(
                 truncateLeaderEndpointAtBox(na, endpoint, finalBox, cfg.cornerGap),
               );
@@ -503,7 +494,7 @@ export function computeDrawnLeader(
           const thE = Math.atan2(endpoint.y, endpoint.x);
           const dTh = wrapPi(thE - thA);
           const rc = cfg.pieRadius + radialFraction(cfg, 0.04, 0.4); // 明確に見える持ち上げ
-          const rw = rc / Math.cos(Math.abs(dTh) / 2);
+          const rw = tangentTentRadius(dTh, rc);
           // テント頂点 W が描画上のラベル接続点 (`e` = box 縁で truncate 済) の半径を越えて飛び出すと、ラベルが rim 際にある
           // 短い leader では W が接続点を飛び越す「外向きの切り欠き」になり不自然 (例 stress_balanced_5 D)。
           // 飛び出しを小さく目立たない量 (≈4px) 以内に抑えられる = ラベルが rim から十分外にある時だけ持ち上げ、
@@ -514,8 +505,7 @@ export function computeDrawnLeader(
             Math.abs(dTh) < LEADER_MAX_ANGULAR_DIFF_RAD &&
             Math.hypot(e.x, e.y) >= rw - overshootTol
           ) {
-            const midTh = thA + dTh / 2;
-            const w = { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
+            const w = tangentTentPoint(thA, dTh, rw);
             const de = clampOutsidePie(
               truncateLeaderEndpointAtBox(w, endpoint, finalBox, cfg.cornerGap),
             );
@@ -530,12 +520,7 @@ export function computeDrawnLeader(
             // midAngle の符号規約に依存しない (clamp 角=anchor 角のとき na≈a)。detectPathPoints は
             // 元 anchor 据え置きで交差判定・採点を baseline 維持。放射スタブは外向きで円侵入せず
             // 短く、元の接線弦の角度ウェッジ内なので新規交差を生まない。描画限定・scorer 不変。
-            const anchorAng = Math.atan2(a.y, a.x);
-            const spanRad = ((placement.item.percent ?? 0) / 100) * 2 * Math.PI;
-            const half = Math.max(0, spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180));
-            const rel = wrapPi(thE - anchorAng);
-            const ang = anchorAng + Math.max(-half, Math.min(half, rel));
-            const na = { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
+            const na = radialStubAnchor(thA, thE, placement.item.percent, cfg);
             const de = clampOutsidePie(
               truncateLeaderEndpointAtBox(na, endpoint, finalBox, cfg.cornerGap),
             );
@@ -551,6 +536,34 @@ export function computeDrawnLeader(
     detectPathPoints,
     skipLeader: placement.insideSlice || Boolean(placement.bisectedSecondSliceNoLeader),
   };
+}
+
+/** 二等分接線の交点までの半径。両端の角度差 `dTh` の半分で `rc` の接線に届く距離。 */
+function tangentTentRadius(dTh: number, rc: number): number {
+  return rc / Math.cos(Math.abs(dTh) / 2);
+}
+
+/** 角度 `thA` から `dTh` の半分だけ回した方向の、半径 `rw` の点 (二等分接線の交点 W)。 */
+function tangentTentPoint(thA: number, dTh: number, rw: number): Pt {
+  const midTh = thA + dTh / 2;
+  return { x: rw * Math.cos(midTh), y: rw * Math.sin(midTh) };
+}
+
+/**
+ * 放射スタブの描画 anchor。anchor 角 `anchorAng` を、スライス角範囲 (端の 15% か 6° の小さい方を
+ * 除いた半幅) の中でラベル接続点の角度 `thE` の側へ寄せた rim 上の点。
+ */
+function radialStubAnchor(
+  anchorAng: number,
+  thE: number,
+  percent: number | undefined,
+  cfg: PieLayoutConfig,
+): Pt {
+  const spanRad = ((percent ?? 0) / 100) * 2 * Math.PI;
+  const half = Math.max(0, spanRad / 2 - Math.min(spanRad * 0.15, (6 * Math.PI) / 180));
+  const rel = wrapPi(thE - anchorAng);
+  const ang = anchorAng + Math.max(-half, Math.min(half, rel));
+  return { x: cfg.pieRadius * Math.cos(ang), y: cfg.pieRadius * Math.sin(ang) };
 }
 
 /**
