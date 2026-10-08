@@ -25,7 +25,7 @@ export const COMPARE_RENDER_ERROR =
 // 1 件も無いテンプレートでも、現行版を 1 版として比較できるようにする。`historyId` は
 // 接頭辞で識別し、`renderVersionHtml` で snapshot 経路と分岐する。
 const BASELINE_PREFIX = 'baseline:';
-const baselineHistoryId = (templateId: string) => `${BASELINE_PREFIX}${templateId}`;
+export const baselineHistoryId = (templateId: string) => `${BASELINE_PREFIX}${templateId}`;
 const baselineTemplateId = (historyId: string) => historyId.slice(BASELINE_PREFIX.length);
 const isBaselineId = (historyId: string) => historyId.startsWith(BASELINE_PREFIX);
 
@@ -183,6 +183,32 @@ export function createCompareService(
       return ok({ html: rendered.html, css });
     },
   };
+}
+
+/**
+ * 申請 1 件を「申請版(after)」と「現行版(before)」の組に描画する。承認画面の差分と申請時の
+ * 変更概要が、同じ手順で同じ組を作る。現行版は既存編集(`edit`)だけ取り、作成(新規)や
+ * 取得できないとき(初回確定前など)は空 HTML に倒して全パーツを追加扱いにする(css は申請版)。
+ * 申請版の描画失敗だけが err。
+ */
+export async function renderReviewPair(
+  render: Pick<CompareService, 'renderTemplateBody' | 'renderVersionHtml'>,
+  input: { templateId: string; html: string; css: string; fundCode: string; origin: ReviewOrigin },
+): Promise<Result<{ before: RenderedVersion; after: RenderedVersion }>> {
+  const afterRes = await render.renderTemplateBody(
+    input.html,
+    input.css,
+    input.fundCode,
+    input.origin,
+  );
+  if (isErr(afterRes)) return afterRes;
+  const after = afterRes.value;
+  let before: RenderedVersion = { html: '', css: after.css };
+  if (input.origin === 'edit') {
+    const beforeRes = await render.renderVersionHtml(baselineHistoryId(input.templateId));
+    if (!isErr(beforeRes)) before = beforeRes.value;
+  }
+  return ok({ before, after });
 }
 
 export const useCompareService = (): CompareService =>

@@ -7,7 +7,7 @@
 // 束ねるだけにする。
 import { isAppError, unexpected } from '@editor/shared';
 import { logError } from '@/lib/appError';
-import type { AsyncHtmlWorker } from './index';
+import type { AsyncHtmlWorker } from './htmlApi';
 
 /**
  * Worker 呼び出しの打ち切り時間。**一度でも応答が返った後**のタイムアウトは main-thread への

@@ -19,6 +19,7 @@ import {
   resolveDocAssetPath,
   type SampleData,
 } from '@editor/shared';
+import { apiUrl } from '@/api/rest/http';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { formatHtml } from '@/lib/formatOutput';
 import {
@@ -33,6 +34,20 @@ import { sanitizePdfRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
 
 /** PDF 生成失敗時に表示する文言(原因 cause は別途ログへ記録する)。 */
 export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をおいて再度お試しください。';
+
+/**
+ * ビルド API(`path`)へ JSON を POST して PDF の Blob を受ける。HTTP エラーは `PDF_ERROR_MSG`
+ * の conflict にする。通信自体の失敗(fetch の reject)は呼び出し側の catch に任せる。
+ */
+export async function postBuild(path: string, body: unknown): Promise<Result<Blob>> {
+  const res = await fetch(apiUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
+  return ok(await res.blob());
+}
 
 /**
  * サニタイズ済み DOM から、オリジン外を指す取得系属性を洗い出す(早期フィードバック用)。

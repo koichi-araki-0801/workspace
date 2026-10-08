@@ -23,7 +23,11 @@ import {
   type LcsBudget,
   tokenize,
 } from '@/features/compare/htmlBlockDiff';
-import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
+import {
+  type CompareService,
+  renderReviewPair,
+  useCompareService,
+} from '@/features/compare/services/compareService';
 import { htmlWorker } from '@/workers';
 import { businessLabel, loadPartNameMap } from './partNames';
 
@@ -167,28 +171,18 @@ export function createReviewDiffService(
       const review = revRes.value;
 
       // after(申請版)は申請本文そのもの。作成タブ由来なら素の sample で描画する。
-      const afterRes = await compare.renderTemplateBody(
-        review.html,
-        review.css,
-        review.attributes.fundCode,
-        review.origin,
-      );
-      if (isErr(afterRes)) return afterRes;
-      const after = afterRes.value;
+      // before(現行版)= 既存編集なら現公開版、作成(新規)や取得できない(初回確定前など)なら空。
+      const pairRes = await renderReviewPair(compare, {
+        templateId: review.templateId,
+        html: review.html,
+        css: review.css,
+        fundCode: review.attributes.fundCode,
+        origin: review.origin,
+      });
+      if (isErr(pairRes)) return pairRes;
+      const { before, after } = pairRes.value;
 
-      // before(現行版)= 既存編集なら現公開版、作成(新規)なら空(= 全パーツが追加)。
-      // 現行版が取得できない(初回確定前など)場合も空に倒し、画面自体は出す。
-      let beforeHtml = '';
-      let cssBefore = after.css;
-      if (review.origin === 'edit') {
-        const beforeRes = await compare.renderVersionHtml(`baseline:${review.templateId}`);
-        if (!isErr(beforeRes)) {
-          beforeHtml = beforeRes.value.html;
-          cssBefore = beforeRes.value.css;
-        }
-      }
-
-      const diff = await htmlWorker.buildHtmlDiff(beforeHtml, after.html, cssBefore, after.css);
+      const diff = await htmlWorker.buildHtmlDiff(before.html, after.html, before.css, after.css);
       // パーツカタログの業務名突合はベストエフォート(取得失敗は空 Map へ degrade)。
       const nameById = await loadPartNameMap(parts);
       // 本文語句差分の LCS 予算は**文書 1 件で 1 つ**(worker の `diffPairs` と同じ規律)。
@@ -215,15 +209,15 @@ export function createReviewDiffService(
         review,
         rows,
         summary,
-        cssBefore,
+        cssBefore: before.css,
         cssAfter: after.css,
-        beforeBodyHtml: beforeHtml,
+        beforeBodyHtml: before.html,
         afterBodyHtml: after.html,
         changedPageIndexes: diff.pages.filter((p) => p.changed).map((p) => p.index),
         beforePageCount: diff.beforePageCount,
         afterPageCount: diff.afterPageCount,
         truncated: diff.truncated,
-        cssChanged: normalizeCssForCompare(cssBefore) !== normalizeCssForCompare(after.css),
+        cssChanged: normalizeCssForCompare(before.css) !== normalizeCssForCompare(after.css),
         printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),
       });
     },

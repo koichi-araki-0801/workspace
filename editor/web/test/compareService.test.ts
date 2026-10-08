@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   COMPARE_RENDER_ERROR,
   createCompareService,
+  renderReviewPair,
 } from '@/features/compare/services/compareService';
 
 // 実際の描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では
@@ -345,5 +346,48 @@ describe('CompareService delegation', () => {
     );
     const res = await svc.listVersions('tpl-1');
     expect(isErr(res)).toBe(true);
+  });
+});
+
+describe('renderReviewPair', () => {
+  const input = { templateId: 't', html: '<p>a</p>', css: '.a{}', fundCode: 'f' };
+  const mk = (before: ReturnType<typeof vi.fn>) => ({
+    renderTemplateBody: vi.fn(async () => ok({ html: '<p>A</p>', css: '.A{}' })),
+    renderVersionHtml: before,
+  });
+
+  it('edit は申請版と baseline の現行版を組にする', async () => {
+    const before = vi.fn(async () => ok({ html: '<p>B</p>', css: '.B{}' }));
+    const svc = mk(before);
+    const res = await renderReviewPair(svc, { ...input, origin: 'edit' });
+    expect(res).toEqual(
+      ok({
+        before: { html: '<p>B</p>', css: '.B{}' },
+        after: { html: '<p>A</p>', css: '.A{}' },
+      }),
+    );
+    expect(before).toHaveBeenCalledWith('baseline:t');
+  });
+
+  it('create は現行版を取りに行かず、空の before(css は申請版)にする', async () => {
+    const before = vi.fn();
+    const res = await renderReviewPair(mk(before), { ...input, origin: 'create' });
+    expect(before).not.toHaveBeenCalled();
+    expect(res).toEqual(
+      ok({ before: { html: '', css: '.A{}' }, after: { html: '<p>A</p>', css: '.A{}' } }),
+    );
+  });
+
+  it('現行版の取得失敗は空の before で続行し、申請版の失敗は err を返す', async () => {
+    const failing = vi.fn(async () => err(notFound('x')));
+    const res = await renderReviewPair(mk(failing), { ...input, origin: 'edit' });
+    expect(res).toEqual(
+      ok({ before: { html: '', css: '.A{}' }, after: { html: '<p>A</p>', css: '.A{}' } }),
+    );
+    const bad = {
+      renderTemplateBody: vi.fn(async () => err(notFound('y'))),
+      renderVersionHtml: failing,
+    };
+    expect(isErr(await renderReviewPair(bad, { ...input, origin: 'edit' }))).toBe(true);
   });
 });

@@ -30,8 +30,9 @@ const diff = {
 };
 
 const deps = {
-  renderAfter: vi.fn(async () => ok({ html: '<p>a</p>', css: '' })),
-  renderBefore: vi.fn(async () => ok({ html: '<p>b</p>', css: '' })),
+  renderPair: vi.fn(async () =>
+    ok({ before: { html: '<p>b</p>', css: '' }, after: { html: '<p>a</p>', css: '' } }),
+  ),
   buildHtmlDiff: vi.fn(async () => diff),
   loadNames: vi.fn(async () => new Map([['note-a', '運用実績の表']])),
 };
@@ -73,25 +74,12 @@ describe('computeChangedSummaryWith', () => {
     expect(s).toBeNull();
   });
 
-  it('renderAfter の失敗は null、origin=create は renderBefore を呼ばない、renderBefore の失敗は空の before で続行', async () => {
-    const afterErr = await computeChangedSummaryWith(
-      { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
-      { ...deps, renderAfter: vi.fn(async () => err(notFound('x'))) },
-    );
-    expect(afterErr).toBeNull();
-
-    const before = vi.fn(async () => ok({ html: '', css: '' }));
-    await computeChangedSummaryWith(
-      { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'create' },
-      { ...deps, renderBefore: before },
-    );
-    expect(before).not.toHaveBeenCalled();
-
+  it('renderPair の失敗は null', async () => {
     const s = await computeChangedSummaryWith(
       { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
-      { ...deps, renderBefore: vi.fn(async () => err(notFound('x'))) },
+      { ...deps, renderPair: vi.fn(async () => err(notFound('x'))) },
     );
-    expect(s?.count).toBe(2); // before 空のまま続行し、after 側の全ブロックが変更扱い
+    expect(s).toBeNull();
   });
 
   it('パーツ id を持たないキーは業務名突合をスキップしてラベルを使う', async () => {

@@ -154,6 +154,24 @@ function toBase64(buf: ArrayBuffer): string {
   return btoa(chunks.join(''));
 }
 
+/** `url` を取って data: URI にする。取得失敗・`maxBytes` 超過は undefined(原文のまま残す)。 */
+async function fetchDataUri(
+  url: string,
+  mime: string,
+  maxBytes: number,
+  fetcher: AssetFetcher,
+): Promise<string | undefined> {
+  try {
+    const res = await fetcher(url);
+    if (!res.ok) return undefined;
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) return undefined;
+    return `data:${mime};base64,${toBase64(buf)}`;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchFontDataUri(rel: string, fetcher: AssetFetcher): Promise<string | undefined> {
   const cached = fontCache.get(rel);
   if (cached !== undefined) return cached;
@@ -163,15 +181,7 @@ async function fetchFontDataUri(rel: string, fetcher: AssetFetcher): Promise<str
     if (mime === undefined) return undefined;
     const url = assetUrl(rel);
     if (url === undefined) return undefined;
-    try {
-      const res = await fetcher(url);
-      if (!res.ok) return undefined;
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > MAX_INLINE_FONT_BYTES) return undefined;
-      return `data:${mime};base64,${toBase64(buf)}`;
-    } catch {
-      return undefined;
-    }
+    return fetchDataUri(url, mime, MAX_INLINE_FONT_BYTES, fetcher);
   })();
   fontCache.set(rel, p);
   return p;
@@ -191,15 +201,7 @@ async function fetchImageDataUri(
   const p = (async () => {
     const mime = fundImageMime(ref.file);
     if (mime === undefined) return undefined;
-    try {
-      const res = await fetcher(fundImageUrl(ref));
-      if (!res.ok) return undefined;
-      const buf = await res.arrayBuffer();
-      if (buf.byteLength > MAX_INLINE_IMAGE_BYTES) return undefined;
-      return `data:${mime};base64,${toBase64(buf)}`;
-    } catch {
-      return undefined;
-    }
+    return fetchDataUri(fundImageUrl(ref), mime, MAX_INLINE_IMAGE_BYTES, fetcher);
   })();
   imageCache.set(key, p);
   return p;

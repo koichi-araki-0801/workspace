@@ -17,13 +17,12 @@ import {
   validation,
 } from '@editor/shared';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
-import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
 import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { formatCss } from '@/lib/formatOutput';
 import { countJinjaBlockOpens } from '@/lib/jinjaLex';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
-import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { PDF_ERROR_MSG, postBuild, renderPdfDocument } from '@/lib/pdfDocument';
 import { renderJinjaIsolated } from '@/lib/renderHostClient';
 import { replaceBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
@@ -227,13 +226,7 @@ export function createTemplatePreviewService(
           companyCode,
         });
         if (isErr(doc)) return doc;
-        const res = await fetch(apiUrl(apiPaths.build), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(doc.value),
-        });
-        if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
-        return ok(await res.blob());
+        return await postBuild(apiPaths.build, doc.value);
       } catch (e) {
         return err(conflict(PDF_ERROR_MSG, { cause: e }));
       }

@@ -1,8 +1,8 @@
 import { EXTERNAL_REF_MESSAGE, isErr, isOk } from '@editor/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
-import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { PDF_ERROR_MSG, postBuild, renderPdfDocument } from '@/lib/pdfDocument';
 import { sanitizePdfRoot, sanitizePreviewRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
@@ -221,5 +221,34 @@ describe('sanitizePdfRoot — script の defer/async と meta charset', () => {
       sanitizePreviewRoot('<html><head><meta charset="utf-8"></head><body>x</body></html>'),
     );
     expect(out).not.toContain('<meta');
+  });
+});
+
+describe('postBuild', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('JSON を POST して成功時は Blob を返す', async () => {
+    const blob = new Blob(['%PDF']);
+    const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => blob }));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await postBuild('/build', { html: '<p/>' });
+    expect(res).toEqual({ ok: true, value: blob });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain('/build');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"html":"<p/>"}');
+  });
+
+  it('HTTP エラーは PDF_ERROR_MSG の conflict(cause に状態)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 500 })),
+    );
+    const res = await postBuild('/build', {});
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(PDF_ERROR_MSG);
+      expect(res.error.cause).toBe('HTTP 500');
+    }
   });
 });
