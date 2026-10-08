@@ -72,6 +72,17 @@ describe('書込プリミティブの import 許可リスト', () => {
     expect(actual.sort()).toEqual(allowed.sort());
   });
 
+  it('createIdPairStore を import してよいのは draftFiles.ts と pendingFiles.ts だけ', () => {
+    // 任意のディレクトリへ書ける汎用の書き込み口。templates/・filled/ を渡す利用者が現れると
+    // 承認ゲートを通らずに確定ファイルを書けるので、利用者を固定する。
+    const actual = listSources().filter((rel) =>
+      /from\s+'(?:\.\.?\/)*(?:files\/)?idPairStore\.js'/.test(
+        fs.readFileSync(path.join(SRC, rel), 'utf8'),
+      ),
+    );
+    expect(actual.sort()).toEqual(['files/draftFiles.ts', 'files/pendingFiles.ts']);
+  });
+
   it('templatePath / resolveTemplateCssPath / filledPath を import してよいのは confirmedWrite.ts だけ', () => {
     // この 3 つは確定ディレクトリと連結する唯一の解決子。`atomicWrite` と組み合わせられる
     // のがチョークポイント 1 ファイルだけであることが「唯一の関所」の実体である。

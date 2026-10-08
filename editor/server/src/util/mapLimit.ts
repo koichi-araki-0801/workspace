@@ -8,7 +8,7 @@
  * `xs` を最大 `limit` 並列で `fn` に通す。結果は入力順。
  *
  * 失敗したときは返る Promise が reject する。既定では他の worker は残りを走らせ続ける。
- * `stopOnError` を立てると、失敗の後は未着手の要素を始めない(走行中のものは完了を待たない)。
+ * `stopOnError` を立てると、失敗の後は未着手の要素を始めない(走行中のタスクは、返った Promise の reject 後もバックグラウンドで最後まで走る)。
  */
 export async function mapLimit<T, R>(
   xs: readonly T[],

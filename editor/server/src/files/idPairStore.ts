@@ -28,7 +28,11 @@ interface IdPairStore {
   remove(id: string): Promise<void>;
 }
 
-/** `dir` は呼び出しごとに評価する(設定の差し替えをテストで効かせるため)。 */
+/**
+ * ここが `atomicWrite` の書き込み口なので、任意の `dir` を受ける `createIdPairStore` の利用者は
+ * `confirmedWrite.guard.test.ts` で `draftFiles.ts` と `pendingFiles.ts` だけに固定している。
+ * `dir` は呼び出しごとに評価する(設定の差し替えをテストで効かせるため)。
+ */
 export function createIdPairStore(dir: () => string): IdPairStore {
   const pathOrNull = (id: string, ext: 'html' | 'css'): string | null =>
     isValidAnyTemplateId(id) ? path.join(dir(), `${id}.${ext}`) : null;
@@ -47,8 +51,8 @@ export function createIdPairStore(dir: () => string): IdPairStore {
       if (!htmlPath) return null;
       const html = await readOrMissing(htmlPath, null);
       if (html === null) return null;
-      const cssPath = pathOrNull(id, 'css');
-      const css = cssPath ? await readOrMissing(cssPath, null) : null;
+      // HTML 側の検査を通った id は CSS 側も通る(同じ検査)。
+      const css = await readOrMissing(path.join(dir(), `${id}.css`), null);
       return { html, css: css ?? '', cssFound: css !== null };
     },
 
