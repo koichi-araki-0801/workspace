@@ -26,7 +26,17 @@
 // 文字列連結で差し込むのも意図的: `String.prototype.replace` は置換文字列中の `$&` `$'`
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
 
-import { DOC_DIR, resolveDocAssetPath } from '@editor/shared';
+import {
+  commentEnd,
+  DOC_DIR,
+  findRawTextEnd,
+  isAsciiAlpha,
+  isHtmlSpace,
+  isTagNameEnd,
+  newCommentEndMemo,
+  readAttr,
+  resolveDocAssetPath,
+} from '@editor/shared';
 
 /** `servedAssets` 未指定時の既定(資産を 1 つも配置していない配信ルート)。 */
 const EMPTY_SERVED: ReadonlySet<string> = new Set<string>();
@@ -122,92 +132,6 @@ interface ScanResult {
   ok: boolean;
 }
 
-const isAsciiAlpha = (c: string | undefined): boolean =>
-  c !== undefined && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
-
-/** HTML の空白(TAB / LF / FF / CR / SP)。`\s` は NBSP などまで含み、ブラウザと読みがずれる。 */
-const HTML_SPACE = '\t\n\f\r ';
-const isHtmlSpace = (c: string): boolean => HTML_SPACE.includes(c);
-
-/** タグ名を構成しうる文字(空白・`/`・`>` でタグ名は終わる)。 */
-const isTagNameChar = (c: string): boolean => !(isHtmlSpace(c) || c === '/' || c === '>');
-
-/**
- * raw text 要素 `name` の終了タグ位置(`<` の index)を返す。見つからなければ -1。
- * 終端条件は仕様どおり「`</` + 名前 + 空白 / `/` / `>`」で、大文字小文字は無視する。
- *
- * ⚠ `lower`(= `html` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
- * ここで `html.toLowerCase()` すると、raw text 開始タグ 1 つにつき入力全体の
- * コピーを 1 つ作ることになる。`RAW_TEXT_ELEMENTS` には `title` が入っているので
- * `'<title></title>'` の反復が最悪形で、1MB の本文でも O(タグ数 × 長さ)=数十 GB の
- * コピーになり、同期区間なのでイベントループが恒久停止する(= 全 API の停止)。
- * 走査 1 回につきコピー 1 回に保つこと。
- */
-function findRawTextEnd(html: string, lower: string, from: number, name: string): number {
-  const needle = `</${name}`;
-  let i = from;
-  while (i < lower.length) {
-    const at = lower.indexOf(needle, i);
-    if (at === -1) return -1;
-    const after = html[at + needle.length];
-    if (after === undefined || isHtmlSpace(after) || after === '/' || after === '>') return at;
-    i = at + needle.length;
-  }
-  return -1;
-}
-
-/**
- * 開始タグの属性を `html[i]` から 1 つ読む。`i` は空白・`/`・`>` のいずれでもない位置。
- * HTML の attribute-name / after-attribute-name / before-attribute-value 以降の状態を写し、
- * 引用符を開くのは `=` の直後だけにする(名前や裸の値の途中の `"` `'` は普通の文字)。
- * 先頭の 1 文字は必ず名前に含めるので、`next` は必ず `i` より先へ進む。
- * 裸の値は空白か `>` で終わる。閉じない引用符は `html.length` まで読む。
- */
-function readAttr(html: string, i: number): { name: string; value: string; next: number } {
-  const start = i;
-  i++;
-  while (
-    i < html.length &&
-    !(isHtmlSpace(html[i]) || html[i] === '/' || html[i] === '=' || html[i] === '>')
-  )
-    i++;
-  const name = html.slice(start, i).toLowerCase();
-  while (i < html.length && isHtmlSpace(html[i])) i++;
-  let value = '';
-  if (html[i] === '=') {
-    i++;
-    while (i < html.length && isHtmlSpace(html[i])) i++;
-    const quote = html[i];
-    if (quote === '"' || quote === "'") {
-      const e = html.indexOf(quote, i + 1);
-      value = html.slice(i + 1, e === -1 ? html.length : e);
-      i = e === -1 ? html.length : e + 1;
-    } else {
-      const vs = i;
-      while (i < html.length && !(isHtmlSpace(html[i]) || html[i] === '>')) i++;
-      value = html.slice(vs, i);
-    }
-  }
-  return { name, value, next: i };
-}
-
-/**
- * `<!--` の後(`from`)から、コメントを閉じる位置の次を返す。閉じなければ -1。
- * 閉じ方は `-->` / `--!>` / `<!-->` / `<!--->` で、ブラウザと同じ。
- * `shared/src/security/editingMarkers.ts` の `commentEnd` と同じ規則で、`seen` は閉じ方ごとの
- * 直近の検索結果(後ろのコメントで同じ範囲を読み直さない。-1 は以後も -1、-2 は未検索)。
- */
-function commentEnd(html: string, from: number, seen: { dash: number; bang: number }): number {
-  if (html.startsWith('>', from)) return from + 1;
-  if (html.startsWith('->', from)) return from + 2;
-  if (seen.dash !== -1 && seen.dash < from) seen.dash = html.indexOf('-->', from);
-  if (seen.bang !== -1 && seen.bang < from) seen.bang = html.indexOf('--!>', from);
-  const { dash, bang } = seen;
-  if (dash === -1 && bang === -1) return -1;
-  if (bang === -1 || (dash !== -1 && dash < bang)) return dash + 3;
-  return bang + 4;
-}
-
 /**
  * HTML 中のタグを先頭から順に列挙する。属性値の引用符・コメント・raw text を跨がないので、
  * 返る span は必ず本物のタグ 1 つに対応する。
@@ -218,9 +142,10 @@ function commentEnd(html: string, from: number, seen: { dash: number; bang: numb
  */
 export function scanTags(html: string): ScanResult {
   const tags: TagSpan[] = [];
-  // 小文字化コピーは走査ごとに 1 つだけ(`findRawTextEnd` の注意書きを見よ)。
+  // 小文字化コピーは走査ごとに 1 つだけ(`shared/src/html/rawText.ts` の `findRawTextEnd` の
+  // 注意書きを見よ)。
   const lower = html.toLowerCase();
-  const commentSeen = { dash: -2, bang: -2 };
+  const commentSeen = newCommentEndMemo();
   let i = 0;
   while (i < html.length) {
     if (html[i] !== '<') {
@@ -262,7 +187,7 @@ export function scanTags(html: string): ScanResult {
       continue;
     }
     let j = nameStart;
-    while (j < html.length && isTagNameChar(html[j])) j++;
+    while (j < html.length && !isTagNameEnd(html[j])) j++;
     const name = html.slice(nameStart, j).toLowerCase();
     // 属性を 1 つずつ読んで閉じ `>` を探す。引用符が属性の値として開くのは `=` の直後だけで、
     // 引用符の外に現れた `>` だけがタグを閉じる(未引用の属性値中の `>` もタグを閉じる)。
@@ -273,8 +198,8 @@ export function scanTags(html: string): ScanResult {
         k++;
         continue;
       }
-      const attr = readAttr(html, k);
-      if (!isEnd) attrs.push({ name: attr.name, value: attr.value });
+      const attr = readAttr(html, k, html.length);
+      if (!isEnd) attrs.push({ name: attr.name, value: attr.value ?? '' });
       k = attr.next;
     }
     if (k >= html.length) return { tags, ok: false };
@@ -292,7 +217,7 @@ export function scanTags(html: string): ScanResult {
     tags.push(span);
     i = end;
     if (!isEnd && RAW_TEXT_ELEMENTS.has(name)) {
-      const close = findRawTextEnd(html, lower, i, name);
+      const close = findRawTextEnd(lower, name, i).at;
       if (close === -1) return { tags, ok: false };
       span.rawText = html.slice(i, close);
       i = close;

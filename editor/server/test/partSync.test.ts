@@ -57,6 +57,18 @@ describe('extractSyncParts', () => {
     expect(parts.map((p) => p.partId)).toEqual(['a']);
   });
 
+  it('raw text の中のタグを読まず、`</name` の直後が名前の終わりのときだけ閉じる', () => {
+    const html = doc(
+      // 長さの変わる大文字(`İ`)の後でも閉じタグの位置がずれない。
+      'İİ<SCRIPT>"<div data-part-id="ghost">"</scriptx></SCRIPT >',
+      '<title><div data-part-id="t"></div></title>',
+      part('a', 'A'),
+    );
+    const parts = extractSyncParts(html);
+    expect(parts.map((p) => p.partId)).toEqual(['a']);
+    expect(parts[0].html).toBe(part('a', 'A'));
+  });
+
   it('同一 partId の複数出現は #n で区別する', () => {
     const parts = extractSyncParts(doc(part('a', '1'), part('a', '2')));
     expect(parts.map((p) => p.key)).toEqual(['a#1', 'a#2']);

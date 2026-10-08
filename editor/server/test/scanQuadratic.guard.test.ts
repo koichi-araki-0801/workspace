@@ -1,8 +1,9 @@
 // =============================================================================
 // scanQuadratic.guard.test.ts — タグ走査の小文字化コピーを「走査ごとに 1 回」に固定する
 // =============================================================================
-// `inlineCss.findRawTextEnd` と `security/templateScripts.rawTextEnd` は、raw text 要素の
-// 終了タグを大小文字無視で探すために入力全体の小文字化コピーを使う。これを**関数の中**で
+// `inlineCss.scanTags` と `security/templateScripts.rawTextEnd` は、raw text 要素の終了タグを
+// 大小文字無視で探すために入力全体の小文字化コピーを使い、共有の終わり探し
+// (`shared/src/html/rawText.ts` の `findRawTextEnd`)へ渡す。これを**関数の中**で
 // 作ると、raw text 開始タグ 1 つにつき入力全体を 1 回コピーすることになる:
 //   - `inlineCss` の `RAW_TEXT_ELEMENTS` には `title` が入るので `<title></title>` の反復が
 //     最悪形(15 バイト/回)。1MB の本文で ~70,000 回の全長コピーになる。
@@ -21,15 +22,17 @@ import { describe, expect, it } from 'vitest';
 import { collectExecutableUnits } from '../src/security/templateScripts.js';
 import { scanTags } from '../src/vivliostyle/inlineCss.js';
 
-const srcDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const read = (rel: string): string => fs.readFileSync(path.join(srcDir, rel), 'utf8');
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const srcDir = path.join(testDir, '..', 'src');
+const sharedSrcDir = path.join(testDir, '..', '..', 'shared', 'src');
+const read = (rel: string, dir = srcDir): string => fs.readFileSync(path.join(dir, rel), 'utf8');
 
 /**
  * コメントを落としたソース。数えたいのは**実行されるコピー**なので、同じ字面を含む
  * 解説文(「ここで `html.toLowerCase()` すると…」)は数から外す。
  */
-const code = (rel: string): string =>
-  read(rel)
+const code = (rel: string, dir = srcDir): string =>
+  read(rel, dir)
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*\/\/.*$/gm, '');
 
@@ -45,11 +48,15 @@ describe('小文字化コピーは走査ごとに 1 回だけ', () => {
     // 1 箇所は `scanTags` の内側でなければならない(呼び出し側が作って渡す形)。
     const scanBody = src.slice(src.indexOf('export function scanTags'));
     expect(scanBody).toContain('const lower = html.toLowerCase();');
-    // 終端探索の関数自身はコピーを作らない。
-    const findBody = src.slice(
-      src.indexOf('function findRawTextEnd'),
-      src.indexOf('function readAttr'),
-    );
+    // 終端探索は共有の関数を使い、その関数自身はコピーを作らない。
+    expect(scanBody).toContain('findRawTextEnd(lower,');
+    expect(src).not.toMatch(/function findRawTextEnd/);
+  });
+
+  it('共有の終わり探し `findRawTextEnd` は小文字化コピーを作らない', () => {
+    const src = code('html/rawText.ts', sharedSrcDir);
+    const findBody = src.slice(src.indexOf('export function findRawTextEnd'));
+    expect(findBody).toContain('lower.indexOf(');
     expect(findBody).not.toContain('toLowerCase()');
   });
 
@@ -63,6 +70,7 @@ describe('小文字化コピーは走査ごとに 1 回だけ', () => {
       src.indexOf('function* scanOpenTags'),
     );
     expect(rawEndBody).not.toContain('toLowerCase()');
+    expect(rawEndBody).toContain('findRawTextEnd(lower,');
   });
 });
 

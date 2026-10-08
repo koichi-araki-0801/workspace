@@ -18,7 +18,14 @@
 //   理由を返し、人間の判断に委ねる。
 
 import { createHash } from 'node:crypto';
-import type { PAIR_PART_CONFLICT_KINDS, PartSyncDefault } from '@editor/shared';
+import {
+  findRawTextEnd,
+  isAsciiAlpha,
+  isHtmlSpace,
+  type PAIR_PART_CONFLICT_KINDS,
+  type PartSyncDefault,
+  RAW_TEXT_ELEMENTS,
+} from '@editor/shared';
 import type { CssRuleConflict } from './cssSync.js';
 
 // ── 1. パーツ抽出(生テキストスキャン) ──
@@ -60,9 +67,6 @@ const VOID_TAGS = new Set([
  */
 export const MAX_SYNC_SCAN_BYTES = 8 * 1024 * 1024;
 
-/** 中身をタグとして解釈しない要素(HTML の RAWTEXT/ESCAPABLE RAWTEXT)。 */
-const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title']);
-
 /** タグ 1 個分の走査結果。`attrsFrom`/`attrsTo` は開始タグの属性区間(end は排他)。 */
 interface HtmlToken {
   kind: 'start' | 'end';
@@ -77,10 +81,8 @@ interface HtmlToken {
   attrsTo: number;
 }
 
-const isSpace = (c: string): boolean =>
-  c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
-const isNameStart = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-const isNameChar = (c: string): boolean => isNameStart(c) || (c >= '0' && c <= '9') || c === '-';
+// タグ名は英字で始まり英数字と `-` だけで続く、とブラウザより狭く読む(`<a:b>` などは文字データ)。
+const isNameChar = (c: string): boolean => isAsciiAlpha(c) || (c >= '0' && c <= '9') || c === '-';
 
 /**
  * HTML をタグ単位に走査する。**不変則: カーソル `i` は単調非減少で、決して戻さない**
@@ -95,6 +97,9 @@ const isNameChar = (c: string): boolean => isNameStart(c) || (c >= '0' && c <= '
  */
 function* tokenizeHtml(html: string): Generator<HtmlToken> {
   const n = html.length;
+  // raw text の閉じタグ探し用の小文字の写し。最初の raw text 要素で 1 回だけ作る。ASCII だけを
+  // 小文字にするのは、`toLowerCase` が長さを変える文字(`İ` など)で位置がずれるため。
+  let lower: string | null = null;
   let i = 0;
   while (i < n) {
     const lt = html.indexOf('<', i);
@@ -116,7 +121,7 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
     const isClose = head === '/';
     if (isClose) i++;
     const nameStart = i;
-    if (i < n && isNameStart(html[i])) {
+    if (i < n && isAsciiAlpha(html[i])) {
       i++;
       while (i < n && isNameChar(html[i])) i++;
     }
@@ -152,23 +157,10 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
       attrsTo,
     };
     i = end;
-    if (isClose || selfClosing || !RAW_TEXT_TAGS.has(name)) continue;
+    if (isClose || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) continue;
     // RAWTEXT: 最初に現れる `</name` で終わる(引用符を考慮して探すと二次の温床になる)。
-    let p = i;
-    let closeAt = -1;
-    while (p < n) {
-      const k = html.indexOf('</', p);
-      if (k < 0) break;
-      const after = k + 2 + name.length;
-      if (html.slice(k + 2, after).toLowerCase() === name) {
-        const c = html[after];
-        if (c === undefined || isSpace(c) || c === '/' || c === '>') {
-          closeAt = k;
-          break;
-        }
-      }
-      p = k + 2;
-    }
+    lower ??= html.replace(/[A-Z]+/g, (m) => m.toLowerCase());
+    const closeAt = findRawTextEnd(lower, name, i).at;
     if (closeAt < 0) return;
     const gt = html.indexOf('>', closeAt);
     if (gt < 0) return;
@@ -193,18 +185,18 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
 function findPartId(html: string, from: number, to: number): string | null {
   let i = from;
   while (i < to) {
-    while (i < to && (isSpace(html[i]) || html[i] === '/')) i++;
+    while (i < to && (isHtmlSpace(html[i]) || html[i] === '/')) i++;
     if (i >= to) return null;
     const ns = i;
-    while (i < to && !isSpace(html[i]) && html[i] !== '=' && html[i] !== '/') i++;
+    while (i < to && !isHtmlSpace(html[i]) && html[i] !== '=' && html[i] !== '/') i++;
     const name = html.slice(ns, i).toLowerCase();
-    while (i < to && isSpace(html[i])) i++;
+    while (i < to && isHtmlSpace(html[i])) i++;
     if (html[i] !== '=' || i >= to) {
       if (name === 'data-part-id') return null; // 値なし属性はパーツ id として扱わない
       continue;
     }
     i++;
-    while (i < to && isSpace(html[i])) i++;
+    while (i < to && isHtmlSpace(html[i])) i++;
     const q = html[i];
     let value: string;
     if (q === '"' || q === "'") {
@@ -218,7 +210,7 @@ function findPartId(html: string, from: number, to: number): string | null {
       }
     } else {
       const vs = i;
-      while (i < to && !isSpace(html[i])) i++;
+      while (i < to && !isHtmlSpace(html[i])) i++;
       value = html.slice(vs, i);
     }
     if (name === 'data-part-id') return value;

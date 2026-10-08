@@ -42,7 +42,17 @@
 // 「描画前テンプレ特有の隠し方」を先に読むこと。
 // なお `parse5` は現状 server の依存に無く、追加はオフライン重量物バンドルの再生成を伴う。
 
-import { decodeHtmlEntities, findExternalRefsInCss, forbidden } from '@editor/shared';
+import {
+  decodeHtmlEntities,
+  findExternalRefsInCss,
+  findRawTextEnd,
+  forbidden,
+  isAsciiAlpha,
+  isHtmlSpace,
+  isTagNameEnd,
+  jinjaCloserOf,
+  MARKER_ATTRS,
+} from '@editor/shared';
 
 // ── 1. round-trip 用に退避された属性の復号 ──
 
@@ -52,11 +62,11 @@ import { decodeHtmlEntities, findExternalRefsInCss, forbidden } from '@editor/sh
  * (ラベル)は信用できないので、照合前に必ず復号した実体へ展開する。
  */
 const ENCODED_ATTRS = [
-  'data-opaque',
-  'data-jinja',
-  'data-jinja-block',
-  'data-jinja-open',
-  'data-jinja-close',
+  MARKER_ATTRS.opaque,
+  MARKER_ATTRS.jinja,
+  MARKER_ATTRS.jinjaBlock,
+  MARKER_ATTRS.jinjaOpen,
+  MARKER_ATTRS.jinjaClose,
 ] as const;
 
 const ENCODED_ATTR_RE = new RegExp(
@@ -440,25 +450,17 @@ interface ParsedTag {
 }
 
 /**
- * **タグ名**の終端文字。仕様のタグ名状態が実際に終端する文字だけを並べる。
+ * **属性名**の終端文字。属性名状態はタグ名と違い `=` でも終わる。
  *
- * `=` を入れてはならない。タグ名状態は空白・`/`・`>` でしか終わらず、`=` は
+ * **タグ名**の終端は `@editor/shared` の `isTagNameEnd`(空白・`/`・`>`)で、こちらとは別に持つ。
+ * タグ名に `=` を入れてはならない。タグ名状態は空白・`/`・`>` でしか終わらず、`=` は
  * 普通のタグ名文字なので、`<style=x>` の要素名はブラウザにとって `style=x` という**未知要素**
  * であり、中身は raw text にならず通常マークアップとして解析される(実 Chromium で
  * `<style=x><img src=x onerror=…>` の onerror 発火を確認)。ここに `=` があると走査器だけが
  * 要素名を `style` と読み、`</style` まで読み飛ばして内側が単位ゼロになる。
- *
- * **属性名の終端は別集合**(`ATTR_NAME_TERMINATORS`)。属性名状態は `=` でも終わるため、
  * 2 つを同じ集合で兼ねると片方が必ず間違う。
  */
-const TAG_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>']);
-
-/** **属性名**の終端文字。属性名状態はタグ名と違い `=` でも終わる。 */
 const ATTR_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>', '=']);
-
-function isSpace(c: string): boolean {
-  return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
-}
 
 /** 「タグの開始に見える `<`」の字面。読み飛ばし幅がこれを跨がないよう縛るのに使う。 */
 const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
@@ -481,9 +483,8 @@ const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
  * ので影響を受けない。
  */
 function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
-  const open = text.slice(at, at + 2);
-  const close = open === '{{' ? '}}' : open === '{%' ? '%}' : open === '{#' ? '#}' : null;
-  if (close === null) return -1;
+  const close = jinjaCloserOf(text.slice(at, at + 2));
+  if (close === undefined) return -1;
   const e = text.indexOf(close, at + 2);
   // 閉じ記号を探して走った距離を予算から引く(閉じない `{{` が末尾まで舐める分をここで数える)。
   budget.remaining -= (e < 0 ? text.length : e) - at;
@@ -492,42 +493,24 @@ function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
 }
 
 /**
- * raw text 要素(`script` / `style`)の終了タグの `<` 位置を返す(無ければ `-1`)。
+ * raw text 要素(`script` / `style`)の終了タグの `<` 位置を返し(無ければ `-1`)、探すのに読んだ
+ * 分を予算から引く。終わりの規則は `@editor/shared` の `findRawTextEnd`(`inlineCss.ts` などと共有)。
  *
  * `</script` の前方一致だけでは足りない。HTML のトークナイザは終了タグ名の直後が
  * 空白 / `/` / `>` のときにだけ終了タグとみなすので、`</scriptx>` は**本文の一部**である。
  * 前方一致で切ると `<script>init()</scriptx>/;evil()</script>` の本文を
  * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通してしまう。
- * 判定は `inlineCss.ts` の `findRawTextEnd` と同じ規則(片方だけ緩めない)。
  *
  * ⚠ `lower`(= `text` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
  * ここで `text.toLowerCase()` すると script/style 1 つにつき入力全体のコピーを
  * 作り、`collectInto` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり
  * 概ね 2 コピーになる。`'<style></style>'` の反復を `POST /api/review-requests` に
  * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
- * `inlineCss.findRawTextEnd` と同じ欠陥で、直すときは両方直すこと。
  */
-function rawTextEnd(
-  text: string,
-  lower: string,
-  name: string,
-  from: number,
-  budget: ScanBudget,
-): number {
-  const needle = `</${name}`;
-  let i = from;
-  while (i < lower.length) {
-    const at = lower.indexOf(needle, i);
-    if (at === -1) {
-      budget.remaining -= lower.length - i; // 終了タグを探して末尾まで舐めた分を数える
-      return -1;
-    }
-    budget.remaining -= at - i + needle.length;
-    const after = text[at + needle.length];
-    if (after === undefined || isSpace(after) || after === '/' || after === '>') return at;
-    i = at + needle.length;
-  }
-  return -1;
+function rawTextEnd(lower: string, name: string, from: number, budget: ScanBudget): number {
+  const { at, scanned } = findRawTextEnd(lower, name, from);
+  budget.remaining -= scanned; // 終了タグを探して読んだ分(見つからなければ末尾まで)を数える
+  return at;
 }
 
 /**
@@ -567,18 +550,18 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
       i = end <= lt ? len : end;
       continue;
     }
-    if (!/[a-zA-Z]/.test(next)) {
+    if (!isAsciiAlpha(next)) {
       i = lt + 1;
       continue;
     }
     let p = lt + 1;
-    while (p < len && !TAG_NAME_TERMINATORS.has(text[p] as string)) p++;
+    while (p < len && !isTagNameEnd(text[p])) p++;
     const name = text.slice(lt + 1, p).toLowerCase();
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
     while (p < len) {
       if (budget.remaining <= 0) break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
-      while (p < len && (isSpace(text[p] as string) || text[p] === '/')) p++;
+      while (p < len && (isHtmlSpace(text[p]) || text[p] === '/')) p++;
       if (p >= len) break;
       if (text[p] === '>') {
         p++;
@@ -597,11 +580,11 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
       const nameStart = p;
       while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) p++;
       const attrName = text.slice(nameStart, p).toLowerCase();
-      while (p < len && isSpace(text[p] as string)) p++;
+      while (p < len && isHtmlSpace(text[p])) p++;
       let value = '';
       if (text[p] === '=') {
         p++;
-        while (p < len && isSpace(text[p] as string)) p++;
+        while (p < len && isHtmlSpace(text[p])) p++;
         const quote = text[p];
         if (quote === '"' || quote === "'") {
           const e = text.indexOf(quote, p + 1);
@@ -609,7 +592,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
           p = e < 0 ? len : e + 1;
         } else {
           const vs = p;
-          while (p < len && !isSpace(text[p] as string) && text[p] !== '>') p++;
+          while (p < len && !isHtmlSpace(text[p]) && text[p] !== '>') p++;
           value = text.slice(vs, p);
         }
       }
@@ -618,7 +601,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
     yield { at: lt, contentAt: p, name, attrs, jinja };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
     if (RAW_TEXT_ELEMENTS.has(name)) {
-      const close = rawTextEnd(text, lower, name, p, budget);
+      const close = rawTextEnd(lower, name, p, budget);
       i = close < 0 ? len : close + name.length + 2;
     } else {
       i = p > lt ? p : lt + 1;
@@ -628,7 +611,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
 
 /** raw text 要素の内容(終了タグが無ければ EOF まで)。終端規則は `rawTextEnd` と共有する。 */
 function rawTextOf(text: string, lower: string, tag: ParsedTag, budget: ScanBudget): string {
-  const close = rawTextEnd(text, lower, tag.name, tag.contentAt, budget);
+  const close = rawTextEnd(lower, tag.name, tag.contentAt, budget);
   return close < 0 ? text.slice(tag.contentAt) : text.slice(tag.contentAt, close);
 }
 
@@ -662,8 +645,8 @@ function stripJinjaTokens(s: string): string {
   let i = 0;
   const n = s.length;
   while (i < n) {
-    if (s[i] === '{' && (s[i + 1] === '{' || s[i + 1] === '%' || s[i + 1] === '#')) {
-      const close = s[i + 1] === '{' ? '}}' : s[i + 1] === '%' ? '%}' : '#}';
+    const close = s[i] === '{' ? jinjaCloserOf(s.slice(i, i + 2)) : undefined;
+    if (close !== undefined) {
       const e = s.indexOf(close, i + 2);
       if (e < 0) break; // 閉じないトークン: 以降は捨てる
       i = e + 2; // 閉じるトークンは丸ごと飛ばす(indexOf は前進のみ = 全体で線形)
