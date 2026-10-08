@@ -137,6 +137,18 @@ describe('usePageGuides', () => {
     ]);
   });
 
+  it('1 ページ目が要素の無い白紙のページなら、2 ページ目の先頭の線に blank を付ける', () => {
+    const { g, top } = setup('<p id="a">1</p>', {}, (els) => ({
+      pages: [[], [els[0]]],
+      breakEls: [],
+      breakPages: [],
+    }));
+    g.refreshPageGuides();
+    expect(g.pageGuides.value).toEqual([
+      { top: top('a'), left: 10, width: 500, page: 1, blank: true },
+    ]);
+  });
+
   it('帯の直後に要素の無い白紙のページが来ても、まとめた線は帯の上端に引く', () => {
     const { g, top } = setup(
       `<p id="a">1</p>${BR('k1')}<p id="c" style="break-before:right">2</p>`,
