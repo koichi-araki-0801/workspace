@@ -7,8 +7,9 @@ import type {
   PartHistoryEntry,
   PartRepository,
 } from '@editor/shared';
+import { uniq } from '@editor/shared';
 import { attempt } from './attempt';
-import { currentUser, delay, K, now, partCatalog, read, uid, uniqStable, write } from './store';
+import { currentUser, delay, K, now, partCatalog, read, uid, write } from './store';
 
 // 分類フィルタは「上位が一致して初めて下位を見る」cascade。各段の述語を 1 か所に
 // 定義し、候補生成(段階別)と一覧(最下位まで)の両方で共有する。
@@ -26,14 +27,14 @@ export const localPartRepo: PartRepository = {
   getPartClassificationOptions: (query: PartClassificationQuery) =>
     attempt(() =>
       delay({
-        categories: uniqStable(partCatalog.map((i) => cls(i).category)),
-        majorClasses: uniqStable(
+        categories: uniq(partCatalog.map((i) => cls(i).category)),
+        majorClasses: uniq(
           partCatalog.filter((i) => matchCat(i, query)).map((i) => cls(i).majorClass),
         ),
-        middleClasses: uniqStable(
+        middleClasses: uniq(
           partCatalog.filter((i) => matchMajor(i, query)).map((i) => cls(i).middleClass),
         ),
-        minorClasses: uniqStable(
+        minorClasses: uniq(
           partCatalog.filter((i) => matchMiddle(i, query)).map((i) => cls(i).minorClass),
         ),
       }),

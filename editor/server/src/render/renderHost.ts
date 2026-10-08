@@ -39,6 +39,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
+import { bundleSafeToInline } from '../util/inlineBundle.js';
 
 /**
  * この経路**だけ**に効かせる CSP。全域 CSP(`config.buildCspDirectives`)は変更しない。
@@ -95,33 +96,6 @@ const NUNJUCKS_BUNDLE_SOURCE = path.resolve(
 
 /** 読み込んだバンドルのキャッシュ(90KB を毎回読まない)。 */
 let bundleCache: string | null = null;
-
-/**
- * バンドルをホストページの inline `<script>` に**そのまま**埋めてよいか。
- *
- * 判定のみで書き換えはしない(fail closed)。`</script` の `\/` 置換は minified バンドルでは
- * `a</b/…`(比較 + 正規表現リテラル)のような、置換すると構文が壊れる形が原理上ありうる。
- * 危険な字面を含む版が来たら inline を諦めて `<script src>` 配信へ倒す
- * (nunjucks 3.2.4 は inline 可を確認済み)。
- *
- * 判定は `previewHost.bundleSafeToInline` と**同じ規則**:
- *  - `</script` — raw text の終端。1 つでもあれば要素がそこで閉じる。
- *  - `<!--` の後、対応する `-->` より前に `<script` — script data の二重エスケープ状態に
- *    入り、こちらが付ける終了タグが終了タグとして扱われなくなる。
- *
- * 共通化しないのは、片方の版が壊れたときにもう一方を道連れにしないため(2 つの独立した
- * バンドルを、それぞれの経路の責任で判定する)。
- */
-function bundleSafeToInline(bundle: string): boolean {
-  const lower = bundle.toLowerCase();
-  if (lower.includes('</script')) return false;
-  for (let at = lower.indexOf('<!--'); at !== -1; at = lower.indexOf('<!--', at + 4)) {
-    const close = lower.indexOf('-->', at + 4);
-    const open = lower.indexOf('<script', at + 4);
-    if (open !== -1 && (close === -1 || open < close)) return false;
-  }
-  return true;
-}
 
 /**
  * nunjucks バンドルを読む。npm 同梱の実体は UMD で、`module`/`exports` が無いブラウザでは

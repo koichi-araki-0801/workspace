@@ -9,6 +9,7 @@ import {
   type ApproveReviewResult,
   anyTemplateFileName,
   conflict,
+  duplicateReviewMessage,
   editingMarkerMessage,
   findEditingMarkers,
   isApprover,
@@ -26,7 +27,6 @@ import {
   toReviewResponse,
   validation,
 } from '@editor/shared';
-import { formatDateTimeShort } from '@/lib/format';
 import { attempt } from './attempt';
 import { currentUser, delay, K, now, read, resolveFilled, uid, write } from './store';
 import { confirmSaveLocal, localTemplateRepo } from './templateRepo';
@@ -134,11 +134,9 @@ export const localReviewRepo: ReviewRepository = {
         req.css,
       );
       if (duplicate)
-        throw conflict(
-          `同じ内容の確定保存申請が既に承認待ちです（${formatDateTimeShort(duplicate.submittedAt)}に申請）。` +
-            '新しい申請は作りませんでした。',
-          { code: 'REVIEW_DUPLICATE' },
-        );
+        throw conflict(duplicateReviewMessage(duplicate.submittedAt), {
+          code: 'REVIEW_DUPLICATE',
+        });
       const review: StoredReviewRequest = {
         id: uid('rv'),
         templateId: req.templateId,

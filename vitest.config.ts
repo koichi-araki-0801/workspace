@@ -123,6 +123,7 @@ export default defineConfig({
         'editor/server/src/files/idPairStore.ts',
         'editor/server/src/files/confirmedHtml.ts',
         'editor/server/src/util/mapLimit.ts',
+        'editor/server/src/util/inlineBundle.ts',
         'editor/server/src/vivliostyle/workDir.ts',
         'editor/server/src/files/historyFiles.ts',
         'editor/server/src/files/notesFile.ts',

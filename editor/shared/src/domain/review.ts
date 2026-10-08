@@ -24,3 +24,21 @@ export function toReviewResponse(r: StoredReviewRequest): ReviewRequest {
   const { cssBaseline: _b, ...rest } = r;
   return rest;
 }
+
+/** 申請日時の表示。`YYYY/MM/DD HH:mm` のゼロ埋めで、実行環境の現地時刻で数える。 */
+export function formatSubmittedAt(iso: string): string {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/**
+ * 同じ内容の承認待ちが既にあるときの拒否文言。server と web local が同じ文を返すよう
+ * ここに置く(`code: 'REVIEW_DUPLICATE'` と対で使う)。
+ */
+export function duplicateReviewMessage(existingSubmittedAt: string): string {
+  return (
+    `同じ内容の確定保存申請が既に承認待ちです（${formatSubmittedAt(existingSubmittedAt)}に申請）。` +
+    '新しい申請は作りませんでした。'
+  );
+}

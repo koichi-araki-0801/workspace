@@ -14,6 +14,7 @@ import path from 'node:path';
 import helmet from '@fastify/helmet';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { bundleSafeToInline } from '../src/util/inlineBundle.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-preview-host-'));
 // 資産の置き場を temp へ寄せる(`config` は import 時に env を読む)。
@@ -24,8 +25,6 @@ process.env.IMAGES_DIR = path.join(tmp, 'images');
 process.env.AUTH_REQUIRED = 'false';
 
 let app: FastifyInstance;
-/** テストから直接検証するために export された判定(`previewHost.ts`)。 */
-let bundleSafeToInline: (bundle: string) => boolean;
 
 beforeAll(async () => {
   fs.mkdirSync(path.join(tmp, 'js'), { recursive: true });
@@ -49,9 +48,7 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(tmp, 'outside.js'), 'LEAK', 'utf8');
 
   const { buildCspDirectives } = await import('../src/config.js');
-  const previewHostModule = await import('../src/vivliostyle/previewHost.js');
-  const { previewHostRoutes } = previewHostModule;
-  bundleSafeToInline = previewHostModule.bundleSafeToInline;
+  const { previewHostRoutes } = await import('../src/vivliostyle/previewHost.js');
   app = Fastify();
   app.decorateRequest('user', undefined);
   // `app.ts` と同じ順序: helmet(全域)→ ルート。経路専用 CSP は onSend で上書きする。

@@ -11,12 +11,15 @@ import {
   type ApproveReviewResult,
   anyTemplateFileName,
   conflict,
+  duplicateReviewMessage,
   forbidden,
+  isApprover,
   notFound,
   parseAnyTemplateFileName,
   parseSkeletonFileName,
   parseTemplateFileName,
   type ReviewDecisionRequest,
+  type ReviewOrigin,
   type ReviewRequest,
   type ReviewRequestMeta,
   type ReviewStatus,
@@ -24,6 +27,7 @@ import {
   type SubmitReviewRequest,
   toReviewMeta,
   toReviewResponse,
+  type User,
   unexpected,
   validation,
 } from '@editor/shared';
@@ -54,7 +58,7 @@ import { assertNoEditingMarkers } from './editingMarkerGate.js';
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
 export interface ReviewActor {
   username: string;
-  role: string;
+  role: User['role'];
 }
 
 // ── 承認/却下の直列化(`gitRepo.ts` の `withGitLock` と同型) ──
@@ -70,13 +74,6 @@ const withReviewLock = createSerialQueue();
 // 件数上限の検査から `writeReview` までをこの鎖で直列化する。承認の鎖(`withReviewLock`)と
 // 分けるのは、承認が git コミットを含んで遅く、申請をその後ろで待たせないため。
 const withSubmitLock = createSerialQueue();
-
-/** 申請日時の表示(web の `formatDateTimeShort` と同じ `YYYY/MM/DD HH:mm`、サーバの現地時刻)。 */
-function formatSubmittedAt(iso: string): string {
-  const d = new Date(iso);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
 
 /**
  * 承認時のペアへの CSS 転写の入力。承認の直前の CSS を読めないとき、申請に baseline が無いとき
@@ -104,7 +101,7 @@ async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSour
 }
 
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
-function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
+function targetOfOrigin(origin: ReviewOrigin): ConfirmedTarget {
   return origin === 'edit' ? 'filled' : 'template';
 }
 
@@ -114,7 +111,7 @@ function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
  * 残らない、という不変則が壊れる)。申請と承認の双方で見るのは、申請後に `filled/` が消えても
  * 承認側で止めるため。
  */
-async function assertFilledPresentForEdit(origin: 'edit' | 'create', templateId: string) {
+async function assertFilledPresentForEdit(origin: ReviewOrigin, templateId: string) {
   if (origin !== 'edit') return;
   if (!(await filledExists(`${templateId}.html`)))
     throw validation(`編集タブの申請には値入り HTML(filled/)が必要です: ${templateId}`);
@@ -129,11 +126,6 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
     readTemplateCss(templateId),
   ]);
   return reviewContentHash(html, css);
-}
-
-/** approver|admin は全件、それ以外(editor)は自分の申請のみ閲覧できる。 */
-function canSeeAll(actor: ReviewActor): boolean {
-  return actor.role === 'approver' || actor.role === 'admin';
 }
 
 /**
@@ -244,11 +236,9 @@ export function createReviewRepo({
           contentHash: reviewContentHash(req.html, req.css),
         });
         if (duplicate)
-          throw conflict(
-            `同じ内容の確定保存申請が既に承認待ちです（${formatSubmittedAt(duplicate.submittedAt)}に申請）。` +
-              '新しい申請は作りませんでした。',
-            { code: 'REVIEW_DUPLICATE' },
-          );
+          throw conflict(duplicateReviewMessage(duplicate.submittedAt), {
+            code: 'REVIEW_DUPLICATE',
+          });
         // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
         // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
         // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
@@ -285,7 +275,7 @@ export function createReviewRepo({
       const all = await listReviewMetas();
       return all
         .filter((m) => (filter.status ? m.status === filter.status : true))
-        .filter((m) => canSeeAll(actor) || m.submittedBy === actor.username)
+        .filter((m) => isApprover(actor) || m.submittedBy === actor.username)
         .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
     },
 
@@ -297,7 +287,7 @@ export function createReviewRepo({
     async getReview(reqId, actor) {
       const review = await readReview(reqId);
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      if (!canSeeAll(actor) && review.submittedBy !== actor.username)
+      if (!isApprover(actor) && review.submittedBy !== actor.username)
         throw forbidden('この申請を閲覧する権限がありません');
       return toReviewResponse(review);
     },

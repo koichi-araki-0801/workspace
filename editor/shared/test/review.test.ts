@@ -2,6 +2,7 @@
 // review.test.ts — 承認ワークフローのスキーマ拡張(保留・変更概要)の検証
 // =============================================================================
 import { describe, expect, it } from 'vitest';
+import { duplicateReviewMessage, formatSubmittedAt } from '../src/domain/review.js';
 import { ReviewRequestMeta, ReviewStatus, SubmitReviewBody } from '../src/schemas.js';
 
 const baseMeta = {
@@ -58,5 +59,19 @@ describe('SubmitReviewBody', () => {
     expect(() =>
       SubmitReviewBody.parse({ ...body, changedSummary: { count: -1, names: [] } }),
     ).toThrow();
+  });
+});
+
+describe('formatSubmittedAt / duplicateReviewMessage', () => {
+  it('現地時刻のゼロ埋め YYYY/MM/DD HH:mm にする', () => {
+    const d = new Date(2026, 0, 2, 3, 4);
+    expect(formatSubmittedAt(d.toISOString())).toBe('2026/01/02 03:04');
+  });
+
+  it('重複申請の文言は申請日時と「作りませんでした」を含む', () => {
+    const d = new Date(2026, 11, 31, 23, 59);
+    expect(duplicateReviewMessage(d.toISOString())).toBe(
+      '同じ内容の確定保存申請が既に承認待ちです（2026/12/31 23:59に申請）。新しい申請は作りませんでした。',
+    );
   });
 });

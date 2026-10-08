@@ -45,6 +45,7 @@ import {
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
+import { bundleSafeToInline } from '../util/inlineBundle.js';
 import { isFundImagePath, resolveServedAssetSource } from './docAssets.js';
 
 /**
@@ -118,31 +119,6 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
 
 /** 読み込んだバンドルのキャッシュ(765KB を毎回読まない)。 */
 let bundleCache: string | null = null;
-
-/**
- * バンドルをホストページの inline `<script>` に**そのまま**埋めてよいか。
- *
- * 書き換えはしない(fail closed の判定のみ)。`</script` の `\/` 置換はテンプレ JS
- * (`inlineDocScripts.ts`)では安全側だが、minified バンドルには `a</b/…`(比較 + 正規表現
- * リテラル)のような、置換すると構文が壊れる形が原理上ありうる。危険な字面を含む版が
- * 来たら inline を諦めて従来の `<script src>` 配信へ倒す(v2.43.1 は inline 可を確認済み)。
- *
- *  - `</script` — raw text の終端。1 つでもあれば要素がそこで閉じる。
- *  - `<!--` の後、対応する `-->` より前に `<script` — script data の二重エスケープ状態に
- *    入り、こちらが付ける終了タグが終了タグとして扱われなくなる。
- *
- * テストから直接検証するために export する。呼び出しは本モジュール内のみ。
- */
-export function bundleSafeToInline(bundle: string): boolean {
-  const lower = bundle.toLowerCase();
-  if (lower.includes('</script')) return false;
-  for (let at = lower.indexOf('<!--'); at !== -1; at = lower.indexOf('<!--', at + 4)) {
-    const close = lower.indexOf('-->', at + 4);
-    const open = lower.indexOf('<script', at + 4);
-    if (open !== -1 && (close === -1 || open < close)) return false;
-  }
-  return true;
-}
 
 /**
  * ビューアバンドルを classic script として読める形にして返す。
