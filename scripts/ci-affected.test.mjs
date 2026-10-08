@@ -25,7 +25,7 @@ const REAL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(REAL_ROOT, 'scripts', 'ci-affected.mjs');
 
 // 共有ゲート。領域の有無に関わらず必ずこの順で先頭に並ぶ。
-const SHARED_GATES = ['check:comments', 'check:claude-hooks', 'check:canon-summary', 'check:ci', 'test:scripts'];
+const SHARED_GATES = ['check:comments', 'check:claude-hooks', 'check:canon-summary', 'check:ci', 'knip', 'test:scripts'];
 
 // 疑似リポジトリのコミットは、実行環境の git 設定 (`user.name` 未設定・環境変数の混入) に
 // 左右されないよう毎回明示する。`core.autocrlf` を切るのは改行の警告でテスト出力を

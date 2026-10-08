@@ -22,9 +22,8 @@ permissions:
 #
 # step の並びは `package.json` の `ci` と同じ順に保つ(`scripts/ci-affected.test.mjs` が
 # 「yml の段 ⊆ ci の段・同じ相対順序」を機械検査する。段を足す/外すときはその写像表も更新する)。
-# `ci` にあってここに無い段は同テストの免除リストに理由付きで載せる:
-#   - `check:claude-hooks`: `.claude/` は git 追跡外で checkout に検査対象が無い。
-#   - `pie-chart:batch` / `pie-chart:batch:diff`: `out/_baseline` はローカル生成物で GH に無い。
+# `ci` にあってここに無い段は同テストの `GH_EXEMPT` に理由付きで載せる(免除する段と理由は
+# そちらが正典)。
 #
 # offline/ の Pester テスト(`pnpm run ci:offline`)はここでは実行しない: Windows ランナーへの
 # 切替が要り、この job は ubuntu-latest 前提のため。ローカルの `ci:affected`(offline/ 変更時に
@@ -71,6 +70,9 @@ jobs:
 
       - name: Lint & format check (Biome)
         run: pnpm run check:ci
+
+      - name: Unused code check (knip)
+        run: pnpm run knip
 
       - name: Test (scripts, node:test)
         run: pnpm run test:scripts

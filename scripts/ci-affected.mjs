@@ -294,6 +294,7 @@ function main() {
   runPnpm('check:claude-hooks');
   runPnpm('check:canon-summary');
   runPnpm('check:ci');
+  runPnpm('knip');
   runPnpm('test:scripts');
 
   if (areas.length === 0) {

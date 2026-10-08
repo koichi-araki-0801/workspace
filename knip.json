@@ -2,20 +2,22 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "workspaces": {
     ".": {
-      "entry": []
+      "entry": ["editor/e2e/tools/e2e-vite.ts"]
     },
     "editor/server": {
       "entry": [
         "scripts/hash-password.ts",
         "scripts/gen-seed.ts",
         "scripts/pdf-build-worker.mjs",
-        "scripts/pdf-build-worker-daemon.mjs"
+        "scripts/pdf-build-worker-daemon.mjs",
+        "scripts/e2e-rest-server.ts"
       ]
     },
     "editor/web": {
       "ignoreDependencies": ["@vivliostyle/core"]
     }
   },
-  "ignore": ["**/resources/web/**"],
+  "ignore": ["**/resources/web/**", "CLAUDE-SECURITY-*/**"],
+  "ignoreBinaries": ["py", "powershell"],
   "ignoreDependencies": ["subset-font", "pino-pretty"]
 }
