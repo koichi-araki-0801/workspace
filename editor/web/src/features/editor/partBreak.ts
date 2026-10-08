@@ -33,7 +33,7 @@ export interface PartBreakState {
 }
 
 /** 1 回の切り替えで行う変更。 */
-export interface BreakPlan {
+interface BreakPlan {
   /** 区切りを挿入する位置(パーツの直前 / 直後)。挿入しなければ null。 */
   insert: BreakEdge | null;
   /** 消す区切りの要素(根の直下のもの)。 */

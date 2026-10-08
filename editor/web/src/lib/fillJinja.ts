@@ -27,9 +27,6 @@ import {
   type FillAnalysis,
   type FreezeReason,
   type FrozenRegion,
-  MATH_TEX_RE,
-  OPAQUE_MATH_RE,
-  OPAQUE_SCRIPT_RE,
   type OpaqueRegion,
 } from './fillAnalysis';
 import { Filler, loopCtx, parseForHeader, renderDisplay, takenBranchIndex } from './fillRender';
@@ -48,12 +45,8 @@ import { type JinjaNode, type JinjaToken, parseJinja } from './jinjaLex';
 import { b64encode, htmlEscape, normalizeForRoundTrip, toTemplate } from './jinjaMask';
 import { getBodyInner } from './templateDoc';
 
-// 生成正規表現の定義は `fillAnalysis.ts` に置く。`jinjaMask.ts` の検査と同じ定数を使い、生成と
-// 検査が別々の正規表現に分かれないようにする。
-export { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE };
-
 /** `toFilled` 1 回ぶんの診断。問題の式を出現順・重複排除で持つ。 */
-export interface FillDiagnostics {
+interface FillDiagnostics {
   /** 許可リスト評価器が解釈できなかった式(フィルタ等)。 */
   readonly unsupported: readonly string[];
   /**

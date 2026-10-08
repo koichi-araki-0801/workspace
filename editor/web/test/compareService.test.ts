@@ -21,7 +21,7 @@ import {
 // **向こう側**にあたる nunjucks 実装を直に噛ませる。隔離クライアント自体の契約
 // (発信元検証・保留・id 対応付け・期限)は `renderHostClient.test.ts` が固定する。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 

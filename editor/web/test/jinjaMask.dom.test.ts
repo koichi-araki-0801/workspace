@@ -9,7 +9,7 @@ import {
   normalizeForRoundTrip,
   toTemplate,
 } from '../src/lib/jinjaMask';
-import { renderJinja } from '../src/lib/nunjucksRender';
+import { renderJinja } from './helpers/renderJinja';
 
 const cases: Record<string, string> = {
   'inline var': `<p>こんにちは {{ user.name }} さん</p>`,

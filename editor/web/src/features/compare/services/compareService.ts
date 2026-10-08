@@ -63,7 +63,7 @@ export interface RenderedVersion {
 }
 
 export interface CompareService {
-  /** cascading-dropdown クエリにヒットするテンプレート一覧(比較対象の選択用)。 */
+  /** cascading-dropdown クエリにヒットするテンプレート一覧(比較対象の選択用)。テストから直接検証するために公開する。 */
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
   /** ヒットしたテンプレートに選べる版(現行版込み)を付与した候補一覧。 */
   listCandidates(query: DropdownQuery): Promise<Result<CompareCandidate[]>>;

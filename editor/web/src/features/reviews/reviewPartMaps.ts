@@ -8,7 +8,7 @@
 
 import { partLabelMap, partPageIndexMap } from '@/features/editor/partKey';
 
-export interface PartMaps {
+interface PartMaps {
   labels: Map<string, string>;
   pages: Map<string, number>;
 }

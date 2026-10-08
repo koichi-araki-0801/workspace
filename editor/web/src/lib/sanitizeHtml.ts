@@ -3,8 +3,8 @@
 // =============================================================================
 // テンプレ HTML は「別のユーザが書いたもの」を開く前提で、しかも 2 つの経路でアプリと同一
 // オリジンへ入る。経路ごとに手段が違うため、本ファイルは 2 本の関数を持つ:
-//   1. プレビュー / PDF — `@vivliostyle/core` が本体 document に直接描画するので、文字列を
-//      DOMPurify に通す(`sanitizePreviewHtml`)。
+//   1. プレビュー / PDF — `@vivliostyle/core` が本体 document に直接描画するので、DOM を
+//      DOMPurify に通す(`sanitizePreviewRoot` / `sanitizePdfRoot`)。
 //   2. 編集 canvas — GrapesJS のパーサが作った node ツリーを、component 化される前に
 //      刈り取る(`pruneCanvasActiveContent`)。文字列を再直列化しないのが要点。
 import DOMPurify, { type Config as PurifyConfig } from 'dompurify';
@@ -168,17 +168,6 @@ export function appendPreviewStyle(
   style.textContent = sanitizeStyleContent(css);
   head.appendChild(style);
   return style;
-}
-
-/**
- * テンプレ HTML(レンダリング済み)をサニタイズした文書文字列を返す。`<script>`・イベント
- * ハンドラ属性・`javascript:`/`data:` 等の危険な URL を除去しつつ、レポートの構造と CSS は保つ。
- *
- * ⚠ この戻り値へ後段で正規表現を当ててはならない(冒頭の不変則)。加工が要るなら
- * `sanitizePreviewRoot` で DOM を受け取り、DOM の上で加工してから `serializePreviewRoot` する。
- */
-export function sanitizePreviewHtml(html: string): string {
-  return serializePreviewRoot(sanitizePreviewRoot(html));
 }
 
 /**
@@ -482,12 +471,12 @@ const ALLOWED_GJS_ATTR = 'data-gjs-type';
 /** `PruneReport` に積む上限。攻撃入力で件数が爆発してもログ/通知が壊れないようにする。 */
 const REPORT_LIMIT = 20;
 
-export interface PruneOptions {
+interface PruneOptions {
   /** 通してよい `data-gjs-type` の値。`jinjaComponents` の `JINJA_COMPONENT_TYPE_SET` を渡す。 */
   allowedGjsTypes: ReadonlySet<string>;
 }
 
-export interface PruneReport {
+interface PruneReport {
   /** 落とした要素名(重複あり・`REPORT_LIMIT` で打ち切り)。 */
   droppedElements: string[];
   /** 落とした属性名(同上)。 */

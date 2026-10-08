@@ -14,7 +14,7 @@ import { pageHead } from '@/lib/pageBreaks';
 import { splitRootPages } from './partKey';
 
 /** 挿入先。`el` は根の直下の要素(その直後 / 直前に入れる)。 */
-export type InsertTarget =
+type InsertTarget =
   | { kind: 'after'; el: HTMLElement }
   | { kind: 'before'; el: HTMLElement }
   | { kind: 'end' }

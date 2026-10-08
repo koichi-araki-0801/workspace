@@ -28,7 +28,7 @@ export const JINJA_COMPONENT_TYPES = [
   'jinja-frozen-svg',
 ] as const;
 
-export type JinjaComponentType = (typeof JINJA_COMPONENT_TYPES)[number];
+type JinjaComponentType = (typeof JINJA_COMPONENT_TYPES)[number];
 
 /** `pruneCanvasActiveContent` の `allowedGjsTypes` へ渡す照合用 Set。 */
 export const JINJA_COMPONENT_TYPE_SET: ReadonlySet<string> = new Set(JINJA_COMPONENT_TYPES);

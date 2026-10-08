@@ -54,7 +54,7 @@ export function partsOf(root: HTMLElement): HTMLElement[] {
 
 /**
  * `el` を含む根の直下のパーツ。区切り自身、数えない要素(`<style>`・赤入れの削除要素など)と
- * その中、根そのもの、根の外は null。
+ * その中、根そのもの、根の外は null。テストから直接検証するために公開する。
  */
 export function partOf(el: HTMLElement, root: HTMLElement): HTMLElement | null {
   const parts = partsOf(root);
@@ -100,7 +100,7 @@ export function partPathKeyFor(el: HTMLElement, root: HTMLElement, keyOf: RawKey
 }
 
 /** パーツ 1 つの、キー・ページ番号(0 始まり)・ページの中の番号(0 始まり)。 */
-export interface PartEntry {
+interface PartEntry {
   part: HTMLElement;
   key: string;
   page: number;

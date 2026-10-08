@@ -19,7 +19,7 @@
 import { rebaseCssForDoc } from '@editor/shared';
 import { pageHead, pageItems, splitPages } from '@/lib/pageBreaks';
 
-export interface CompareDocsInput {
+interface CompareDocsInput {
   beforeHtml: string;
   afterHtml: string;
   cssBefore: string;
@@ -37,7 +37,7 @@ export interface CompareDocsInput {
   marker: boolean;
 }
 
-export interface CompareDocs {
+interface CompareDocs {
   beforeDoc: string;
   afterDoc: string;
   /** after 文書内の出現順の**変更ページのみ**のアンカー id(「次の変更箇所へ」の巡回に使う)。 */

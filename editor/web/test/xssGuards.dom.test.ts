@@ -31,7 +31,7 @@ import { appendPreviewStyle, sanitizePreviewRoot, stripExternalRefs } from '@/li
 // あたる nunjucks 実装を直に噛ませる(隔離そのものは `renderHostClient.test.ts` と
 // `ssti.guard.test.ts` が固定する)。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 

@@ -49,10 +49,10 @@ import { sanitizeStyleContent } from './sanitizeCss';
 import { sanitizePreviewRoot, serializePreviewRoot } from './sanitizeHtml';
 
 /** 資産取得の口。テストで差し替えられるよう関数型で受ける(既定は同一オリジン fetch)。 */
-export type AssetFetcher = (url: string) => Promise<Response>;
+type AssetFetcher = (url: string) => Promise<Response>;
 
 /** 自己完結化の文脈。 */
-export interface SelfContainOptions {
+interface SelfContainOptions {
   /** テンプレ ID の会社コード。会社フォルダの画像の照合に使う(不明なら会社フォルダは埋めない)。 */
   companyCode?: string | null;
 }

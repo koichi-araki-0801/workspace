@@ -10,7 +10,7 @@
 // 直したのは「どこでコンパイルするか」であって、入力の検査ではない。ゆえに守るべき不変則は
 // 個々の入力に対する挙動ではなく**呼び出しの形**で、それはソース走査でしか固定できない:
 //
-//   (I)   `lib/nunjucksRender.ts` 以外のアプリコードは `renderJinja` を import しない。
+//   (I)   アプリコードは `renderJinja` を import しない(定義はテストヘルパーだけ)。
 //   (II)  Worker 層は Jinja 描画を持たない(Worker は**同一オリジン**で、cookie 付き fetch が
 //         通る = 隔離になっていない。オフロードは隔離ではない)。
 //   (III) 描画を要する 4 経路は `renderJinjaIsolated`(opaque オリジンの iframe)を通る。
@@ -44,8 +44,8 @@ function stripComments(source: string): string {
 }
 
 const ALL_SOURCES = sourceFiles(WEB_SRC);
-/** `renderJinja` の定義元。ここだけは実装を持ってよい(隔離側と設定を揃える出所)。 */
-const RENDER_JINJA_HOME = path.join(WEB_SRC, 'lib/nunjucksRender.ts');
+/** 隔離を介さない描画済み HTML の組み立て口。走査が実在のファイルを読めているかの確認に使う。 */
+const ASSEMBLE_HOME = path.join(WEB_SRC, 'lib/nunjucksRender.ts');
 
 /** Jinja 描画を持ってはならない Worker 層。 */
 const WORKER_FILES = [
@@ -65,30 +65,27 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
   it('走査対象を実際に読めている(セルフテスト)', () => {
     // 収集に失敗していると以下が全部素通りして「常に緑」になる。
     expect(ALL_SOURCES.length).toBeGreaterThan(50);
-    expect(ALL_SOURCES).toContain(RENDER_JINJA_HOME);
+    expect(ALL_SOURCES).toContain(ASSEMBLE_HOME);
     for (const file of [...WORKER_FILES, ...ISOLATED_CALLERS]) {
       expect(readFileSync(file, 'utf8').length).toBeGreaterThan(200);
     }
   });
 
-  it('nunjucksRender.ts 以外のアプリコードは renderJinja を import しない', () => {
+  it('アプリコードは renderJinja を import しない', () => {
     // `import type` だけを取り出す形にはしない — 値として束縛できれば呼べてしまう。
     const offenders = ALL_SOURCES.filter((file) => {
-      if (file === RENDER_JINJA_HOME) return false;
       const code = stripComments(readFileSync(file, 'utf8'));
       return /import[^;]*\brenderJinja\b[^;]*from/.test(code);
     }).map((f) => path.relative(WEB_SRC, f));
     expect(offenders, `renderJinja を import している: ${offenders.join(', ')}`).toEqual([]);
   });
 
-  it('nunjucks を直に import してよいのは nunjucksRender だけ', () => {
+  it('アプリコードは nunjucks を直に import しない', () => {
     // 新しい描画経路が別ファイルに生えると、隔離を経ないコンパイルが静かに復活する。
     // `fillJinja.ts`(作成タブの値差込)も `jinjaExpr.ts` の許可リスト評価器で実装して
     // おり、例外は 1 つも無い。この 0 件が、全域 CSP
     // から `'unsafe-eval'` を落とせている根拠でもある(`server/src/config.ts`)。
-    const allowed = new Set([RENDER_JINJA_HOME]);
     const offenders = ALL_SOURCES.filter((file) => {
-      if (allowed.has(file)) return false;
       const code = stripComments(readFileSync(file, 'utf8'));
       return /from\s*['"]nunjucks['"]/.test(code);
     }).map((f) => path.relative(WEB_SRC, f));

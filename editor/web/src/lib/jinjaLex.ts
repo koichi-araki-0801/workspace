@@ -12,7 +12,7 @@
 
 import { type JinjaToken, lexJinja } from '@editor/shared';
 
-export { type JinjaToken, type JinjaTokenKind, type LexResult, lexJinja } from '@editor/shared';
+export { type JinjaToken, lexJinja } from '@editor/shared';
 
 // ── 2. ブロック木 ──
 // 開閉の対応はスタックで取る。対応が取れない入力は推測で補わずエラーにする(往復の可否は

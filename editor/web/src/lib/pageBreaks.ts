@@ -221,7 +221,7 @@ function chipSource(el: Element, attr: string): string {
  * 描画すると要素になりうるチップか。値の出力(`{{ }}`)で `|safe` を通すものは値が HTML のまま
  * 出て、`{% raw %}` のチップで中身に `<style>` `<script>` 以外の `<` を含むものは中身が文字どおり
  * 出る。どちらも canvas では数えないチップ(`isVanishingChip`)なので、根の直下にあると承認・比較と
- * パーツの番号がずれうる。
+ * パーツの番号がずれうる。テストから直接検証するために公開する。
  */
 export function isElementizingChip(el: Element): boolean {
   if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
@@ -418,6 +418,9 @@ const LEGACY_BREAK_PROP_RE = /^page-break-(?:before|after)$/;
  * CSS に `.pagebreak` の改ページ指定があるか(区切りが印刷で効くかの警告用。判定には使わない)。
  * `@media print` などの入れ子の中も見る(`splitCssRules` が降りる)。CSS の規則では、style 属性と
  * 違って `page-break-*` も効く(値は `always` / `left` / `right`)。`break-*` は `always` が効かない。
+ *
+ * `breakDeclAccepts` との値の範囲の違いは意図したもの。こちらは「区切りの CSS があるか」を
+ * 実際の印刷どおりに判定する。Vivliostyle は `break-*: always` を改ページにしないので数えない。
  */
 export function pagebreakCssDefined(css: string): boolean {
   for (const rule of splitCssRules(css)) {
@@ -443,6 +446,9 @@ export function pagebreakCssDefined(css: string): boolean {
 /**
  * 改ページの宣言の値が効くか。`break-*` は `break-*` の値と旧来の値(`always` など)、旧来の別名
  * `page-break-*` は旧来の値だけ(`page-break-before:column` は無効な値)。
+ *
+ * `pagebreakCssDefined` との値の範囲の違いは意図したもの。こちらは「区切り以外の改ページ指定」を
+ * 知らせる警告なので、印刷で効かない `break-*: always` も数えて多めに知らせる側へ倒す。
  */
 function breakDeclAccepts(prop: string, value: string): boolean {
   return isLegacyBreakValue(value) || (!prop.startsWith('page-') && isBreakValue(value));
@@ -474,15 +480,15 @@ export function cssRuleBreakSelector(sources: readonly string[]): string | null 
         .trim();
       if (head.startsWith('@')) continue;
       const decls = parseDecls(rule.text.slice(open + 1, rule.text.lastIndexOf('}')));
-      const breaks = (edge: 'before' | 'after', accepts: (v: string) => boolean) =>
+      const breaks = (edge: 'before' | 'after', accepts?: (v: string) => boolean) =>
         decls.some(
           ([prop, value]) =>
             (prop === `break-${edge}` || prop === `page-break-${edge}`) &&
             breakDeclAccepts(prop, value) &&
-            accepts(value),
+            (accepts?.(value) ?? true),
         );
-      const before = breaks('before', () => true);
-      const after = breaks('after', () => true);
+      const before = breaks('before');
+      const after = breaks('after');
       if (!before && !after) continue;
       const sidedAfter = breaks('after', (v) => SIDED_BREAK_VALUES.has(v));
       for (const sel of head.split(',').map((s) => s.trim())) {

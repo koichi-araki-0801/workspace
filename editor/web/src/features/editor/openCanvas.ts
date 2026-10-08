@@ -17,7 +17,7 @@
 import type { ConfirmedCanonical } from '@/lib/confirmedCanonical';
 
 /** `useGrapes` のうち、読み込みと書き出しの口。 */
-export interface OpenCanvasTarget {
+interface OpenCanvasTarget {
   load(bodyEditableHtml: string, css: string, opts?: { quiet?: boolean }): boolean;
   getBodyHtml(): string;
   getCss(): string;
@@ -39,7 +39,7 @@ export interface OpenCanvasInput {
   cachedCanonical: ConfirmedCanonical | null;
 }
 
-export interface OpenCanvasResult {
+interface OpenCanvasResult {
   /** 本文を読み込めたか。false なら canvas は空のまま(呼び出し側は一覧へ戻す)。 */
   loaded: boolean;
   /** 確定版の CSS を読み込んだ直後の `getCss()`。測れなければ null。 */

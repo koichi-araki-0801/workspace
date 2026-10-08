@@ -1,8 +1,7 @@
 // =============================================================================
-// nunjucksRender.ts — ブラウザでの Jinja2 テンプレートのプレビュー描画
+// nunjucksRender.ts — 描画済み HTML のプレビュー文書への組み立て
 // =============================================================================
-import { rebaseCssForDoc, type SampleData } from '@editor/shared';
-import nunjucks from 'nunjucks';
+import { rebaseCssForDoc } from '@editor/shared';
 import { formatCss, formatHtml } from './formatOutput';
 import {
   appendPreviewStyle,
@@ -11,40 +10,9 @@ import {
   stripExternalRefs,
 } from './sanitizeHtml';
 
-/**
- * 生 Jinja2 テンプレートを sample data でブラウザ上に Nunjucks (Jinja2 互換)で
- * 描画する。プレビュー専用 — 本番レンダリングではない。
- *
- * `autoescape` / `throwOnUndefined` の 2 設定は、隔離側(`server/src/render/renderHost.ts` の
- * ブートスクリプト)が**同じ値で**Environment を作る根拠でもある。隔離へ移して描画結果が
- * 変わらないことがここと向こうで揃っていることの意味なので、片方だけ変えない。
- */
-const env = new nunjucks.Environment(undefined, {
-  autoescape: true,
-  throwOnUndefined: false,
-});
-
 export interface RenderResult {
   html: string;
   error: string | null;
-}
-
-/**
- * ⚠ **アプリオリジンからこの関数を呼ばないこと。** nunjucks はサンドボックスではなく
- * コンパイラで、`{{ range.constructor("…")() }}` は `new Function` へ到達する。他人が書いた
- * テンプレをアプリのページで通すと、そのテンプレの字面が閲覧者のセッションでの JS 実行に
- * なる。呼び出し口は `lib/renderHostClient.ts` の `renderJinjaIsolated` 一本で、
- * 実際のコンパイルは opaque オリジンの iframe が行う。この定義が残っているのは Environment
- * 設定の出所を 1 箇所に保つため(禁止は `test/ssti.guard.test.ts` が機械検証する)。
- */
-export function renderJinja(template: string, data: SampleData): RenderResult {
-  try {
-    return { html: env.renderString(template, data as object), error: null };
-  } catch (e) {
-    // nunjucks は同期描画の失敗を必ず `TemplateError`(Error 派生)に包んで投げるので、
-    // 非 Error 側は型の上で到達不能。
-    return { html: '', error: (e as Error).message };
-  }
 }
 
 /**

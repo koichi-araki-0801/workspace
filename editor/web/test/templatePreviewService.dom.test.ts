@@ -26,7 +26,7 @@ import { useEditorSessionStore } from '@/stores/editorSession';
 // ここで固定したいのは draft 適用・文書組み立て・PDF 送信なので、隔離の向こう側にあたる
 // nunjucks 実装を直に噛ませる(クライアントの契約は `renderHostClient.test.ts`)。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 

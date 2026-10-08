@@ -136,7 +136,7 @@ export interface SelectedInfo {
   partId?: string;
 }
 
-export interface UseGrapesOptions {
+interface UseGrapesOptions {
   /** ファンド別画像が配信されるかの確認(`fundImageLayer.ts` の `inspect`)。省略時は問い合わせない。 */
   inspectFundImages?: FundImageLayerOptions['inspect'];
 }

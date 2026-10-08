@@ -25,7 +25,7 @@ export const JINJA_CHIP_CLASS = 'jinja-chip';
  */
 export const FROZEN_BODY_CLASS = 'jinja-frozen-body';
 /** 範囲の印(HTML コメント)の接頭辞。原文のコメントと区別するための名前空間。 */
-export const RT_COMMENT_PREFIX = 'jinja-rt:';
+const RT_COMMENT_PREFIX = 'jinja-rt:';
 
 export type RtMarker =
   | { kind: 'o'; id: number; payload: string }

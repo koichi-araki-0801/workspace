@@ -5,7 +5,8 @@
 // ような字面比較は (a) 直列化の些細な差(`data-preview-css=""`)で壊れ、(b) 攻撃者が本文に
 // 同じ字面を書くだけで満たせてしまうため、ガードとして機能しない。
 import { describe, expect, it } from 'vitest';
-import { assemblePreviewDocument, renderJinja } from '../src/lib/nunjucksRender';
+import { assemblePreviewDocument } from '../src/lib/nunjucksRender';
+import { renderJinja } from './helpers/renderJinja';
 
 /** 生成文書を HTML パーサへ戻す。「文字列にどう見えるか」ではなく「何になるか」を見る。 */
 function parse(html: string): Document {

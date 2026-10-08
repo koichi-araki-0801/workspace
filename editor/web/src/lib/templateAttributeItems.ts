@@ -6,7 +6,7 @@
 
 import type { TemplateAttributes } from '@editor/shared';
 
-export interface TemplateAttributeItem {
+interface TemplateAttributeItem {
   key: keyof TemplateAttributes;
   label: string;
   value: string;

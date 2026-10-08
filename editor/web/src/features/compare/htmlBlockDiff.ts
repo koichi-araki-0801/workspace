@@ -348,7 +348,7 @@ export function tokenize(text: string): string[] {
 export type DiffOp = { type: 'same' | 'del' | 'ins'; text: string };
 
 /** 語句 diff の結果。`coarse` は面積上限で語句単位を諦めたかどうか。 */
-export interface TokenDiff {
+interface TokenDiff {
   ops: DiffOp[];
   coarse: boolean;
 }

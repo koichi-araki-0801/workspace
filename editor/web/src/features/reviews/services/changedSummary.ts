@@ -20,7 +20,7 @@ interface SummaryInput {
 }
 
 /** 依存の束(テストで差し替える点)。実運用は `createChangedSummaryService` が既定を組む。 */
-export interface SummaryDeps {
+interface SummaryDeps {
   renderAfter: (
     html: string,
     css: string,
@@ -111,7 +111,7 @@ async function computeUnbounded(
 }
 
 /** 申請ボタンの event handler から使う入口。 */
-export interface ChangedSummaryService {
+interface ChangedSummaryService {
   computeChangedSummary(input: SummaryInput): Promise<ReviewChangedSummary | null>;
 }
 

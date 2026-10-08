@@ -34,7 +34,7 @@ import {
   parseJinja,
 } from './jinjaLex';
 
-export const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
+const TOKEN_RE = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g;
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
 const PH_START = String.fromCharCode(0xe000);
 const PH_END = String.fromCharCode(0xe001);
@@ -48,6 +48,7 @@ const PH_RE = new RegExp(`${PH_START}([A-Za-z0-9+/=]*)${PH_END}`, 'g');
 export const LEGACY_ATTR_SELECTOR =
   '[data-jinja-open],[data-jinja-close],[data-jinja-block],[data-jinja-loop-clone]';
 
+/** テンプレ文字列から Jinja のトークン(`{{ }}` / `{% %}` / `{# #}`)を出現順に取り出す。テストから直接検証するために公開する。 */
 export function extractJinjaTokens(s: string): string[] {
   return s.match(TOKEN_RE) ?? [];
 }
@@ -60,12 +61,6 @@ function b64decode(b: string): string {
 
 export function htmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-export function tokenKind(token: string): 'var' | 'stmt' | 'comment' {
-  if (token.startsWith('{{')) return 'var';
-  if (token.startsWith('{#')) return 'comment';
-  return 'stmt';
 }
 
 // ── 1. toTemplate — GrapesJS-safe → 生 Jinja2 ──

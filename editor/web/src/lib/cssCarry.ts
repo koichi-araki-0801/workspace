@@ -21,7 +21,7 @@ import { collectCssStructure } from '@editor/shared';
 const CARRIED_GROUP_AT_RULES = new Set(['media', 'supports']);
 
 /** `splitNestedFontFaces` の結果。 */
-export interface CarriedCss {
+interface CarriedCss {
   /** 取り出した `@font-face` を除いた CSS(GrapesJS へ渡す)。 */
   rest: string;
   /** 取り出した `@font-face` を外側の前置きで包み直した原文(出現順)。 */

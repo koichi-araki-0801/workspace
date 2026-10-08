@@ -47,14 +47,14 @@ import type { RenderResult } from '@/lib/nunjucksRender';
  * sandbox 制約など、子が沈黙する形の失敗は親からは区別できないため時間で切る
  * (`PreviewPanel.HOST_BOOT_TIMEOUT_MS` と同値)。
  */
-export const RENDER_HOST_BOOT_TIMEOUT_MS = 15_000;
+const RENDER_HOST_BOOT_TIMEOUT_MS = 15_000;
 
 /**
  * 1 要求あたりの期限。子は 1 要求 1 応答で状態を持たないので、応答が返らないのは
  * テンプレ側の無限ループか子の異常終了に限られる。待ち続けると画面が「生成中」のまま
  * 固まるため、観測可能な失敗へ変える。
  */
-export const RENDER_HOST_CALL_TIMEOUT_MS = 30_000;
+const RENDER_HOST_CALL_TIMEOUT_MS = 30_000;
 
 /** 子が起動しなかった/落ちたときの文言。原因は `logError` 側へ記録する。 */
 const BOOT_FAILED_MSG =

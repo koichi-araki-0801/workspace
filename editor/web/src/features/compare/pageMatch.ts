@@ -30,7 +30,7 @@ export function parsePageIndex(text: string, pageCount: number): number | null {
 }
 
 /** `layoutRows` の結果。offset 配列は `rowCount` 個にそろえてある。 */
-export interface RowLayout {
+interface RowLayout {
   beforeOff: number[];
   afterOff: number[];
   rowCount: number;

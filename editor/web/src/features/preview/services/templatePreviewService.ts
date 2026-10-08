@@ -74,7 +74,7 @@ export function cssBaselineNotice(hasDraft: boolean, cssBaseline: string | null)
   return hasDraft && cssBaseline === null ? CSS_BASELINE_MISSING_MSG : null;
 }
 
-/** 申請する本文で Jinja のブロックが減っているときに、申請の確認の説明へ足す一文。 */
+/** 申請する本文で Jinja のブロックが減っているときに、申請の確認の説明へ足す一文。テストから直接検証するために公開する。 */
 export const JINJA_BLOCK_LOSS_MSG = (n: number): string =>
   `元のテンプレートより Jinja のブロック（{% if %} など）が ${n} 個少なくなっています。` +
   '意図した削除でなければ、申請せずに編集画面で確かめてください。';

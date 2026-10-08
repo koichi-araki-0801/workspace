@@ -26,7 +26,7 @@ export function reportGlobalError(e: unknown): void {
  * **良性の警告**(次フレームで配信され実害なし)。ブラウザはこれを global `error` として
  * 上げる。
  */
-export function isBenignResizeObserverError(message: unknown): boolean {
+function isBenignResizeObserverError(message: unknown): boolean {
   return typeof message === 'string' && message.includes('ResizeObserver loop');
 }
 
