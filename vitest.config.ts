@@ -69,7 +69,7 @@ export default defineConfig({
         'editor/server/src/repositories/templateRepo.ts',
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/files/syncFiles.ts',
-        // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertFundCode` を
+        // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertTemplateAttributeToken` を
         // 連結の唯一の場所で強制する層なので、被覆を切らすと関所の退行を検出できない。
         'editor/server/src/files/draftFiles.ts',
         'editor/server/src/files/inProgress.ts',
