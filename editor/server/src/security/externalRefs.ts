@@ -56,7 +56,7 @@ export const EXTERNAL_REF_CODE = 'DOCUMENT_EXTERNAL_REF';
 const UNPARSABLE_MESSAGE =
   'HTMLのタグが閉じていないためPDFを作成できません。' +
   '閉じていないタグ・コメント・<style>/<script> を閉じてから送信してください。';
-// テストから直接検証するために公開する。
+/** テストから直接検証するために公開する。 */
 export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
 
 /**
