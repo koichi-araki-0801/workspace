@@ -5,7 +5,13 @@
 // web 側にしか無く一覧表示のたびに全件計算はできないため、**申請者のブラウザが申請時に
 // 1 回計算して meta に保存**する。参考情報であり承認判断には使わない(精査画面はその場で
 // 実差分を計算する)。計算のどこで失敗しても null を返し、申請そのものは決して止めない。
-import { isErr, type PartRepository, type Result, type ReviewChangedSummary } from '@editor/shared';
+import {
+  isErr,
+  type PartRepository,
+  type Result,
+  type ReviewChangedSummary,
+  type ReviewOrigin,
+} from '@editor/shared';
 import { usePartRepo } from '@/api/repositories';
 import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
 import { htmlWorker } from '@/workers';
@@ -16,7 +22,7 @@ interface SummaryInput {
   html: string;
   css: string;
   fundCode: string;
-  origin: 'edit' | 'create';
+  origin: ReviewOrigin;
 }
 
 /** 依存の束(テストで差し替える点)。実運用は `createChangedSummaryService` が既定を組む。 */
@@ -25,7 +31,7 @@ interface SummaryDeps {
     html: string,
     css: string,
     fundCode: string,
-    origin: 'edit' | 'create',
+    origin: ReviewOrigin,
   ) => Promise<Result<{ html: string; css: string }>>;
   renderBefore: (templateId: string) => Promise<Result<{ html: string; css: string }>>;
   buildHtmlDiff: (

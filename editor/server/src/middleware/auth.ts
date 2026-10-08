@@ -10,7 +10,7 @@
 // `security: []` 指定(`document.ts`)と対応する。
 // `要パスワード変更` の強制もここで行う。SPA のルータガードだけに任せていた頃は、API を
 // 直接叩けば初期パスワードのままフル権限で操作できた(承認まで通った)。
-import { apiPaths, forbidden, type User, unauthorized } from '@editor/shared';
+import { apiPaths, forbidden, isAdmin, isApprover, type User, unauthorized } from '@editor/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sessionIdFrom } from '../auth/session.js';
 import { config } from '../config.js';
@@ -61,11 +61,10 @@ function isPasswordChangeAllowed(request: FastifyRequest): boolean {
 /**
  * ロールの許可集合。**許可リストで書く**(`viewer` を名指しで拒む denylist にしない) —
  * 将来ロールが増えたときに既定で通ってしまう形を避けるため。未知のロール文字列は
- * どの集合にも属さないので自動的に 403 になる。
+ * どの集合にも属さないので自動的に 403 になる。精査者・管理者の判定は shared の
+ * `isApprover` / `isAdmin`(同じ許可リスト形)を使う。
  */
 const EDITOR_ROLES: readonly string[] = ['editor', 'approver', 'admin'];
-const APPROVER_ROLES: readonly string[] = ['approver', 'admin'];
-const ADMIN_ROLES: readonly string[] = ['admin'];
 
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
@@ -108,18 +107,18 @@ export async function requireIdentifiedUser(
  * 見るので、呼び出しはモジュール直下で 1 回だけにして、ルートごとに作り直さない。
  */
 function makeRoleGuard(
-  roles: readonly string[],
+  allowed: (user: Pick<User, 'role'>) => boolean,
   message: string,
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
   return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
     if (!config.requireAuth) return;
     if (!request.user) throw unauthorized('ログインが必要です');
-    if (!roles.includes(request.user.role)) throw forbidden(message);
+    if (!allowed(request.user)) throw forbidden(message);
   };
 }
 
 /** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
-export const requireAdmin = makeRoleGuard(ADMIN_ROLES, '管理者権限が必要です');
+export const requireAdmin = makeRoleGuard(isAdmin, '管理者権限が必要です');
 
 /**
  * `requireAuth` の後に実行する前提。編集者以上(`editor` / `approver` / `admin`)を強制する。
@@ -129,11 +128,14 @@ export const requireAdmin = makeRoleGuard(ADMIN_ROLES, '管理者権限が必要
  * 必ずこのガードを通すこと。適用の網羅は `routes/routeGuards.ts` の `ROUTE_POLICY` が
  * 正典で、表に無いルートはサーバ起動時に落ちる(付け忘れが本番まで届かない)。
  */
-export const requireEditor = makeRoleGuard(EDITOR_ROLES, '編集者権限が必要です');
+export const requireEditor = makeRoleGuard(
+  (u) => EDITOR_ROLES.includes(u.role),
+  '編集者権限が必要です',
+);
 
 /**
  * `requireAuth` の後に実行する前提。精査者(承認者)ロールを強制する(`approver` または
  * `admin`)。確定保存の承認・却下(`reviews.routes.ts`)を施錠し、
  * 編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
  */
-export const requireApprover = makeRoleGuard(APPROVER_ROLES, '精査者(承認者)権限が必要です');
+export const requireApprover = makeRoleGuard(isApprover, '精査者(承認者)権限が必要です');

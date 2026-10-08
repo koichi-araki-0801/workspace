@@ -88,6 +88,9 @@ export type TemplateVersionMeta = z.infer<typeof sch.TemplateVersionMeta>;
 
 export type ReviewStatus = z.infer<typeof sch.ReviewStatus>;
 
+/** 申請元の経路。`'edit'` は編集タブ、`'create'` は作成タブ。 */
+export type ReviewOrigin = z.infer<typeof sch.ReviewOrigin>;
+
 /**
  * 申請時に申請者ブラウザが計算した変更概要(パーツ数と業務名)。一覧の先出し表示専用の
  * 参考情報で、承認判断には使わない(承認は精査画面がその場で計算する実差分に基づく)。
@@ -205,20 +208,12 @@ export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 
 export type SaveDraftRequest = z.infer<typeof sch.SaveDraftRequest>;
 
-export interface ConfirmSaveRequest {
-  templateId: string;
-  /** テンプレファイル (ファンド別テンプレ) に書き戻す、復元済みの生 Jinja2 HTML。 */
-  html: string;
-  /** テンプレ単位の CSS(`cssFileNameOf` の名前)へ書く CSS。 */
-  css: string;
-  /** 申請元の経路。`'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。 */
-  origin: 'edit' | 'create';
-  /**
-   * 描画済みの "filled" ドキュメント (値差込済み・Jinja なし)。この確定の帳票
-   * インスタンスとして保持する。任意。描画対象が無ければ省略する。
-   */
-  filledHtml?: string;
-}
+/**
+ * 確定保存の入力。申請ボディ(`SubmitReviewRequest`)から、確定保存が運ばない
+ * `cssBaseline`(ペアへの CSS 転写用)と `changedSummary`(一覧の参考表示用)を除いたもの。
+ * `origin` の `'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。
+ */
+export type ConfirmSaveRequest = Omit<SubmitReviewRequest, 'cssBaseline' | 'changedSummary'>;
 
 /** 確定済みの帳票インスタンス: テンプレと並べて保存する filled ドキュメント。 */
 export interface TemplateInstance {

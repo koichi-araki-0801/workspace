@@ -9,6 +9,7 @@ import {
   isErr,
   ok,
   type Result,
+  type ReviewOrigin,
   type TemplateMeta,
   type TemplateRepository,
   type TemplateVersionMeta,
@@ -85,7 +86,7 @@ export interface CompareService {
     html: string,
     css: string,
     fundCode: string,
-    origin: 'edit' | 'create',
+    origin: ReviewOrigin,
   ): Promise<Result<RenderedVersion>>;
 }
 

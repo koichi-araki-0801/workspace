@@ -5,7 +5,7 @@
 // 上部バーは編集画面(`EditorTopBar`)と揃え, ズーム(+/-/%)とページ送り(◁ x/y ▷)を集約する。
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
-import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
+import { isErr, isOk, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
 import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -154,7 +154,7 @@ onMounted(async () => {
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
-const origin = computed<'edit' | 'create'>(() =>
+const origin = computed<ReviewOrigin>(() =>
   route.query.created === '1' ? 'create' : 'edit',
 );
 
