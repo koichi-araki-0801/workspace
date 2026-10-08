@@ -9,6 +9,7 @@ import {
   canvasCssFullCopy,
   canvasFontFaceSrcDisabled,
 } from '@/features/editor/canvasCssAssets';
+import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 
 describe('canvasAssetUrl', () => {
   it('フォントはプレビューホスト、画像は fund-assets の配信 URL にする', () => {
@@ -40,7 +41,7 @@ describe('canvasCssAssetCopy', () => {
       '@font-face{font-family:biz;src:url(fonts/biz.woff2) format("woff2")}' +
       '.page{color:red}' +
       '.logo{background:url(../images/510037_bg.svg) no-repeat}';
-    const out = canvasCssAssetCopy(css, 'AM01');
+    const out = canvasCssAssetCopy(css, 'AM01', TEMPLATE_CSS_FROM);
     expect(out).toContain(
       '@font-face{font-family:biz;src:url("/api/preview-host/css/fonts/biz.woff2") format("woff2")}',
     );
@@ -51,7 +52,11 @@ describe('canvasCssAssetCopy', () => {
   });
 
   it('at-rule の中の規則は前置きで包み直す', () => {
-    const out = canvasCssAssetCopy('@media print{.a{background:url(../images/a.svg)}}', null);
+    const out = canvasCssAssetCopy(
+      '@media print{.a{background:url(../images/a.svg)}}',
+      null,
+      TEMPLATE_CSS_FROM,
+    );
     expect(out).toBe('@media print{.a{background:url("/api/fund-assets/images/a.svg")}}');
   });
 
@@ -60,13 +65,14 @@ describe('canvasCssAssetCopy', () => {
       '.x{background:url(../images/smtam/q.svg)}' +
       '.y{background:url(data:image/png;base64,AA)}' +
       '.z{background:url(../../x.png)}';
-    expect(canvasCssAssetCopy(css, 'AM01')).toBe('');
+    expect(canvasCssAssetCopy(css, 'AM01', TEMPLATE_CSS_FROM)).toBe('');
   });
 
   it('url() を持たない宣言は複製に入れない(後ろの規則との優先順位を canvas で変えない)', () => {
     const out = canvasCssAssetCopy(
       '.a{background:url(../images/a.svg);color:blue}.b{color:red}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe('.a{background:url("/api/fund-assets/images/a.svg")}');
     expect(out).not.toContain('color');
@@ -77,6 +83,7 @@ describe('canvasCssAssetCopy', () => {
       '.a{background:url(../images/a.svg) center;color:blue;background-size:cover;' +
         'background-color:#eee}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe(
       '.a{background:url("/api/fund-assets/images/a.svg") center;background-size:cover;' +
@@ -88,6 +95,7 @@ describe('canvasCssAssetCopy', () => {
     const out = canvasCssAssetCopy(
       '.a{background-color:#eee;background:url(../images/a.svg)}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe('.a{background:url("/api/fund-assets/images/a.svg")}');
   });
@@ -96,6 +104,7 @@ describe('canvasCssAssetCopy', () => {
     const out = canvasCssAssetCopy(
       '.a{background-image:url(../images/a.svg);background-size:cover;color:red}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe('.a{background-image:url("/api/fund-assets/images/a.svg")}');
   });
@@ -104,6 +113,7 @@ describe('canvasCssAssetCopy', () => {
     const out = canvasCssAssetCopy(
       '@media print{.a{margin:0;background:url(../images/a.svg);/* x */background-repeat:no-repeat}}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe(
       '@media print{.a{background:url("/api/fund-assets/images/a.svg");background-repeat:no-repeat}}',
@@ -114,6 +124,7 @@ describe('canvasCssAssetCopy', () => {
     const out = canvasCssAssetCopy(
       '@media print{.a{color:blue;background:url(../images/a.svg) no-repeat;margin:0}}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe('@media print{.a{background:url("/api/fund-assets/images/a.svg") no-repeat}}');
   });
@@ -123,6 +134,7 @@ describe('canvasCssAssetCopy', () => {
       '/* 本文 */@font-face{font-family:"biz";font-weight:700;font-style:normal;' +
         'src:url(fonts/biz.woff2) format("woff2")}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toContain(
       '@font-face{font-family:"biz";font-weight:700;font-style:normal;' +
@@ -134,13 +146,14 @@ describe('canvasCssAssetCopy', () => {
     const out = canvasCssAssetCopy(
       '.a{content:"x;}";background:url("../images/a.svg");/* ; */color:red}',
       null,
+      TEMPLATE_CSS_FROM,
     );
     expect(out).toBe('.a{background:url("/api/fund-assets/images/a.svg")}');
   });
 
   it('url() の無い CSS は空', () => {
-    expect(canvasCssAssetCopy('.a{color:red}', null)).toBe('');
-    expect(canvasCssAssetCopy('', null)).toBe('');
+    expect(canvasCssAssetCopy('.a{color:red}', null, TEMPLATE_CSS_FROM)).toBe('');
+    expect(canvasCssAssetCopy('', null, TEMPLATE_CSS_FROM)).toBe('');
   });
 
   it('日本語のファイル名は区切りごとに 1 回だけ percent-encode する(既に %XX でも二重にしない)', () => {
@@ -149,13 +162,13 @@ describe('canvasCssAssetCopy', () => {
     const raw =
       '@font-face{font-family:m;src:url(fonts/明朝.woff2)}' +
       '.a{background:url("../images/AM01/背景.svg")}';
-    const raw2 = canvasCssAssetCopy(raw, 'AM01');
+    const raw2 = canvasCssAssetCopy(raw, 'AM01', TEMPLATE_CSS_FROM);
     expect(raw2).toContain(`url("${font}")`);
     expect(raw2).toContain('url("/api/fund-assets/images/AM01/%E8%83%8C%E6%99%AF.svg")');
     const escaped =
       '@font-face{font-family:m;src:url(fonts/%E6%98%8E%E6%9C%9D.woff2)}' +
       '.a{background:url(../images/am01/%E8%83%8C%E6%99%AF.svg)}';
-    const out = canvasCssAssetCopy(escaped, 'AM01');
+    const out = canvasCssAssetCopy(escaped, 'AM01', TEMPLATE_CSS_FROM);
     expect(out).toContain(`url("${font}")`);
     expect(out).toContain(`url("${img}")`);
     expect(out).not.toContain('%25');
@@ -166,7 +179,7 @@ describe('canvasCssAssetCopy', () => {
       '﻿@font-face {\r\n  font-family: biz;\r\n  src: url(fonts/biz.woff2);\r\n}\r\n' +
       '.p {\r\n  color: red;\r\n}\r\n' +
       '.logo {\r\n  background: url(../images/510037_bg.svg);\r\n}\r\n';
-    const out = canvasCssAssetCopy(css, null);
+    const out = canvasCssAssetCopy(css, null, TEMPLATE_CSS_FROM);
     expect(out).toContain('url("/api/preview-host/css/fonts/biz.woff2")');
     expect(out).toContain('url("/api/fund-assets/images/510037_bg.svg")');
     expect(out).not.toContain('color: red');
@@ -180,9 +193,13 @@ describe('canvasCssAssetCopy', () => {
       '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}',
     );
     // 参照元を省くと今どおり CSS の位置(`css/`)で解く。
-    expect(canvasCssAssetCopy('@font-face{font-family:F;src:url(fonts/f.woff2)}', 'AM01')).toBe(
-      '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}',
-    );
+    expect(
+      canvasCssAssetCopy(
+        '@font-face{font-family:F;src:url(fonts/f.woff2)}',
+        'AM01',
+        TEMPLATE_CSS_FROM,
+      ),
+    ).toBe('@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}');
     // 同じ `url(fonts/…)` でも、文書の位置からは `doc/fonts/…` を指すので配らない。
     expect(
       canvasCssAssetCopy('@font-face{font-family:F;src:url(fonts/f.woff2)}', 'AM01', DOC_DIR),
@@ -201,55 +218,64 @@ describe('canvasCssAssetCopy', () => {
 
 describe('canvasCssFullCopy(本文の <style> の全規則)', () => {
   it('url() の無い規則も囲む at-rule ごと複製する', () => {
-    expect(canvasCssFullCopy('.a{color:red}\n@media print{.b{margin:0}}', 'AM01')).toBe(
+    expect(canvasCssFullCopy('.a{color:red}\n@media print{.b{margin:0}}', 'AM01', DOC_DIR)).toBe(
       '.a{color:red}\n@media print{.b{margin:0}}',
     );
   });
 
   it('url() は文書の位置を基準に配信 URL へ直し、他の宣言も残す', () => {
     expect(
-      canvasCssFullCopy('.p{color:red;background:url(../images/AM01/x.svg) no-repeat}', 'AM01'),
+      canvasCssFullCopy(
+        '.p{color:red;background:url(../images/AM01/x.svg) no-repeat}',
+        'AM01',
+        DOC_DIR,
+      ),
     ).toBe('.p{color:red;background:url("/api/fund-assets/images/AM01/x.svg") no-repeat}');
     expect(
-      canvasCssFullCopy('@font-face{font-family:F;src:url(../css/fonts/f.woff2)}', 'AM01'),
+      canvasCssFullCopy('@font-face{font-family:F;src:url(../css/fonts/f.woff2)}', 'AM01', DOC_DIR),
     ).toBe('@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}');
   });
 
   it('直せない url() の宣言だけを落とし、@font-face は規則ごと落とす', () => {
-    expect(canvasCssFullCopy('.p{color:red;background:url(x.png)}', 'AM01')).toBe('.p{color:red}');
-    expect(canvasCssFullCopy('.p{background:url(../images/SMTAM/x.svg);margin:0}', 'AM01')).toBe(
-      '.p{margin:0}',
+    expect(canvasCssFullCopy('.p{color:red;background:url(x.png)}', 'AM01', DOC_DIR)).toBe(
+      '.p{color:red}',
     );
-    expect(canvasCssFullCopy('@font-face{font-family:F;src:url(f.woff2)}.a{color:red}', null)).toBe(
-      '.a{color:red}',
-    );
+    expect(
+      canvasCssFullCopy('.p{background:url(../images/SMTAM/x.svg);margin:0}', 'AM01', DOC_DIR),
+    ).toBe('.p{margin:0}');
+    expect(
+      canvasCssFullCopy('@font-face{font-family:F;src:url(f.woff2)}.a{color:red}', null, DOC_DIR),
+    ).toBe('.a{color:red}');
   });
 
   it('宣言を落として空になった規則は出さない', () => {
-    expect(canvasCssFullCopy('.p{background:url(x.png)}.a{color:red}', null)).toBe('.a{color:red}');
-    expect(canvasCssFullCopy('@media print{.p{background:url(x.png);}}', null)).toBe('');
+    expect(canvasCssFullCopy('.p{background:url(x.png)}.a{color:red}', null, DOC_DIR)).toBe(
+      '.a{color:red}',
+    );
+    expect(canvasCssFullCopy('@media print{.p{background:url(x.png);}}', null, DOC_DIR)).toBe('');
   });
 
   it('文書の中の参照(許可した data: URI・断片)はそのまま残す', () => {
     const css = '.p{background:url(data:image/png;base64,AAAA)}.q{filter:url(#f)}';
-    expect(canvasCssFullCopy(css, null)).toBe(
+    expect(canvasCssFullCopy(css, null, DOC_DIR)).toBe(
       '.p{background:url(data:image/png;base64,AAAA)}\n.q{filter:url(#f)}',
     );
   });
 
   it('文書の外を取りに行く参照が残る規則は複製しない', () => {
-    expect(canvasCssFullCopy('@import url(http://e.example/x.css);.a{color:red}', null)).toBe(
-      '.a{color:red}',
-    );
+    expect(
+      canvasCssFullCopy('@import url(http://e.example/x.css);.a{color:red}', null, DOC_DIR),
+    ).toBe('.a{color:red}');
     expect(
       canvasCssFullCopy(
         '.p{background:image-set("https://e.example/x.png" 1x)}.a{color:red}',
         null,
+        DOC_DIR,
       ),
     ).toBe('.a{color:red}');
-    expect(canvasCssFullCopy('.p{background:url(https://e.example/x.png);color:red}', null)).toBe(
-      '.p{color:red}',
-    );
+    expect(
+      canvasCssFullCopy('.p{background:url(https://e.example/x.png);color:red}', null, DOC_DIR),
+    ).toBe('.p{color:red}');
   });
 });
 

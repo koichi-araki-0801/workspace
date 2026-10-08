@@ -66,9 +66,6 @@ import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
 import { useZoomFit } from './useZoomFit';
 
-// 分離前からの import 元互換(zoom 定数の正典は `useZoomFit`)。
-export { ZOOM_STEP } from './useZoomFit';
-
 /**
  * `parse:html:root` の刈り取りトーストを黙らせる間だけ立つフラグ(`parseHtmlQuiet`)。
  * 刈り取り自体は止めない — 赤入れの基準は canvas と同じ正規化を通してこそ形が比較できる。
@@ -429,13 +426,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     });
   }
 
-  function nextPage(): void {
-    goToPage(currentPageIndex.value + 1);
-  }
-  function prevPage(): void {
-    goToPage(currentPageIndex.value - 1);
-  }
-
   /** 外側スクロール量から縦位置比率(0..1)を測り直す(`PageRail` のつまみ位置用)。 */
   function updateScrollFraction(): void {
     const el = cvScrollEl;
@@ -616,7 +606,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       selected,
       selectedRect,
       revision,
-      zoom,
       editing,
       refreshRect,
       refreshMove,
@@ -667,7 +656,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   // setZoom / updateScrollMode / fitToView は useZoomFit.ts が担う。
 
   /**
-   * content/構成が変わった後の「全部測り直す」正典。  /**
    * content/構成が変わった後の「全部測り直す」正典。順序厳守:
    * `recomputePages`(ページの数え直し) → `refreshPageGuides`(そのページの境目を読む) →
    * `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
@@ -1197,8 +1185,6 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     setEditable,
     goToPage,
     scrollToPage,
-    nextPage,
-    prevPage,
     setSinglePageMode,
     refreshRect,
     refreshPageGuides,

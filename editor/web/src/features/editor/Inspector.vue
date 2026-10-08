@@ -57,10 +57,10 @@ const props = defineProps<{
    * 選んだ要素が属するパーツの前後に改ページがあるか。null は区切りを置けない選択(固めた範囲の
    * 包みなど)で、前後の改ページを押せなくする。
    */
-  partBreak?: { before: boolean; after: boolean } | null;
+  partBreak: { before: boolean; after: boolean } | null;
   history: PartHistoryEntry[];
   /** 全パーツ横断表示(未選択時)で各履歴行のパーツを示すラベル(`partKey` → `ページN・パーツM`)。 */
-  partLabels?: Map<string, string>;
+  partLabels: Map<string, string>;
   /** 右ペインの表示(プロパティ / コメント)。切替の状態は `EditorView` が持つ。 */
   paneTab: 'props' | 'comments';
   /** 未対応コメントの件数(切替タブのバッジ)。 */
@@ -123,7 +123,7 @@ const reflectBadge = computed(
 const historySpansParts = computed(() => new Set(props.history.map((h) => h.partKey)).size > 1);
 /** 履歴行のパーツラベル。マップに無い(削除済み)パーツは控えめに示す。 */
 function partLabelOf(partKey: string): string {
-  return props.partLabels?.get(partKey) ?? '削除済みパーツ';
+  return props.partLabels.get(partKey) ?? '削除済みパーツ';
 }
 
 // ── 1. 折りたたみ状態 ──

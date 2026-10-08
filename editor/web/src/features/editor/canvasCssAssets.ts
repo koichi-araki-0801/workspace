@@ -34,7 +34,6 @@ import {
   type CssUrlSpan,
   collectCssUrlSpans,
   collectCssUrlSpansInContext,
-  DOC_DIR,
   findExternalRefsInCss,
   isAllowedDataUrl,
   PREVIEW_HOST_BASE,
@@ -180,14 +179,10 @@ function rewriteRule(text: string, companyCode: string | null, from: string): st
 /**
  * CSS から、`url()` を配信 URL へ直せた規則だけを、囲む at-rule ごと複製して返す
  * (1 規則 1 行。`@font-face` 以外は `url()` の宣言だけ)。直せる参照が無ければ空文字。
- * `from` は参照を解く基準の論理パス。テンプレの CSS は既定の `TEMPLATE_CSS_FROM`、本文の
+ * `from` は参照を解く基準の論理パス。テンプレの CSS は `TEMPLATE_CSS_FROM`、本文の
  * `<style>` は `DOC_DIR`。
  */
-export function canvasCssAssetCopy(
-  css: string,
-  companyCode: string | null,
-  from: string = TEMPLATE_CSS_FROM,
-): string {
+export function canvasCssAssetCopy(css: string, companyCode: string | null, from: string): string {
   const out: string[] = [];
   for (const rule of splitCssRules(css)) {
     const rewritten = rewriteRule(rule.text, companyCode, from);
@@ -255,13 +250,9 @@ function copyWholeRule(text: string, companyCode: string | null, from: string): 
 /**
  * 本文の `<style>` の全規則を、`url()` を配信 URL へ直して複製する(1 規則 1 行。囲む at-rule
  * ごと)。直せない `url()` の宣言は落とし、文書の外を取りに行く参照(`@import`・許可外の
- * スキームなど)が残る規則は複製しない。`from` は参照を解く基準の論理パス(既定は `DOC_DIR`)。
+ * スキームなど)が残る規則は複製しない。`from` は参照を解く基準の論理パス(`DOC_DIR` など)。
  */
-export function canvasCssFullCopy(
-  css: string,
-  companyCode: string | null,
-  from: string = DOC_DIR,
-): string {
+export function canvasCssFullCopy(css: string, companyCode: string | null, from: string): string {
   const out: string[] = [];
   for (const rule of splitCssRules(css)) {
     const copied = copyWholeRule(rule.text, companyCode, from);

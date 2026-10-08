@@ -18,7 +18,6 @@ interface GeomHandleDeps {
   selectedRect: Ref<SelectedRect | null>;
   /** 現在の canvas zoom(余白は zoom 非依存の mm で測る)。 */
   zoom: Ref<number>;
-  /** undo を 1 ステップ積む(drag 開始時に 1 度だけ呼ぶ)。 */
   /** drag 開始時の snapshot を保留する(確定/破棄は `recordGeomDiff` 側が決める)。 */
   beginUndo: () => void;
   /** 幾何パッチを適用する。`record=false` でライブ drag、true で history を記録。 */

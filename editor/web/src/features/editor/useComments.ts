@@ -6,13 +6,7 @@
 // 保留中の保存という状態は持たない(旧実装の debounce と `flush` は廃止した)。選択やテンプレ
 // 読込への追従は getter 注入で行い、単体テスト可能に保つ(`usePartEditHistory.ts` と同様)。
 
-import {
-  type AddNoteOptions,
-  isErr,
-  type NoteRepository,
-  type NoteStatus,
-  type PartNoteEntry,
-} from '@editor/shared';
+import { isErr, type NoteRepository, type NoteStatus, type PartNoteEntry } from '@editor/shared';
 import { computed, ref } from 'vue';
 import { logError } from '@/lib/appError';
 import { useLatest } from '@/lib/useLatest';
@@ -75,16 +69,16 @@ export function useComments(
   }
 
   /**
-   * 親投稿を追加する。宛先は第 3 引数 `pathKey` を優先し、省略時のみ `currentKey()` を使う
+   * 親投稿を追加する。宛先は第 2 引数 `pathKey` を優先し、省略時のみ `currentKey()` を使う
    * (承認タブは区画〈申請〉ごとに宛先を持ち、呼び出し側が表示中の宛先を明示する。
    * 「直近に操作した区画」に頼ると、別区画の select を触ってからこちらの追加を押したときに
    * 表示と投稿先がずれるため)。空文字はリポジトリが拒否するのでここでも送らない。
    */
-  async function add(content: string, opts: AddNoteOptions = {}, pathKey?: string): Promise<void> {
+  async function add(content: string, pathKey?: string): Promise<void> {
     const key = pathKey ?? currentKey();
     const tid = templateId();
     if (!key || !tid || content.trim() === '') return;
-    const res = await repo.addNote(tid, key, content, opts);
+    const res = await repo.addNote(tid, key, content);
     if (isErr(res)) {
       logError(res.error);
       return;

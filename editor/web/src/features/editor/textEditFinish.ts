@@ -70,7 +70,7 @@ export function createFinishTextEdit(
       );
       closing = settled;
       void settled.then(() => {
-        if (closing === settled) closing = null;
+        closing = null;
       });
     }
     const attempt = closing;

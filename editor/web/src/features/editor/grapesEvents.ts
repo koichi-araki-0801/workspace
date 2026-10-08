@@ -37,7 +37,6 @@ export interface GrapesEventDeps {
   selectedRect: Ref<SelectedRect | null>;
   /** component/style 変更ごとに加算され、呼び出し側が幾何を再計算できるようにする。 */
   revision: Ref<number>;
-  zoom: Ref<number>;
   /** inline text 編集(RTE)中フラグ。`rte:enable`/`rte:disable` でここを上げ下げする。 */
   editing: Ref<boolean>;
   refreshRect: () => void;
@@ -62,7 +61,7 @@ export interface GrapesEventDeps {
    * これらはモデルの見た目状態で保存内容(`getHtml()`)を変えない。dirty/autosave へ
    * 流すと無編集の draft が生成されるので、`fireChange` がこの間 `callbacks.change` を止める。
    */
-  isApplyingLockState?: () => boolean;
+  isApplyingLockState: () => boolean;
   /** load 時に canvas document へ注入する jinja + A4 の合成スタイル。 */
   canvasCss: string;
   callbacks: GrapesCallbacks;
@@ -171,7 +170,7 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     scheduleHeavyRecompute();
     // 編集可否切替中の component:update は内容変更ではない(`isApplyingLockState` の doc を
     // 見よ)。dirty/autosave へは流さず、幾何の追随(上の即時部)だけ行う。
-    if (deps.isApplyingLockState?.()) return;
+    if (deps.isApplyingLockState()) return;
     if (opts.saveNeutral) return;
     callbacks.change?.();
   };

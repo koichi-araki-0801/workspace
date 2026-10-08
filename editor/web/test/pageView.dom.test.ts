@@ -114,7 +114,7 @@ describe('markPages', () => {
 
 describe('pageViewCss', () => {
   it('1 ページ表示・複数ページなら、現在 index 以外の印の要素だけを隠す', () => {
-    const css = pageViewCss(1, 3, true);
+    const css = pageViewCss(1, 3, true, false);
     expect(css).toContain(`[${PV_ATTR}]:not([${PV_ATTR}="1"])`);
     expect(css).toContain('display: none !important');
     // ページ内のパーツの `display`(flex など)を上書きしない。
@@ -130,7 +130,7 @@ describe('pageViewCss', () => {
     const style = document.createElement('style');
     style.textContent =
       '[data-gjs-type=wrapper] > div.pagebreak { display: block !important; }\n' +
-      pageViewCss(1, 2, true);
+      pageViewCss(1, 2, true, false);
     document.head.appendChild(style);
     try {
       const [p0, band, p1] = Array.from(wrapper.children);
@@ -144,19 +144,19 @@ describe('pageViewCss', () => {
   });
 
   it('1 ページ表示でもページが 1 枚以下なら空文字(常時表示)', () => {
-    expect(pageViewCss(0, 1, true)).toBe('');
-    expect(pageViewCss(0, 0, true)).toBe('');
+    expect(pageViewCss(0, 1, true, false)).toBe('');
+    expect(pageViewCss(0, 0, true, false)).toBe('');
   });
 
   it('全ページ表示(singleMode=false)は枚数に関わらず空文字', () => {
-    expect(pageViewCss(2, 5, false)).toBe('');
+    expect(pageViewCss(2, 5, false, false)).toBe('');
   });
 
   it('要素の無い白紙のページを表示しているときだけ、wrapper の ::before に白紙のページの帯を出す', () => {
     const css = pageViewCss(1, 3, true, true);
     expect(css).toContain('[data-gjs-type=wrapper]::before');
     expect(css).toContain(BLANK_PAGE_LABEL);
-    expect(pageViewCss(1, 3, true)).not.toContain('::before');
+    expect(pageViewCss(1, 3, true, false)).not.toContain('::before');
     expect(pageViewCss(1, 3, false, true)).toBe('');
     expect(pageViewCss(0, 1, true, true)).toBe('');
   });

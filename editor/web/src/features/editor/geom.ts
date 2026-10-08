@@ -44,7 +44,6 @@ function lenToMm(v: string | undefined): number {
   const s = v.trim();
   const n = Number.parseFloat(s);
   if (Number.isNaN(n)) return 0;
-  if (s.endsWith('mm')) return Math.round(n);
   if (s.endsWith('px')) return Math.round(n / PX_PER_MM);
   return Math.round(n);
 }

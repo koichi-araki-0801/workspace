@@ -139,7 +139,7 @@ describe('帯と 1 ページ表示', () => {
     const band = [...pagebreakCanvasCss.matchAll(/([^{}]+)\{[^}]*display:/g)].map((m) =>
       m[1].trim(),
     );
-    const hide = pageViewCss(1, 3, true).split('{')[0].trim();
+    const hide = pageViewCss(1, 3, true, false).split('{')[0].trim();
     expect(band).toEqual(['[data-gjs-type=wrapper] > div.pagebreak']);
     expect(specificity(band[0])).toEqual([0, 2, 1]);
     expect(beats(specificity(hide), specificity(band[0])), hide).toBe(true);
@@ -164,11 +164,11 @@ describe('帯と 1 ページ表示', () => {
     document.head.appendChild(style);
     try {
       style.textContent = `${pagebreakCanvasCss}
-${pageViewCss(1, 3, true)}`;
+${pageViewCss(1, 3, true, false)}`;
       expect(getComputedStyle(k1).display).toBe('none');
       expect(getComputedStyle(k2).display).toBe('block');
       style.textContent = `${pagebreakCanvasCss}
-${pageViewCss(0, 3, false)}`;
+${pageViewCss(0, 3, false, false)}`;
       expect(getComputedStyle(k1).display).toBe('block');
     } finally {
       style.remove();

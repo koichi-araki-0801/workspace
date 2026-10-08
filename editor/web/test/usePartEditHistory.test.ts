@@ -14,6 +14,9 @@ function persistedEntry(id: string): PartHistoryEntry {
   };
 }
 
+const noPersist = () => {};
+const freshInit = () => ({ history: reactive<Record<string, PartHistoryEntry[]>>({}) });
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 describe('usePartEditHistory', () => {
@@ -24,6 +27,8 @@ describe('usePartEditHistory', () => {
       () => cid.value,
       () => '編集者',
       () => [],
+      noPersist,
+      freshInit(),
     );
     record('幅を変更');
     expect(displayHistory.value).toHaveLength(1);
@@ -41,6 +46,8 @@ describe('usePartEditHistory', () => {
       () => undefined,
       () => '編集者',
       () => [],
+      noPersist,
+      freshInit(),
     );
     record('何か');
     expect(displayHistory.value).toHaveLength(0);
@@ -53,6 +60,8 @@ describe('usePartEditHistory', () => {
       () => cid.value,
       () => '編集者',
       () => [],
+      noPersist,
+      freshInit(),
     );
     record('一回目');
     record('二回目');
@@ -74,6 +83,8 @@ describe('usePartEditHistory', () => {
       () => cid.value,
       () => '編集者',
       () => persisted.value,
+      noPersist,
+      freshInit(),
     );
     record('セッション編集');
     expect(displayHistory.value.map((e) => e.change)).toEqual(['セッション編集', 'persisted']);
@@ -120,7 +131,7 @@ describe('usePartEditHistory', () => {
       () => '編集者',
       // 未選択(key 未指定)なら全件、選択中はそのパーツのみ。
       (key) => (key ? persisted.filter((e) => e.partKey === key) : persisted),
-      undefined,
+      noPersist,
       { history },
     );
     // 未選択: 全 4 件(セッション 2 + 永続 2)が timestamp 降順で interleave。
@@ -144,6 +155,7 @@ describe('usePartEditHistory', () => {
       () => '編集者',
       () => [],
       (partKey, change, id) => calls.push([partKey, change, id]),
+      freshInit(),
     );
     record('幅を変更');
     cid.value = undefined;
@@ -169,7 +181,7 @@ describe('usePartEditHistory', () => {
       () => cid.value,
       () => '編集者',
       () => [],
-      undefined,
+      noPersist,
       init,
     );
     first.record('一回目');
@@ -182,7 +194,7 @@ describe('usePartEditHistory', () => {
       () => cid.value,
       () => '編集者',
       () => [],
-      undefined,
+      noPersist,
       init,
     );
     expect(second.displayHistory.value.map((e) => e.change)).toEqual(['一回目']);
@@ -204,7 +216,7 @@ describe('usePartEditHistory', () => {
         () => cid.value,
         () => '編集者',
         (key) => (key ? persisted.value.filter((e) => e.partKey === key) : persisted.value),
-        undefined,
+        noPersist,
         { history },
       );
       return { cid, history, persisted, ...h };

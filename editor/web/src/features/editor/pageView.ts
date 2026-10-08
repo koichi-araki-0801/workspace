@@ -107,7 +107,7 @@ export function pageViewCss(
   index: number,
   count: number,
   singleMode: boolean,
-  elementless = false,
+  elementless: boolean,
 ): string {
   if (!singleMode || count <= 1) return '';
   const hide = `[data-gjs-type=wrapper] [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;

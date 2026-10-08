@@ -93,11 +93,7 @@ function partKeys(parts: readonly HTMLElement[], keyOf: RawKeyOf): string[] {
  * 選択要素の版を跨いで安定なパーツキー `<アンカー>#<通し番号>` を返す。解決できなければ null。
  * 同一パーツ内のどの子要素を選んでも、囲うパーツの同一キーに解決される(= 紐付け単位は「パーツ」)。
  */
-export function partPathKeyFor(
-  el: HTMLElement,
-  root: HTMLElement,
-  keyOf: RawKeyOf = rawKey,
-): string | null {
+export function partPathKeyFor(el: HTMLElement, root: HTMLElement, keyOf: RawKeyOf): string | null {
   const parts = partsOf(root);
   const i = partIndex(el, root, parts);
   return i < 0 ? null : partKeys(parts, keyOf)[i];
@@ -272,7 +268,7 @@ const JINJA_OPEN_RE = /\{[{%#]/;
  * 採用の順は `keyOf`(canvas では `canvasRawKey`)と同じ。固めた要素は表示用の値で描かれているので
  * 原文で見る。
  */
-export function jinjaAnchoredParts(root: HTMLElement, keyOf: RawKeyOf = rawKey): HTMLElement[] {
+export function jinjaAnchoredParts(root: HTMLElement, keyOf: RawKeyOf): HTMLElement[] {
   return partsOf(root).filter((part) => {
     const source = frozenSourceElement(part);
     // 固めた要素は、canvas の自動 `id` と無関係な原文の明示属性を読むので、`keyOf` ではなく

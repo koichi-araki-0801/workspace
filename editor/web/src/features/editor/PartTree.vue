@@ -64,7 +64,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem];
     <!-- 追加 ON: 既存の cascading catalog -->
     <div v-else class="flex-1 overflow-hidden">
       <PartCatalog
-        :insert-blocked-reason="insertBlockedReason ?? null"
+        :insert-blocked-reason="insertBlockedReason"
         @select="emit('select', $event)"
         @insert="emit('insert', $event)"
       />

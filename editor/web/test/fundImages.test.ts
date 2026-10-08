@@ -101,6 +101,7 @@ describe('fundImageWarnings', () => {
           '../images/510037_logo.svg',
         ],
         FILLED,
+        [],
       ),
     ).toEqual([
       FUND_IMAGE_WARNING_MESSAGE,
@@ -115,9 +116,10 @@ describe('fundImageWarnings', () => {
       fundImageWarnings(
         ['../images/{{ fund.code }}_logo.svg', '../images/{{ report.x }}.svg'],
         JINJA,
+        [],
       ),
     ).toEqual([]);
-    expect(fundImageWarnings(['../images/{{ fund.code }}/a/b.svg'], JINJA)).toHaveLength(1);
+    expect(fundImageWarnings(['../images/{{ fund.code }}/a/b.svg'], JINJA, [])).toHaveLength(1);
   });
 
   it('CSS 由来の問題も同じ欄にまとめる', () => {

@@ -69,8 +69,8 @@ describe('partPathKeyFor — 版を跨いで安定', () => {
     const zentai = root(
       '<div data-part-id="cover">全体版 2025</div><table class="summary"><tbody><tr><td>200</td></tr></tbody></table>',
     );
-    const k1 = partPathKeyFor(q(kofu, '[data-part-id="cover"]'), kofu);
-    const k2 = partPathKeyFor(q(zentai, '[data-part-id="cover"]'), zentai);
+    const k1 = partPathKeyFor(q(kofu, '[data-part-id="cover"]'), kofu, rawKey);
+    const k2 = partPathKeyFor(q(zentai, '[data-part-id="cover"]'), zentai, rawKey);
     expect(k1).toBe('cover#1');
     expect(k2).toBe(k1);
   });
@@ -79,8 +79,8 @@ describe('partPathKeyFor — 版を跨いで安定', () => {
     const r = root(
       '<div data-part-id="cover">表紙</div><table class="summary"><tbody><tr><td>cell</td></tr></tbody></table>',
     );
-    const fromCell = partPathKeyFor(q(r, 'td'), r);
-    const fromTable = partPathKeyFor(q(r, 'table'), r);
+    const fromCell = partPathKeyFor(q(r, 'td'), r, rawKey);
+    const fromTable = partPathKeyFor(q(r, 'table'), r, rawKey);
     expect(fromCell).toBe('.summary#1');
     expect(fromCell).toBe(fromTable);
   });
@@ -90,25 +90,25 @@ describe('partPathKeyFor — 版を跨いで安定', () => {
       '<section class=s></section><div class=pagebreak></div><section class=s></section>',
     );
     const [first, , second] = Array.from(r.children) as HTMLElement[];
-    expect(partPathKeyFor(first, r)).toBe('.s#1');
-    expect(partPathKeyFor(second, r)).toBe('.s#2');
+    expect(partPathKeyFor(first, r, rawKey)).toBe('.s#1');
+    expect(partPathKeyFor(second, r, rawKey)).toBe('.s#2');
   });
 
   it('区切りを選ぶと null、パーツの中の子を選ぶと囲むパーツのキー', () => {
     const r = root(
       '<section class=s></section><div class=pagebreak></div><section class=s><p>x</p></section>',
     );
-    expect(partPathKeyFor(q(r, '.pagebreak'), r)).toBeNull();
-    expect(partPathKeyFor(q(r, 'p'), r)).toBe('.s#2');
+    expect(partPathKeyFor(q(r, '.pagebreak'), r, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(r, 'p'), r, rawKey)).toBe('.s#2');
   });
 
   it('根そのもの・根の外・数えない要素(<style>・赤入れ)を選ぶと null', () => {
     const r = root('<style>.a{}</style><p class="a">A</p><del data-redline=""><p>gone</p></del>');
     const outside = document.createElement('p');
-    expect(partPathKeyFor(r, r)).toBeNull();
-    expect(partPathKeyFor(outside, r)).toBeNull();
-    expect(partPathKeyFor(q(r, 'style'), r)).toBeNull();
-    expect(partPathKeyFor(q(r, 'del p'), r)).toBeNull();
+    expect(partPathKeyFor(r, r, rawKey)).toBeNull();
+    expect(partPathKeyFor(outside, r, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(r, 'style'), r, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(r, 'del p'), r, rawKey)).toBeNull();
   });
 
   it('前にページを 1 つ足しても、後ろの別クラスのパーツのキーは変わらない', () => {
@@ -117,16 +117,16 @@ describe('partPathKeyFor — 版を跨いで安定', () => {
       '<h1 class="t">A</h1><div class=pagebreak></div><table class="new"></table>' +
         '<div class=pagebreak></div><p class="lead">B</p>',
     );
-    expect(partPathKeyFor(q(after, '.lead'), after)).toBe(
-      partPathKeyFor(q(before, '.lead'), before),
+    expect(partPathKeyFor(q(after, '.lead'), after, rawKey)).toBe(
+      partPathKeyFor(q(before, '.lead'), before, rawKey),
     );
-    expect(partPathKeyFor(q(after, '.lead'), after)).toBe('.lead#1');
+    expect(partPathKeyFor(q(after, '.lead'), after, rawKey)).toBe('.lead#1');
   });
 
   it('inline の改ページで分かれても、キーは通し番号のまま', () => {
     const r = root('<p class="a">1</p><p class="a" style="break-before:page">2</p>');
     const [, second] = Array.from(r.children) as HTMLElement[];
-    expect(partPathKeyFor(second, r)).toBe('.a#2');
+    expect(partPathKeyFor(second, r, rawKey)).toBe('.a#2');
   });
 });
 
@@ -177,9 +177,9 @@ describe('partLabelMap — 全パーツの人間向けラベル', () => {
         '<div class=pagebreak></div><h1 class="t">本文</h1>',
     );
     const map = partLabelMap(r);
-    const coverKey = partPathKeyFor(q(r, '[data-part-id="cover"]'), r);
-    const summaryKey = partPathKeyFor(q(r, '.summary'), r);
-    const bodyKey = partPathKeyFor(q(r, '.t'), r);
+    const coverKey = partPathKeyFor(q(r, '[data-part-id="cover"]'), r, rawKey);
+    const summaryKey = partPathKeyFor(q(r, '.summary'), r, rawKey);
+    const bodyKey = partPathKeyFor(q(r, '.t'), r, rawKey);
     expect(coverKey).toBe('cover#1');
     expect(map.get(coverKey ?? '')).toBe('ページ1・パーツ1');
     expect(map.get(summaryKey ?? '')).toBe('ページ1・パーツ2');
@@ -474,7 +474,7 @@ describe('本文全体を固めた canvas も、保存した文書と同じパ�
   it('包みの中の要素から、そのパーツとキーを引ける。包み・チップはパーツではない', () => {
     const canvas = root(canvasHtml);
     expect(partOf(q(canvas, '.s'), canvas)).toBe(q(canvas, '.s'));
-    expect(partPathKeyFor(q(canvas, '.s'), canvas)).toBe('.s#1');
+    expect(partPathKeyFor(q(canvas, '.s'), canvas, rawKey)).toBe('.s#1');
     expect(partOf(q(canvas, '.jinja-frozen-body'), canvas)).toBeNull();
     expect(partOf(q(canvas, '.jinja-stmt'), canvas)).toBeNull();
     expect(partOf(q(root(html), '.s'), canvas)).toBeNull();
@@ -490,7 +490,9 @@ describe('赤入れ装飾はパーツとして数えない', () => {
     expect(partsOf(withDel).map((e) => e.className)).toEqual(
       partsOf(plain).map((e) => e.className),
     );
-    expect(partPathKeyFor(q(withDel, '.b'), withDel)).toBe(partPathKeyFor(q(plain, '.b'), plain));
+    expect(partPathKeyFor(q(withDel, '.b'), withDel, rawKey)).toBe(
+      partPathKeyFor(q(plain, '.b'), plain, rawKey),
+    );
     expect([...partLabelMap(withDel)]).toEqual([...partLabelMap(plain)]);
   });
 });
@@ -498,7 +500,7 @@ describe('赤入れ装飾はパーツとして数えない', () => {
 // アンカーの属性(data-part-id → id → class の採用順)の原文に Jinja があると、canvas(原文)と
 // 承認タブ(ファンドの値で描いた後)でキーが一致しない。警告用に、採用される属性で判定する。
 describe('jinjaAnchoredParts', () => {
-  const ids = (r: HTMLElement, keyOf?: (el: HTMLElement) => string) =>
+  const ids = (r: HTMLElement, keyOf: (el: HTMLElement) => string = rawKey) =>
     jinjaAnchoredParts(r, keyOf).map((el) => el.textContent);
 
   it('採用されるアンカーの属性の原文に {{ / {% / {# があるパーツだけを返す', () => {

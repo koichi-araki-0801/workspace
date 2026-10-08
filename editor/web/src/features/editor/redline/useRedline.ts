@@ -40,7 +40,7 @@ interface RedlineDeps {
    * 装飾を置き直した後に呼ぶ(`useGrapes.refreshPageMarks`)。根の直下に置いた削除要素には
    * 1 ページ表示の印が無く、付け直さないと全ページに出続ける。
    */
-  onDecorated?: () => void;
+  onDecorated: () => void;
 }
 
 export function useRedline(deps: RedlineDeps) {
@@ -126,7 +126,7 @@ export function useRedline(deps: RedlineDeps) {
       const live = fromComponents(ed.getWrapper() as Component);
       applyRedline(root, diffRedline(baseline, live, createLcsBudget()));
       clearPartOf(ed.getSelected());
-      deps.onDecorated?.();
+      deps.onDecorated();
     } catch (e) {
       // 表示の失敗で編集を止めない。装飾は外した状態にして記録だけ残す。
       logError(toAppError(e));
@@ -181,7 +181,6 @@ export function useRedline(deps: RedlineDeps) {
     available,
     setBaseline,
     toggle,
-    recompute,
     schedule,
     onSelected,
     onDragStart,

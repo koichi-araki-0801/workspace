@@ -98,16 +98,6 @@ export function useTemplateEditor(
   /** 当該版インスタンス(templateId)の全パーツ履歴(永続層)。onMounted で一度ロードする。 */
   const allPartHistory = ref<PartHistoryEntry[]>([]);
   /**
-   * 現在の選択パーツの永続履歴。版インスタンス全件から安定構造キー(`currentNoteKey`)で絞る。
-   * GrapesJS の選択/改訂で再評価させるため reactive 値を読む。
-   */
-  const partHistory = computed<PartHistoryEntry[]>(() => {
-    void g.selected.value;
-    void g.revision.value;
-    const key = currentNoteKey();
-    return key ? allPartHistory.value.filter((e) => e.partKey === key) : [];
-  });
-  /**
    * 交付版⇄全体版 ペア同期の現況。未解決競合(自動同期停止中のパーツ)があるときだけ
    * canvas 上部にバナーを出す。取得失敗は無視する(バナーは補助情報で、編集を止めない)。
    */
@@ -499,7 +489,7 @@ export function useTemplateEditor(
   );
 
   // 選択変更で catalog part を解決する。永続履歴は `allPartHistory`(版インスタンス全件)を
-  // onMounted で一度ロードし、表示は `partHistory` computed が選択キーで in-memory に絞るため、
+  // onMounted で一度ロードし、表示は `displayHistory` が選択キーで in-memory に絞るため、
   // 選択ごとの非同期 fetch も race 対策も不要になった。
   watch(
     () => g.selected.value,
@@ -597,7 +587,7 @@ export function useTemplateEditor(
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
     void note.reload();
-    // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `partHistory` computed が
+    // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `displayHistory` が
     // 選択キーで絞る(リロード後も安定構造キーで一致するため右下の履歴が復元される)。
     void service.listPartHistory(id).then((res) => {
       if (isOk(res)) allPartHistory.value = res.value;
@@ -757,7 +747,6 @@ export function useTemplateEditor(
         ),
       }),
     ]),
-    partHistory,
     displayHistory,
     partLabels,
     selectedPart,

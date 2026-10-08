@@ -75,7 +75,7 @@ export function resolveFundImageSrc(src: string, ctx: FundImageContext): FundIma
 export function fundImageWarnings(
   srcs: Iterable<string>,
   ctx: FundImageContext,
-  cssIssues: ReadonlyArray<readonly [string, ImageRefIssue]> = [],
+  cssIssues: ReadonlyArray<readonly [string, ImageRefIssue]>,
 ): string[] {
   const issues: Array<readonly [string, ImageRefIssue]> = [];
   for (const src of new Set(srcs)) {

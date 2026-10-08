@@ -15,7 +15,6 @@
 //   CSS から測る — 下書きの CSS を基準にすると、下書きで変えた規則が「変わっていない」になる。
 
 import type { ConfirmedCanonical } from '@/lib/confirmedCanonical';
-import { shouldMeasureCanonical } from './confirmedCanonicalGate';
 
 /** `useGrapes` のうち、読み込みと書き出しの口。 */
 export interface OpenCanvasTarget {
@@ -50,7 +49,7 @@ export interface OpenCanvasResult {
   measuredCanonical: boolean;
   /**
    * 確定版の quiet load に失敗し、正規形も持てなかったか(編集経路のみ)。立っていれば
-   * 「未確定」の同一判定を起動しない(`confirmedCanonicalGate.ts` を見よ)。
+   * 「未確定」の同一判定を起動しない。
    */
   loadFailed: boolean;
 }
@@ -96,7 +95,7 @@ export function openCanvas(g: OpenCanvasTarget, input: OpenCanvasInput): OpenCan
   }
   if (!input.hasDraft) cssBaseline = g.getCss();
   // 下書きが無ければ、本文の読み込みがそのまま確定版の読み込み。
-  if (!input.hasDraft && shouldMeasureCanonical(input.isCreateRoute, false, loadFailed)) {
+  if (!input.hasDraft && !input.isCreateRoute) {
     canonical = { html: g.getBodyHtml(), css: g.getCss() };
     measuredCanonical = true;
   }

@@ -46,19 +46,13 @@ export interface BreakPlan {
 export const PAGEBREAK_HTML = `<div class="${PAGEBREAK_CLASS}"></div>`;
 
 /**
- * パーツの隣に続く区切り(連続していれば全部。パーツに近い順)。赤入れの削除要素・`<style>`・
- * 描画で消えるチップは `pageItems` が除くので飛ばして見る。固めた範囲の包みの中の区切りは、
- * 包みが保存で原文へ戻り消せないので数えない(そこで止める)。
+ * パーツの直前(`edge` が before)か直後に置かれた区切りのうち、パーツにいちばん近いもの。
+ * 赤入れの削除要素・`<style>`・描画で消えるチップは `pageItems` が除くので飛ばして見る。
+ * 固めた範囲の包みの中の区切りは、包みが保存で原文へ戻り消せないので数えない。
  */
-function adjacentBreaks(items: Element[], i: number, root: Element, edge: BreakEdge): Element[] {
-  const step = edge === 'before' ? -1 : 1;
-  const out: Element[] = [];
-  for (let j = i + step; j >= 0 && j < items.length; j += step) {
-    const el = items[j] as Element;
-    if (!isPagebreakEl(el) || el.parentElement !== root) break;
-    out.push(el);
-  }
-  return out;
+function nearestBreak(items: Element[], i: number, root: Element, edge: BreakEdge): Element | null {
+  const el = items[edge === 'before' ? i - 1 : i + 1];
+  return el !== undefined && isPagebreakEl(el) && el.parentElement === root ? el : null;
 }
 
 /** `part` が根の直下のパーツなら、`pageItems` の並びとその位置。対象外なら null。 */
@@ -79,7 +73,7 @@ export function partBreakState(part: Element, root: Element): PartBreakState | n
   const at = locate(part, root);
   if (!at) return null;
   const read = (edge: BreakEdge): BreakSource | null => {
-    if (adjacentBreaks(at.items, at.i, root, edge).length > 0) return 'div';
+    if (nearestBreak(at.items, at.i, root, edge) !== null) return 'div';
     return inlineBreak(part, edge) ? 'inline' : null;
   };
   return { before: read('before'), after: read('after') };
@@ -105,10 +99,10 @@ export function planBreakToggle(
   if (!state || (state[edge] !== null) === on) return null;
   if (on) return { insert: edge, remove: [], stripProps: ignoredInlineBreakProps(part, edge) };
   const at = locate(part, root) as { items: Element[]; i: number };
+  const nearest = nearestBreak(at.items, at.i, root, edge);
   return {
     insert: null,
-    // パーツにいちばん近い 1 つだけ(`adjacentBreaks` は近い順)。
-    remove: adjacentBreaks(at.items, at.i, root, edge).slice(0, 1),
+    remove: nearest ? [nearest] : [],
     stripProps: inlineBreak(part, edge) ? [`page-break-${edge}`, `break-${edge}`] : [],
   };
 }

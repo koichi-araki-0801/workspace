@@ -65,6 +65,7 @@ export function insertTarget(
       if (holdsBoundary(el)) return { kind: 'blocked' };
     }
     const parent = cur.parentElement;
+    // `parentElement` の型が null を含むので絞る。`cur` は `root` の子孫なので null にはならない。
     if (!parent || parent === root) return { kind: 'end' };
     cur = parent;
   }

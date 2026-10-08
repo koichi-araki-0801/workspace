@@ -46,8 +46,8 @@ interface EditorShortcutHandlers {
   zoomReset: () => void;
   /** 選択パーツの削除(`Delete`)。 */
   remove: () => void;
-  /** ショートカットヘルプの表示(`?`)。未指定ならキーを奪わない。 */
-  help?: () => void;
+  /** ショートカットヘルプの表示(`?`)。 */
+  help: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
   /** 削除可否(編集許可かつ選択あり)。 */
@@ -117,7 +117,7 @@ export function useEditorShortcuts(h: EditorShortcutHandlers): void {
       return;
     }
     // `?`(Shift+/)でヘルプ。入力欄・RTE 中は上の早期 return 済みなので文字入力を奪わない。
-    if (!mod && key === '?' && h.help) {
+    if (!mod && key === '?') {
       e.preventDefault();
       h.help();
     }

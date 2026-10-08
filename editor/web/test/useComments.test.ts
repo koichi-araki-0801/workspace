@@ -149,7 +149,7 @@ describe('useComments', () => {
       () => COVER,
       repo,
     );
-    await note.add('本文', {}, SUMMARY);
+    await note.add('本文', SUMMARY);
     expect(store).toHaveLength(1);
     expect(store[0].pathKey).toBe(SUMMARY);
   });

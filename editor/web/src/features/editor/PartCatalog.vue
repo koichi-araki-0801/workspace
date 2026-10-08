@@ -18,7 +18,7 @@ import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 import { cn } from '@/lib/utils';
 import PartPreview from './PartPreview.vue';
 
-const props = defineProps<{
+defineProps<{
   /** 今のページに挿入できないときの理由。null なら挿入できる。 */
   insertBlockedReason?: string | null;
 }>();

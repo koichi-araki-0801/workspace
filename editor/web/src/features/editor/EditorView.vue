@@ -25,8 +25,8 @@ import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
 import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
-import { ZOOM_STEP } from './useGrapes';
 import { useTemplateEditor } from './useTemplateEditor';
+import { ZOOM_STEP } from './useZoomFit';
 
 const props = defineProps<{ id: string }>();
 const router = useRouter();
@@ -94,7 +94,8 @@ const { startHandle, dragLabel } = useGeomHandles({
   finishTextEdit: g.finishTextEdit,
 });
 
-const rect = computed(() => g.selectedRect.value);
+// テンプレートでは ref が自動で展開されるので、`g.selectedRect` をそのまま `rect` として読む。
+const rect = g.selectedRect;
 
 const sessionStore = useEditorSessionStore();
 
@@ -107,7 +108,6 @@ watch(paneTab, (v) => {
 });
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
-const openCommentCount = computed(() => openNoteCount.value);
 const pairSyncBanner = computed(() => pairSyncConflictText(syncStatus.value));
 
 // ── メモ吹き出し(選択パーツのスレッド) ──
@@ -571,7 +571,7 @@ const statusText = computed(() => {
         :history="displayHistory"
         :part-labels="partLabels"
         :pane-tab="paneTab"
-        :comment-count="openCommentCount"
+        :comment-count="openNoteCount"
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
         :can-down="g.canMoveDown.value"

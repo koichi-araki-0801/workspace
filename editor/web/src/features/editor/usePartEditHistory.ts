@@ -5,7 +5,7 @@
 // composable。記録/併合ロジックを `useTemplateEditor.ts` から分離し単体テスト可能に保つ。
 
 import type { PartHistoryEntry } from '@editor/shared';
-import { computed, reactive } from 'vue';
+import { computed } from 'vue';
 import { newId } from '@/lib/newId';
 
 /**
@@ -18,22 +18,21 @@ import { newId } from '@/lib/newId';
  * @param userName  操作ユーザーの表示名の getter
  * @param persisted  永続 history の getter。`key` を渡すとそのパーツのみ、未指定なら版インスタンス
  *                   全パーツ分を返す(未選択時の「全パーツ表示」に使う)
- * @param persist  変更を永続化する任意の sink(fire-and-forget)。結果に関わらず
+ * @param persist  変更を永続化する sink(fire-and-forget)。結果に関わらず
  *                 セッション内エントリは即座に表示される。`id` はセッション内エントリと同じ
  *                 UUID で、永続側に同じ id で残させて表示時の重複除去に使う
- * @param init  外部のセッション履歴 state(`editorSession` ストア由来)。渡すと履歴レコードを
- *              そのストアに委ね、編集⇄プレビュー往復で履歴が維持される。未指定なら
- *              ローカル reactive で開始する(後方互換 / 単体テスト用)
+ * @param init  外部のセッション履歴 state(`editorSession` ストア由来)。履歴レコードを
+ *              そのストアに委ね、編集⇄プレビュー往復で履歴が維持される
  */
 export function usePartEditHistory(
   templateId: string,
   currentPartKey: () => string | undefined,
   userName: () => string,
   persisted: (key?: string) => PartHistoryEntry[],
-  persist?: (partKey: string, change: string, id: string) => void,
-  init?: { history: Record<string, PartHistoryEntry[]> },
+  persist: (partKey: string, change: string, id: string) => void,
+  init: { history: Record<string, PartHistoryEntry[]> },
 ) {
-  const sessionHistory = init?.history ?? reactive<Record<string, PartHistoryEntry[]>>({});
+  const sessionHistory = init.history;
 
   /** 現在の選択に編集履歴エントリを記録する(セッション内 + 永続)。 */
   function record(change: string): void {
@@ -50,7 +49,7 @@ export function usePartEditHistory(
       timestamp: new Date().toISOString(),
       user: userName(),
     });
-    persist?.(key, change, id);
+    persist(key, change, id);
   }
 
   // 表示する history。

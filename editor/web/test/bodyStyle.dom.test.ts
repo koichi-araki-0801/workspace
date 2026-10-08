@@ -15,7 +15,6 @@ import grapesjs, { type Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BODY_STYLE_TYPE,
-  BODY_STYLE_VIEW_ATTR,
   bodyStyleCssTexts,
   bodyStyleParserHtml,
   renderJinjaStyleCss,
@@ -24,6 +23,7 @@ import { CANVAS_CSS_ASSET_ATTR } from '@/features/editor/fundImageLayer';
 import { markPages, PV_ATTR } from '@/features/editor/pageView';
 import { partsOf } from '@/features/editor/partKey';
 import { useGrapes } from '@/features/editor/useGrapes';
+import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import { toFilled } from '@/lib/fillJinja';
 import { toTemplate } from '@/lib/jinjaMask';
 import { pageItems, splitPages } from '@/lib/pageBreaks';
@@ -184,7 +184,7 @@ describe('本文の <style>', () => {
     page?.components().at(0)?.remove();
     expect(copyIn(doc)).toBe('');
     expect(g.getBodyHtml()).toContain('<style> </style>');
-    expect(bodyStyleCssTexts(undefined)).toEqual([]);
+    expect(bodyStyleCssTexts(undefined, null)).toEqual([]);
   });
 
   it('置き場を名乗る利用者の要素は、原文を運ぶ部品にならない', () => {
