@@ -38,18 +38,13 @@ import {
   svgRejectedImages,
   svgRejectedMessage,
 } from '@/lib/assetWarnings';
-import { type FundImageRef, fundImageUrl } from '@/lib/fundImages';
+import type { FundImageRef } from '@/lib/fundImages';
 import {
   canvasCssAssetCopy,
   canvasCssFullCopy,
   canvasFontFaceSrcDisabled,
 } from './canvasCssAssets';
-import {
-  type FundImageContext,
-  fundImageCss,
-  fundImageWarnings,
-  resolveFundImageSrc,
-} from './fundImages';
+import { type FundImageContext, fundImageCss, fundImageWarnings } from './fundImages';
 
 /** canvas の head に置く差し替え用 `<style>` の目印。 */
 export const FUND_IMAGE_STYLE_ATTR = 'data-fund-images';
@@ -278,7 +273,7 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     const srcs = Array.from(doc.querySelectorAll('img'), (img) => img.getAttribute('src') ?? '');
     const ctx = opts.getContext();
     updateCssCopy(ctx.companyCode);
-    const { css, urls } = fundImageCss(srcs, ctx);
+    const { css, urls, refOfUrl } = fundImageCss(srcs, ctx);
     const el = ensureStyle(doc);
     observeBody(doc);
     syncAssetStyle(doc);
@@ -286,11 +281,6 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     if (css !== lastCss) {
       el.textContent = css;
       lastCss = css;
-    }
-    const refOfUrl = new Map<string, FundImageRef>();
-    for (const src of srcs) {
-      const ref = resolveFundImageSrc(src, ctx);
-      if (ref !== null) refOfUrl.set(fundImageUrl(ref), ref);
     }
     currentRefs = new Set([...refOfUrl.values()].map(refKey));
     const fresh = urls.filter((u) => !preloaded.has(u));

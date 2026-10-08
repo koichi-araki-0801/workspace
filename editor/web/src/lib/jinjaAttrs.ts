@@ -9,6 +9,8 @@
 // shared の `EDITING_MARKER_ATTRS`(`editingMarkers.ts`)は、ここで書く属性名を検出する側の
 // 一覧で、本ファイルの属性名と対になる。属性を足したら両方へ足す(テストが突き合わせる)。
 
+/** Jinja の開始記号（式 `{{`・文 `{%`・コメント `{#`）。 */
+export const JINJA_OPEN_RE = /\{[{%#]/;
 /** inline chip の厳密ソース(base64)。書: `tokenChip` → 復: `toTemplate` step 3a */
 export const DATA_JINJA = 'data-jinja';
 /** opaque mask した verbatim ソース(base64)。書: `opaqueChip` 等 → 復: `toTemplate` step 3b */
@@ -45,6 +47,15 @@ export function b64decodeUtf8(b: string): string {
   const bin = atob(b);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+}
+
+/** 壊れた base64・不正な UTF-8 は読めない原文として空文字にする。 */
+export function b64decodeSafe(s: string): string {
+  try {
+    return b64decodeUtf8(s);
+  } catch {
+    return '';
+  }
 }
 
 const B64 = '[A-Za-z0-9+/]*={0,2}';

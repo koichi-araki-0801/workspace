@@ -5,7 +5,14 @@
 // zoom 非依存で編集する composable。
 
 import { type ComputedRef, computed, type Ref, ref } from 'vue';
-import { clampMarginMm, clampWidthPct, type LayoutGeom, PX_PER_MM, WIDTH_PCT_MAX } from './geom';
+import {
+  alignForWidth,
+  clampMarginMm,
+  clampWidthPct,
+  type LayoutGeom,
+  PX_PER_MM,
+  WIDTH_PCT_MAX,
+} from './geom';
 import type { SelectedRect } from './grapesEvents';
 
 /** どの edge/corner ハンドルをドラッグ中か。 */
@@ -129,12 +136,7 @@ export function useGeomHandles(deps: GeomHandleDeps) {
       applyGeom(
         {
           widthPct: w,
-          align:
-            w >= WIDTH_PCT_MAX
-              ? 'stretch'
-              : drag.geom.align === 'stretch'
-                ? 'left'
-                : drag.geom.align,
+          align: alignForWidth(w, WIDTH_PCT_MAX, drag.geom.align),
         },
         false,
       );

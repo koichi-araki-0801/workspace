@@ -134,3 +134,9 @@ export function geomChangeLabel(before: LayoutGeom, after: LayoutGeom): string |
     return `「ページ内で分割しない」を${after.keepTogether ? '有効化' : '解除'}`;
   return null;
 }
+
+/** 幅を変えたときの配置。上限以上は全幅（stretch）、stretch から縮めたら left、それ以外は維持する。 */
+export function alignForWidth(width: number, maxWidth: number, prevAlign: Align): Align {
+  if (width >= maxWidth) return 'stretch';
+  return prevAlign === 'stretch' ? 'left' : prevAlign;
+}

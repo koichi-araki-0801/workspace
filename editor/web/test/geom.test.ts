@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alignForWidth,
   clampMarginMm,
   clampWidthPct,
   DEFAULT_GEOM,
@@ -160,5 +161,19 @@ describe('geomChangeLabel', () => {
   it('reports a keep-together toggle', () => {
     const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, keepTogether: true });
     expect(label).toContain('分割しない');
+  });
+});
+
+describe('alignForWidth', () => {
+  it('上限以上は stretch', () => {
+    expect(alignForWidth(WIDTH_PCT_MAX, WIDTH_PCT_MAX, 'center')).toBe('stretch');
+  });
+
+  it('stretch から上限未満へ縮めると left', () => {
+    expect(alignForWidth(60, WIDTH_PCT_MAX, 'stretch')).toBe('left');
+  });
+
+  it('それ以外は配置を維持する', () => {
+    expect(alignForWidth(60, WIDTH_PCT_MAX, 'right')).toBe('right');
   });
 });

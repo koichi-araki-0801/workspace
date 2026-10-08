@@ -35,3 +35,14 @@ describe('範囲の印の書式', () => {
       expect(EDITING_MARKER_ATTRS).toContain(name);
   });
 });
+
+describe('b64decodeSafe', () => {
+  it('正常な base64 は UTF-8 として復号する', () => {
+    expect(A.b64decodeSafe(A.b64encodeUtf8('{{ 日本語 }}'))).toBe('{{ 日本語 }}');
+  });
+
+  it('壊れた base64 と不正な UTF-8 は空文字を返す', () => {
+    expect(A.b64decodeSafe('%%%')).toBe('');
+    expect(A.b64decodeSafe(btoa('\xff\xfe'))).toBe('');
+  });
+});

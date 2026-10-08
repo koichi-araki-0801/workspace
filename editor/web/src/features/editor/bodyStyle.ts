@@ -25,7 +25,7 @@ import type { Component, CustomParserHtml, Editor } from 'grapesjs';
 // `pageItems`)も読むので lib に置く。
 import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import { renderPlainFilled } from '@/lib/fillRender';
-import { b64decodeUtf8, DATA_OPAQUE } from '@/lib/jinjaAttrs';
+import { b64decodeSafe, DATA_OPAQUE } from '@/lib/jinjaAttrs';
 
 /** 本文の `<style>` の部品の型。 */
 export const BODY_STYLE_TYPE = 'body-style';
@@ -164,15 +164,6 @@ export function bodyStyleCssTexts(
   };
   if (root) visit(root);
   return out.filter((css) => css.trim() !== '');
-}
-
-/** 壊れた base64 は描画できない原文(空)として扱う。 */
-function b64decodeSafe(encoded: string): string {
-  try {
-    return b64decodeUtf8(encoded);
-  } catch {
-    return '';
-  }
 }
 
 /** 部品(子孫を含む)に、canvas に複製する `<style>`(置き場か Jinja を含むチップ)があるか。 */

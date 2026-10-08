@@ -28,6 +28,7 @@ import {
   fundImageRefOf,
   servedFundImageOf,
 } from './fundImages';
+import { JINJA_OPEN_RE } from './jinjaAttrs';
 
 /**
  * 値入り HTML に `{{ … }}` 入りの画像参照が残っているときの警告。テンプレート構文の字面を含むので、
@@ -41,7 +42,6 @@ export const FUND_IMAGE_WARNING_MESSAGE =
 export type ImageRefIssue = 'jinja' | 'unserved' | 'company';
 
 const SCHEME_RE = /^[a-z][a-z0-9+.-]*:/i;
-const JINJA_RE = /\{[{%#]/;
 const IMAGES_PREFIX = `${FUND_IMAGES_DIR}/`;
 /** 警告文に並べる参照の上限(残りは件数で出す)。 */
 const LIST_MAX = 3;
@@ -58,7 +58,7 @@ export function imageRefIssue(
   const v = url.trim();
   if (v === '' || v.startsWith('#') || SCHEME_RE.test(v)) return null;
   const rel = resolveDocAssetPath(v, from);
-  if (JINJA_RE.test(v)) return rel?.startsWith(IMAGES_PREFIX) ? 'jinja' : null;
+  if (JINJA_OPEN_RE.test(v)) return rel?.startsWith(IMAGES_PREFIX) ? 'jinja' : null;
   if (rel === undefined) return 'unserved';
   const ref = fundImageRefOf(rel);
   if (ref === undefined) return 'unserved';
@@ -209,7 +209,7 @@ export function docFundImageRefs(html: string, companyCode: string | null): Fund
   if (html === '') return [];
   const out = new Map<string, FundImageRef>();
   const add = (url: string): void => {
-    if (JINJA_RE.test(url)) return;
+    if (JINJA_OPEN_RE.test(url)) return;
     const ref = servedFundImageOf(url.trim(), DOC_DIR, companyCode);
     if (ref !== undefined) out.set(JSON.stringify([ref.dir, ref.file]), ref);
   };

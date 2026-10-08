@@ -186,6 +186,10 @@ describe('cssString / fundImageCss', () => {
   });
 
   it('対象が無ければ空', () => {
-    expect(fundImageCss(['../photos/x.png'], FILLED)).toEqual({ css: '', urls: [] });
+    expect(fundImageCss(['../photos/x.png'], FILLED)).toEqual({
+      css: '',
+      urls: [],
+      refOfUrl: new Map(),
+    });
   });
 });

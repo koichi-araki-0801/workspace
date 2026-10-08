@@ -44,7 +44,7 @@ import { Tooltip } from '@/components/ui/overlays';
 import StepperInput from '@/components/ui/StepperInput.vue';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { type Align, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
+import { type Align, alignForWidth, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
 import InspectorSection from './InspectorSection.vue';
 import type { BreakEdge } from './partBreak';
 import type { SelectedInfo } from './useGrapes';
@@ -204,8 +204,7 @@ function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) 
   // 値が動いていない確定(入力欄を focus して blur しただけ)では emit しない。emit すると
   // 編集していないのに draft が生成され、`pushUndo` で Redo スタックまで消える。
   if (key === 'widthPct') {
-    const align: Align =
-      n >= WIDTH_PCT_MAX ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align;
+    const align: Align = alignForWidth(n, WIDTH_PCT_MAX, props.geom.align);
     if (n === props.geom.widthPct && align === props.geom.align) return;
     emit('apply', { widthPct: n, align });
   } else {

@@ -19,13 +19,14 @@
 // 警告する)。
 
 import type { Editor } from 'grapesjs';
-import { type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { occurrenceKeys, type RawKeyOf, rawKey, rawKeyFromParts } from '@/lib/blockKey';
 import {
-  b64decodeUtf8,
+  b64decodeSafe,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
   FROZEN_BODY_CLASS,
   JINJA_CHIP_CLASS,
+  JINJA_OPEN_RE,
 } from '@/lib/jinjaAttrs';
 import { type PageSplit, pageItems, splitPages } from '@/lib/pageBreaks';
 
@@ -80,13 +81,7 @@ function partIndex(el: HTMLElement, root: HTMLElement, parts: readonly HTMLEleme
  * 数え上げ 1 回で作る(パーツごとに全パーツを走査すると二乗になる)。
  */
 function partKeys(parts: readonly HTMLElement[], keyOf: RawKeyOf): string[] {
-  const seen = new Map<string, number>();
-  return parts.map((part) => {
-    const base = keyOf(part);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return `${base}#${n}`;
-  });
+  return occurrenceKeys(parts.map(keyOf));
 }
 
 /**
@@ -177,12 +172,7 @@ export function legacyPartKeyCount(
  */
 function parseSourceElement(el: HTMLElement, encoded: string | null): Element | null {
   if (!encoded) return null;
-  let source: string;
-  try {
-    source = b64decodeUtf8(encoded);
-  } catch {
-    return null;
-  }
+  const source = b64decodeSafe(encoded);
   if (!/^<[a-z]/i.test(source)) return null;
   const t = el.ownerDocument.createElement('template');
   t.innerHTML = source;
@@ -257,9 +247,6 @@ export function canvasRawKey(ed: Editor): RawKeyOf {
     });
   };
 }
-
-/** Jinja の区切りの開き(`{{` `{%` `{#`)。 */
-const JINJA_OPEN_RE = /\{[{%#]/;
 
 /**
  * 根の直下のパーツのうち、キーに採用されるアンカーの属性(`data-part-id` → `id` → class)の原文に

@@ -19,7 +19,7 @@
 //     語句(緑)・削除された語句(赤)だけを `<span>` で包む。
 // これにより「どの文字が変わったか」までハイライトでき、変更 block 数も数えられる。
 
-import { rawKey } from '@/lib/blockKey';
+import { occurrenceKeys, rawKey } from '@/lib/blockKey';
 import { defaultHtmlParser, type HtmlParser } from '@/lib/htmlParser';
 import { inlineBreak, pageItems, splitPages } from '@/lib/pageBreaks';
 import { styleTag } from '@/lib/sanitizeCss';
@@ -308,17 +308,14 @@ function unitKey(n: Node): string {
 
 /** 親の中で重複するキーを出現順で一意化する("#text#1", ".row#2")。 */
 function keyedUnits(parent: Node): { key: string; node: Node }[] {
-  const seen = new Map<string, number>();
-  return childUnits(parent).map((node) => {
-    const base = unitKey(node);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return { key: `${base}#${n}`, node };
-  });
+  const units = childUnits(parent);
+  const keys = occurrenceKeys(units.map(unitKey));
+  return units.map((node, i) => ({ key: keys[i], node }));
 }
 
 // ── 4. 正規化と同一判定 ───────────────────────────────────────────────────
-function collapse(text: string | null): string {
+/** 空白の違いだけを差分にしない正規化(連続する空白を 1 つにして前後を落とす)。 */
+export function collapse(text: string | null | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
@@ -602,13 +599,8 @@ function diffElement(before: HTMLElement, after: HTMLElement, flags: DiffFlags):
 
 // ── 7. top-level block の整列と分類 ───────────────────────────────────────
 function keyedBlocks(page: HTMLElement[]): { key: string; el: HTMLElement }[] {
-  const seen = new Map<string, number>();
-  return page.map((el) => {
-    const base = rawKey(el);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return { key: `${base}#${n}`, el };
-  });
+  const keys = occurrenceKeys(page.map(rawKey));
+  return page.map((el, i) => ({ key: keys[i], el }));
 }
 
 interface RenderedBlock {
@@ -866,14 +858,14 @@ function paginateDoc(
   const counted = new Set(pageItems(top.blocks.filter((el) => !top.texts.has(el))));
   const attached = new Set(top.blocks.filter((el) => !counted.has(el)));
   const pages = splitTopLevel(top.blocks, attached);
-  const seen = new Map<string, number>();
-  for (const el of pages.flat()) {
+  const flat = pages.flat();
+  const keys = occurrenceKeys(
+    flat.map((el) => (top.texts.has(el) ? '#text' : attached.has(el) ? '#attached' : rawKey(el))),
+  );
+  flat.forEach((el, i) => {
     if (attached.has(el)) parts.attached.add(el);
-    const base = top.texts.has(el) ? '#text' : attached.has(el) ? '#attached' : rawKey(el);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    parts.keys.set(el, `${base}#${n}`);
-  }
+    parts.keys.set(el, keys[i]);
+  });
   return { pages, truncated: top.truncated };
 }
 

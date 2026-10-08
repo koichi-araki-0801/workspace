@@ -26,6 +26,7 @@ import {
   fundImageRefOf,
   fundImageUrl,
 } from '@/lib/fundImages';
+import { JINJA_OPEN_RE } from '@/lib/jinjaAttrs';
 
 /** 本文の種類。`jinja` = 描画を通る本文、`filled` = 値入り HTML(描画を通らない)。 */
 export type FundImageMode = 'jinja' | 'filled';
@@ -39,8 +40,6 @@ export interface FundImageContext {
 }
 
 const FUND_CODE_EXPR_RE = /\{\{\s*fund\.code\s*\}\}/g;
-/** 解いた後にも残る Jinja の開始記号(式・文・コメント)。 */
-const JINJA_RE = /\{[{%#]/;
 
 /**
  * テンプレ ID(値入り HTML `<会社>_<ファンド>_<基準日>_<版>`、テンプレート `<会社>_<ファンド>_<版>`)から
@@ -50,16 +49,23 @@ export function fundCodeOfTemplateId(templateId: string): string | null {
   return parseAnyTemplateFileName(`${templateId}.html`)?.fundCode ?? null;
 }
 
+/**
+ * Jinja 本文の `{{ fund.code }}` をファンドコードへ置き換える。値入り本文は置き換えない。Jinja 本文で
+ * ファンドコードが無いとき（参照を解けない）は null。
+ */
+function substituteFundCode(src: string, ctx: FundImageContext): string | null {
+  if (ctx.mode !== 'jinja') return src;
+  const { fundCode } = ctx;
+  if (fundCode === null) return null;
+  // 置換文字列に `$` を含むファンドコードでも置換記法として読ませない。
+  return src.replace(FUND_CODE_EXPR_RE, () => fundCode);
+}
+
 /** `src` が差す対象なら、配信する画像を返す。対象外は null。 */
 export function resolveFundImageSrc(src: string, ctx: FundImageContext): FundImageRef | null {
-  let resolved = src;
-  if (ctx.mode === 'jinja') {
-    const { fundCode } = ctx;
-    if (fundCode === null) return null;
-    // 置換文字列に `$` を含むファンドコードでも置換記法として読ませない。
-    resolved = resolved.replace(FUND_CODE_EXPR_RE, () => fundCode);
-  }
-  if (JINJA_RE.test(resolved)) return null;
+  const resolved = substituteFundCode(src, ctx);
+  // 解いた後にも Jinja の開始記号が残る参照は、描画で決まるので解かない。
+  if (resolved === null || JINJA_OPEN_RE.test(resolved)) return null;
   const rel = resolveDocAssetPath(resolved, DOC_DIR);
   if (rel === undefined) return null;
   const ref = fundImageRefOf(rel);
@@ -79,13 +85,8 @@ export function fundImageWarnings(
 ): string[] {
   const issues: Array<readonly [string, ImageRefIssue]> = [];
   for (const src of new Set(srcs)) {
-    let resolved = src;
-    if (ctx.mode === 'jinja') {
-      const { fundCode } = ctx;
-      if (fundCode === null) continue;
-      resolved = resolved.replace(FUND_CODE_EXPR_RE, () => fundCode);
-      if (JINJA_RE.test(resolved)) continue;
-    }
+    const resolved = substituteFundCode(src, ctx);
+    if (resolved === null || (ctx.mode === 'jinja' && JINJA_OPEN_RE.test(resolved))) continue;
     const kind = imageRefIssue(resolved, DOC_DIR, ctx.companyCode);
     if (kind !== null) issues.push([src, kind]);
   }
@@ -107,13 +108,15 @@ export function cssString(value: string): string {
   return `"${out}"`;
 }
 
-/** canvas の `<img>` の `src` 一覧から、差し替えの CSS と先読みする URL を作る(重複は 1 つ)。 */
+/** canvas の `<img>` の `src` 一覧から、差し替えの CSS と先読みする URL（と URL から画像への対応）を作る
+ * （重複は 1 つ）。 */
 export function fundImageCss(
   srcs: Iterable<string>,
   ctx: FundImageContext,
-): { css: string; urls: string[] } {
+): { css: string; urls: string[]; refOfUrl: Map<string, FundImageRef> } {
   const rules: string[] = [];
   const urls: string[] = [];
+  const refOfUrl = new Map<string, FundImageRef>();
   const seen = new Set<string>();
   for (const src of srcs) {
     if (seen.has(src)) continue;
@@ -124,6 +127,7 @@ export function fundImageCss(
     rules.push(`img[src=${cssString(src)}]{content:url(${cssString(url)})}`);
     rules.push(`:where(img[src=${cssString(src)}]){display:inline-block}`);
     if (!urls.includes(url)) urls.push(url);
+    refOfUrl.set(url, ref);
   }
-  return { css: rules.join('\n'), urls };
+  return { css: rules.join('\n'), urls, refOfUrl };
 }

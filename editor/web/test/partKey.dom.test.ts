@@ -13,7 +13,7 @@ import {
   partsOf,
 } from '@/features/editor/partKey';
 import { partMapsFromHtml } from '@/features/reviews/reviewPartMaps';
-import { occurrenceKey, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { occurrenceKey, occurrenceKeys, rawKey, rawKeyFromParts } from '@/lib/blockKey';
 import { b64encodeUtf8 } from '@/lib/jinjaAttrs';
 
 /** innerHTML から canvas wrapper 相当の root 要素を作る(jsdom)。 */
@@ -556,5 +556,19 @@ describe('jinjaAnchoredParts', () => {
   it('アンカー関数(canvas では canvasRawKey)の結果で判定する', () => {
     const r = root('<p class="a">A</p><p class="b">B</p>');
     expect(ids(r, (el) => (el.textContent === 'B' ? '.{{' : '.a'))).toEqual(['B']);
+  });
+});
+
+describe('blockKey.occurrenceKeys', () => {
+  it('同じ基底の 2 つ目から #2 を振り、出現順に 1 回で数える', () => {
+    expect(occurrenceKeys(['.a', 'div', '.a', '#text', '.a', 'div'])).toEqual([
+      '.a#1',
+      'div#1',
+      '.a#2',
+      '#text#1',
+      '.a#3',
+      'div#2',
+    ]);
+    expect(occurrenceKeys([])).toEqual([]);
   });
 });
