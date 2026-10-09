@@ -364,6 +364,15 @@ describe('pagebreakCssDefined', () => {
     ['DIV.pagebreak{break-after:page}', true],
     ['.PageBreak{break-after:page}', false],
     ['.x .pagebreak{break-after:page}', false],
+    ['body div.pagebreak{visibility:hidden;-moz-column-break-after:page;break-after:page}', true],
+    ['body > .pagebreak{break-after:page}', true],
+    ['BODY>div.pagebreak{break-after:page}', true],
+    ['html body div.pagebreak{break-after:page}', true],
+    ['html > body > .pagebreak{break-after:page}', true],
+    ['body.x .pagebreak{break-after:page}', false],
+    ['body .x .pagebreak{break-after:page}', false],
+    ['tbody .pagebreak{break-after:page}', false],
+    ['body + .pagebreak{break-after:page}', false],
     ['@font-face{font-family:a}', false],
     ['', false],
   ])('%s → %s', (css, want) => expect(pagebreakCssDefined(css)).toBe(want));
@@ -452,12 +461,15 @@ describe('cssRuleBreakSelector', () => {
     [['h2{break-before:column}'], 'h2'],
     [['H2{BREAK-BEFORE:PAGE}'], 'H2'],
     [['.pagebreak{page-break-before:always}'], '.pagebreak'],
+    [['body div.pagebreak{break-before:page}'], 'body div.pagebreak'],
   ])('%j → %s', (css, want) => expect(cssRuleBreakSelector(css)).toBe(want));
 
   it.each([
     [['.pagebreak{break-after:page}']],
     [['.pagebreak{page-break-after:always}']],
     [['DIV.pagebreak{break-after:column}']],
+    [['body div.pagebreak{visibility:hidden;-moz-column-break-after:page;break-after:page}']],
+    [['html > body > .pagebreak{page-break-after:always}']],
     [['h2{page-break-before:column}']],
     [['h2{break-before:auto;page-break-after:avoid}']],
     [['@page{margin:10mm}@font-face{font-family:F}']],

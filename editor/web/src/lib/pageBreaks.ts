@@ -410,9 +410,14 @@ export function findIgnoredInlineBreaks(root: Element): Element[] {
 
 /**
  * 区切りを指すセレクタ。子孫・結合子つきのもの(`.x .pagebreak`)は根の直下と限らないので数えない。
- * 型セレクタは大文字小文字を区別しないが、クラス名は区別する。
+ * ただし `body` / `html body` の子孫・子(`body div.pagebreak` など)は根の直下の区切りを必ず含むので
+ * 数える(入れ子の区切りにも効く分は `findUncountedBreaks` の警告が拾う)。型セレクタは大文字小文字を
+ * 区別しないが、クラス名は区別する。
  */
-const PAGEBREAK_SELECTOR_RE = new RegExp(`^(?:[Dd][Ii][Vv])?\\.${PAGEBREAK_CLASS}$`);
+const PAGEBREAK_SELECTOR_RE = new RegExp(
+  `^(?:(?:[Hh][Tt][Mm][Ll](?:\\s*>\\s*|\\s+))?[Bb][Oo][Dd][Yy](?:\\s*>\\s*|\\s+))?` +
+    `(?:[Dd][Ii][Vv])?\\.${PAGEBREAK_CLASS}$`,
+);
 const BREAK_PROP_RE = /^break-(?:before|after)$/;
 const LEGACY_BREAK_PROP_RE = /^page-break-(?:before|after)$/;
 
