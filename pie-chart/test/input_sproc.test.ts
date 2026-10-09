@@ -66,9 +66,9 @@ describe('prepareSprocFetch', () => {
       timeoutMs: 60000,
     });
   });
-  it('データベース名が無い・ストアド名の形が違うときは DB に触れる前に投げる', () => {
+  it('データベース名が不正・ストアド名の形が違うときは DB に触れる前に投げる', () => {
     expect(() => prepareSprocFetch(ARGS, { server: 'db01', database: '' }, deps())).toThrow(
-      /database is required/,
+      /Invalid database name/,
     );
     const badProc = deps({
       procName: () => {

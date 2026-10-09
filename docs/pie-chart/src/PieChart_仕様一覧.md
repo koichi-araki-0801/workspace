@@ -34,7 +34,7 @@ title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
 | 8 | オプション | `--data-json` |  | JSON文字列を直渡し |
 | 9 | オプション | `--xlsx / --sheet / --range` |  | Excel範囲入力（3 つとも必須。例 A2:B11） |
 | 10 | オプション | `--fund / --base-date / --chart-type` |  | ストアドへ位置バインドで渡す。3 つそろえて指定。基準日は YYYY-MM-DD か YYYYMMDD |
-| 11 | オプション | `--db-server / --db-name` | `env DB_SERVER / DB_NAME` | 接続先（既定 localhost / env）。Windows統合認証固定 |
+| 11 | オプション | `--db-server / --db-name` | `env DB_SERVER / DB_NAME` | 接続先（既定は運用の sv29wdbp03\ipass / usrap、env で上書き）。Windows統合認証固定 |
 | 12 | オプション | `--save-json` | `--output-file の拡張子を .json に` | 取得結果（samples 形式）の保存先 |
 | 13 | オプション | `--font-weight` | `400 \| 700` | フォントウェイト切替 |
 | 14 | オプション | `--stroke-ratio` | `number` | faux-bold のストローク調整 |

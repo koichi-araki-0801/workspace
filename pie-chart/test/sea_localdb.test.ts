@@ -46,21 +46,21 @@ interface Sql {
 
 const PROCS = [
   // 正常: NOCOUNT を付けず、件数だけの結果(INSERT)を含む。
-  `CREATE PROCEDURE dbo.pie_chart_items @ファンドコード nvarchar(64), @基準日 nvarchar(8), @グラフ種別 nvarchar(64) AS
+  `CREATE PROCEDURE dbo.pie_chart_items @ファンドコード_p nvarchar(64), @基準日_p nvarchar(8), @グラフ種別_p nvarchar(64) AS
    BEGIN
      DECLARE @t TABLE (name nvarchar(100), value decimal(9, 1));
      INSERT INTO @t VALUES (N'国内株式', 60.5), (N'外国株式', 30.0), (N'その他', 9.5);
      SELECT name, value FROM @t
-     WHERE @ファンドコード = N'F001' AND @基準日 = N'20260930' AND @グラフ種別 = N'資産配分'
+     WHERE @ファンドコード_p = N'F001' AND @基準日_p = N'20260930' AND @グラフ種別_p = N'資産配分'
      ORDER BY value DESC;
    END`,
-  `CREATE PROCEDURE dbo.two_sets @ファンドコード nvarchar(64), @基準日 nvarchar(8), @グラフ種別 nvarchar(64) AS
+  `CREATE PROCEDURE dbo.two_sets @ファンドコード_p nvarchar(64), @基準日_p nvarchar(8), @グラフ種別_p nvarchar(64) AS
    BEGIN SET NOCOUNT ON; SELECT 1 AS a, 2 AS b; SELECT N'x' AS name, 1 AS value; END`,
   // メッセージは ASCII: msnodesqlv8 が日本語のサーバメッセージを誤って復号するため(既知の制約)。
-  `CREATE PROCEDURE dbo.throws @ファンドコード nvarchar(64), @基準日 nvarchar(8), @グラフ種別 nvarchar(64) AS
+  `CREATE PROCEDURE dbo.throws @ファンドコード_p nvarchar(64), @基準日_p nvarchar(8), @グラフ種別_p nvarchar(64) AS
    BEGIN THROW 50000, N'sproc test failure', 1; END`,
   // 40 行: 取得はできるが描画の項目数上限(32)を超える。
-  `CREATE PROCEDURE dbo.too_many @ファンドコード nvarchar(64), @基準日 nvarchar(8), @グラフ種別 nvarchar(64) AS
+  `CREATE PROCEDURE dbo.too_many @ファンドコード_p nvarchar(64), @基準日_p nvarchar(8), @グラフ種別_p nvarchar(64) AS
    BEGIN SET NOCOUNT ON;
      SELECT TOP 40 CONCAT(N'項目', ROW_NUMBER() OVER (ORDER BY (SELECT 1))) AS name, 1 AS value
      FROM sys.all_objects;

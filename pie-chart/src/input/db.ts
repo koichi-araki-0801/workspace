@@ -21,10 +21,15 @@ import { DbStageError, errorMessage } from './dbStage.js';
 import { rowToItem } from './number.js';
 import { SPROC_PARAM_NAMES, type SprocArgs } from './sprocArgs.js';
 
+/** 既定の接続先サーバ(運用の DB)。`--db-server` か env `DB_SERVER` で上書きする。 */
+export const DEFAULT_DB_SERVER = String.raw`sv29wdbp03\ipass`;
+/** 既定のデータベース名(運用の DB)。`--db-name` か env `DB_NAME` で上書きする。 */
+export const DEFAULT_DB_NAME = 'usrap';
+
 export interface ConnOpts {
-  /** 接続先サーバ。未指定は env `DB_SERVER`、既定 `localhost`。 */
+  /** 接続先サーバ。未指定は env `DB_SERVER`、それも無ければ `DEFAULT_DB_SERVER`。 */
   server?: string;
-  /** データベース名。未指定は env `DB_NAME`(これも無ければエラー)。 */
+  /** データベース名。未指定は env `DB_NAME`、それも無ければ `DEFAULT_DB_NAME`。 */
   database?: string;
   /** ODBC ドライバ名。未指定は env `DB_ODBC_DRIVER`、既定 `ODBC Driver 17 for SQL Server`。 */
   driver?: string;
@@ -133,14 +138,11 @@ export function resolveConnTarget(opts: ConnOpts): ConnTarget {
       `Unknown ODBC driver: "${driver}" (allowed: ${[...ALLOWED_ODBC_DRIVERS].join(' / ')}).`,
     );
   }
-  const server = opts.server ?? process.env.DB_SERVER ?? 'localhost';
+  const server = opts.server ?? process.env.DB_SERVER ?? DEFAULT_DB_SERVER;
   if (!SERVER_RE.test(server)) {
     throw new Error(`Invalid server: "${server}" (expected host[\\instance][,port]).`);
   }
-  const database = opts.database ?? process.env.DB_NAME;
-  if (!database) {
-    throw new Error('database is required (pass --db-name or set DB_NAME).');
-  }
+  const database = opts.database ?? process.env.DB_NAME ?? DEFAULT_DB_NAME;
   if (!DATABASE_RE.test(database)) {
     throw new Error(`Invalid database name: "${database}".`);
   }

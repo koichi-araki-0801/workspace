@@ -285,7 +285,7 @@ describe('CLI のストアド入力の検査(DB には接続しない)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }, 60_000);
-  it('--db-name も DB_NAME も無ければ、出力フォルダを作らずに止まる', () => {
+  it('--db-name が不正なら、出力フォルダを作らずに止まる', () => {
     const dir = mkdtempSync(join(tmpdir(), 'piechart-cli-'));
     try {
       const out = join(dir, 'sub', 'x.svg');
@@ -298,13 +298,15 @@ describe('CLI のストアド入力の検査(DB には接続しない)', () => {
           '20260930',
           '--chart-type',
           'T',
+          '--db-name',
+          'bad;name',
           '--output-file',
           out,
         ],
         envWithoutDb(),
       );
       expect(r.code).toBe(1);
-      expect(r.stderr).toMatch(/database is required/);
+      expect(r.stderr).toMatch(/Invalid database name/);
       expect(existsSync(join(dir, 'sub'))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });

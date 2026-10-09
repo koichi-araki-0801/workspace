@@ -29,9 +29,9 @@ describe('buildConnectionString', () => {
     process.env = { ...saved };
   });
 
-  it('既定ドライバ・サーバ + 明示 database で Trusted_Connection を付ける', () => {
-    expect(buildConnectionString({ database: 'usrap' })).toBe(
-      'Driver={ODBC Driver 17 for SQL Server};Server=localhost;Database=usrap;Trusted_Connection=yes;',
+  it('server / database を省くと既定の接続先(運用の DB)で Trusted_Connection を付ける', () => {
+    expect(buildConnectionString({})).toBe(
+      String.raw`Driver={ODBC Driver 17 for SQL Server};Server=sv29wdbp03\ipass;Database=usrap;Trusted_Connection=yes;`,
     );
   });
   it('明示の server / driver / extra を反映する', () => {
@@ -50,8 +50,9 @@ describe('buildConnectionString', () => {
     process.env.DB_NAME = 'fromenv';
     expect(buildConnectionString({})).toContain('Database=fromenv;');
   });
-  it('database 未指定 (env も無し) は投げる', () => {
-    expect(() => buildConnectionString({})).toThrow(/database is required/);
+  it('server が無ければ env DB_SERVER を使う', () => {
+    process.env.DB_SERVER = 'db02';
+    expect(buildConnectionString({})).toContain('Server=db02;');
   });
 
   // ここからが本題: 接続文字列は `;` 区切りの key=value 列なので、値に `;` を通すと
@@ -136,7 +137,7 @@ describe('resolveConnTarget', () => {
     delete process.env.DB_SERVER;
     expect(resolveConnTarget({ database: 'usrap' })).toEqual({
       driver: 'ODBC Driver 17 for SQL Server',
-      server: 'localhost',
+      server: String.raw`sv29wdbp03\ipass`,
       database: 'usrap',
       extra: '',
     });
@@ -165,7 +166,7 @@ const twoCols = [{ name: 'name' }, { name: 'value' }];
 describe('buildSprocStatement', () => {
   it('パラメータ名つきの EXEC を組み立て、値は ? で受ける', () => {
     expect(buildSprocStatement('dbo.pie_chart_items')).toBe(
-      'EXEC dbo.pie_chart_items @ファンドコード=?, @基準日=?, @グラフ種別=?',
+      'EXEC dbo.pie_chart_items @ファンドコード_p=?, @基準日_p=?, @グラフ種別_p=?',
     );
   });
 });
@@ -286,7 +287,7 @@ describe('callSprocItems', () => {
     expect(calls).toEqual([
       [
         'CS',
-        'EXEC dbo.p @ファンドコード=?, @基準日=?, @グラフ種別=?',
+        'EXEC dbo.p @ファンドコード_p=?, @基準日_p=?, @グラフ種別_p=?',
         ['0331A', '20260930', '資産配分'],
         { timeoutMs: 60000, raw: true },
       ],

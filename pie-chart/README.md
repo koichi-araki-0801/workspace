@@ -53,8 +53,8 @@ CLI は `pnpm run cli <command>`(または直接 `tsx src/cli.ts <command>`)で�
 #### DB(SQL Server)入力の決まり
 
 - 入力はストアド 1 本。`--fund` / `--base-date` / `--chart-type` を**3 つそろえて**指定する
-  (1 つでも欠けたらエラー)。呼び出しは `EXEC <ストアド> @ファンドコード=?, @基準日=?, @グラフ種別=?`
-  で、値は位置バインド。ストアド名の既定は `dbo.pie_chart_items`(仮置き。env `PIE_DB_PROC` で
+  (1 つでも欠けたらエラー)。呼び出しは `EXEC <ストアド> @ファンドコード_p=?, @基準日_p=?, @グラフ種別_p=?`
+  で、値は位置バインド。ストアド名の既定は運用の DB の `ug01.Rep1_SMTAM_運報_運報自動化_円グラフデータ_取得`(env `PIE_DB_PROC` で
   上書きでき、`[schema.]name` の形を検査する。各部分に使えるのは文字(日本語の文字も可)・数字・`_` だけで、先頭は文字か `_`、
   `$` / `#` / 角括弧は受け付けない)。
 - 基準日は `YYYY-MM-DD` か `YYYYMMDD`。実在する日付かを検査し、`YYYYMMDD` の文字列で渡す
@@ -66,7 +66,7 @@ CLI は `pnpm run cli <command>`(または直接 `tsx src/cli.ts <command>`)で�
   `--save-json <path>` で変えられる。書くのは描画の前なので、描画で失敗しても JSON は残る。
   `--data-file` にこの JSON を渡すと、DB に接続せずに同じ SVG(byte 一致)を描ける。
 - 接続は **Windows 統合認証**固定(`Trusted_Connection=yes`)で資格情報は持たない。接続先は
-  `--db-server`(既定 env `DB_SERVER` / `localhost`)・`--db-name`(既定 env `DB_NAME`)。
+  `--db-server`(既定 env `DB_SERVER` / 運用の `sv29wdbp03\ipass`)・`--db-name`(既定 env `DB_NAME` / `usrap`)。
   ODBC ドライバは既定 `ODBC Driver 17 for SQL Server`(env `DB_ODBC_DRIVER`)。Driver 18 は
   `Encrypt` の既定が yes なので、サーバ証明書が自己署名なら `DB_CONN_EXTRA=Encrypt=no;` を足す。
 - 前提は「実行するユーザーの Windows アカウントが対象ストアドを実行できること」。権限の付け方は
