@@ -19,10 +19,9 @@ import {
   type TemplateRepository,
 } from '@editor/shared';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
-import { apiUrl } from '@/api/rest/http';
 import { logError } from '@/lib/appError';
 import { formatCss } from '@/lib/formatOutput';
-import { PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { PDF_ERROR_MSG, postBuild, renderPdfDocument } from '@/lib/pdfDocument';
 
 interface MergePdfService {
   /**
@@ -51,13 +50,9 @@ export function createMergePdfService(
           onProgress?.(i + 1, ids.length);
         }
 
-        const res = await fetch(apiUrl(apiPaths.buildMerge), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ documents }),
-        });
-        if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
-        const blob = await res.blob();
+        const res = await postBuild(apiPaths.buildMerge, { documents });
+        if (isErr(res)) return res;
+        const blob = res.value;
 
         // PDF 出力履歴は単体出力(プレビュー画面)と揃えて各テンプレへ記録する。履歴は
         // 成果物ではないためベストエフォート — 失敗してもダウンロードは成立させる。
@@ -105,6 +100,7 @@ async function renderOne(
       {
         cropMarks: false,
         skipJinja: true,
+        companyCode: tpl.meta.attributes.companyCode,
       },
     );
     if (isErr(filledDoc)) return fail(filledDoc.error);
@@ -119,7 +115,10 @@ async function renderOne(
   // (`loadForPreview` と同じ被せ方)。
   const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
 
-  const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, { cropMarks: false });
+  const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, {
+    cropMarks: false,
+    companyCode: tpl.meta.attributes.companyCode,
+  });
   if (isErr(doc)) return fail(doc.error);
   return doc;
 }

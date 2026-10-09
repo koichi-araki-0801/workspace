@@ -8,17 +8,9 @@
 // `HtmlParser`(`lib/htmlParser.ts`)として注入する。これによりメインと同一の diff/mask
 // ロジックを 1 実装のまま共有する。Comlink シェル(`htmlWorker.ts`)が `expose` する。
 // テストはこのモジュールを直接 import し、Comlink/Worker を介さず linkedom 経路を検証する。
-import type { SampleData } from '@editor/shared';
 import { parseHTML } from 'linkedom';
-import {
-  buildHtmlDiffAligned as buildHtmlDiffAlignedCore,
-  buildHtmlDiff as buildHtmlDiffCore,
-  type HtmlDiff,
-  type PagePair,
-} from '@/features/compare/htmlBlockDiff';
-import { toFilled as toFilledCore } from '@/lib/fillJinja';
 import type { HtmlParser } from '@/lib/htmlParser';
-import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinjaMask';
+import { createHtmlApi } from './htmlApi';
 
 // linkedom の Document を browser 互換の `Document` として供給する。diff/mask が使う DOM
 // API(`querySelectorAll`/`cloneNode`/`outerHTML`/`matches`/`classList` 等)は linkedom が
@@ -33,7 +25,7 @@ import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinj
 //   ブラウザと同じ「入力の `<body>` が文書の body になる」木を与える。
 // - それ以外の断片(body inner)は `<body>` ごと包む(browser の DOMParser は断片を body へ
 //   入れるのでこの差を吸収する)。
-const linkedomParse: HtmlParser = (html) => {
+export const linkedomParser: HtmlParser = (html) => {
   const full = /<html[\s>]|^\s*<!doctype/i.test(html)
     ? html
     : /<body[\s>]/i.test(html)
@@ -42,38 +34,5 @@ const linkedomParse: HtmlParser = (html) => {
   return parseHTML(full).document as unknown as Document;
 };
 
-// ── Comlink へ公開する API(戻り値はすべて構造化複製可能) ──
-export const htmlWorkerImpl = {
-  buildHtmlDiff(
-    beforeHtml: string,
-    afterHtml: string,
-    cssBefore?: string,
-    cssAfter?: string,
-  ): HtmlDiff {
-    return buildHtmlDiffCore(beforeHtml, afterHtml, cssBefore, cssAfter, linkedomParse);
-  },
-  buildHtmlDiffAligned(
-    beforeHtml: string,
-    afterHtml: string,
-    cssBefore: string | undefined,
-    cssAfter: string | undefined,
-    pairs: PagePair[],
-  ): HtmlDiff {
-    return buildHtmlDiffAlignedCore(
-      beforeHtml,
-      afterHtml,
-      cssBefore,
-      cssAfter,
-      pairs,
-      linkedomParse,
-    );
-  },
-  toTemplate(editable: string, opts?: ToTemplateOptions): string {
-    return toTemplateCore(editable, opts, linkedomParse);
-  },
-  toFilled(raw: string, sample: SampleData): string {
-    return toFilledCore(raw, sample);
-  },
-};
-
-export type HtmlWorkerApi = typeof htmlWorkerImpl;
+// Comlink へ公開する API。メインのフォールバックと同じ実装に、linkedom のパーサを注入する。
+export const htmlWorkerImpl = createHtmlApi(linkedomParser);

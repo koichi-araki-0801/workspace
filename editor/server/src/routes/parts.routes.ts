@@ -2,24 +2,23 @@
 // parts.routes.ts — パーツカタログのルート(エディタ左ペイン)+ パーツ単位履歴
 // =============================================================================
 import { apiPaths, type PartClassificationQuery } from '@editor/shared';
+import { RecordPartChangeRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { RecordPartChangeRequest } from '../openapi/schemas.js';
 import * as history from '../repositories/historyRepo.js';
-
-const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
+import { actorOf, pickQuery } from './routeHelpers.js';
 
 function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
-  const pick = (k: string) => (typeof q[k] === 'string' && q[k] ? (q[k] as string) : undefined);
-  return {
-    category: pick('category'),
-    majorClass: pick('majorClass'),
-    middleClass: pick('middleClass'),
-    minorClass: pick('minorClass'),
-  };
+  return pickQuery(q, [
+    'category',
+    'majorClass',
+    'middleClass',
+    'minorClass',
+    'editionType',
+  ] as const);
 }
 
 type ClassQuery = { Querystring: Record<string, unknown> };
@@ -53,7 +52,8 @@ export const partsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'parts'> }> = as
         request.params.templateId,
         body.partKey,
         body.change,
-        actor(request),
+        actorOf(request),
+        body.id,
       );
       return reply.code(204).send();
     },

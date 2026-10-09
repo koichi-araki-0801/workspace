@@ -5,6 +5,7 @@
 import type { ReviewRequestMeta, TemplateAttributes } from '@editor/shared';
 import {
   AlertCircle,
+  ArrowLeft,
   CheckCircle2,
   CircleHelp,
   Eye,
@@ -21,12 +22,14 @@ import {
   Strikethrough,
   Undo2,
 } from '@lucide/vue';
+import { computed, watch } from 'vue';
 import PageNav from '@/components/PageNav.vue';
-import BackButton from '@/components/ui/BackButton.vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
+import { UNREGISTERED } from '@/lib/companyLabel';
 import { templateAttributeItems } from '@/lib/templateAttributeItems';
+import { useRep1Names } from '@/lib/useRep1Names';
 import type { SaveState } from './useAutosave';
 
 const props = defineProps<{
@@ -70,13 +73,44 @@ const emit = defineEmits<{
   help: [];
   save: [];
   preview: [];
+  /**
+   * 「一覧へ戻る」。ブラウザ履歴は辿らない(他タブやプレビューを経由すると直前は一覧でなく、
+   * 「編集」タブは編集中の画面へ戻すので一覧へ行けなくなる)。行き先は `EditorView` が経路から決める。
+   */
+  back: [];
   /** 承認待ちバッジのクリック(`EditorView` が精査画面へ遷移する)。 */
   openReview: [];
 }>();
 
+const { resolveFunds, companyLabel, fundName: rep1FundName } = useRep1Names();
+watch(
+  () => props.attributes?.companyCode,
+  (c) => c && resolveFunds(c),
+  { immediate: true },
+);
+
+// タイトルは Rep1 のファンド名。引けない(取得前・失敗・未登録)間は既定(ファイル名)のまま。
+const title = computed(() => {
+  const a = props.attributes;
+  const name = a ? rep1FundName(a.companyCode, a.fundCode) : '';
+  return name && name !== UNREGISTERED ? name : props.fundName;
+});
+
 // テンプレート(基準日を持たない)を開いているときは、基準日のチップごと出さない。
 const attrItems = (a: TemplateAttributes) =>
-  templateAttributeItems(a).map((i) => ({ k: i.label, v: i.value }));
+  templateAttributeItems(a).map((i) => ({
+    k: i.label,
+    v: i.key === 'companyCode' ? companyLabel(i.value) : i.value,
+  }));
+
+// ツールチップと `aria-label` は同じ文言なので 1 箇所で決める。
+const editToggleLabel = computed(() =>
+  props.allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)',
+);
+const singlePageLabel = computed(() =>
+  props.singlePageMode ? '全ページを連続表示' : '1 ページ（区切り単位）だけ表示',
+);
+const pageGuidesLabel = computed(() => (props.showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'));
 </script>
 
 <template>
@@ -84,7 +118,9 @@ const attrItems = (a: TemplateAttributes) =>
     class="z-30 flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-2 gap-y-2 border-b bg-card px-4 py-1.5 shadow-sm print:hidden"
   >
     <!-- ── 左ゾーン: 一覧へ戻る + 文書情報(タイトル / 属性チップ) ── -->
-    <BackButton :fallback="{ name: 'edit' }" aria-label="一覧へ戻る" />
+    <Button variant="ghost" size="icon" aria-label="一覧へ戻る" @click="emit('back')">
+      <ArrowLeft class="h-4 w-4" />
+    </Button>
     <div class="h-[26px] w-px shrink-0 bg-border" />
 
     <!-- 幅の上限を持たせるのは折り返しの抑止。`flex-wrap` の行送りは shrink より先に効くため、
@@ -92,7 +128,7 @@ const attrItems = (a: TemplateAttributes) =>
          上限は属性チップ 1 行分(実測 418px)で、長いファンド名は truncate へ回す。 -->
     <div class="flex min-w-0 max-w-[420px] flex-col">
       <div class="flex min-w-0 items-center gap-2">
-        <span class="truncate text-[15px] font-bold">{{ fundName }}</span>
+        <span class="truncate text-[15px] font-bold">{{ title }}</span>
         <!-- 確定状態のバッジ。下書きは常時自動保存されるが「確定保存」は preview 画面で行うため、
              未確定の編集が残っているかをここで明示する(自動保存ステータスとは別物)。 -->
         <Tooltip v-if="dirty" text="確定保存していない編集があります。プレビュー画面で確定保存できます。">
@@ -143,13 +179,13 @@ const attrItems = (a: TemplateAttributes) =>
     <div class="flex shrink-0 flex-wrap items-center gap-1 rounded-lg bg-muted/50 px-1.5 py-1">
       <!-- 編集ロックの状態と解除。左ペインの「編集を許可」トグルと同一 state を、常に見える
            上部バーにも出す(左ペインを畳んでいても編集ロックに気付け、その場で解除できる)。 -->
-      <Tooltip :text="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'">
+      <Tooltip :text="editToggleLabel">
         <Button
           variant="ghost"
           size="sm"
           class="gap-1.5 px-2"
           :class="allowEdit ? 'text-primary' : 'text-muted-foreground'"
-          :aria-label="allowEdit ? '編集中(クリックで閲覧のみに戻す)' : '閲覧のみ(クリックで編集を許可)'"
+          :aria-label="editToggleLabel"
           :aria-pressed="allowEdit"
           @click="emit('toggleEdit')"
         >
@@ -207,17 +243,18 @@ const attrItems = (a: TemplateAttributes) =>
           variant="ghost"
           :current-page="currentPage"
           :page-count="pageCount"
+          count-hint="ページ数は区切り単位です。紙のページ数はプレビューで確かめてください"
           @go="emit('go', $event)"
         />
         <div class="mx-0.5 h-5 w-px bg-border/70" />
       </template>
 
       <!-- 1 ページ表示 / 全ページ連続表示の切替 -->
-      <Tooltip :text="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'">
+      <Tooltip :text="singlePageLabel">
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="singlePageMode ? '全ページを連続表示' : '1 ページだけ表示'"
+          :aria-label="singlePageLabel"
           :class="singlePageMode ? 'text-primary' : ''"
           @click="emit('toggleSinglePage')"
         >
@@ -226,11 +263,11 @@ const attrItems = (a: TemplateAttributes) =>
       </Tooltip>
 
       <!-- ページ境界 guide のトグル -->
-      <Tooltip :text="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'">
+      <Tooltip :text="pageGuidesLabel">
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="showPageGuides ? 'ページ境界を隠す' : 'ページ境界を表示'"
+          :aria-label="pageGuidesLabel"
           :class="showPageGuides ? 'text-primary' : ''"
           @click="emit('togglePageGuides')"
         >

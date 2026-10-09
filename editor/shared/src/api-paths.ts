@@ -56,8 +56,10 @@ export const apiPaths = {
   preview: '/preview',
   // ワイルドカード経路(reverse-proxy)はルート側で `+ '/*'` を合成する。
   previewById: '/preview/:id',
-  // fund assets (別ツールが置くファンド別画像。imagesDir 直下の 1 ファイル)
+  // fund assets (別ツールが置く画像。imagesDir 直下と、会社フォルダ 1 段の 1 ファイル)
   fundAssetImage: '/fund-assets/images/:file',
+  fundAssetImageInDir: '/fund-assets/images/:dir/:file',
+  fundAssetInspect: '/fund-assets/inspect',
   // reviews (確定保存の精査者承認ワークフロー)
   reviewRequests: '/review-requests',
   reviewRequestById: '/review-requests/:reqId',
@@ -68,9 +70,6 @@ export const apiPaths = {
   userById: '/users/:id',
   userResetPassword: '/users/:id/reset-password',
 } as const;
-
-/** `apiPaths` のキー集合。 */
-export type ApiPathKey = keyof typeof apiPaths;
 
 // ── 2. dialect conversions — OpenAPI 形 / 実値埋め込みへの機械導出 ──
 
@@ -96,7 +95,7 @@ type ParamName<S extends string> = S extends `${string}:${infer P}/${infer Rest}
  * テンプレートが要求するパラメータの型。パラメータ付きは各名を必須の `string`、
  * 無しは空オブジェクト。`id`/`templateId` の取り違えはこの型でコンパイル時に弾く。
  */
-export type PathParams<S extends string> = [ParamName<S>] extends [never]
+type PathParams<S extends string> = [ParamName<S>] extends [never]
   ? Record<never, never>
   : { [K in ParamName<S>]: string };
 

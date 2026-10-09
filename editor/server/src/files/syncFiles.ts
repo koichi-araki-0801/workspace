@@ -8,11 +8,12 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { assertPairKey } from '@editor/shared';
+import { assertPairKey, PAIR_PART_CONFLICT_KINDS } from '@editor/shared';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { emptySyncState, type PairSyncState } from '../sync/partSync.js';
 import { atomicWrite } from './atomic.js';
+import { readOrMissing } from './fsHelpers.js';
 
 // `pairKey` は呼び出し元(`pairSyncService.ts`)がテンプレート属性から組み立てるが、パス検証は
 // 連結する唯一の場所であるここで強制する(正典: `docs/editor/src/設計正典.md` の該当節)。
@@ -24,17 +25,39 @@ const syncPath = (pairKey: string): string =>
 // が「同期スキップ + 警告」に倒す。
 const PairPartStateSchema = z.object({
   lastSynced: z.string().optional(),
-  conflict: z.object({ kind: z.enum(['初期差分', '両側変更']), detectedAt: z.string() }).optional(),
+  conflict: z
+    .object({
+      kind: z.enum(PAIR_PART_CONFLICT_KINDS),
+      detectedAt: z.string(),
+      deletedIn: z.string().optional(),
+    })
+    .optional(),
 });
 const PairSyncStateSchema = z.object({
   pairKey: z.string(),
   parts: z.record(z.string(), PairPartStateSchema),
+  css: z
+    .object({
+      conflicts: z.array(
+        z.object({
+          ruleKey: z.string(),
+          detectedAt: z.string(),
+          kind: z.enum(['照合不可']).optional(),
+          sourceEdition: z.string().optional(),
+        }),
+      ),
+    })
+    .optional(),
   updatedAt: z.string(),
 });
 
-/** 状態ファイルを読む。未作成なら空状態(全パーツ「一致履歴なし」)から始める。 */
+/**
+ * 状態ファイルを読む。未作成(ENOENT)なら空状態(全パーツ「一致履歴なし」)から始める。
+ * それ以外の読み取り失敗は例外にする — 空状態へ倒すと、承認がその空状態を基に書き戻して
+ * lastSynced と競合の記録を消す。呼び出し側の扱いは壊れたファイルと同じ(同期スキップ + 警告)。
+ */
 export async function readSyncState(pairKey: string): Promise<PairSyncState> {
-  const raw = await fs.readFile(syncPath(pairKey), 'utf8').catch(() => null);
+  const raw = await readOrMissing(syncPath(pairKey), null);
   if (raw === null) return emptySyncState(pairKey);
   return PairSyncStateSchema.parse(JSON.parse(raw));
 }

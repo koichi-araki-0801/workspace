@@ -1,15 +1,16 @@
-import { isErr, isOk } from '@editor/shared';
-import { describe, expect, it, vi } from 'vitest';
+import { EXTERNAL_REF_MESSAGE, isErr, isOk } from '@editor/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
-import { PDF_CSS_EXTERNAL_REF_MSG, PDF_ERROR_MSG, renderPdfDocument } from '@/lib/pdfDocument';
+import { PDF_ERROR_MSG, postBuild, renderPdfDocument } from '@/lib/pdfDocument';
+import { sanitizePdfRoot, sanitizePreviewRoot, serializePreviewRoot } from '@/lib/sanitizeHtml';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
 // ここで固定したいのは PDF 入力文書の組み立て(サニタイズ・外部参照の拒否)なので、隔離の
 // 向こう側にあたる nunjucks 実装を直に噛ませる。クライアントの契約は
 // `renderHostClient.test.ts` が固定する。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 
@@ -52,14 +53,14 @@ describe('renderPdfDocument', () => {
   // ディスクの旧 per-fund CSS から復活し、プレビューと PDF が食い違う。
   it('同梱資産への相対参照(link / script src)は残す', async () => {
     const html =
-      '<html><head><link rel="stylesheet" href="css/510037.css">' +
-      '<script src="js/column-width.js"></scr' +
+      '<html><head><link rel="stylesheet" href="../css/AM01_510037_交付版.css">' +
+      '<script src="../js/column-width.js"></scr' +
       'ipt></head><body>x</body></html>';
     const res = await renderPdfDocument(html, '', {});
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
-      expect(res.value.html).toContain('css/510037.css');
-      expect(res.value.html).toContain('js/column-width.js');
+      expect(res.value.html).toContain('../css/AM01_510037_交付版.css');
+      expect(res.value.html).toContain('../js/column-width.js');
     }
   });
 
@@ -78,7 +79,7 @@ describe('renderPdfDocument', () => {
   ])('HTML の絶対参照(%s = %s)で PDF を作らない', async (html) => {
     const res = await renderPdfDocument(html, '', {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
+    if (isErr(res)) expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
   });
 
   it('appends trim-mark CSS only when cropMarks is on', async () => {
@@ -105,7 +106,7 @@ describe('renderPdfDocument', () => {
   ])('外部参照を含む CSS(%s = %s)で PDF を作らない', async (css) => {
     const res = await renderPdfDocument('<p>x</p>', css, {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_CSS_EXTERNAL_REF_MSG);
+    if (isErr(res)) expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
   });
 
   // 承認者は実行結果しか見ない運用(DECISIONS の Q10)なので、「PDF では動くのに
@@ -130,5 +131,124 @@ describe('renderPdfDocument', () => {
       '@media print{.d{color:red}}';
     const res = await renderPdfDocument('<p>x</p>', css, {});
     expect(isOk(res)).toBe(true);
+  });
+
+  it('会社フォルダが会社コードと合わない画像は <img src>・<style>・css の url() から落とす', async () => {
+    const html =
+      '<html><head><style>.h{background:url(../images/other/h.svg)}</style></head><body>' +
+      '<img src="../images/smtam/qr.svg"><img src="../images/other/x.svg">' +
+      '<img src="../images/510037_logo.svg"></body></html>';
+    const css =
+      '.b{background:url(../images/other/c.svg)}.c{background:url(../images/SMTAM/d.svg)}';
+    const res = await renderPdfDocument(html, css, {}, { skipJinja: true, companyCode: 'SMTAM' });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.html).toContain('src="../images/smtam/qr.svg"');
+    expect(res.value.html).toContain('src="../images/510037_logo.svg"');
+    expect(res.value.html).not.toContain('other/x.svg');
+    expect(res.value.html).not.toContain('other/h.svg');
+    expect(res.value.css).not.toContain('other/c.svg');
+    expect(res.value.css).toContain('url(../images/SMTAM/d.svg)');
+  });
+
+  it('外部参照の文言は文書基準の相対パスを案内する', () => {
+    expect(EXTERNAL_REF_MESSAGE).toContain('../css/');
+    expect(EXTERNAL_REF_MESSAGE).toContain('../images/');
+  });
+  it('会社フォルダが会社コードと合わない画像は style 属性の url() からも落とし、合うものは残す', async () => {
+    const html =
+      '<html><body><div style="background:url(../images/other/s.svg)">a</div>' +
+      '<div style="background:url(../images/smtam/t.svg)">b</div>' +
+      '<div style="background:url(../images/510037_u.svg)">c</div></body></html>';
+    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'SMTAM' });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.html).not.toContain('other/s.svg');
+    expect(res.value.html).toContain('url(../images/smtam/t.svg)');
+    expect(res.value.html).toContain('url(../images/510037_u.svg)');
+  });
+
+  it('会社フォルダが合わない画像は srcset・<source srcset>・<input src>・<video poster> からも落とす', async () => {
+    const html =
+      '<html><body>' +
+      '<img src="../images/smtam/a.svg" srcset="../images/smtam/a.svg 1x, ../images/other/a2.svg 2x">' +
+      '<picture><source srcset="../images/other/p.svg"><img src="../images/smtam/p.svg"></picture>' +
+      '<input type="image" src="../images/other/i.svg" alt="i">' +
+      '<video poster="../images/other/v.svg"></video>' +
+      '<video poster="../images/SMTAM/ok.svg"></video>' +
+      '<img srcset="../images/smtam/k.svg 1x">' +
+      '</body></html>';
+    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'SMTAM' });
+    expect(isOk(res)).toBe(true);
+    if (!isOk(res)) return;
+    expect(res.value.html).not.toContain('other/');
+    expect(res.value.html).toContain('src="../images/smtam/a.svg"');
+    expect(res.value.html).toContain('src="../images/smtam/p.svg"');
+    expect(res.value.html).toContain('poster="../images/SMTAM/ok.svg"');
+    expect(res.value.html).toContain('srcset="../images/smtam/k.svg 1x"');
+  });
+});
+
+describe('sanitizePdfRoot — script の defer/async と meta charset', () => {
+  const pdf = (html: string): string => serializePreviewRoot(sanitizePdfRoot(html));
+
+  it('script の defer と async を残す', () => {
+    const out = pdf(
+      '<html><head><script defer src="../js/a.js"></script></head>' +
+        '<body><script async>var x = 1;</script></body></html>',
+    );
+    expect(out).toMatch(
+      /<script[^>]*\bdefer\b[^>]*src="..\/js\/a.js"|<script[^>]*src="..\/js\/a.js"[^>]*\bdefer\b/,
+    );
+    expect(out).toMatch(/<script[^>]*\basync\b[^>]*>var x = 1;/);
+  });
+
+  it('charset だけを持つ meta は残し、ほかの meta は落とす', () => {
+    const out = pdf(
+      '<html><head><meta charset="utf-8">' +
+        '<meta http-equiv="refresh" content="0;url=https://evil/">' +
+        '<meta name="viewport" content="width=device-width">' +
+        '<meta charset="utf-8" http-equiv="refresh" content="0;url=https://evil/">' +
+        '</head><body>x</body></html>',
+    );
+    expect(out.match(/<meta\b[^>]*>/g)).toEqual(['<meta charset="utf-8">']);
+    expect(out).not.toContain('evil');
+    expect(out).not.toContain('viewport');
+  });
+
+  it('プレビュー用のサニタイズは meta を従来どおりすべて落とす', () => {
+    const out = serializePreviewRoot(
+      sanitizePreviewRoot('<html><head><meta charset="utf-8"></head><body>x</body></html>'),
+    );
+    expect(out).not.toContain('<meta');
+  });
+});
+
+describe('postBuild', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('JSON を POST して成功時は Blob を返す', async () => {
+    const blob = new Blob(['%PDF']);
+    const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => blob }));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await postBuild('/build', { html: '<p/>' });
+    expect(res).toEqual({ ok: true, value: blob });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain('/build');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"html":"<p/>"}');
+  });
+
+  it('HTTP エラーは PDF_ERROR_MSG の conflict(cause に状態)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 500 })),
+    );
+    const res = await postBuild('/build', {});
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(PDF_ERROR_MSG);
+      expect(res.error.cause).toBe('HTTP 500');
+    }
   });
 });

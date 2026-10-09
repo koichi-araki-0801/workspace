@@ -23,7 +23,9 @@ function mountInspector(geom: LayoutGeom) {
             selected: { id: 'c1', name: 'div', isJinja: false },
             part: null,
             geom,
+            partBreak: null,
             history: [],
+            partLabels: new Map(),
             noteCount: 0,
             canNote: false,
             editMode: true,
@@ -37,7 +39,8 @@ function mountInspector(geom: LayoutGeom) {
   const wrapper = mount(Host);
   // 幅の数値入力欄(最初の numeric 入力)。
   const width = wrapper.findAll('input[inputmode="numeric"]')[0];
-  return { wrapper, width, applies };
+  const inputs = wrapper.findAll('input[inputmode="numeric"]');
+  return { wrapper, width, marginTop: inputs[1], applies };
 }
 
 describe('Inspector の数値確定', () => {
@@ -60,6 +63,113 @@ describe('Inspector の数値確定', () => {
     await width.trigger('blur');
     expect(applies).toEqual([]);
     expect((width.element as HTMLInputElement).value).toBe('60');
+  });
+
+  it('空で blur すると元値へ戻し、apply を emit しない(0 を当てない)', async () => {
+    const { width, applies } = mountInspector({ ...DEFAULT_GEOM, widthPct: 60, align: 'left' });
+    await width.setValue('');
+    await width.trigger('blur');
+    expect(applies).toEqual([]);
+    expect((width.element as HTMLInputElement).value).toBe('60');
+  });
+
+  it('空白だけでも元値へ戻す', async () => {
+    const { width, applies } = mountInspector({ ...DEFAULT_GEOM, widthPct: 60, align: 'left' });
+    await width.setValue('  ');
+    await width.trigger('blur');
+    expect(applies).toEqual([]);
+    expect((width.element as HTMLInputElement).value).toBe('60');
+  });
+
+  it('余白の欄も空なら元値へ戻す', async () => {
+    const { marginTop, applies } = mountInspector({ ...DEFAULT_GEOM, marginTop: 7 });
+    await marginTop.setValue('');
+    await marginTop.trigger('blur');
+    expect(applies).toEqual([]);
+    expect((marginTop.element as HTMLInputElement).value).toBe('7');
+  });
+});
+
+describe('Inspector の改ページ', () => {
+  function mountPB(opts: {
+    partBreak: { before: boolean; after: boolean } | null;
+    isPagebreak?: boolean;
+  }) {
+    const applies: Partial<LayoutGeom>[] = [];
+    const breaks: { edge: 'before' | 'after'; on: boolean }[] = [];
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(TooltipProvider, null, () =>
+            h(Inspector, {
+              selected: {
+                id: 'c1',
+                name: opts.isPagebreak ? '改ページ' : 'div',
+                isJinja: false,
+                isPagebreak: opts.isPagebreak,
+              },
+              part: null,
+              geom: DEFAULT_GEOM,
+              partBreak: opts.partBreak,
+              history: [],
+              partLabels: new Map(),
+              paneTab: 'props',
+              commentCount: 0,
+              editMode: true,
+              canUp: false,
+              canDown: false,
+              onApply: (p: Partial<LayoutGeom>) => applies.push(p),
+              onPagebreak: (e: { edge: 'before' | 'after'; on: boolean }) => breaks.push(e),
+            }),
+          );
+      },
+    });
+    return { wrapper: mount(Host), applies, breaks };
+  }
+  const button = (w: ReturnType<typeof mount>, text: string) => {
+    const b = w.findAll('button').find((x) => x.text().includes(text));
+    if (!b) throw new Error(`no button ${text}`);
+    return b;
+  };
+
+  it('「前で改ページ」を押すと apply ではなく pagebreak を { edge: before, on: true } で emit する', async () => {
+    const { wrapper, applies, breaks } = mountPB({ partBreak: { before: false, after: false } });
+    await button(wrapper, '前で改ページ').trigger('click');
+    expect(applies).toEqual([]);
+    expect(breaks).toEqual([{ edge: 'before', on: true }]);
+  });
+
+  it('ON の「後で改ページ」を押すと { edge: after, on: false } で emit し、状態を ON と出す', async () => {
+    const { wrapper, breaks } = mountPB({ partBreak: { before: false, after: true } });
+    const b = button(wrapper, '後で改ページ');
+    expect(b.text()).toContain('ON');
+    await b.trigger('click');
+    expect(breaks).toEqual([{ edge: 'after', on: false }]);
+  });
+
+  it('「ページ内で分割しない」は今どおり apply で keepTogether を emit する', async () => {
+    const { wrapper, applies, breaks } = mountPB({ partBreak: { before: false, after: false } });
+    await button(wrapper, 'ページ内で分割しない').trigger('click');
+    expect(applies).toEqual([{ keepTogether: true }]);
+    expect(breaks).toEqual([]);
+  });
+
+  it('区切りを置けないパーツ(partBreak が null)では前後の改ページを押せない', async () => {
+    const { wrapper, breaks } = mountPB({ partBreak: null });
+    const b = button(wrapper, '前で改ページ');
+    expect(b.attributes('disabled')).toBeDefined();
+    await b.trigger('click');
+    expect(breaks).toEqual([]);
+  });
+
+  it('区切りの帯を選んでいるときは、改ページ・サイズ・余白の段を出さない', () => {
+    const { wrapper } = mountPB({ partBreak: null, isPagebreak: true });
+    const text = wrapper.text();
+    expect(text).not.toContain('前で改ページ');
+    expect(text).not.toContain('ページ内で分割しない');
+    expect(text).not.toContain('サイズ・配置');
+    expect(text).not.toContain('余白');
+    expect(text).toContain('修正履歴');
   });
 });
 
@@ -99,14 +209,14 @@ describe('useGrapes.patchSelectedStyle', () => {
   it('結果が現在の style と同一なら setStyle も change 通知も走らせない', () => {
     // `''` は「該当プロパティを除去」の意味なので、元から無い property は差分にならない。
     const { g, calls, changed } = setup({ width: '50%' });
-    g.patchSelectedStyle({ width: '50%', 'margin-top': '' });
+    expect(g.patchSelectedStyle({ width: '50%', 'margin-top': '' })).toBe(false);
     expect(calls).toEqual([]);
     expect(changed()).toBe(0);
   });
 
   it('差分があれば従来どおり setStyle と change 通知を行う', () => {
     const { g, calls, changed } = setup({ width: '50%' });
-    g.patchSelectedStyle({ width: '70%' });
+    expect(g.patchSelectedStyle({ width: '70%' })).toBe(true);
     expect(calls).toEqual([{ width: '70%' }]);
     expect(changed()).toBe(1);
   });

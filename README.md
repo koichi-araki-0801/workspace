@@ -79,7 +79,7 @@ BIZ UDPGothic は pie-chart が埋込サイズ優先の WOFF2 形式
 | コマンド | 役割 |
 |---|---|
 | `pnpm run dev` | editor を開発モードで起動 |
-| `pnpm run build` | 全パッケージをビルド |
+| `pnpm run build` | editor（shared+server の `tsc -b` と web の `vite build`）をビルド。pie-chart は含まない（`pnpm --filter pie-chart run build` / `build:exe` を別に実行） |
 | `pnpm run test` | 単体テスト一式 |
 | `pnpm run check:comments` | コメント規約・スクリプト配置の機械検査 |
 | `pnpm run knip` | 未使用 export / 依存の検出（`knip.json`） |
@@ -87,7 +87,16 @@ BIZ UDPGothic は pie-chart が埋込サイズ優先の WOFF2 形式
 | `pnpm run clean:deep` / `clean:bundles` | `node_modules` 等 / 大容量バンドルも対象に含める |
 | `pnpm run ci` | CI 集約（全領域＋coverage 85% 閾値ゲート＋pie-chart の SVG byte 比較。clone 直後は下記「フル `ci` の前提」を先に） |
 | `pnpm run ci:affected` | 変更領域だけ CI を実行（`scripts/ci-affected.mjs`。**pre-push で実行**） |
-| `pnpm run ci:editor` / `ci:pie-chart` | 領域別 CI を手動実行 |
+| `pnpm run ci:editor` / `ci:pie-chart` | 領域別 CI を手動実行（共有ゲートと領域の全段。`ci:affected` の `AREAS` と同じ） |
+
+手動で使うスクリプト（`ci` には組み込まれない）:
+
+| コマンド | 用途 |
+|---|---|
+| `pnpm run dev:web` / `dev:server` | editor の web / server を片方だけ起動 |
+| `pnpm run test:e2e:install` | e2e 用の Chromium を導入（初回のみ） |
+| `pnpm run pie-chart:cli` | pie-chart の CLI を直接実行 |
+| `pnpm --filter <pkg> run build` | 各パッケージ単体のビルド |
 
 その他のコマンドは各 `package.json` の `scripts` を参照。
 
@@ -97,7 +106,8 @@ CI は領域（`editor` = shared+server+web / `pie-chart`）単位で分割で�
 `pnpm run ci:<領域>` で手動部分実行、`pnpm run ci:affected` は `git diff`（既定で現ブランチ upstream 基準。
 `--base <ref>` / `--all` / `--dry-run`(計画のみ表示) / 環境変数 `CI_AFFECTED_BASE` で上書き可）から
 変更領域を判定して該当領域だけ走らせる。
-`.husky/pre-push` はこの affected 方式で push を高速化する（`scripts/ci-affected.mjs` を直接呼ぶ）。領域に
+`.husky/pre-push` はこの affected 方式で push を高速化する（`scripts/ci-affected.mjs --pre-push` を直接呼び、
+stdin で渡される push 対象の ref ごとに差分を取る。新規 ref は上記の既定ベースから、削除だけの push は検査しない）。領域に
 紐付かない共有変更（`package.json` / lockfile / 各種 config）を検出した場合はフル `ci` にフォールバックする。
 
 > **注意:** 領域別 / affected run は速度優先で **coverage 85% 閾値ゲートを通さない**

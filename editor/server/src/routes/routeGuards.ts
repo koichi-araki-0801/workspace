@@ -26,7 +26,7 @@ import {
 } from '../middleware/auth.js';
 
 /** 必要ロール。`auth` = ログイン済みなら誰でも(= viewer も可)。 */
-export type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
+type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
 
 /** `/api` prefix 付きの完全パスへ合成する。register の prefix と一致させるための唯一の場所。 */
 const api = (p: string): string => `/api${p}`;
@@ -104,8 +104,10 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`GET ${api(RENDER_HOST_BASE)}/index.html`]: 'auth',
   [`GET ${api(RENDER_HOST_BASE)}/*`]: 'auth',
 
-  // ファンド別画像(imagesDir 直下)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
+  // 画像(imagesDir 直下と会社フォルダ 1 段)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
   [`GET ${api(apiPaths.fundAssetImage)}`]: 'auth',
+  [`GET ${api(apiPaths.fundAssetImageInDir)}`]: 'auth',
+  [`POST ${api(apiPaths.fundAssetInspect)}`]: 'auth',
 
   // reviews
   [`POST ${api(apiPaths.reviewRequests)}`]: 'editor',
@@ -135,13 +137,8 @@ export const VIEWER_ALLOWED_MUTATIONS: Readonly<Record<string, string>> = {
   [`POST ${api(apiPaths.historyPdf)}`]: 'PDF 出力を viewer に許す以上、その記録も許す',
   [`POST ${api(apiPaths.build)}`]: '閲覧業務としての PDF 出力(サーバ状態を残さない)',
   [`POST ${api(apiPaths.buildMerge)}`]: '同上(複数文書の通しページ番号付き PDF)',
-};
-
-/** 各レベルで preHandler 配列に**参照一致**で含まれていなければならないガード。 */
-const REQUIRED_GUARD: Readonly<Record<Exclude<GuardLevel, 'public' | 'auth'>, unknown>> = {
-  editor: requireEditor,
-  approver: requireApprover,
-  admin: requireAdmin,
+  [`POST ${api(apiPaths.fundAssetInspect)}`]:
+    '画像が配信されるかの確認(読むだけでサーバ状態を変えない。画像の閲覧と同じ権限)',
 };
 
 /**
@@ -220,10 +217,6 @@ export function assertRoutePolicy(routeOptions: RouteOptions): void {
         `[routeGuards] ${key} は ROUTE_POLICY で '${declared}' ですが、実際のガードは ` +
           `'${actual}' です — preHandler と表のどちらかが誤っています`,
       );
-    }
-    const guard = declared === 'public' || declared === 'auth' ? null : REQUIRED_GUARD[declared];
-    if (guard && !preHandlers.includes(guard)) {
-      throw new Error(`[routeGuards] ${key} に '${declared}' のガードが付いていません`);
     }
     if (LOCAL_MODE_ENFORCED.has(key) && !preHandlers.includes(requireIdentifiedUser)) {
       throw new Error(

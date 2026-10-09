@@ -13,7 +13,7 @@ import { isErr, type PartRepository } from '@editor/shared';
  * タグ名由来のキー(`.class` / 小文字タグ名)はカタログ id ではないので null を返す。
  * カタログ id は `data-part-id` の値で、HTML タグ名と衝突しない語彙(ハイフン区切り等)を
  * 前提にできないため、「`.` 始まりと既知タグ名だけ除外」ではなく **name 表に居るか**を
- * `businessLabel` 側の突合で最終判定する(ここでは明らかな非 id だけ落とす)。
+ * `businessLabel` 側の突合で最終判定する(ここでは明らかな非 id だけ落とす)。テストから直接検証するために公開する。
  */
 export function partIdFromBlockKey(key: string): string | null {
   const base = key.replace(/#\d+$/, '');
@@ -36,6 +36,12 @@ export function partIdFromBlockKey(key: string): string | null {
   return base;
 }
 
+/** 差分行キーに突合できたカタログの業務名(無ければ undefined)。 */
+export function partNameOf(key: string, nameById: ReadonlyMap<string, string>): string | undefined {
+  const id = partIdFromBlockKey(key);
+  return id ? nameById.get(id) : undefined;
+}
+
 /**
  * 行の表示ラベル。カタログ名へ突合できたら「<業務名>（N ページ目）」、できなければ
  * 現行の機械採番ラベルをそのまま返す(黙って情報を減らさない)。
@@ -45,8 +51,7 @@ export function businessLabel(
   fallbackLabel: string,
   nameById: ReadonlyMap<string, string>,
 ): string {
-  const id = partIdFromBlockKey(key);
-  const name = id ? nameById.get(id) : undefined;
+  const name = partNameOf(key, nameById);
   if (!name) return fallbackLabel;
   const page = /ページ(\d+)/.exec(fallbackLabel)?.[1];
   return page ? `${name}（${page} ページ目）` : name;

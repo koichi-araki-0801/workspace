@@ -290,3 +290,67 @@ describe('配列でない値の扱い', () => {
     expect(raw[OTHER_KEY][0].id).toBe('e1');
   });
 });
+
+describe('読めなかったメモファイルを空として書き戻さない', () => {
+  const ioError = (code: string): NodeJS.ErrnoException =>
+    Object.assign(new Error(`${code}: 模擬`), { code });
+
+  it('読み取りの一過性失敗(EBUSY)では追加を中止し、既存の投稿を残す', async () => {
+    const { repo } = await importRepo();
+    await repo.addNote(KOUFU, KEY, '既存', 'editor1', PARENT);
+    const spy = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(ioError('EBUSY'));
+    try {
+      await expect(repo.addNote(KOUFU, KEY, '新規', 'editor1', PARENT)).rejects.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await repo.listNotes(KOUFU)).map((e) => e.content)).toEqual(['既存']);
+  });
+
+  it('stat の ENOENT 以外の失敗(EACCES)では追加を中止し、既存の投稿を残す', async () => {
+    const { repo } = await importRepo();
+    await repo.addNote(KOUFU, KEY, '既存', 'editor1', PARENT);
+    const spy = vi.spyOn(fs, 'stat').mockRejectedValueOnce(ioError('EACCES'));
+    try {
+      await expect(repo.addNote(KOUFU, KEY, '新規', 'editor1', PARENT)).rejects.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await repo.listNotes(KOUFU)).map((e) => e.content)).toEqual(['既存']);
+  });
+
+  it('表示用の読み取りは読めなくても空で返す(画面を落とさない)', async () => {
+    const { repo } = await importRepo();
+    await repo.addNote(KOUFU, KEY, '既存', 'editor1', PARENT);
+    const spy = vi.spyOn(fs, 'readFile').mockRejectedValueOnce(ioError('EBUSY'));
+    try {
+      await expect(repo.listNotes(KOUFU)).resolves.toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('Object.prototype の名前と重なるパーツキー', () => {
+  it.each([
+    '__proto__',
+    'constructor',
+    'toString',
+  ])('%s をキーにした投稿を追加・更新・削除でき、保存内容に残る', async (key) => {
+    const { repo } = await importRepo();
+    const e = await repo.addNote(KOUFU, key, '本文', 'editor1', PARENT);
+    expect(e.pathKey).toBe(key);
+    const raw = JSON.parse(
+      await fs.readFile(path.join(tmpRoot, 'notes', `${KOUFU}.json`), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(Object.hasOwn(raw, key)).toBe(true);
+    await repo.addNote(KOUFU, key, '2 件目', 'editor1', PARENT);
+    await repo.updateNote(KOUFU, e.id, { content: '更新' }, 'editor1');
+    expect((await repo.listNotes(KOUFU)).map((n) => [n.pathKey, n.content])).toEqual([
+      [key, '更新'],
+      [key, '2 件目'],
+    ]);
+    await repo.deleteNote(KOUFU, e.id);
+    expect((await repo.listNotes(KOUFU)).map((n) => n.content)).toEqual(['2 件目']);
+  });
+});

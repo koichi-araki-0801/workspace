@@ -7,10 +7,11 @@
 // Text ノードは `normalize()` で結合し直す。`normalize()` は先頭ノードを残して後続を吸収する
 // ので、GrapesJS の textnode view が持つ先頭 Text への参照は生きたままになる。
 
+import { REDLINE_ATTR } from '@/lib/redlineAttr';
 import type { RedlineOp } from './redlineDiff';
 import { renderDefinition } from './redlineTree';
 
-export const REDLINE_ATTR = 'data-redline';
+export { REDLINE_ATTR };
 export const REDLINE_ADDED_ATTR = 'data-redline-added';
 export const REDLINE_BLOCK_CLASS = 'redline-block';
 /** CSS Custom Highlight API の登録名（挿入語句の着色。DOM を変えない）。 */

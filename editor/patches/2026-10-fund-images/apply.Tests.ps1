@@ -168,17 +168,23 @@ Describe 'apply.ps1' {
   It '既に置かれた画像を点検して報告する(書き換えない)' {
     $root = New-Layout
     try {
-      New-Item -ItemType Directory -Force -Path (Join-Path $root 'images\sub') | Out-Null
-      Set-Content -LiteralPath (Join-Path $root 'images\sub\510037_a.svg') -Value '<svg/>' -NoNewline
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'images\sub\deep') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'images\sub\deep\510037_a.svg') -Value '<svg/>' -NoNewline
+      New-Item -ItemType Directory -Force -Path (Join-Path $root 'images\smtam') | Out-Null
+      Set-Content -LiteralPath (Join-Path $root 'images\smtam\qr_code.svg') -Value '<svg/>' -NoNewline
+      Set-Content -LiteralPath (Join-Path $root 'images\smtam\anim.gif') -Value 'GIF' -NoNewline
       Set-Content -LiteralPath (Join-Path $root 'images\510037_anim.gif') -Value 'GIF' -NoNewline
       Set-Content -LiteralPath (Join-Path $root 'images\logo.svg') -Value '<svg/>' -NoNewline
       Set-Content -LiteralPath (Join-Path $root 'images\510037_logo.svg') -Value '<svg/>' -NoNewline
       $out = Invoke-Patch $script @{ DataRoot = $root; Port = 1 } *>&1 | Out-String
       $out | Should Match '\[subfolder\][^\r\n]*510037_a\.svg'
+      $out | Should Not Match '\[subfolder\][^\r\n]*qr_code\.svg'
+      $out | Should Not Match '\[naming\][^\r\n]*qr_code\.svg'
+      $out | Should Match '\[extension\][^\r\n]*smtam\\anim\.gif'
       $out | Should Match '\[extension\][^\r\n]*510037_anim\.gif'
       $out | Should Match '\[naming\][^\r\n]*logo\.svg'
       $out | Should Not Match '\[naming\][^\r\n]*510037_logo\.svg'
-      Test-Path (Join-Path $root 'images\sub\510037_a.svg') | Should Be $true
+      Test-Path (Join-Path $root 'images\sub\deep\510037_a.svg') | Should Be $true
     } finally { Remove-Item -Recurse -Force $root }
   }
 

@@ -3,18 +3,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   assertAnyTemplateId,
-  assertFundCode,
   assertPairKey,
   assertSkeletonFileName,
+  assertTemplateAttributeToken,
   assertTemplateFileName,
   assertTemplateId,
   isValidAnyTemplateId,
-  isValidFundCode,
   isValidPairKey,
   isValidSkeletonId,
   isValidTemplateId,
+  isValidTemplateToken,
   parseTemplateFileName,
   TEMPLATE_FILENAME_RE,
+  WINDOWS_RESERVED_RE,
 } from '../src/index';
 import { TemplateId } from '../src/schemas';
 
@@ -71,51 +72,51 @@ describe('isValidTemplateId', () => {
   });
 });
 
-describe('isValidFundCode', () => {
+describe('isValidTemplateToken (ファンドコード)', () => {
   it('accepts the numeric fund codes in use', () => {
     for (const code of ['510037', '110024', '510003', '510124', '510155']) {
-      expect(isValidFundCode(code)).toBe(true);
+      expect(isValidTemplateToken(code)).toBe(true);
     }
   });
 
   it('rejects Windows reserved device names, with or without an extension', () => {
     for (const name of ['CON', 'nul', 'COM1', 'aux.css', 'PRN', 'lpt1.html', 'Nul.HTML']) {
-      expect(isValidFundCode(name)).toBe(false);
+      expect(isValidTemplateToken(name)).toBe(false);
     }
   });
 
   it('does not over-reject names that merely start with a reserved prefix', () => {
     for (const name of ['CONSOLE', 'COM10', 'PRINTER', 'AUXILIARY']) {
-      expect(isValidFundCode(name)).toBe(true);
+      expect(isValidTemplateToken(name)).toBe(true);
     }
   });
 
   it('rejects every traversal payload', () => {
     for (const payload of TRAVERSAL_PAYLOADS) {
-      expect(isValidFundCode(payload)).toBe(false);
+      expect(isValidTemplateToken(payload)).toBe(false);
     }
   });
 
   it('rejects an underscore because it is the filename token separator', () => {
-    expect(isValidFundCode('510037_x')).toBe(false);
+    expect(isValidTemplateToken('510037_x')).toBe(false);
   });
 
   it('rejects a drive-qualified name', () => {
-    expect(isValidFundCode('C:evil')).toBe(false);
+    expect(isValidTemplateToken('C:evil')).toBe(false);
   });
 });
 
-describe('assertTemplateId / assertFundCode', () => {
+describe('assertTemplateId / assertTemplateAttributeToken', () => {
   it('returns the input unchanged when it is valid', () => {
     expect(assertTemplateId(VALID_ID)).toBe(VALID_ID);
-    expect(assertFundCode('510037')).toBe('510037');
+    expect(assertTemplateAttributeToken('ファンドコード', '510037')).toBe('510037');
   });
 
   it('throws a validation AppError carrying the offending value', () => {
     expect(() => assertTemplateId('../evil')).toThrowError(
       expect.objectContaining({ kind: 'validation' }),
     );
-    expect(() => assertFundCode('../evil')).toThrowError(
+    expect(() => assertTemplateAttributeToken('ファンドコード', '../evil')).toThrowError(
       expect.objectContaining({ kind: 'validation' }),
     );
   });
@@ -233,5 +234,35 @@ describe('テンプレート(3 つ区切り)の id とどちらの形も受け�
     expect(TemplateId.safeParse(SKELETON_ID).success).toBe(true);
     expect(TemplateId.safeParse(VALID_ID).success).toBe(true);
     expect(TemplateId.safeParse('../evil').success).toBe(false);
+  });
+});
+
+describe('WINDOWS_RESERVED_RE — Windows の予約デバイス名', () => {
+  it.each([
+    'con',
+    'CON',
+    'Prn',
+    'aux',
+    'nul',
+    'com1',
+    'COM9',
+    'lpt1',
+    'lpt9',
+    'CON.html',
+    'nul.tar.gz',
+  ])('%s は予約名', (name) => expect(WINDOWS_RESERVED_RE.test(name)).toBe(true));
+  it.each([
+    'com0',
+    'lpt10',
+    'conx',
+    'xcon',
+    'con_',
+    'a.con',
+    'console',
+    '',
+  ])('%s は予約名でない', (name) => expect(WINDOWS_RESERVED_RE.test(name)).toBe(false));
+  it('ファイル名のトークンの検査も予約名を落とす', () => {
+    expect(isValidTemplateToken('CON')).toBe(false);
+    expect(isValidTemplateToken('com1.x')).toBe(false);
   });
 });

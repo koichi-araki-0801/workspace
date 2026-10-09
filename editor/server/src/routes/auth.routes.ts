@@ -14,6 +14,7 @@
 // パスワード誤り / DB 障害で文言・ステータス・`code`・レート制限の状態を揃えても、
 // 応答時間だけで「その ID は存在するか」が読めてしまうため(`auth/timing.ts`)。
 import { apiPaths, forbidden, INVALID_CREDENTIALS_MESSAGE, unauthorized } from '@editor/shared';
+import { LoginRequest, PasswordInitRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { canonicalLoginId, isOperationalLoginId } from '../auth/loginId.js';
@@ -29,7 +30,6 @@ import type { Deps } from '../deps.js';
 import { actorFromReq, audit } from '../logger.js';
 import { loadUser, requireAuth, requireIdentifiedUser } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { LoginRequest, PasswordInitRequest } from '../openapi/schemas.js';
 
 export const authRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'auth'> }> = async (app, opts) => {
   const { auth } = opts.deps;
@@ -73,19 +73,12 @@ export const authRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'auth'> }> = asyn
         });
         throw attempt.error;
       }
+      let outcome: Awaited<ReturnType<typeof auth.login>>;
       try {
-        const { result, sessionId } = await auth.login(loginId, body.password);
-        settleCredentialAttempt(attempt.ticket, 'success');
-        reply.setCookie(config.auth.cookieName, sessionId, cookieOptions);
-        audit({
-          event: 'auth.login',
-          outcome: 'success',
-          actor: result.user.username,
-          ip: request.ip,
-        });
-        return result;
+        outcome = await settleAfter(attempt.ticket, started, () =>
+          auth.login(loginId, body.password),
+        );
       } catch (e) {
-        settleCredentialAttempt(attempt.ticket, 'failure');
         audit({
           event: 'auth.login',
           outcome: 'failure',
@@ -93,21 +86,25 @@ export const authRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'auth'> }> = asyn
           ip: request.ip,
           error: e instanceof Error ? e.message : 'login failed',
         });
-        await applyFailureFloor(started);
         throw e;
       }
+      const { result, sessionId } = outcome;
+      reply.setCookie(config.auth.cookieName, sessionId, cookieOptions);
+      audit({
+        event: 'auth.login',
+        outcome: 'success',
+        actor: result.user.username,
+        ip: request.ip,
+      });
+      return result;
     },
   );
 
   app.post(apiPaths.authLogout, async (request, reply) => {
     await auth.logout(sessionIdFrom(request.headers.cookie));
     // クリアは Set-Cookie の属性(path 等)が発行時と一致する必要がある。maxAge は付けない。
-    reply.clearCookie(config.auth.cookieName, {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: config.auth.cookieSecure,
-    });
+    const { maxAge: _maxAge, ...clearOptions } = cookieOptions;
+    reply.clearCookie(config.auth.cookieName, clearOptions);
     return reply.code(204).send();
   });
 
@@ -173,14 +170,15 @@ export const authRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'auth'> }> = asyn
  * 試行本体を走らせ、成功・失敗のどちらでも必ずゲージを返す。失敗側だけ応答フロアを掛ける
  * (現行パスワード誤りの応答時間も、未知 ID / DB 障害と揃える)。
  */
-async function settleAfter(
+async function settleAfter<T>(
   ticket: AttemptTicket,
   startedAt: number,
-  run: () => Promise<void>,
-): Promise<void> {
+  run: () => Promise<T>,
+): Promise<T> {
   try {
-    await run();
+    const value = await run();
     settleCredentialAttempt(ticket, 'success');
+    return value;
   } catch (e) {
     settleCredentialAttempt(ticket, 'failure');
     await applyFailureFloor(startedAt);

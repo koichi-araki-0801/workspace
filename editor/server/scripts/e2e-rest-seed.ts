@@ -13,7 +13,7 @@ import { E2E_REST_DATA_ROOT } from './e2e-rest-paths.js';
 
 /**
  * dataRoot をファイルで seed する。一覧・1 件取得・申請はファイル走査(台帳ではない。
- * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、値入り HTML と per-fund CSS を
+ * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、値入り HTML とテンプレ単位の CSS(`<会社>_<ファンド>_<版種>.css`)を
  * 置くだけで一覧・編集・申請・承認が成立する。`reviews` / `notes` / `drafts` / `pending`
  * ディレクトリは各リポジトリの書込側が `mkdir(..., { recursive: true })` するため
  * 事前作成は不要。git リポジトリ化(`ensureRepo`)も承認時に自動で行われるため不要。
@@ -33,8 +33,8 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   await fs.mkdir(filledDir, { recursive: true });
 
   const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
-  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の round-trip 形式 fixture
-  // (`{%` を含まない)をそのまま使う。
+  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の fixture(往復用の印も
+  // Jinja も含まない値入り HTML)をそのまま使う。
   const fixturesFilledDir = path.join(repoRoot, 'editor/web/src/api/fixtures/filled');
   for (const name of await fs.readdir(fixturesCssDir)) {
     await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));

@@ -1,10 +1,10 @@
 // =============================================================================
 // docAssets.ts — 同梱資産(css / fonts / js / images)を PDF・プレビューの配信ルートへ配置する
 // =============================================================================
-// テンプレは `href="css/{{ fund.code }}.css"` のように、CSS・フォント・JS を**相対パス**で
-// 参照する。参照先の実体は `editor-data` にあるが、`@vivliostyle/cli` が配信するのは
-// **エントリ HTML と同じディレクトリ**(`vsDevServerPlugin` が `sirv(workspaceDir)` /
-// `sirv(entryContextDir)` で配る)なので、そこへ写さないと相対参照は必ず 404 になる。
+// 文書は `../css/<会社>_<ファンド>_<版種>.css` のように、CSS・フォント・JS・画像を**文書の位置
+// から見た相対パス**で参照する。PDF・プレビューの作業フォルダでは文書を `doc/` に書き、
+// 参照先の実体を `doc/` の兄弟(`css/` `js/` `images/`)へ写す。`@vivliostyle/cli` が配信するのは
+// 作業フォルダ(`cwd`)配下なので、そこへ写さないと相対参照は必ず 404 になる。
 //
 // つまり「相対参照を許す」(`security/externalRefs.ts`)だけでは足りず、**参照先を配信ルートへ
 // 置く側**が対になって初めて成立する。この 2 つは同じ 1 つの作業である。
@@ -15,19 +15,26 @@
 // よって写すのは「決められた 4 つの置き場」×「決められた拡張子」だけとする。
 //
 // ── 置き場(利用者決定・変更しないこと) ──
-//   css       = `config.cssDir`        (per-fund。`<fund>.css`。直下の `fonts/` は下の別グループ)
-//   css/fonts = `config.cssDir/fonts`  (全ファンド共通のフォント。CSS から `url(fonts/…)`)
-//   js        = `config.jsDir`         (全ファンド共通のテンプレ JS)
-//   images    = `config.imagesDir`     (ファンド別画像。直下だけ。SVG は置く前に `inspectSvg`)
-// 配信ルートでの名前は `css/` `css/fonts/` `js/` `images/` に固定する(テンプレ側の相対参照と対)。
+//   css       = `config.cssDir`        (テンプレ単位。`<会社>_<ファンド>_<版種>.css`。直下の `fonts/` は下の別グループ)
+//   css/fonts = `config.cssDir/fonts`  (全テンプレ共通のフォント。CSS から `url(fonts/…)`)
+//   js        = `config.jsDir`         (全テンプレ共通のテンプレ JS)
+//   images    = `config.imagesDir`     (画像。直下と 1 段下の会社フォルダ。SVG は置く前に `inspectSvg`)
+// 作業フォルダでの名前は `css/` `css/fonts/` `js/` `images/` に固定する(文書の `../` 参照と対)。
 
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { collectCssUrlCandidates, inspectSvg } from '@editor/shared';
+import {
+  collectCssUrlCandidates,
+  DOC_FONTS_DIR,
+  FUND_IMAGES_DIR,
+  IMAGE_MIME,
+  inspectSvg,
+  resolveDocAssetPath,
+} from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
-import { logger } from '../logger.js';
-import { MAX_ASSET_REF_DEPTH, resolveRefFrom } from './docRefs.js';
+import { warnSvgRejected } from '../logger.js';
+import { MAX_ASSET_REF_DEPTH } from './docRefs.js';
 
 /** 配信ルートに作るサブディレクトリと、その中身として許す拡張子(小文字・末尾一致)。 */
 interface AssetGroup {
@@ -58,11 +65,11 @@ const MAX_ASSET_DEPTH = 4;
 
 const FONT_EXTENSIONS: ReadonlySet<string> = new Set(['.ttf', '.otf', '.woff', '.woff2']);
 
-/** ファンド別画像として配る拡張子。web の `lib/fundImages.ts` の MIME 表と揃える。 */
-const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.svg', '.png', '.jpg', '.jpeg']);
-
-/** 配信ルートでのファンド別画像の置き場(テンプレの相対参照 `images/…` の先頭)。 */
-export const FUND_IMAGES_MOUNT = 'images';
+/**
+ * ファンド別画像として配る拡張子。web の判定・配信ルートの Content-Type と同じ shared の
+ * `IMAGE_MIME` から作る(片方だけ広げると、取りに行っても 404 になる参照を作る)。
+ */
+const FUND_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(IMAGE_MIME.keys());
 
 /**
  * 配信してよい資産の全体。**ここに無いものは配信ルートへ出ない。**
@@ -84,7 +91,7 @@ export const FUND_IMAGES_MOUNT = 'images';
  */
 const ASSET_GROUPS: readonly AssetGroup[] = [
   {
-    mount: 'css/fonts',
+    mount: DOC_FONTS_DIR,
     sourceDir: () => path.join(config.cssDir, 'fonts'),
     extensions: FONT_EXTENSIONS,
     maxDepth: MAX_ASSET_DEPTH,
@@ -103,11 +110,12 @@ const ASSET_GROUPS: readonly AssetGroup[] = [
     maxDepth: MAX_ASSET_DEPTH,
   },
   {
-    mount: FUND_IMAGES_MOUNT,
+    mount: FUND_IMAGES_DIR,
     sourceDir: () => config.imagesDir,
     extensions: FUND_IMAGE_EXTENSIONS,
-    // 直下だけ。ファンドの区別は命名の約束(`<fund>_<名前>`)で持ち、サブフォルダは作らない契約。
-    maxDepth: 0,
+    // 直下(`images/<名前>`)と、委託会社共通の会社フォルダ 1 段(`images/<会社>/<名前>`)まで。
+    // 2 段以上は配らない(単体配信の経路 `:dir/:file` と同じ深さ)。
+    maxDepth: 1,
   },
 ];
 
@@ -116,7 +124,7 @@ const ASSET_GROUPS: readonly AssetGroup[] = [
  * 置き場では `Images/x.svg` も同じ実体に届くため(配信面を絞る側の判定は広く取る)。
  */
 export function isFundImagePath(rel: string): boolean {
-  return rel.split('/')[0].toLowerCase() === FUND_IMAGES_MOUNT;
+  return rel.split('/')[0].toLowerCase() === FUND_IMAGES_DIR;
 }
 
 /**
@@ -139,6 +147,46 @@ function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefine
   return undefined;
 }
 
+/**
+ * Windows のファイル API が別の実体へ読み替えるセグメントか。末尾の `.` と空白は黙って削られ
+ * (`smtam./x.svg` が `smtam/x.svg` に届く)、`:` は NTFS の代替データストリームを指す
+ * (`x.svg:s` は `x.svg` の別ストリーム)。照合した名前と違う実体を開かせないため、実体に触れる
+ * 前にどの OS でも拒む。
+ */
+function isAliasingSegment(seg: string): boolean {
+  return seg.endsWith('.') || seg.endsWith(' ') || seg.includes(':');
+}
+
+/**
+ * images の 1 段下の参照を、フォルダ名だけ小文字へ畳んだ照合キーにする
+ * (`images/SMTAM/qr.svg` → `images/smtam/qr.svg`)。それ以外の形は `undefined`。
+ * 参照は会社コードの綴り(`smtam`)で書かれ、実フォルダは外部ツールが別の綴り(`SMTAM`)で作る
+ * ことがあるため、フォルダ名だけは大小文字を問わない。ファイル名は区別する。
+ */
+function foldImageDirKey(rel: string): string | undefined {
+  const segs = rel.split('/');
+  if (segs.length !== 3 || segs[0] !== FUND_IMAGES_DIR) return undefined;
+  if (segs.some(isAliasingSegment)) return undefined;
+  return `${segs[0]}/${segs[1].toLowerCase()}/${segs[2]}`;
+}
+
+/**
+ * `parent` 直下のディレクトリから、名前が大小文字の違いだけで一致するものを 1 つ引く。
+ * `Dirent.isDirectory()` は lstat 相当でリンクを展開しないので、リンクのフォルダは当たらない
+ * (`collectGroup` と同じ性質)。綴り違いの同名が 2 つ以上あれば、どちらとも決めず `undefined`。
+ */
+async function matchDirName(parent: string, name: string): Promise<string | undefined> {
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(parent, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  const wanted = name.toLowerCase();
+  const hits = entries.filter((e) => e.isDirectory() && e.name.toLowerCase() === wanted);
+  return hits.length === 1 ? hits[0].name : undefined;
+}
+
 /** 配置する資産の総ファイル数の上限(超えたら以降を無視する)。 */
 const MAX_ASSET_FILES = envPositiveNumber(
   'VIVLIO_MAX_ASSET_FILES',
@@ -155,7 +203,7 @@ const MAX_ASSET_BYTES = envPositiveNumber(
   { integer: true },
 );
 
-/** 走査で拾った 1 ファイル。`rel` は mount を含む配信ルート相対パス(`css/510037.css`)。 */
+/** 走査で拾った 1 ファイル。`rel` は mount を含む配信ルート相対パス(`css/AM01_510037_交付版.css`)。 */
 interface AssetFile {
   rel: string;
   source: string;
@@ -224,15 +272,30 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   const { group, rest } = hit;
   if (rest.length > group.maxDepth + 1) return undefined;
   // `\` と NUL は Windows で 1 セグメントのまま下の階層へ降りる / 名前を切るので、先に落とす。
-  if (rest.some((s) => s === '' || s === '.' || s === '..' || s.includes('\\') || s.includes('\0')))
+  // 末尾の `.`・空白と `:` は別の実体へ読み替えられる(`isAliasingSegment`)。
+  if (
+    rest.some(
+      (s) =>
+        s === '' ||
+        s === '.' ||
+        s === '..' ||
+        s.includes('\\') ||
+        s.includes('\0') ||
+        isAliasingSegment(s),
+    )
+  )
     return undefined;
   if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
   let current = group.sourceDir();
   for (const [i, seg] of rest.entries()) {
-    current = path.join(current, seg);
+    const last = i === rest.length - 1;
+    // images の会社フォルダだけは名前の大小文字を問わない(`foldImageDirKey` の理由)。
+    const name = !last && group.mount === FUND_IMAGES_DIR ? await matchDirName(current, seg) : seg;
+    if (name === undefined) return undefined;
+    current = path.join(current, name);
     try {
       const st = await fs.lstat(current);
-      if (i === rest.length - 1 ? !st.isFile() : !st.isDirectory()) return undefined;
+      if (last ? !st.isFile() : !st.isDirectory()) return undefined;
     } catch {
       return undefined;
     }
@@ -240,37 +303,53 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
   return current;
 }
 
-/** `stageDocAssets` の任意設定。 */
-export interface StageDocAssetsOptions {
+/** `stageDocAssets` の設定。 */
+interface StageDocAssetsOptions {
   /**
    * 文書が実際に参照している配信ルート相対パス(`docRefs.collectDocumentAssetRefs` の戻り値)。
-   *
-   * 与えると**参照されたものだけ**を配置する(参照 CSS がさらに引くフォント等は
-   * `expandReferenced` が段階的に足す)。省略すると許可リスト配下を全件配置する —
-   * zip 展開物のように文書が事前に判らない配信ルート向けの逃げ道で、通常の経路
-   * (inline / merge / preview-inline)では必ず渡すこと。
+   * **参照されたものだけ**を配置する(参照 CSS がさらに引くフォント等は `expandReferenced` が
+   * 段階的に足す)。
    */
-  referenced?: ReadonlySet<string>;
+  referenced: ReadonlySet<string>;
 }
 
 /**
  * 参照集合を「参照された CSS が更に引く資産」まで広げる。
  *
- * `<link href="css/510037.css">` しか書いていない文書でも、その CSS が
+ * `<link href="../css/A_1_交付版.css">` しか書いていない文書でも、その CSS が
  * `@font-face { src: url(fonts/a.woff2) }` と書いていれば fonts も要る。1 段では
  * 足りない形(CSS が CSS を引く)もあるので `MAX_ASSET_REF_DEPTH` まで繰り返す。
+ *
+ * 会社フォルダの画像は目録(実フォルダの綴り)に無ければフォルダ名を畳んだキーで引き、
+ * **参照の綴りで**選ぶ。組版ブラウザは参照の綴りで取りに来るので、実フォルダの綴りで置くと
+ * 大小文字を区別する配信で 404 になる。
  */
 async function expandReferenced(
   catalog: ReadonlyMap<string, AssetFile>,
   referenced: ReadonlySet<string>,
 ): Promise<AssetFile[]> {
+  // 綴り違いの同名フォルダが 2 つあれば null(どちらとも決めない)。
+  const folded = new Map<string, AssetFile | null>();
+  for (const [rel, file] of catalog) {
+    const key = foldImageDirKey(rel);
+    if (key !== undefined) folded.set(key, folded.has(key) ? null : file);
+  }
+  const lookup = (rel: string): AssetFile | undefined => {
+    const exact = catalog.get(rel);
+    if (exact !== undefined) return exact;
+    const key = foldImageDirKey(rel);
+    return key === undefined ? undefined : (folded.get(key) ?? undefined);
+  };
+
   const chosen = new Map<string, AssetFile>();
   let frontier = [...referenced];
   for (let depth = 0; depth < MAX_ASSET_REF_DEPTH && frontier.length > 0; depth++) {
     const next: string[] = [];
     for (const rel of frontier) {
-      const file = catalog.get(rel);
-      if (file === undefined || chosen.has(rel)) continue;
+      if (chosen.has(rel)) continue;
+      const found = lookup(rel);
+      if (found === undefined) continue;
+      const file = { ...found, rel };
       chosen.set(rel, file);
       if (path.extname(rel).toLowerCase() !== '.css') continue;
       let text = '';
@@ -280,7 +359,8 @@ async function expandReferenced(
         continue;
       }
       for (const candidate of collectCssUrlCandidates(text)) {
-        const child = resolveRefFrom(rel, candidate);
+        // CSS 内の参照は CSS 自身の位置が基準(`css/A_1_交付版.css` の `fonts/x` = `css/fonts/x`)。
+        const child = resolveDocAssetPath(candidate, rel);
         if (child !== undefined && !chosen.has(child)) next.push(child);
       }
     }
@@ -302,8 +382,9 @@ async function readInspectedSvg(file: AssetFile): Promise<Buffer | undefined> {
   }
   const violations = inspectSvg(body.toString('utf8'));
   if (violations.length === 0) return body;
-  logger.warn(
-    { type: 'asset.svg_rejected', file: file.rel, violations },
+  warnSvgRejected(
+    file.rel,
+    violations,
     'SVG の検査に違反したため配信ルートへ置きません(この画像は表示されません)',
   );
   return undefined;
@@ -322,16 +403,13 @@ async function readInspectedSvg(file: AssetFile): Promise<Buffer | undefined> {
  */
 export async function stageDocAssets(
   destDir: string,
-  opts: StageDocAssetsOptions = {},
+  opts: StageDocAssetsOptions,
 ): Promise<Set<string>> {
   const catalog = new Map<string, AssetFile>();
   for (const group of ASSET_GROUPS) {
     for (const file of await collectGroup(group)) catalog.set(file.rel, file);
   }
-  const wanted =
-    opts.referenced === undefined
-      ? [...catalog.values()]
-      : await expandReferenced(catalog, opts.referenced);
+  const wanted = await expandReferenced(catalog, opts.referenced);
 
   const served = new Set<string>();
   let files = 0;

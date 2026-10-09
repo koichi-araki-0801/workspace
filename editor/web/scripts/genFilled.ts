@@ -5,8 +5,8 @@
  *
  *   npx vite-node scripts/genFilled.ts     (from editor/web)
  *
- * The filled form preserves the original Jinja source (see fillJinja.toFilled),
- * so jinjaMask.toTemplate restores the exact template on save.
+ * 出力は編集タブ用の値入り HTML で、本番の `filled/` と同じく往復用の印も Jinja も持たない。
+ * 作成タブの値入り表示は `toFilled` が実行時に作るので、ここでは使わない。
  *
  * 2系統の原則(設計正典.md「編集 2 系統」)に従い、filled fixtures は編集タブが
  * 読む「値埋め込み済みHTML」であり、値は**ファンド別の実サンプル**でなければならない
@@ -26,7 +26,7 @@ import {
   type SampleTemplateAttributes,
 } from '@editor/shared';
 import fundMaster from '../src/api/fixtures/funds.json';
-import { toFilled } from '../src/lib/fillJinja';
+import { renderPlainFilled } from '../src/lib/fillRender';
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const templatesDir = resolve(web, 'src/api/fixtures/templates');
@@ -63,7 +63,9 @@ for (const file of readdirSync(templatesDir).filter((f) => f.endsWith('.html')))
   }
   const raw = readFileSync(resolve(templatesDir, file), 'utf8');
   const sample = resolveSample(attrs.fundCode, attrs);
-  const filled = toFilled(raw, sample);
+  const { html: filled, diagnostics } = renderPlainFilled(raw, sample);
+  if (diagnostics.unsupported.length > 0)
+    console.warn(`${file}: 解釈できない式 ${diagnostics.unsupported.join(' / ')}`);
   for (const d of outDirs) writeFileSync(resolve(d, file), filled, 'utf8');
   console.log(`wrote ${file} (${filled.length} chars)`);
 }

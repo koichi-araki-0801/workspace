@@ -35,6 +35,13 @@ const { ALLOWED_EXTENSIONS } = await import('../src/vivliostyle/projectInput.js'
 const { MERGE_PAGE_COUNTER_CSS } = await import('../src/vivliostyle/mergeInput.js');
 
 describe('findDocumentExternalRefs — 検査面の網羅', () => {
+  it('長さの変わる大文字(`İ`)を前に並べても raw text の後ろの外部参照を拾う', () => {
+    for (const n of [1, 2, 9]) {
+      const html = `${'İ'.repeat(n)}<style>x</style><img src=https://e/x>`;
+      expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
+    }
+  });
+
   it('リクエストの css に置いた外部参照を拾う', () => {
     expect(findDocumentExternalRefs('<p>x</p>', '@import url(http://evil/x.css);')).not.toEqual([]);
     expect(
@@ -111,6 +118,17 @@ describe('findDocumentExternalRefs — 検査面の網羅', () => {
       'ipt>' +
       '</head><body><img src="img/logo.png"><use xlink:href="#m"/></body></html>';
     expect(findDocumentExternalRefs(html, '')).toEqual([]);
+  });
+
+  it('文書基準の相対参照(../css/ ../js/ ../images/<会社>/)は通す', () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
+      '<script src="../js/column-width.js"></scr' +
+      'ipt></head><body><img src="../images/smtam/qr.svg">' +
+      '<div style="background:url(../images/b.png)"></div></body></html>';
+    expect(findDocumentExternalRefs(html, '@font-face{src:url("../css/fonts/a.woff2")}')).toEqual(
+      [],
+    );
   });
 
   // `<a href>` は組版中に 1 バイトも取りに行かない。ここを弾いても egress は減らず、
@@ -549,5 +567,60 @@ describe('assertProjectDirHasNoExternalRefs — 分類は小文字 basename の�
       'style.css.map': JSON.stringify({ sources: ['a.css'], names: [] }),
     });
     await assertProjectDirHasNoExternalRefs(dir);
+  });
+});
+
+// ── 再走査の深さ上限に達した入れ子は fail closed ──
+// 上限の先を黙って読み飛ばすと、raw text 要素や `srcdoc` を重ねるだけで内側が検査から
+// 消える。上限に達したら「解析不能な入れ子」1 件として数え、400 へ倒す。
+describe('入れ子の深さ上限', () => {
+  const MARKER = '<img src="https://example.invalid/x.png">';
+  const RAW = ['title', 'textarea', 'noscript', 'noembed', 'noframes', 'xmp'];
+  const nestRaw = (inner: string, levels: number) => {
+    let html = inner;
+    for (let i = 0; i < levels; i++) {
+      const name = RAW[i % RAW.length] as string;
+      html = `<${name}>${html}</${name}>`;
+    }
+    return html;
+  };
+  const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const nestSrcdoc = (inner: string, levels: number) => {
+    let html = inner;
+    for (let i = 0; i < levels; i++) html = `<iframe srcdoc="${escAttr(html)}"></iframe>`;
+    return html;
+  };
+
+  it('上限を超えて重ねた raw text 要素の内側を、参照ゼロとして通さない', () => {
+    expect(findDocumentExternalRefs(nestRaw(MARKER, 5), '')).not.toEqual([]);
+  });
+
+  it('上限を超えて重ねた srcdoc の内側を、参照ゼロとして通さない', () => {
+    expect(findDocumentExternalRefs(nestSrcdoc(MARKER, 5), '')).not.toEqual([]);
+  });
+
+  it('上限内の入れ子や中身にタグを持たない raw text は誤検知しない', () => {
+    expect(findDocumentExternalRefs(nestRaw('<b>x</b>', 2), '')).toEqual([]);
+    expect(findDocumentExternalRefs(nestRaw('plain', 3), '')).toEqual([]);
+    expect(findDocumentExternalRefs(nestSrcdoc('<b>x</b>', 2), '')).toEqual([]);
+  });
+});
+
+describe('コメントの閉じ方がブラウザと一致する', () => {
+  const IMG = '<img src="https://evil.example/x.png">';
+  it('--!> で閉じたコメントの後ろの外部参照を検出する', () => {
+    expect(findDocumentExternalRefs(`<!-- a --!>${IMG}-->`, '')).toEqual([IMG]);
+  });
+  it.each(['<!-->', '<!--->'])('%s で閉じた空コメントの後ろの外部参照を検出する', (open) => {
+    expect(findDocumentExternalRefs(`${open}${IMG}-->`, '')).toEqual([IMG]);
+  });
+  it('裸の値の途中の引用符で後ろのタグを呑み込ませない', () => {
+    expect(findDocumentExternalRefs(`<img alt=a"b>${IMG}`, '')).toEqual([IMG]);
+  });
+  // ブラウザが `=` の後ろで読み飛ばす空白は TAB / LF / FF / CR / SP だけ。NBSP や VT は値の
+  // 先頭の文字で、引用符は開かない。ブラウザは ` "x` を裸の値と読み、次の空白で値を閉じる。
+  it.each(['\u00a0', '\v'])('= の後ろの %j では引用符を開かない', (sp) => {
+    const html = `<img alt=${sp}"x src=https://e.example/a.png "y>`;
+    expect(findDocumentExternalRefs(html, '')).toEqual(['<img src="https://e.example/a.png">']);
   });
 });

@@ -11,7 +11,7 @@ import {
 import { useAuthStore } from '@/stores/auth';
 
 /** ルートの認可区分。未宣言時の既定は authGuard 側で 'auth' へ fail closed する。 */
-export type RouteAccess = 'public' | 'auth' | 'admin';
+type RouteAccess = 'public' | 'auth' | 'admin';
 
 export const routes: RouteRecordRaw[] = [
   {

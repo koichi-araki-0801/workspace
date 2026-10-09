@@ -18,6 +18,7 @@
 // `server/src/routes/fundAssets.routes.ts`)。画面内プレビューは後者から取得するので同じ関所を通る。
 
 import {
+  collectCssStringsInFunctions,
   collectCssUrlSpansInContext,
   findExternalRefsInCss,
   isAllowedDataUrl,
@@ -195,8 +196,10 @@ const PRESENTATION_ATTRIBUTES: ReadonlySet<string> = new Set([
 ]);
 
 /** 値の形を問わない SVG 1.1 の属性(幾何・単位・フィルタの係数・条件処理など)。 */
+// `name` は SVG 1.1 の属性ではないが、外部ツールの出力に現れ、スクリプトも URL も持たない。
 const PLAIN_ATTRIBUTES: ReadonlySet<string> = new Set([
   'id',
+  'name',
   'class',
   'lang',
   'version',
@@ -625,18 +628,72 @@ function isEmbeddedFontData(v: string): boolean {
 }
 
 /**
+ * 引数の引用符の文字列が URL にならない関数。`image-set("x.png" 1x)` のように文字列で URL を取る
+ * 関数があるので、関数の中の文字列は既定で URL 候補として扱い、ここに載る関数だけを外す
+ * (知らない関数は違反の側へ倒れる)。
+ *
+ * - 前半(format / local / tech / counter / counters)は値の関数。`@font-face` の `src` と
+ *   `content` で使う。
+ * - 後半(not / is / where / has / lang / nth-child / nth-last-child / host / host-context)は
+ *   セレクタの関数(`:not([class="x"])`・`:nth-child(2 of [x="y"])`・`:host([x="y"])` の属性値)。
+ *   セレクタの文字列はブラウザが取得しない。
+ *
+ * 判定は名前だけで行う。後半の名前を値の位置に置いてもブラウザは無効な値として捨てるので取得は
+ * 起きない。値の関数になる名前が増えたら見直す。`attr()` は代替値の文字列が型の指定次第で URL
+ * として使われうるので載せない。
+ */
+const STRING_ARG_SAFE_FUNCTIONS = new Set([
+  'format',
+  'local',
+  'tech',
+  'counter',
+  'counters',
+  'not',
+  'is',
+  'where',
+  'has',
+  'lang',
+  'nth-child',
+  'nth-last-child',
+  'host',
+  'host-context',
+]);
+
+/**
+ * CSS の URL 値が文書内の `#id` だけを指すか。前後から外すのは WHATWG URL パーサが外すもの
+ * (C0 制御文字と空白)だけ。JS の `trim` は NBSP や U+3000・BOM も外すので、ブラウザが相対 URL
+ * として解く `"\u00a0#g"` を `#g` と見誤る。中に空白類を含む値も通さない(fail closed)。
+ */
+function isFragmentOnly(value: string): boolean {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value.charCodeAt(start) <= 0x20) start++;
+  while (end > start && value.charCodeAt(end - 1) <= 0x20) end--;
+  const v = value.slice(start, end);
+  return v.startsWith('#') && !/[\s\p{Cc}]/u.test(v);
+}
+
+/**
  * CSS(`<style>` の中身・`style` 属性・プレゼンテーション属性)の `url()` は `#id` だけ。例外は
  * `<style>` 要素の最上位 `@font-face` の `src` 記述子に置いた `data:font/…`(pdf-to-svg・pie-chart
  * が埋め込む)だけで、それ以外の文脈の data URI は通さない。外部参照の判定は検査・配置と同じ
  * トークナイザ(`findExternalRefsInCss`)に任せ、エスケープで隠した `url(\68ttp://…)` もそこで
- * 捕まえる。
+ * 捕まえる。`@namespace` の名前空間 URI は取得されないので見ない。
+ *
+ * 関数の引数の引用符の文字列も同じく `#id` だけ(data URI の例外も無い)。URL にならない関数の
+ * 許可リストは `STRING_ARG_SAFE_FUNCTIONS`。`var()` で関数の中へ差し込めるカスタムプロパティと
+ * `initial-value` の値の文字列も対象にする(`collectCssStringsInFunctions`)。
  */
 function checkCss(css: string, where: string, add: Report): void {
   if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
   const allowFont = where === 'style 要素';
   const bad = collectCssUrlSpansInContext(css).some((span) => {
-    if (span.value.trim().startsWith('#')) return false;
+    if (span.inNamespacePrelude || isFragmentOnly(span.value)) return false;
     return !(allowFont && span.inFontFaceSrc && isEmbeddedFontData(span.value));
   });
   if (bad) add(`url() が #id 以外を指す(${where})`);
+  const badString = collectCssStringsInFunctions(css).some(
+    (s) => !STRING_ARG_SAFE_FUNCTIONS.has(s.fn) && !isFragmentOnly(s.value),
+  );
+  if (badString) add(`引用符の文字列が #id 以外を指す(${where})`);
 }

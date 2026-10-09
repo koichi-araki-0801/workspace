@@ -331,8 +331,58 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
       p('小分類', undefined),
     ]);
     const pick = (区分: string) => rows.filter((r) => r.区分 === 区分).map((r) => String(r.値));
-    expect(pick('カテゴリ')).toEqual(['表紙', '注記']);
+    expect(pick('カテゴリ')).toEqual(['表紙', '注記', '版種別']);
     expect(pick('大分類')).toEqual(['税制']);
+  });
+
+  describe('パーツ の版種による絞り込み', () => {
+    const part = (id: string, category: string, targetEdition: string | null) => ({
+      id,
+      category,
+      majorClass: '大',
+      middleClass: '中',
+      minorClass: '小',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition,
+    });
+    const seed = {
+      parts: [
+        part('both', '共通', null),
+        part('delivered', '交付', '交付版'),
+        part('whole', '全体', '全体版'),
+        part('blank', '空', ''),
+      ],
+    };
+    const cls = [
+      p('カテゴリ', undefined),
+      p('大分類', undefined),
+      p('中分類', undefined),
+      p('小分類', undefined),
+    ];
+
+    it('一覧 keeps the common rows and the matching edition, and returns everything without 版種', async () => {
+      const sproc = await createFakeSproc(seed);
+      const ids = async (extra: ReturnType<typeof p>[]) =>
+        (await sproc.callSproc(SP.part, '一覧', [...cls, ...extra])).map((r) => r.パーツID);
+      expect(await ids([p('版種', '交付版')])).toEqual(['both', 'delivered', 'blank']);
+      expect(await ids([p('版種', '全体版')])).toEqual(['both', 'whole', 'blank']);
+      expect(await ids([])).toEqual(['both', 'delivered', 'whole', 'blank']);
+      const rows = await sproc.callSproc(SP.part, '一覧', cls);
+      expect(rows.map((r) => r.対象版種)).toEqual([null, '交付版', '全体版', '']);
+    });
+
+    it('分類候補 drops categories that only the other edition uses', async () => {
+      const sproc = await createFakeSproc(seed);
+      const cats = async (extra: ReturnType<typeof p>[]) =>
+        (await sproc.callSproc(SP.part, '分類候補', [...cls, ...extra]))
+          .filter((r) => r.区分 === 'カテゴリ')
+          .map((r) => String(r.値));
+      expect(await cats([p('版種', '交付版')])).toEqual(['共通', '交付', '空']);
+      expect(await cats([])).toEqual(['共通', '交付', '全体', '空']);
+    });
   });
 
   it('サンプルデータ 取得 yields nothing for a fund outside the master', async () => {

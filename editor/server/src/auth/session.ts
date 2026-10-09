@@ -32,7 +32,8 @@ export const cookieOptions = {
  * `app.decorate('sessionStore', …)` でインスタンスへ載せる。`middleware/auth.ts` の
  * `loadUser` は `request.server.sessionStore` から読む — ガード関数
  * (`requireAuth` 等)は `routes/routeGuards.ts` の `levelOf` が `preHandlers.includes()`
- * で参照同一性を見るため、クロージャ化・ファクトリ化できない。
+ * で参照同一性を見る。ガードは実行時にストアを引数のリクエストから引くので、ストアを
+ * クロージャに捕まえずに済む(ロール別ガードの生成はモジュール直下で 1 回だけ行う)。
  */
 export interface SessionStore {
   createSession(loginId: string): Promise<string>;

@@ -9,6 +9,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { MAX_NOTES_PER_TEMPLATE } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let tmpRoot: string;
@@ -66,7 +67,7 @@ describe('マップの件数上限', () => {
   it('上限に達したら新規キーは拒否し、既存キーへの追加・更新・削除は通す', async () => {
     const { files, repo } = await importNotes();
     const full: Record<string, unknown> = {};
-    for (let i = 0; i < files.MAX_NOTES_PER_TEMPLATE; i++) {
+    for (let i = 0; i < MAX_NOTES_PER_TEMPLATE; i++) {
       full[`p${i}`] = [
         {
           id: `e${i}`,
@@ -181,7 +182,7 @@ describe('同時保存で更新が消えない', () => {
           kind: 'note',
         },
       ];
-    expect(Object.keys(map).length).toBeLessThan(files.MAX_NOTES_PER_TEMPLATE);
+    expect(Object.keys(map).length).toBeLessThan(MAX_NOTES_PER_TEMPLATE);
     await expect(
       files.writeNotes(tplId, map as Parameters<typeof files.writeNotes>[1]),
     ).rejects.toMatchObject({ kind: 'validation' });

@@ -12,9 +12,9 @@
 //   POST /api/build, POST /api/build/project, /api/preview*.
 // 以下のその他のパスは design-first(契約のみ文書化、ハンドラ未実装)。
 import { apiPaths, toOpenApiPath } from '@editor/shared';
+import * as s from '@editor/shared/schemas';
 import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
-import * as s from './schemas.js';
 
 // ── 1. response helpers — レスポンス定義のヘルパ ──
 
@@ -30,6 +30,8 @@ const err = (description: string) => json(description, s.AppError);
 const ERR_400 = { '400': err('リクエスト検証エラー (kind=validation)') };
 const ERR_401 = { '401': err('未認証 (kind=unauthorized)') };
 const ERR_403 = { '403': err('権限不足 (admin 限定など)') };
+/** `requireEditor`(編集者以上)で守るルートの 403。`viewer` ロールはここで落ちる。 */
+const ERR_403_EDITOR = { '403': err('編集者権限が必要 (viewer は不可。kind=forbidden)') };
 const ERR_404 = { '404': err('対象が存在しない (kind=not_found)') };
 const ERR_409 = { '409': err('競合 (kind=conflict)') };
 const ERR_500 = { '500': err('サーバ内部エラー (kind=unexpected)') };
@@ -89,7 +91,7 @@ const PROJECT_ZIP_CONTRACT = [
  * (`security/externalRefs.ts`)を通るので文面を共有し、`css` の解釈規則だけ経路ごとに差し替える。外部クライアントはまだ存在せず、
  * **ここに書いたものがそのまま本番の契約になる**。
  */
-function externalRefContract(requestCssRule: string): string {
+function externalRefContract(requestCssRule: string, scriptRule: string): string {
   return [
     '\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ',
     'ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。',
@@ -104,8 +106,11 @@ function externalRefContract(requestCssRule: string): string {
     '`image-set("http://…")` のような引用符文字列も含む。許可する `data:` は ',
     '`data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` ',
     '`data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。',
-    '**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・',
-    'テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。',
+    '**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれた',
+    'ものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` ',
+    '`../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟',
+    '(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。',
+    '画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。',
     requestCssRule,
     '相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。',
     '同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす',
@@ -113,10 +118,10 @@ function externalRefContract(requestCssRule: string): string {
     '違反が 1 件でも PDF は生成されない。',
     'また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は',
     '`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。',
-    '\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは ',
-    '**body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして ',
-    'script をビューアの window へ作り直すため、`<script src="js/x.js">` は相対 URL の解決基準が',
-    'ずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。',
+    '\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして ',
+    'script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は',
+    '発火しない(実測。処理は body 末尾に置くこと)。',
+    scriptRule,
     'なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ',
     '中継される(それ以外は宛先が loopback でも 502 で落ちる)。',
     'ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)は',
@@ -127,14 +132,29 @@ function externalRefContract(requestCssRule: string): string {
 
 /** リクエストの `css` フィールドを持つ経路(inline / merge)だけに載せる解釈規則。 */
 const REQUEST_CSS_RULE =
-  '`css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。' +
-  '例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。';
+  '`css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する' +
+  '(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、' +
+  '`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。';
 
 /** zip 経路には `css` フィールドが無い。CSS ファイルは zip 内の位置が解決の基準になる。 */
 const ZIP_CSS_RULE = '展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。';
 
-const EXTERNAL_REF_CONTRACT = externalRefContract(`リクエストの ${REQUEST_CSS_RULE}`);
-const EXTERNAL_REF_CONTRACT_ZIP = externalRefContract(ZIP_CSS_RULE);
+/**
+ * 外部 JS(`<script src>`)の扱い。inline / merge はサーバが同梱した実体をインライン展開して
+ * から組版へ渡す(`vivliostyle/inlineDocScripts.ts`)。zip 経路は展開しない。
+ */
+const REQUEST_SCRIPT_RULE =
+  '`<script src="../js/x.js">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**して' +
+  'から組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。' +
+  '同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。';
+const ZIP_SCRIPT_RULE =
+  '実行されるのは HTML に直接書いたインライン `<script>` だけである。zip へ `.js` は同梱できず、' +
+  '`<script src>` は相対 URL の解決基準がずれて 404 になる(サーバはインライン展開しない)。';
+const EXTERNAL_REF_CONTRACT = externalRefContract(
+  `リクエストの ${REQUEST_CSS_RULE}`,
+  REQUEST_SCRIPT_RULE,
+);
+const EXTERNAL_REF_CONTRACT_ZIP = externalRefContract(ZIP_CSS_RULE, ZIP_SCRIPT_RULE);
 
 export function buildOpenApiDocument() {
   return createDocument({
@@ -621,12 +641,13 @@ export function buildOpenApiDocument() {
       [toOpenApiPath(apiPaths.fundAssetImage)]: {
         get: {
           tags: ['vivliostyle'],
-          summary: 'ファンド別画像(images/)を 1 つ返す',
+          summary: '画像(images/ 直下)を 1 つ返す',
           operationId: 'getFundAssetImage',
           description: [
-            '`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。',
-            'ファイル名は `<fund>_<画像名>.<拡張子>` の約束だが、名前の規則は検査しない。',
-            'サブフォルダ・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。',
+            '`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。名前の規則は検査しない。',
+            '会社フォルダ 1 段の画像は `/fund-assets/images/{dir}/{file}` で取る。',
+            '`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。',
+            '末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。',
             'SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。',
             '応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、',
             'SVG には `Content-Security-Policy: sandbox` を付ける。',
@@ -643,6 +664,58 @@ export function buildOpenApiDocument() {
             },
             ...ERR_401,
             '404': { description: '対象が無い / 配信対象外 / SVG 検査の違反(本文なし)' },
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.fundAssetImageInDir)]: {
+        get: {
+          tags: ['vivliostyle'],
+          summary: '画像(images/ の会社フォルダ 1 段)を 1 つ返す',
+          operationId: 'getFundAssetImageInDir',
+          description: [
+            '`imagesDir/<dir>/<file>` の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。',
+            'フォルダは 1 段まで(2 段以上は経路が無く 404)。フォルダ名は大小文字を区別せずに',
+            '実フォルダを探す(`smtam` で `SMTAM` を引く)。ファイル名は区別する。',
+            'フォルダ名とテンプレの会社コードの照合はしない(テンプレ ID を持たない経路のため)。',
+            '`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名・リンクのフォルダ・許可外の拡張子は 404。',
+            '末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。',
+            'SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。',
+            '応答ヘッダは `/fund-assets/images/{file}` と同じ。',
+          ].join(''),
+          requestParams: { path: z.object({ dir: z.string(), file: z.string() }) },
+          responses: {
+            '200': {
+              description: '画像',
+              content: {
+                'image/svg+xml': { schema: ImageBinary },
+                'image/png': { schema: ImageBinary },
+                'image/jpeg': { schema: ImageBinary },
+              },
+            },
+            ...ERR_401,
+            '404': { description: '対象が無い / 配信対象外 / SVG 検査の違反(本文なし)' },
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.fundAssetInspect)]: {
+        post: {
+          tags: ['vivliostyle'],
+          summary: '画像が配信されるかを確かめる(中身は返さない)',
+          operationId: 'inspectFundAssets',
+          description: [
+            '参照ごとに、`/fund-assets/images/...` の配信ルートと同じ判定(経路の検査 → 実体 → ',
+            '読み込み → SVG の検査)を行い、`ok` / `missing` / `svg_rejected` を返す。',
+            '`svg_rejected` には SVG の検査の違反の文言を `violations` に載せる。',
+            '`missing` は存在しない・経路が不正(`..`・区切り・予約名など)・許可外の拡張子を区別しない。',
+            '1 回 50 件まで(超えると 400)。ファイルの中身は返さない。',
+          ].join(''),
+          requestBody: {
+            content: { 'application/json': { schema: s.FundAssetInspectRequest } },
+          },
+          responses: {
+            '200': json('参照ごとの判定(要求と同じ順)', s.FundAssetInspectResponse),
+            ...ERR_400,
+            ...ERR_401,
           },
         },
       },
@@ -670,7 +743,8 @@ export function buildOpenApiDocument() {
           summary: 'vivliostyle プロジェクト(zip)から PDF を生成',
           operationId: 'buildProject',
           description:
-            `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`。` +
+            `${PROJECT_ZIP_CONTRACT}任意クエリ: \`entry\`, \`size\`, \`singleDoc\`` +
+            '(`singleDoc` は zip に config が無いときだけ効き、config があるときは無視する)。' +
             EXTERNAL_REF_CONTRACT_ZIP,
           requestBody: {
             content: { 'application/zip': { schema: PdfBinary } },
@@ -682,6 +756,7 @@ export function buildOpenApiDocument() {
             },
             ...ERR_400,
             ...ERR_401,
+            ...ERR_403_EDITOR,
             '413': err('プロジェクトが大きすぎる (kind=validation)'),
             ...ERR_500,
           },
@@ -724,13 +799,16 @@ export function buildOpenApiDocument() {
           description:
             'inline は `application/json` (BuildInlineRequest)、project は `application/zip`。' +
             '返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。' +
-            '\n\nzip 経路の受入条件は `POST /build/project` と**同一**である(同じ展開・検証を通る):' +
+            '\n\nzip 経路の受入条件と任意クエリ(`entry` `size` `singleDoc`)は `POST /build/project` と' +
+            '**同一**である(同じ展開・検証を通る):' +
             '\n\n' +
             PROJECT_ZIP_CONTRACT,
           responses: {
             '201': json('起動したセッション', s.PreviewSession),
             ...ERR_400,
             ...ERR_401,
+            ...ERR_403_EDITOR,
+            '413': err('プロジェクト zip が大きすぎる (zip 経路のみ。kind=validation)'),
             ...ERR_500,
           },
         },
@@ -750,7 +828,12 @@ export function buildOpenApiDocument() {
           operationId: 'stopPreview',
           description: '他人が作成したセッションは 404(停止も作業ディレクトリ削除も起きない)。',
           requestParams: { path: z.object({ id: z.string() }) },
-          responses: { '204': noContent('停止完了'), ...ERR_401, ...ERR_404 },
+          responses: {
+            '204': noContent('停止完了'),
+            ...ERR_401,
+            ...ERR_403_EDITOR,
+            ...ERR_404,
+          },
         },
       },
       [`${toOpenApiPath(apiPaths.previewById)}/{path}`]: {
@@ -820,8 +903,11 @@ export function buildOpenApiDocument() {
             '200': json('更新後のユーザ', s.User),
             ...ERR_400,
             ...ERR_401,
-            ...ERR_403,
+            '403': err(
+              '権限不足 (admin 限定)、または自分自身のロール変更・無効化 (code=USER_SELF_CHANGE)',
+            ),
             ...ERR_404,
+            '409': err('有効な admin が 0 人になる変更 (code=LAST_ADMIN)'),
           },
         },
       },

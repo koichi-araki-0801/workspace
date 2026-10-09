@@ -13,6 +13,8 @@
 //   属性引用符の正規化・実体参照の再エンコード等の再整形差分を生む — `jinjaMask.ts` が
 //   意図的に避けている罠)。
 
+import { RAW_TEXT_ELEMENTS } from '@editor/shared';
+
 const LT = 0x3c; // '<'
 const GT = 0x3e; // '>'
 const SLASH = 0x2f; // '/'
@@ -67,9 +69,8 @@ function tagNameMatches(html: string, at: number, name: string): boolean {
 }
 
 /** 開始タグ `<name` が raw-text 要素なら名前を返す。中身を実タグとして走査してはならない要素。 */
-const RAW_TEXT = ['script', 'style', 'title', 'textarea'];
 function rawTextNameAt(html: string, at: number): string | null {
-  for (const name of RAW_TEXT) if (tagNameMatches(html, at, name)) return name;
+  for (const name of RAW_TEXT_ELEMENTS) if (tagNameMatches(html, at, name)) return name;
   return null;
 }
 

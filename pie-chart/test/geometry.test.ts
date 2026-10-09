@@ -4,20 +4,18 @@ import type { LayoutItem, LayoutItemReady, PieLayoutConfig, Placement } from '..
 import {
   angleInBand,
   arcAngles,
+  boxDistToOrigin,
   boxOverlapAmount,
   clampBendOutsideBox,
   degToRad,
   estimateTextExtent,
   estimateVerifyTextExtent,
-  fitsInsideSlice,
   fitsInsideSliceExtent,
-  flipTopRightX,
   getLabelLines,
+  hugRimAt,
   horizontalLowerLeftDropAmount,
   labelHeightUnits,
-  labelOutwardClearance,
   leaderAttachTargetY,
-  leaderBendPoint,
   leaderCrossesBox,
   lowerLeftDeepBoundaryY,
   normalizeAngle,
@@ -29,23 +27,19 @@ import {
   placementBox,
   placementExtent,
   polarToCartesian,
-  projectLabelPoint,
-  projectLeftRingPoint,
   radialFraction,
   scaledLabelWidthUnits,
   segmentsIntersect,
+  sortByAngleDesc,
   textBoxBounds,
-  topAngleOffset,
-  topBandUpperLeftTarget,
-  topBandY,
   truncateLeaderEndpointAtBox,
   upperLeftAngleProgress,
   upperLeftBendPoint,
   upperLeftHorizontalLen,
-  upperLeftTarget,
   visualCharEm,
   visualMaxEm,
   visualTextWidthUnits,
+  wrapPi,
 } from '../src/layout/geometry.js';
 
 const cfg: PieLayoutConfig = createPieLayoutConfig();
@@ -91,15 +85,6 @@ describe('angleInBand', () => {
     expect(angleInBand(5, 355, 20)).toBe(true); // center>angle 側の wrap
     expect(angleInBand(370, 360, 20)).toBe(true);
     expect(angleInBand(180, 0, 20)).toBe(false); // 反対側は範囲外
-  });
-});
-
-describe('topAngleOffset', () => {
-  it('12時(90°)からの最小角度差を返す', () => {
-    expect(topAngleOffset(90)).toBe(0);
-    expect(topAngleOffset(120)).toBe(30);
-    expect(topAngleOffset(60)).toBe(30);
-    expect(topAngleOffset(270)).toBe(180);
   });
 });
 
@@ -180,52 +165,6 @@ describe('labelHeightUnits / 境界ヘルパー', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// リング射影
-// ---------------------------------------------------------------------------
-describe('projectLabelPoint', () => {
-  it('ラベルリング半径上へ射影する', () => {
-    const target = projectLabelPoint(0.3, 0.4, cfg);
-    const r = Math.hypot(target.x, target.y);
-    const r2 = Math.hypot(projectLabelPoint(1, 0, cfg).x, projectLabelPoint(1, 0, cfg).y);
-    expect(r).toBeCloseTo(r2); // 全点が同一半径
-  });
-  it('原点は (targetRadius, 0) を返す', () => {
-    const p = projectLabelPoint(0, 0, cfg);
-    expect(p.y).toBe(0);
-    expect(p.x).toBeGreaterThan(0);
-  });
-});
-
-describe('projectLeftRingPoint', () => {
-  it('常に左側 (x<=0) のリング点を返す', () => {
-    expect(projectLeftRingPoint(0.2, cfg).x).toBeLessThanOrEqual(0);
-    expect(projectLeftRingPoint(0.2, cfg, 0.1).x).toBeLessThanOrEqual(0);
-    expect(projectLeftRingPoint(0.2, cfg, 0.1, -2).x).toBeLessThanOrEqual(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// トップバンド / flip
-// ---------------------------------------------------------------------------
-describe('topBandY', () => {
-  it('anchor から最低限持ち上げる', () => {
-    const y = topBandY(0.5, 0.4, 90, cfg, false);
-    expect(y).toBeGreaterThanOrEqual(0.5 + cfg.scaledRadialExitLen);
-  });
-  it('isUpperLeft は displayY も尊重する', () => {
-    const y = topBandY(0.2, 5, 120, cfg, true);
-    expect(y).toBe(5);
-  });
-});
-
-describe('flipTopRightX', () => {
-  it('anchor から右へ最低限離す', () => {
-    expect(flipTopRightX(0, 0, cfg)).toBeGreaterThan(0);
-    expect(flipTopRightX(0, 10, cfg)).toBe(10);
-  });
-});
-
 describe('upperLeftHorizontalLen / upperLeftBendPoint', () => {
   it('水平区間長は正', () => {
     expect(upperLeftHorizontalLen(135, cfg)).toBeGreaterThan(0);
@@ -240,22 +179,6 @@ describe('upperLeftHorizontalLen / upperLeftBendPoint', () => {
     const bend = upperLeftBendPoint(-0.7, 0.7, 150, cfg, item);
     expect(bend.x).toBeLessThan(-0.7);
     expect(bend.y).toBe(0.7);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 引出線屈曲・切り詰め
-// ---------------------------------------------------------------------------
-describe('leaderBendPoint', () => {
-  it('bend.y は anchorY に等しい', () => {
-    const bend = leaderBendPoint(1, 0.5, 0.2, 1.0, -1, 135, cfg);
-    expect(bend.y).toBe(0.5);
-  });
-  it('bendDir>0 でも y は保たれ labelBox でクランプされる', () => {
-    const box = { left: 0, right: 0.6, bottom: 0, top: 0.4 };
-    const bend = leaderBendPoint(1, 0.2, -0.5, 0.8, 1, 45, cfg, box);
-    expect(bend.y).toBe(0.2);
-    expect(Number.isFinite(bend.x)).toBe(true);
   });
 });
 
@@ -312,17 +235,6 @@ describe('leaderAttachTargetY', () => {
   it('2 行・上から来る線は上行中央', () => {
     const y = leaderAttachTargetY(box, { x: 1, y: 5 }, 2, 0.4);
     expect(y).toBeCloseTo(box.top - 0.2);
-  });
-});
-
-describe('labelOutwardClearance', () => {
-  it('名前長と行数で余白を増やす', () => {
-    const short = { name: 'ABCDEF', textLines: 2 } as LayoutItem;
-    const long = { name: 'ABCDEFGHIJ', textLines: 2 } as LayoutItem;
-    const tall = { name: 'ABCDEF', textLines: 3 } as LayoutItem;
-    expect(labelOutwardClearance(short, 0.1)).toBeCloseTo(0.1);
-    expect(labelOutwardClearance(long, 0.1)).toBeGreaterThan(0.1);
-    expect(labelOutwardClearance(tall, 0.1)).toBeCloseTo(0.14);
   });
 });
 
@@ -427,7 +339,7 @@ describe('textBoxBounds', () => {
 // ---------------------------------------------------------------------------
 // スライス内判定
 // ---------------------------------------------------------------------------
-describe('fitsInsideSliceExtent / fitsInsideSlice', () => {
+describe('fitsInsideSliceExtent', () => {
   it('退化スパン・非正 bbox は fits=false', () => {
     expect(fitsInsideSliceExtent(0, 0, 0.1, 0.1, cfg).fits).toBe(false);
     expect(fitsInsideSliceExtent(0, Math.PI, 0, 0.1, cfg).fits).toBe(false);
@@ -440,10 +352,6 @@ describe('fitsInsideSliceExtent / fitsInsideSlice', () => {
   });
   it('大きすぎる bbox は収まらない', () => {
     expect(fitsInsideSliceExtent(0, Math.PI, 5, 5, cfg).fits).toBe(false);
-  });
-  it('fitsInsideSlice は item 経由で委譲する', () => {
-    const r = fitsInsideSlice(0, Math.PI, { name: 'A', percentText: '9%' } as LayoutItem, 2, cfg);
-    expect(typeof r.fits).toBe('boolean');
   });
 });
 
@@ -463,8 +371,6 @@ describe('placementExtent / placementBox', () => {
       leaderBendFollowsEndpointX: false,
       origTextX: 0,
       origTextY: 0,
-      upperLeftHairpinCheck: false,
-      skipLeader: false,
       insideSlice: false,
       ...over,
     };
@@ -694,50 +600,74 @@ describe('nudgeTextAwayFromSegment', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// 左上ターゲット (分岐多数)
-// ---------------------------------------------------------------------------
-describe('topBandUpperLeftTarget', () => {
-  const measured = { width: 0.6, height: 0.3 };
-  it('左側のリング点を返す', () => {
-    const p = topBandUpperLeftTarget(makeReady(), -0.7, 0.9, 135, cfg, measured);
-    expect(p.x).toBeLessThanOrEqual(0);
-    expect(Number.isFinite(p.y)).toBe(true);
+describe('wrapPi', () => {
+  it('[−π, π] へ巻き戻す', () => {
+    expect(wrapPi(0)).toBe(0);
+    expect(wrapPi(Math.PI)).toBe(Math.PI);
+    expect(wrapPi(-Math.PI)).toBe(-Math.PI);
+    expect(wrapPi(3 * Math.PI)).toBeCloseTo(Math.PI, 12);
+    expect(wrapPi(1.5 * Math.PI)).toBeCloseTo(-0.5 * Math.PI, 12);
+    expect(wrapPi(-1.5 * Math.PI)).toBeCloseTo(0.5 * Math.PI, 12);
   });
-  it('3 行・dense・long の分岐を通る', () => {
-    const item = makeReady({
-      textLines: 3,
-      isLong: true,
-      upperLeftLongDense: true,
-      upperLeftSmallDense: true,
-      upperLeftCount: 3,
-      upperLeftRank: 2,
-      upperLeftRenderY: 0.5,
-    });
-    const p = topBandUpperLeftTarget(item, -0.8, 1.0, 170, cfg, measured);
-    expect(p.x).toBeLessThanOrEqual(0);
+  it('範囲内の値はビット単位で変えない', () => {
+    expect(wrapPi(1.2345)).toBe(1.2345);
+    expect(wrapPi(-2.5)).toBe(-2.5);
   });
 });
 
-describe('upperLeftTarget', () => {
-  const measured = { width: 0.6, height: 0.3 };
-  it('左側のリング点を返す', () => {
-    const p = upperLeftTarget(makeReady(), 0.7, 0.8, 135, cfg, 0.1, measured);
-    expect(p.x).toBeLessThanOrEqual(0);
+describe('boxDistToOrigin', () => {
+  it('原点を含む箱は 0', () => {
+    expect(boxDistToOrigin({ left: -1, right: 1, top: 1, bottom: -1 })).toBe(0);
   });
-  it('smallDense / renderY なし経路', () => {
-    const item = makeReady({
-      upperLeftSmallDense: true,
-      upperLeftCount: 3,
-      upperLeftRank: 0,
-      upperLeftRenderY: 0,
-    });
-    const p = upperLeftTarget(item, 0.6, 0.7, 120, cfg, 0.1, measured);
-    expect(p.x).toBeLessThanOrEqual(0);
+  it('原点から箱の最近接点までの距離', () => {
+    expect(boxDistToOrigin({ left: 3, right: 5, top: 1, bottom: -1 })).toBe(3);
+    expect(boxDistToOrigin({ left: 3, right: 5, top: 6, bottom: 4 })).toBe(5);
+    expect(boxDistToOrigin({ left: -5, right: -3, top: -4, bottom: -6 })).toBe(5);
   });
-  it('longDense / isLong / 大角度経路', () => {
-    const item = makeReady({ isLong: true, upperLeftLongDense: true, upperLeftRenderY: 0.5 });
-    const p = upperLeftTarget(item, 0.6, 0.7, 165, cfg, 0.1, measured);
-    expect(p.x).toBeLessThanOrEqual(0);
+});
+
+describe('sortByAngleDesc', () => {
+  const mk = (midAngle?: number) => ({ item: { midAngle } });
+  it('sin(midAngle) の降順に並べ替え、同じ配列を返す', () => {
+    const xs = [mk(270), mk(90), mk(0), mk(undefined), mk(180)];
+    const out = sortByAngleDesc(xs);
+    expect(out).toBe(xs);
+    expect(out.map((x) => x.item.midAngle)).toEqual([90, 180, 0, undefined, 270]);
+  });
+});
+
+describe('hugRimAt', () => {
+  const place = (): Placement => ({
+    x: -3,
+    y: 0.4,
+    anchor: 'end',
+    baseline: 'bottom',
+    lines: ['AB', '50%'],
+    item: { name: 'AB', value: 1, percentText: '50%' } as Placement['item'],
+    leaderAnchor: { x: -0.9, y: 0.4 },
+    leaderBend: { x: 0, y: 0 },
+    leaderEndpoint: { x: 0, y: 0 },
+    leaderBendFollowsEndpointY: false,
+    leaderBendFollowsEndpointX: false,
+    origTextX: 0,
+    origTextY: 0,
+    insideSlice: false,
+  });
+  it('左は -rim、右は +rim を起点に pie クリアランス nudge した位置へ x/y を更新する', () => {
+    for (const side of ['left', 'right'] as const) {
+      const p = place();
+      const rim = pieYAtX(0.6, cfg);
+      const want = nudgeTextAwayFromPie(
+        side === 'left' ? -rim : rim,
+        0.6,
+        p.anchor,
+        p.baseline,
+        placementExtent(p, cfg),
+        cfg,
+      );
+      hugRimAt(p, 0.6, side, cfg);
+      expect(p.x).toBe(want.x);
+      expect(p.y).toBe(want.y);
+    }
   });
 });

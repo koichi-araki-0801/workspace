@@ -102,6 +102,32 @@ describe('openapi document', () => {
     );
   });
 
+  it('documents 403 on vivliostyle routes guarded by requireEditor, and 413 on zip preview', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const paths = doc.paths as any;
+    expect(paths['/build/project'].post.responses['403']).toBeTruthy();
+    expect(paths['/preview'].post.responses['403']).toBeTruthy();
+    expect(paths['/preview'].post.responses['413']).toBeTruthy();
+    expect(paths[toOpenApiPath(apiPaths.previewById)].delete.responses['403']).toBeTruthy();
+  });
+
+  it('describes external <script src> as inlined on /build and /build/merge', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const paths = doc.paths as any;
+    for (const p of ['/build', '/build/merge']) {
+      const description: string = paths[p].post.description;
+      expect(description).not.toContain('404 になり');
+      expect(description).toContain('インライン展開');
+    }
+  });
+
+  it('documents the self-change 403 and the last-admin 409 on user update', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const update = (doc.paths?.[toOpenApiPath(apiPaths.userById)] as any)?.patch;
+    expect(update.responses['403'].description).toContain('USER_SELF_CHANGE');
+    expect(update.responses['409'].description).toContain('LAST_ADMIN');
+  });
+
   it('resolves every $ref to a defined component schema', () => {
     const schemas = doc.components?.schemas ?? {};
     const refs: string[] = [];

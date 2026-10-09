@@ -23,25 +23,34 @@
 // 上記の span 食いが即座に復活する。DOM 実装を依存に足せるようになったら、本ファイルは
 // linkedom でのパース + `head.appendChild` へ置き換えるのが本来の姿(`docs` の申し送り)。
 //
+// ── 走査器を専用に持つ理由 ──
+// 読むのは描画後の文書で、確信が持てない入力は `ok:false` で加工を諦める(fail closed)。この
+// 倒し方は、誤検出側へ倒す申請の関所(`shared/src/security/editingMarkers.ts`)や拾いすぎる側へ
+// 倒す不変性の照合(`security/templateScripts.ts`)と逆なので、走査器は 1 本にしない
+// (設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。raw text 要素の集合
+// (`INLINE_CSS_RAW_TEXT`。`noscript` などを含む 10 個)もここだけのもの。空白・英字・タグ名の終わり・コメントの終わり・
+// 属性 1 つの読み取りは `@editor/shared` の `html/htmlLex.ts`、raw text の終わり探しは
+// `html/rawText.ts` を共有する(ブラウザと同じ答えになるべき部品なので、片方だけ変えない)。
+//
 // 文字列連結で差し込むのも意図的: `String.prototype.replace` は置換文字列中の `$&` `$'`
 // などを特殊解釈するため、CSS(利用者入力)をそのまま置換文字列に載せると内容が化ける。
 
-import { resolveServedAssetPath } from '@editor/shared';
+import {
+  asciiLower,
+  commentEnd,
+  DOC_DIR,
+  findRawTextEnd,
+  isAsciiAlpha,
+  isHtmlSpace,
+  isTagNameEnd,
+  neutralizeRawTextClose,
+  newCommentEndMemo,
+  readAttr,
+  resolveDocAssetPath,
+} from '@editor/shared';
 
 /** `servedAssets` 未指定時の既定(資産を 1 つも配置していない配信ルート)。 */
 const EMPTY_SERVED: ReadonlySet<string> = new Set<string>();
-
-/**
- * `<style>` の中身は HTML パーサにとって raw text で、終端は最初に現れる `</style` 1 つだけ。
- * CSS の文字列リテラルの内側かどうかは見ないため、`css`(= `/api/build` 等のリクエスト本文
- * そのもの)に `}</style><script>...` と書けば生成文書へ script を注入できる。プレビュー経路の
- * CSP より手前で潰す必要があり、PDF build 経路(headless で file:// を開く)には CSP が無い。
- *
- * 置換は `</` の `/` を CSS のエスケープ `\/` にするだけ。CSS 文字列中では `\/` は `/` と
- * 同義なので意味は変わらず、HTML パーサからは `</style` に一致しなくなる。
- * web 側の同義処理は `web/src/lib/sanitizeCss.ts`(こちらは DOM 組み立て用に別実装)。
- */
-const STYLE_CLOSE_RE = /<\/(?=style)/gi;
 
 /**
  * 中身を raw text / RCDATA として読む要素。開始タグの後は、対応する終了タグまで一切の
@@ -52,7 +61,7 @@ const STYLE_CLOSE_RE = /<\/(?=style)/gi;
  * 誤って raw text とみなす方向の間違いは「中の本物のタグを見落とす」= 加工を諦める側へ
  * 倒れるだけで、偽のタグを掴むより安全だからである。
  */
-const RAW_TEXT_ELEMENTS = new Set([
+const INLINE_CSS_RAW_TEXT: ReadonlySet<string> = new Set([
   'script',
   'style',
   'textarea',
@@ -122,73 +131,6 @@ interface ScanResult {
   ok: boolean;
 }
 
-const isAsciiAlpha = (c: string | undefined): boolean =>
-  c !== undefined && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'));
-
-/** タグ名を構成しうる文字(空白・`/`・`>` でタグ名は終わる)。 */
-const isTagNameChar = (c: string): boolean => !/[\s/>]/.test(c);
-
-/**
- * raw text 要素 `name` の終了タグ位置(`<` の index)を返す。見つからなければ -1。
- * 終端条件は仕様どおり「`</` + 名前 + 空白 / `/` / `>`」で、大文字小文字は無視する。
- *
- * ⚠ `lower`(= `html` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
- * ここで `html.toLowerCase()` すると、raw text 開始タグ 1 つにつき入力全体の
- * コピーを 1 つ作ることになる。`RAW_TEXT_ELEMENTS` には `title` が入っているので
- * `'<title></title>'` の反復が最悪形で、1MB の本文でも O(タグ数 × 長さ)=数十 GB の
- * コピーになり、同期区間なのでイベントループが恒久停止する(= 全 API の停止)。
- * 走査 1 回につきコピー 1 回に保つこと。
- */
-function findRawTextEnd(html: string, lower: string, from: number, name: string): number {
-  const needle = `</${name}`;
-  let i = from;
-  while (i < lower.length) {
-    const at = lower.indexOf(needle, i);
-    if (at === -1) return -1;
-    const after = html[at + needle.length];
-    if (after === undefined || /[\s/>]/.test(after)) return at;
-    i = at + needle.length;
-  }
-  return -1;
-}
-
-/**
- * 開始タグの属性領域(タグ名の直後 〜 閉じ `>` の手前)から属性名を切り出す。
- * HTML の before-attribute-name / attribute-name / before-attribute-value の 3 状態だけを
- * 素直に写したもので、`/` と空白はどちらも属性名の区切りとして読み飛ばす。
- */
-function parseAttrs(inner: string): ParsedAttr[] {
-  const attrs: ParsedAttr[] = [];
-  let i = 0;
-  while (i < inner.length) {
-    if (/[\s/]/.test(inner[i])) {
-      i++;
-      continue;
-    }
-    const start = i;
-    while (i < inner.length && !/[\s/=>]/.test(inner[i])) i++;
-    const name = inner.slice(start, i).toLowerCase();
-    while (i < inner.length && /\s/.test(inner[i])) i++;
-    let value = '';
-    if (inner[i] === '=') {
-      i++;
-      while (i < inner.length && /\s/.test(inner[i])) i++;
-      const quote = inner[i];
-      if (quote === '"' || quote === "'") {
-        const e = inner.indexOf(quote, i + 1);
-        value = inner.slice(i + 1, e === -1 ? inner.length : e);
-        i = e === -1 ? inner.length : e + 1;
-      } else {
-        const vs = i;
-        while (i < inner.length && !/\s/.test(inner[i])) i++;
-        value = inner.slice(vs, i);
-      }
-    }
-    if (name !== '') attrs.push({ name, value });
-  }
-  return attrs;
-}
-
 /**
  * HTML 中のタグを先頭から順に列挙する。属性値の引用符・コメント・raw text を跨がないので、
  * 返る span は必ず本物のタグ 1 つに対応する。
@@ -199,8 +141,10 @@ function parseAttrs(inner: string): ParsedAttr[] {
  */
 export function scanTags(html: string): ScanResult {
   const tags: TagSpan[] = [];
-  // 小文字化コピーは走査ごとに 1 つだけ(`findRawTextEnd` の注意書きを見よ)。
-  const lower = html.toLowerCase();
+  // 小文字化コピーは走査ごとに 1 つだけで、位置がずれない `asciiLower` で作る
+  // (`shared/src/html/rawText.ts` の注意書きを見よ)。
+  const lower = asciiLower(html);
+  const commentSeen = newCommentEndMemo();
   let i = 0;
   while (i < html.length) {
     if (html[i] !== '<') {
@@ -209,12 +153,12 @@ export function scanTags(html: string): ScanResult {
     }
     const next = html[i + 1];
     if (next === '!') {
-      // コメントは `-->` まで。それ以外の markup declaration(doctype 等)は bogus comment
-      // として最初の `>` まで。どちらも中身にタグは無い。
+      // コメントの閉じ方は `commentEnd` を見よ。それ以外の markup declaration(doctype 等)は
+      // bogus comment として最初の `>` まで。どちらも中身にタグは無い。
       if (html.startsWith('<!--', i)) {
-        const end = html.indexOf('-->', i + 4);
+        const end = commentEnd(html, i + 4, commentSeen);
         if (end === -1) return { tags, ok: false };
-        i = end + 3;
+        i = end;
       } else {
         const end = html.indexOf('>', i + 2);
         if (end === -1) return { tags, ok: false };
@@ -242,20 +186,20 @@ export function scanTags(html: string): ScanResult {
       continue;
     }
     let j = nameStart;
-    while (j < html.length && isTagNameChar(html[j])) j++;
+    while (j < html.length && !isTagNameEnd(html[j])) j++;
     const name = html.slice(nameStart, j).toLowerCase();
-    // 属性領域を引用符状態つきで走査する。引用符の外に現れた `>` だけがタグを閉じる
-    // (未引用の属性値中の `>` もタグを閉じる — これは仕様どおりの挙動)。
+    // 属性を 1 つずつ読んで閉じ `>` を探す。引用符が属性の値として開くのは `=` の直後だけで、
+    // 引用符の外に現れた `>` だけがタグを閉じる(未引用の属性値中の `>` もタグを閉じる)。
     let k = j;
-    let quote = '';
-    while (k < html.length) {
-      const ch = html[k];
-      if (quote !== '') {
-        if (ch === quote) quote = '';
-      } else if (ch === '"' || ch === "'") {
-        quote = ch;
-      } else if (ch === '>') break;
-      k++;
+    const attrs: ParsedAttr[] = [];
+    while (k < html.length && html[k] !== '>') {
+      if (isHtmlSpace(html[k]) || html[k] === '/') {
+        k++;
+        continue;
+      }
+      const attr = readAttr(html, k, html.length);
+      if (!isEnd) attrs.push({ name: attr.name, value: attr.value ?? '' });
+      k = attr.next;
     }
     if (k >= html.length) return { tags, ok: false };
     const end = k + 1;
@@ -265,14 +209,14 @@ export function scanTags(html: string): ScanResult {
       name,
       isEnd,
       raw: html.slice(i, end),
-      attrs: isEnd ? [] : parseAttrs(html.slice(j, k)),
+      attrs,
       attrNames: [],
     };
     span.attrNames = span.attrs.map((a) => a.name);
     tags.push(span);
     i = end;
-    if (!isEnd && RAW_TEXT_ELEMENTS.has(name)) {
-      const close = findRawTextEnd(html, lower, i, name);
+    if (!isEnd && INLINE_CSS_RAW_TEXT.has(name)) {
+      const close = findRawTextEnd(lower, name, i).at;
       if (close === -1) return { tags, ok: false };
       span.rawText = html.slice(i, close);
       i = close;
@@ -293,7 +237,10 @@ function isStylesheetLink(tag: TagSpan): boolean {
   if (tag.name !== 'link') return false;
   const rel = tag.attrs.find((a) => a.name === 'rel');
   if (rel === undefined) return false;
-  return rel.value.toLowerCase().split(/\s+/).includes('stylesheet');
+  return rel.value
+    .toLowerCase()
+    .split(/[\t\n\f\r ]+/)
+    .includes('stylesheet');
 }
 
 /**
@@ -303,6 +250,7 @@ function isStylesheetLink(tag: TagSpan): boolean {
  * (`security/externalRefs.ts` の `assertNoDocumentExternalRefs`)なので、ここで見るのは
  * 「相対参照だが実体が無い」形だけである。残すと組版側のフェッチャが 404 を踏み、
  * ページ分割が中断する — だから**残すのは実体があるときだけ**という非対称にする。
+ * 参照は文書の位置(`doc/`)を基準に解く(`docRefs.collectDocumentAssetRefs` と同じ物差し)。
  *
  * 属性そのものが無い場合(素の `<script>` = テンプレ JS 本体、href の無い `<link>`)は
  * 取得を起こさないので落とさない。
@@ -311,7 +259,7 @@ function dropsUnservedRef(tag: TagSpan, served: ReadonlySet<string>): boolean {
   const attrName = tag.name === 'link' ? 'href' : 'src';
   const attr = tag.attrs.find((a) => a.name === attrName);
   if (attr === undefined) return false;
-  const rel = resolveServedAssetPath(attr.value);
+  const rel = resolveDocAssetPath(attr.value, DOC_DIR);
   return rel === undefined || !served.has(rel);
 }
 
@@ -323,8 +271,8 @@ function dropsUnservedRef(tag: TagSpan, served: ReadonlySet<string>): boolean {
  * (`docAssets.ts` 冒頭を見よ)。判定軸は要素名ではなく URL の解決先に置く。
  *
  * ── CSS の適用元は 1 つに保つ(`hasInlineCss`)──
- * リクエストが `css` を持つとき、その CSS が**唯一の源**である。同じ per-fund CSS が
- * ディスク側にも在るので、`<link href="css/510037.css">` を残すと 2 重に当たり、しかも
+ * リクエストが `css` を持つとき、その CSS が**唯一の源**である。同じテンプレ CSS が
+ * ディスク側にも在るので、`<link href="../css/<テンプレ>.css">` を残すと 2 重に当たり、しかも
  * 挿入位置の都合で**ディスク側が先・リクエスト側が後**になる。編集中の下書き CSS で
  * 規則を「削除」しても、後勝ちでは削除を上書きできないためディスクの旧規則が復活する。
  * プレビュー(`web/src/lib/nunjucksRender.ts`)は `<link>` を落として inline だけを当てるので、
@@ -370,18 +318,27 @@ function dropEndOf(tags: TagSpan[], index: number, tag: TagSpan): number {
 }
 
 /** `inlineCss` の任意設定。 */
-export interface InlineCssOptions {
+interface InlineCssOptions {
   /**
    * 配信ルートへ実際に配置した資産の相対パス集合(`docAssets.stageDocAssets` の戻り値)。
    * 省略 = 何も配置していない、なので相対参照を持つ `<link>`/`<script src>` は全部落ちる
    * (= 資産配置を入れる前と同じ挙動)。
    */
   servedAssets?: ReadonlySet<string>;
+  /**
+   * stylesheet の `<link>` を落とすか(`stripUnresolvableRefTags` の `hasInlineCss`)。省略時は
+   * 「`css` が空でない」。決め手は**リクエストが `css` を持つか**なので、サーバ側で `css` へ
+   * 定数を足して渡す呼び出し(結合の通しページ番号)は、足す前の `css` で決めてここへ渡す。
+   * 足した後の値で決めると、リクエストの `css` が空でも同梱 CSS の `<link>` が落ちる。
+   */
+  dropStylesheetLinks?: boolean;
 }
 
 /** CSS 文字列を HTML ドキュメントへインライン展開する(head / body / 完全ラッパ)。 */
 export function inlineCss(html: string, css: string, opts: InlineCssOptions = {}): string {
-  const styleTag = css ? `<style>\n${css.replace(STYLE_CLOSE_RE, '<\\/')}\n</style>` : '';
+  // `css`(= `/api/build` 等のリクエスト本文そのもの)に `}</style><script>...` と書けば生成文書へ
+  // script を注入できる。プレビュー経路の CSP より手前で潰す(PDF build 経路には CSP が無い)。
+  const styleTag = css ? `<style>\n${neutralizeRawTextClose(css, 'style')}\n</style>` : '';
   const served = opts.servedAssets ?? EMPTY_SERVED;
 
   const first = scanTags(html);
@@ -390,7 +347,12 @@ export function inlineCss(html: string, css: string, opts: InlineCssOptions = {}
     // アンカー探索も部分除去も要らず、誤った位置へ差し込む余地が無い。
     return styleTag ? `<!doctype html>\n${styleTag}\n${html}` : html;
   }
-  const cleaned = stripUnresolvableRefTags(html, first.tags, served, styleTag !== '');
+  const cleaned = stripUnresolvableRefTags(
+    html,
+    first.tags,
+    served,
+    opts.dropStylesheetLinks ?? styleTag !== '',
+  );
   if (!styleTag) return cleaned;
 
   // 除去でオフセットが動くので、挿入位置は掃除後の文字列から取り直す。

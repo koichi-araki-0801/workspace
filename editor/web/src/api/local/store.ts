@@ -83,9 +83,10 @@ for (const [path, content] of Object.entries(filledFiles)) {
   fixtureFilled[baseName(path)] = content;
 }
 
+/** fixtures の CSS。キーはファイル名(`cssFileNameOf` の出力と同じ `<会社>_<ファンド>_<版種>.css`)。 */
 export const fixtureCss: Record<string, string> = {};
 for (const [path, content] of Object.entries(cssFiles)) {
-  fixtureCss[baseName(path).replace(/\.css$/, '')] = content;
+  fixtureCss[baseName(path)] = content;
 }
 
 // ファンド固有マスタ(コード → 名称/会社)。サンプル本体はパーツ別共通ダミー
@@ -142,12 +143,15 @@ export function tx<T>(keys: readonly string[], fn: () => T): T {
 
 export const META_KEY = 'editor:meta';
 
+/** compare の seed 済みを示す印の localStorage キー(`seed.ts` が書く)。 */
+export const SEED_KEY = 'editor:seed:compare';
+
 /**
  * local store のスキーマ版。古い永続 working-state が新しい fixtures を覆い隠すような
  * 変更(例: 版種リネーム + report 再テーマ)を入れたら bump する。`migrateStore()` が
  * bump ごとに一度 working-state をクリアする。
  */
-const SCHEMA_VERSION = '4';
+const SCHEMA_VERSION = '5';
 const SCHEMA_KEY = 'editor:schemaVersion';
 
 /** fixtures 由来の working-state キー群。スキーマ版 bump 時にクリアする。 */
@@ -155,7 +159,7 @@ const WORKING_KEYS = [
   K.drafts,
   K.htmlOverride,
   K.filledOverride,
-  K.cssOverride,
+  K.cssOverride, // テンプレ単位の CSS。キーは CSS のファイル名(`cssFileNameOf`)
   META_KEY,
   K.snapshots,
   K.instances,
@@ -163,13 +167,13 @@ const WORKING_KEYS = [
   K.pdfHist,
   K.createHist,
   K.partHist,
-  K.notes, // メモ単位を fundCode→templateId へ変更。旧形式は非可逆なので bump で一掃する
+  K.notes, // メモはテンプレート ID 単位
   undoStacksKey(),
   draftOwnerKey(),
   confirmedCanonicalKey(),
   editorUiKey(),
   K.reviews,
-  'editor:seed:compare', // compare-seed ガード。現行 id で再 seed させるため
+  SEED_KEY, // compare-seed ガード。現行 id で再 seed させるため
 ] as const;
 
 /**
@@ -191,11 +195,7 @@ export const uid = (p: string) =>
 export const delay = <T>(value: T) => new Promise<T>((r) => setTimeout(() => r(value), 80));
 
 /** 文字列リストを重複排除してソートする(dropdown 候補の構築に使う)。 */
-export const uniq = (xs: string[]) => [...new Set(xs)].sort();
-
-// 重複排除のみで出現順を保つ。分類候補を fixtures(`parts.json`)の記載＝使用順
-// (表紙から)で出すために使い、五十音ソートの `uniq` とは別物として置く。
-export const uniqStable = (xs: string[]) => [...new Set(xs)];
+export const uniqSorted = (xs: string[]) => [...new Set(xs)].sort();
 
 const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 

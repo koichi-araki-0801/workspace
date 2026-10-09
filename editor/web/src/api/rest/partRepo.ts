@@ -32,11 +32,11 @@ export const restPartRepo: PartRepository = {
       apiFetch<PartHistoryEntry[]>(buildPath(apiPaths.partHistory, { templateId })),
     ),
 
-  recordPartChange: (templateId: string, partKey: string, change: string) =>
+  recordPartChange: (templateId: string, partKey: string, change: string, id?: string) =>
     attemptRest(() =>
       apiFetch<void>(buildPath(apiPaths.partHistory, { templateId }), {
         method: 'POST',
-        body: { partKey, change },
+        body: { partKey, change, id },
       }),
     ),
 };

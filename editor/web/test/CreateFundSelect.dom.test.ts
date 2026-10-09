@@ -60,6 +60,17 @@ async function chooseCompany(w: ReturnType<typeof mount>, value: string) {
 }
 
 describe('CreateFundSelect', () => {
+  it('委託会社の候補は「略称（Rep1 のコード）」で、正式名は出さない', async () => {
+    const { w } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    const company = w.findAllComponents(Combobox)[0];
+    expect(company.props('options')).toEqual([
+      { label: 'AM01（R-AM01）', value: 'AM01' },
+      { label: 'AM02（R-AM02）', value: 'AM02' },
+    ]);
+    expect(w.text()).not.toContain('会社 1');
+  });
+
   it('会社を変えたら、ファンドの取得を待たずにファンドと版種を消した選択を伝える', async () => {
     Object.assign(routeQuery, { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' });
     let releaseAm02: (v: unknown) => void = () => {};
@@ -101,5 +112,42 @@ describe('CreateFundSelect', () => {
     const { last } = mountWith(async () => ok(FUNDS));
     await flushPromises();
     expect(last()).toMatchObject({ companyCode: 'AM01', rep1CompanyCode: 'R-AM01' });
+  });
+
+  it('取得中に候補に無い会社へ変えたら、前の会社のファンドが後から届いても候補へ載せない', async () => {
+    let releaseAm02: (v: unknown) => void = () => {};
+    const { w } = mountWith(
+      () =>
+        new Promise((resolve) => {
+          releaseAm02 = resolve;
+        }),
+    );
+    await flushPromises();
+    await chooseCompany(w, 'AM02');
+    await chooseCompany(w, 'ZZ99');
+    releaseAm02(ok(FUNDS));
+    await flushPromises();
+    expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
+    expect(w.find('.animate-spin').exists()).toBe(false);
+  });
+
+  it('取得中にクリアしたら、前の会社のファンドが後から届いても候補へ載せない', async () => {
+    let releaseAm02: (v: unknown) => void = () => {};
+    const { w } = mountWith(
+      () =>
+        new Promise((resolve) => {
+          releaseAm02 = resolve;
+        }),
+    );
+    await flushPromises();
+    await chooseCompany(w, 'AM02');
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('クリア'))
+      ?.trigger('click');
+    releaseAm02(ok(FUNDS));
+    await flushPromises();
+    expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
+    expect(w.find('.animate-spin').exists()).toBe(false);
   });
 });

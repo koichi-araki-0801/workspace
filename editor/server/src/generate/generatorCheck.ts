@@ -22,7 +22,7 @@ const PROBE_TIMEOUT_MS = 10_000;
 const FAKE_GENERATOR_BASENAME = 'fake_generate_template.py';
 
 /** 確認結果の出力先(既定はサーバのロガー。テストで差し替える)。 */
-export interface StartupLog {
+interface StartupLog {
   info(msg: string): void;
   warn(msg: string): void;
 }

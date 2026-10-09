@@ -14,4 +14,13 @@ describe('schemas と手書き型の意図的差分', () => {
     expectTypeOf<z.infer<typeof sch.AppError>>().toEqualTypeOf<Omit<AppError, 'cause'>>();
     expectTypeOf<z.infer<typeof sch.AppErrorKind>>().toEqualTypeOf<AppErrorKind>();
   });
+
+  it('パーツ: 版種の絞り込みクエリと対象版種は任意で、対象版種は null を取れる', () => {
+    expectTypeOf<z.infer<typeof sch.PartClassificationQuery>['editionType']>().toEqualTypeOf<
+      string | undefined
+    >();
+    expectTypeOf<z.infer<typeof sch.PartCatalogItem>['targetEdition']>().toEqualTypeOf<
+      string | null | undefined
+    >();
+  });
 });

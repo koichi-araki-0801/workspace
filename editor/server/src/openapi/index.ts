@@ -12,4 +12,3 @@ export async function openapiRoutes(app: FastifyInstance): Promise<void> {
 }
 
 export { docsRoutes } from './docsRoutes.js';
-export { getOpenApiDocument } from './document.js';

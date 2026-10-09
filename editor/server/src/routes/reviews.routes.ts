@@ -5,23 +5,24 @@
 // (reject)は `requireApprover` で施錠し、approve だけが実ファイル + git へ反映する
 // (`reviewRepo.ts`)。承認/却下は監査イベント(`review.approve` / `review.reject`)を記録する。
 import { apiPaths } from '@editor/shared';
+import {
+  ReviewDecisionBody,
+  ReviewListQuery,
+  ReviewRejectBody,
+  SubmitReviewBody,
+} from '@editor/shared/schemas';
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { auditedRethrow } from '../logger.js';
 import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
-import {
-  ReviewDecisionBody,
-  ReviewListQuery,
-  ReviewRejectBody,
-  SubmitReviewBody,
-} from '../openapi/schemas.js';
 import type { ReviewActor } from '../repositories/reviewRepo.js';
+import { actorOf } from './routeHelpers.js';
 
 /** 操作主体を request.user から導く。local モード(user 未設定)は全件可視の system 扱い。 */
 function actor(req: FastifyRequest): ReviewActor {
-  return { username: req.user?.username ?? 'system', role: req.user?.role ?? 'admin' };
+  return { username: actorOf(req), role: req.user?.role ?? 'admin' };
 }
 
 // `:reqId` を持つルートで共有する params 型(RouteGeneric に渡してキャストを消す)。

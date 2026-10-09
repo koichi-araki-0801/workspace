@@ -34,17 +34,19 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  FONT_MIME,
   PREVIEW_HOST_BASE,
   PREVIEW_MSG_CMD,
   PREVIEW_MSG_DOC,
   PREVIEW_MSG_ERROR,
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
-  resolveServedAssetPath,
+  resolveServedRoutePath,
 } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
+import { bundleSafeToInline } from '../util/inlineBundle.js';
 import { isFundImagePath, resolveServedAssetSource } from './docAssets.js';
 
 /**
@@ -105,44 +107,19 @@ const VIEWER_BUNDLE_SOURCE = path.resolve(
   'node_modules/@vivliostyle/core/lib/vivliostyle.js',
 );
 
-/** 資産の拡張子 → Content-Type。許可リスト外の拡張子はそもそも解決器が弾く。 */
+/**
+ * 資産の拡張子 → Content-Type。許可リスト外の拡張子はそもそも解決器が弾く。フォントは web が
+ * data URI にするときと同じ shared の表を使う。
+ */
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
+  ...FONT_MIME,
 };
 
 /** 読み込んだバンドルのキャッシュ(765KB を毎回読まない)。 */
 let bundleCache: string | null = null;
-
-/**
- * バンドルをホストページの inline `<script>` に**そのまま**埋めてよいか。
- *
- * 書き換えはしない(fail closed の判定のみ)。`</script` の `\/` 置換はテンプレ JS
- * (`inlineDocScripts.ts`)では安全側だが、minified バンドルには `a</b/…`(比較 + 正規表現
- * リテラル)のような、置換すると構文が壊れる形が原理上ありうる。危険な字面を含む版が
- * 来たら inline を諦めて従来の `<script src>` 配信へ倒す(v2.43.1 は inline 可を確認済み)。
- *
- *  - `</script` — raw text の終端。1 つでもあれば要素がそこで閉じる。
- *  - `<!--` の後、対応する `-->` より前に `<script` — script data の二重エスケープ状態に
- *    入り、こちらが付ける終了タグが終了タグとして扱われなくなる。
- *
- * テストから直接検証するために export する。呼び出しは本モジュール内のみ。
- */
-export function bundleSafeToInline(bundle: string): boolean {
-  const lower = bundle.toLowerCase();
-  if (lower.includes('</script')) return false;
-  for (let at = lower.indexOf('<!--'); at !== -1; at = lower.indexOf('<!--', at + 4)) {
-    const close = lower.indexOf('-->', at + 4);
-    const open = lower.indexOf('<script', at + 4);
-    if (open !== -1 && (close === -1 || open < close)) return false;
-  }
-  return true;
-}
 
 /**
  * ビューアバンドルを classic script として読める形にして返す。
@@ -404,9 +381,12 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       .send(await hostPage());
   });
 
-  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。パスの解決は
-  // `resolveServedAssetPath`(配信ルート相対への正規化)+ `resolveServedAssetSource`
-  // (許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と同じ物差しを使う。
+  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。
+  // 受けるのは**論理ルート相対のパス**で、文書の参照そのものではない — web の
+  // `previewSelfContain` が文書基準の参照を `resolveDocAssetPath` で解いてから取りに来る。
+  // パスの解決は `resolveServedRoutePath`(復号済みのルート引数の検査)+
+  // `resolveServedAssetSource`(許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と
+  // 同じ物差しを使う。
   app.get<{ Params: { '*': string } }>(
     `${PREVIEW_HOST_BASE}/*`,
     { preHandler: requireAuth },
@@ -418,7 +398,7 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
           .type('text/javascript; charset=utf-8')
           .send(await viewerBundle());
       }
-      const rel = resolveServedAssetPath(raw);
+      const rel = resolveServedRoutePath(raw);
       // 存在しない/許可外は 404 本文なしで返す(組版側は 404 を静かに無視する)。
       if (rel === undefined) return reply.code(404).send();
       // 画像の配信経路は `/api/fund-assets/images/` の 1 本に集める。ここで配ると SVG 検査を

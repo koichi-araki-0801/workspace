@@ -14,13 +14,13 @@
 // ⚠ そのパーサの登録は**この plugin の中**でしか行わない(ルートインスタンスへ戻すと
 // 全ルートへ伝播し、`bodyLimit` の効かない 64MB バッファが任意の POST で開く)。
 import { apiPaths, notFound, validation } from '@editor/shared';
+import { BuildInlineRequest, BuildMergeRequest } from '@editor/shared/schemas';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
 import { actorFromReq, audit, auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { BuildInlineRequest, BuildMergeRequest } from '../openapi/schemas.js';
 import {
   buildInlinePdf,
   buildMergedPdf,
@@ -48,11 +48,24 @@ const PREVIEW_HOST = config.vivliostyle.preview.host;
  * ローカルモード(`requireAuth=false`)は単一端末利用が前提なので、センチネル actor で
  * 意図的に全一致させる(素通しであることは `previewOwnership.test.ts` が固定する)。
  */
-function actorOf(request: FastifyRequest): PreviewActor {
+function previewActorOf(request: FastifyRequest): PreviewActor {
   if (!config.requireAuth) return { loginId: '@local', isAdmin: true };
   const u = request.user;
   if (!u) throw notFound('プレビューセッションが見つかりません');
   return { loginId: u.username, isAdmin: u.role === 'admin' };
+}
+
+/** PDF 書き出しを `pdf.export` の監査付きで走らせる。成功時は `pdfBytes` を detail へ足す。 */
+function auditPdfExport(
+  request: FastifyRequest,
+  detail: Record<string, unknown>,
+  run: () => Promise<Buffer>,
+): Promise<Buffer> {
+  return auditedRethrow(request, 'pdf.export', run, {
+    success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
+    failure: () => ({ detail }),
+    failureMessage: 'PDF generation failed',
+  });
 }
 
 function sendPdf(reply: FastifyReply, pdf: Buffer): void {
@@ -97,11 +110,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = request.body;
       const detail = { mode: 'inline', htmlBytes: body.html.length, cssBytes: body.css.length };
-      const pdf = await auditedRethrow(request, 'pdf.export', () => buildInlinePdf(body), {
-        success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-        failure: () => ({ detail }),
-        failureMessage: 'PDF generation failed',
-      });
+      const pdf = await auditPdfExport(request, detail, () => buildInlinePdf(body));
       sendPdf(reply, pdf);
     },
   );
@@ -111,7 +120,10 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     apiPaths.buildProject,
     { preHandler: [requireAuth, requireEditor] },
     async (request, reply) => {
-      const zip = request.body;
+      const zip: unknown = request.body;
+      // zip 以外の content-type(JSON・本文なし)では `request.body` が Buffer にならない。
+      // 展開へ渡すと型の前提が崩れて 500 になるので、`POST /preview` と同じく入力エラーにする。
+      if (!Buffer.isBuffer(zip)) throw validation('プロジェクト zip を送ってください');
       // ⚠ zip の展開は**枠を取ってから**行う(`withBuildSlot` の内側)。枠の外で展開していた
       // 版は、順番待ちのあいだずっと展開済みディレクトリを握ったので、行列の長さがそのまま
       // ディスク消費だった(inline / merge の資源確保を枠の内側へ寄せたのと同じ理由)。
@@ -121,25 +133,18 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
         try {
           // `entry` 検証も try の内側に置く。外に出すと 400 の時だけ展開ディレクトリが残る。
           const opts = projectOptions(request, project.dir);
-          return await auditedRethrow(
-            request,
-            'pdf.export',
-            () =>
-              buildProjectInSlot(
-                {
-                  dir: project.dir,
-                  config: project.config,
-                  entry: opts.entry,
-                  size: opts.size,
-                  singleDoc: opts.singleDoc,
-                },
-                runBuild,
-              ),
-            {
-              success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-              failure: () => ({ detail }),
-              failureMessage: 'PDF generation failed',
-            },
+          return await auditPdfExport(request, detail, () =>
+            buildProjectInSlot(
+              {
+                dir: project.dir,
+                cwd: project.cwd,
+                config: project.config,
+                entry: opts.entry,
+                size: opts.size,
+                singleDoc: opts.singleDoc,
+              },
+              runBuild,
+            ),
           );
         } finally {
           await cleanupProject(project.dir);
@@ -165,11 +170,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
         docCount: body.documents.length,
         htmlBytes: body.documents.reduce((n, d) => n + d.html.length, 0),
       };
-      const pdf = await auditedRethrow(request, 'pdf.export', () => buildMergedPdf(body), {
-        success: (pdf) => ({ detail: { ...detail, pdfBytes: pdf.length } }),
-        failure: () => ({ detail }),
-        failureMessage: 'PDF generation failed',
-      });
+      const pdf = await auditPdfExport(request, detail, () => buildMergedPdf(body));
       sendPdf(reply, pdf);
     },
   );
@@ -177,7 +178,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/preview — 稼働中のプレビューセッション一覧(メタデータのみ・自分の分だけ)。
   // 全件返すと、id を列挙してプロキシ経由で他人の作業を読める(IDOR の足場)。
   app.get(apiPaths.preview, { preHandler: requireAuth }, async (request) => {
-    return previewManager.list(actorOf(request));
+    return previewManager.list(previewActorOf(request));
   });
 
   // POST /api/preview — ライブプレビューを起動(inline JSON または project zip)。
@@ -206,31 +207,33 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
           {
             mode: 'project',
             config: project.config,
-            cwd: project.dir,
+            cwd: project.cwd,
             input: opts.entry,
             size: opts.size,
-            singleDoc: opts.singleDoc,
+            // config があるときは singleDoc を渡さない(理由は build.ts の `buildProjectInSlot`)。
+            ...(project.config ? {} : { singleDoc: opts.singleDoc }),
             workDir: project.dir,
             docBase: project.docBase,
           },
-          actorOf(request),
+          previewActorOf(request),
         );
       } else {
         const parsed = BuildInlineRequest.safeParse(request.body);
         if (!parsed.success) throw validation('リクエスト内容が不正です');
-        const { dir, entry } = await prepareInlineDoc(parsed.data);
+        const { dir, config: inlineConfig } = await prepareInlineDoc(parsed.data);
         meta = await previewManager.start(
           {
             mode: 'inline',
-            input: entry,
+            // 単一入力(`input`)ではなく config で渡す(`build.ts` の `INLINE_ENTRY`)。
+            config: inlineConfig,
             cwd: dir,
             size: parsed.data.size,
-            singleDoc: parsed.data.singleDoc,
+            // singleDoc は渡さない(entry 1 本の config は既に単一文書。理由は build.ts の inline)。
             workDir: dir,
-            // inline は config を持たないので CLI 既定の base になる。
+            // config の base は `mergeConfigObject` が `DEFAULT_DOC_BASE` に固定している。
             docBase: DEFAULT_DOC_BASE,
           },
-          actorOf(request),
+          previewActorOf(request),
         );
       }
       audit({
@@ -250,7 +253,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAuth },
     async (request) => {
       // 他人のセッションも「見つかりません」に合流させる(403 は存在オラクルになる)。
-      const meta = previewManager.get(request.params.id, actorOf(request));
+      const meta = previewManager.get(request.params.id, previewActorOf(request));
       if (!meta) throw notFound('プレビューセッションが見つかりません');
       return meta;
     },
@@ -264,7 +267,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       const id = request.params.id;
       // 空振りは workDir も消さない(`stop` は cleanupProject まで行うため、素通しすると
       // 他人の作業ディレクトリを消せる)。
-      const stopped = await previewManager.stop(id, actorOf(request));
+      const stopped = await previewManager.stop(id, previewActorOf(request));
       if (!stopped) throw notFound('プレビューセッションが見つかりません');
       audit({
         event: 'vivliostyle.preview.stop',
@@ -297,7 +300,7 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       // セッション id は `crypto.randomUUID`。literal UUID 以外は受けない(encode 揺れを
       // 型ごと排除する)。
       if (!UUID_RE.test(rawId)) throw notFound('プレビューセッションが見つかりません');
-      const target = previewManager.resolveFor(rawId, actorOf(request));
+      const target = previewManager.resolveFor(rawId, previewActorOf(request));
       if (!target) throw notFound('プレビューセッションが見つかりません');
       const forward = allowForwardPath(m[2] || '/', target.docBase);
       // 許可リスト非該当は**上流へ 1 バイトも出さずに**落とす。上流へ届けてから 404 に

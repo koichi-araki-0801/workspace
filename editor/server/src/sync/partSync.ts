@@ -13,17 +13,33 @@
 //   ファイル全体を再整形してしまい、非対象パーツまで差分が出る(テンプレは成果物であり
 //   バイト保存が原則)ため。**禁止されているのは再直列化であって、境界の特定手段ではない**
 //   — 走査器は自由に差し替えてよい(`SyncPart` は元文字列上の index 対しか持たない)。
+// - 走査器(`tokenizeHtml`)はここ専用。境界が決まらない入力(閉じない引用符・`>`・raw text)は
+//   黙って打ち切り、上限超過は throw する。関所ではなく転写を見送るだけなので、関所や PDF 経路の
+//   走査器と倒し方が違い、1 本にしない(設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。
+//   空白・英字と raw text の終わり探し・要素の集合は `@editor/shared` の `html/htmlLex.ts` /
+//   `html/rawText.ts` を共有する。引用符をタグ内のどこでも区切りと見る読み方、`-->` だけで
+//   閉じるコメント、`[A-Za-z0-9-]` に限るタグ名はここ独自で、共有の `readAttr` / `commentEnd` へ
+//   寄せると抽出されるパーツが変わるので寄せない。
 // - do-no-harm: 転写するのは「ポリシーが `同期` で、前回同期以降 source だけが変わった」
 //   パーツに限る。初期差分・両側変更(競合)・削除・挿入位置不明はすべてスキップして
 //   理由を返し、人間の判断に委ねる。
 
 import { createHash } from 'node:crypto';
-import type { PartSyncDefault } from '@editor/shared';
+import {
+  asciiLower,
+  findRawTextEnd,
+  isAsciiAlpha,
+  isHtmlSpace,
+  type PAIR_PART_CONFLICT_KINDS,
+  type PartSyncDefault,
+  RAW_TEXT_ELEMENTS,
+} from '@editor/shared';
+import type { CssRuleConflict } from './cssSync.js';
 
 // ── 1. パーツ抽出(生テキストスキャン) ──
 
 /** 抽出した 1 パーツ。`start`/`end` は元 HTML 文字列上の outerHTML 範囲(end は排他)。 */
-export interface SyncPart {
+interface SyncPart {
   partId: string;
   /** `partId#n`(n = 同一 partId の文書内出現順、1 始まり)。状態ファイルのキーにも使う。 */
   key: string;
@@ -59,9 +75,6 @@ const VOID_TAGS = new Set([
  */
 export const MAX_SYNC_SCAN_BYTES = 8 * 1024 * 1024;
 
-/** 中身をタグとして解釈しない要素(HTML の RAWTEXT/ESCAPABLE RAWTEXT)。 */
-const RAW_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'title']);
-
 /** タグ 1 個分の走査結果。`attrsFrom`/`attrsTo` は開始タグの属性区間(end は排他)。 */
 interface HtmlToken {
   kind: 'start' | 'end';
@@ -76,10 +89,8 @@ interface HtmlToken {
   attrsTo: number;
 }
 
-const isSpace = (c: string): boolean =>
-  c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
-const isNameStart = (c: string): boolean => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-const isNameChar = (c: string): boolean => isNameStart(c) || (c >= '0' && c <= '9') || c === '-';
+// タグ名は英字で始まり英数字と `-` だけで続く、とブラウザより狭く読む(`<a:b>` などは文字データ)。
+const isNameChar = (c: string): boolean => isAsciiAlpha(c) || (c >= '0' && c <= '9') || c === '-';
 
 /**
  * HTML をタグ単位に走査する。**不変則: カーソル `i` は単調非減少で、決して戻さない**
@@ -94,6 +105,8 @@ const isNameChar = (c: string): boolean => isNameStart(c) || (c >= '0' && c <= '
  */
 function* tokenizeHtml(html: string): Generator<HtmlToken> {
   const n = html.length;
+  // raw text の閉じタグ探し用の小文字の写し(`asciiLower`)。最初の raw text 要素で 1 回だけ作る。
+  let lower: string | null = null;
   let i = 0;
   while (i < n) {
     const lt = html.indexOf('<', i);
@@ -115,7 +128,7 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
     const isClose = head === '/';
     if (isClose) i++;
     const nameStart = i;
-    if (i < n && isNameStart(html[i])) {
+    if (i < n && isAsciiAlpha(html[i])) {
       i++;
       while (i < n && isNameChar(html[i])) i++;
     }
@@ -151,23 +164,10 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
       attrsTo,
     };
     i = end;
-    if (isClose || selfClosing || !RAW_TEXT_TAGS.has(name)) continue;
+    if (isClose || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) continue;
     // RAWTEXT: 最初に現れる `</name` で終わる(引用符を考慮して探すと二次の温床になる)。
-    let p = i;
-    let closeAt = -1;
-    while (p < n) {
-      const k = html.indexOf('</', p);
-      if (k < 0) break;
-      const after = k + 2 + name.length;
-      if (html.slice(k + 2, after).toLowerCase() === name) {
-        const c = html[after];
-        if (c === undefined || isSpace(c) || c === '/' || c === '>') {
-          closeAt = k;
-          break;
-        }
-      }
-      p = k + 2;
-    }
+    lower ??= asciiLower(html);
+    const closeAt = findRawTextEnd(lower, name, i).at;
     if (closeAt < 0) return;
     const gt = html.indexOf('>', closeAt);
     if (gt < 0) return;
@@ -192,18 +192,18 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
 function findPartId(html: string, from: number, to: number): string | null {
   let i = from;
   while (i < to) {
-    while (i < to && (isSpace(html[i]) || html[i] === '/')) i++;
+    while (i < to && (isHtmlSpace(html[i]) || html[i] === '/')) i++;
     if (i >= to) return null;
     const ns = i;
-    while (i < to && !isSpace(html[i]) && html[i] !== '=' && html[i] !== '/') i++;
+    while (i < to && !isHtmlSpace(html[i]) && html[i] !== '=' && html[i] !== '/') i++;
     const name = html.slice(ns, i).toLowerCase();
-    while (i < to && isSpace(html[i])) i++;
+    while (i < to && isHtmlSpace(html[i])) i++;
     if (html[i] !== '=' || i >= to) {
       if (name === 'data-part-id') return null; // 値なし属性はパーツ id として扱わない
       continue;
     }
     i++;
-    while (i < to && isSpace(html[i])) i++;
+    while (i < to && isHtmlSpace(html[i])) i++;
     const q = html[i];
     let value: string;
     if (q === '"' || q === "'") {
@@ -217,7 +217,7 @@ function findPartId(html: string, from: number, to: number): string | null {
       }
     } else {
       const vs = i;
-      while (i < to && !isSpace(html[i])) i++;
+      while (i < to && !isHtmlSpace(html[i])) i++;
       value = html.slice(vs, i);
     }
     if (name === 'data-part-id') return value;
@@ -281,13 +281,20 @@ export function extractSyncParts(html: string): SyncPart[] {
  */
 export interface PairPartState {
   lastSynced?: string;
-  conflict?: { kind: '初期差分' | '両側変更' | 'ペア側先行'; detectedAt: string };
+  conflict?: {
+    kind: (typeof PAIR_PART_CONFLICT_KINDS)[number];
+    detectedAt: string;
+    /** ペア側削除系の競合で、パーツを消した側の版種。 */
+    deletedIn?: string;
+  };
 }
 
 /** ペア 1 組の同期状態(`sync/<pairKey>.json` の中身。I/O は `syncFiles.ts`)。 */
 export interface PairSyncState {
   pairKey: string;
   parts: Record<string, PairPartState>;
+  /** CSS 規則の未解決の競合。CSS の転写は `cssSync.ts`。 */
+  css?: { conflicts: CssRuleConflict[] };
   updatedAt: string;
 }
 
@@ -314,7 +321,7 @@ export interface PairSyncComputeInput {
   now: string;
 }
 
-export interface PairSyncComputeResult {
+interface PairSyncComputeResult {
   targetHtml: string;
   /** target HTML に転写(置換/挿入)が発生したか。 */
   changed: boolean;
@@ -326,7 +333,7 @@ export interface PairSyncComputeResult {
 }
 
 /** target HTML への編集操作。span は互いに重ならない(パーツ範囲は排他 + 挿入は境界点)。 */
-export interface EditOp {
+interface EditOp {
   start: number;
   end: number;
   text: string;
@@ -362,9 +369,25 @@ function canonicalParts(parts: Record<string, PairPartState>): string {
         parts[k].lastSynced ?? null,
         parts[k].conflict?.kind ?? null,
         parts[k].conflict?.detectedAt ?? null,
+        parts[k].conflict?.deletedIn ?? null,
       ]),
   );
 }
+
+type PairPartConflict = NonNullable<PairPartState['conflict']>;
+
+/** ペア側削除系の競合の種類。状況(source の変化の有無)が変われば意味が変わる。 */
+const DELETION_KINDS: ReadonlySet<PairPartConflict['kind']> = new Set([
+  'ペア側削除',
+  'ペア側削除・ソース変更',
+]);
+
+/**
+ * 既存の枝(初期差分・両側変更・ペア側先行)が持ち越す競合。削除の種類は、ペア側にパーツが
+ * 戻った時点で意味を失うので持ち越さず、呼び出し側に新しい種類を作らせる。
+ */
+const carried = (prev: PairPartState | undefined): PairPartConflict | undefined =>
+  prev?.conflict && !DELETION_KINDS.has(prev.conflict.kind) ? prev.conflict : undefined;
 
 /** 重複 id をスキップした理由(呼び出し側の報告文とテストが参照する)。 */
 const DUPLICATE_ID_REASON = '重複 id(同一 partId が複数出現・位置対応が不確実)';
@@ -400,7 +423,8 @@ function duplicatedPartIds(...groups: readonly (readonly SyncPart[])[]): Set<str
  * | target のみ変更(lastSynced = source)   | スキップ(逆方向の承認時に同期される)   |
  * | 一致履歴なしで差分                     | 競合「初期差分」を記録してスキップ     |
  * | 両側変更                               | 競合「両側変更」を記録してスキップ     |
- * | source にのみ存在(追加)                | 直前パーツを錨に挿入。錨なしはスキップ |
+ * | source にのみ存在(同期履歴なし)        | 直前パーツを錨に挿入。錨なしはスキップ |
+ * | target にだけ無い(同期履歴あり)        | 挿入しない。ペア側削除を記録           |
  * | target にのみ存在(削除 or 版固有)      | 削除は自動同期しない(同期履歴あれば報告)|
  */
 export function computePairSync(input: PairSyncComputeInput): PairSyncComputeResult {
@@ -486,19 +510,39 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
         skipped.push({ partKey: key, reason: 'ペア側が先行変更(逆方向の承認時に同期)' });
         newParts[key] = {
           lastSynced: prev.lastSynced,
-          conflict: prev.conflict ?? { kind: 'ペア側先行', detectedAt: input.now },
+          conflict: carried(prev) ?? { kind: 'ペア側先行', detectedAt: input.now },
         };
       } else if (!prev?.lastSynced) {
         skipped.push({ partKey: key, reason: '初期差分(一致履歴なし・要判断)' });
-        newParts[key] = { conflict: prev?.conflict ?? { kind: '初期差分', detectedAt: input.now } };
+        newParts[key] = { conflict: carried(prev) ?? { kind: '初期差分', detectedAt: input.now } };
       } else {
         skipped.push({ partKey: key, reason: '競合(前回同期以降に両側で変更)' });
         newParts[key] = {
           lastSynced: prev.lastSynced,
-          conflict: prev.conflict ?? { kind: '両側変更', detectedAt: input.now },
+          conflict: carried(prev) ?? { kind: '両側変更', detectedAt: input.now },
         };
       }
       insertAnchor = tgt.end;
+    } else if (prev?.lastSynced) {
+      // 同期したことのあるパーツが target に無い = ペア側で意図して消した。挿入し直すと、
+      // 消した編集が相手側の承認のたびに黙って戻る。挿入せず競合として人間へ返す。
+      // `lastSynced` は据え置く(進めると、後でペア側へ戻したときの判定を誤る)。
+      const sourceUnchanged = contentHash(src.html) === prev.lastSynced;
+      const kind = sourceUnchanged ? 'ペア側削除' : 'ペア側削除・ソース変更';
+      skipped.push({
+        partKey: key,
+        reason: sourceUnchanged
+          ? 'ペア側で削除済み(自動では戻さない)'
+          : 'ペア側で削除済み・ソース側は変更あり(要判断)',
+      });
+      // 種類と削除した版種が同じなら検出時刻を保つ。source の変化の有無が変わったときや、
+      // 削除した側が入れ替わったとき(版種を持たない古い記録も)は取り直す。
+      const conflict: PairPartConflict =
+        prev.conflict?.kind === kind && prev.conflict.deletedIn === input.targetEdition
+          ? prev.conflict
+          : { kind, detectedAt: input.now, deletedIn: input.targetEdition };
+      newParts[key] = { lastSynced: prev.lastSynced, conflict };
+      // insertAnchor は動かさない(target に無いので終端が無い)。
     } else {
       // source にのみ存在(追加)。直前パーツの target 終端を錨に挿入する。文頭錨(target の
       // 先頭パーツより前)は構成差の誤挿入リスクが高いので採らず、錨なしはスキップに倒す。

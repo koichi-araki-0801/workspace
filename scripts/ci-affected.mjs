@@ -18,6 +18,7 @@
 //     `.husky/` は段を持たない領域 `ci-machinery` として出力に名前を出す。
 
 import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -130,6 +131,12 @@ export function classifyChanges(paths) {
 // だけが差分になり最速。upstream 未設定(初回 push 等)は `origin/main` へフォールバック。
 // `--base <ref>` / 環境変数 `CI_AFFECTED_BASE` で上書き、`--all` でフル `ci` を強制。
 // `--dry-run` は実行計画(検出領域と走らせる script)だけ出力して何も実行しない。
+// `--area <名前>` は `package.json` の `ci:editor` / `ci:pie-chart` 用で、git の差分を見ずに
+// その領域の段と共有ゲートを走らせる(領域の段の正典を `AREAS` 1 か所にするため)。未知の
+// 領域名は exit 2。
+// `--pre-push` は `.husky/pre-push` 用で、git が stdin に渡す push 対象の ref を検査する
+// (下の `pushRanges`)。現ブランチの upstream...HEAD だけを見ると、`git push origin other` で
+// 送る別ブランチの変更が 1 段も検査されずに出ていく。
 const argv = process.argv.slice(2);
 const DRY = argv.includes('--dry-run');
 
@@ -142,10 +149,15 @@ function git(args, { allowFail = false } = {}) {
   }
 }
 
-function resolveBase() {
+function explicitBase() {
   const flagIdx = argv.indexOf('--base');
   if (flagIdx !== -1 && argv[flagIdx + 1]) return argv[flagIdx + 1];
-  if (process.env.CI_AFFECTED_BASE) return process.env.CI_AFFECTED_BASE;
+  return process.env.CI_AFFECTED_BASE || null;
+}
+
+function resolveBase() {
+  const explicit = explicitBase();
+  if (explicit) return explicit;
   // upstream の short ref(例: `origin/chore/...`)。未設定なら git が失敗するので null。
   const upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], {
     allowFail: true,
@@ -156,6 +168,45 @@ function resolveBase() {
     return 'origin/main';
   }
   return git(['rev-parse', '--verify', '--quiet', 'main'], { allowFail: true });
+}
+
+const ZERO_SHA_RE = /^0+$/;
+
+/**
+ * pre-push の stdin(1 行 = `<local ref> <local sha> <remote ref> <remote sha>`)から、検査する
+ * diff 範囲の配列を返す。stdin が空なら null(呼び出し側は従来のベース ref...HEAD へ倒す)。
+ *   - local sha が全 0 は ref の削除で、送る中身が無いので範囲を作らない。
+ *   - remote sha が手元にある commit なら `remote...local`(この push で増える分だけ)。
+ *   - remote sha が全 0(新規 ref)か手元に無い(他所で更新された ref への force push)なら
+ *     比較相手が無いので、従来のベース ref(`resolveBase`)からの差分にする。ベースも
+ *     解決できなければ undefined を返し、呼び出し側がフル CI に倒す。
+ * 端点は `^{commit}` で剥がす(注釈付きタグの sha はタグオブジェクトを指すため)。
+ */
+function pushRanges() {
+  let input = '';
+  try {
+    input = readFileSync(0, 'utf8');
+  } catch {
+    return null;
+  }
+  const lines = input
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return null;
+  const ranges = [];
+  for (const line of lines) {
+    const [, localSha, , remoteSha] = line.split(/\s+/);
+    if (!localSha || ZERO_SHA_RE.test(localSha)) continue;
+    const remoteKnown =
+      Boolean(remoteSha) &&
+      !ZERO_SHA_RE.test(remoteSha) &&
+      git(['cat-file', '-e', `${remoteSha}^{commit}`], { allowFail: true }) !== null;
+    const from = remoteKnown ? `${remoteSha}^{commit}` : resolveBase();
+    if (!from) return undefined;
+    ranges.push(`${from}...${localSha}^{commit}`);
+  }
+  return ranges;
 }
 
 // ── 3. サブコマンド実行ヘルパ ──
@@ -186,6 +237,38 @@ function runFullCi(reason) {
   process.exit(0);
 }
 
+// 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
+// claude-hooks と canon-summary も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の
+// 対象にできず、diff の中身に関わらず常時検査する側に置くしかない (canon-summary は正典の
+// `docs/*/src/設計正典.md` だけが変わった場合も、要約とのずれをここで捕まえる)。test:scripts も同列: `scripts/` の
+// `ci-machinery` 領域は段を持たず、`scripts/*.test.mjs` はここで常時実行する。
+export const SHARED_GATES = [
+  'check:comments',
+  'check:claude-hooks',
+  'check:canon-summary',
+  'check:ci',
+  'knip',
+  'test:scripts',
+];
+
+function runShared() {
+  for (const gate of SHARED_GATES) runPnpm(gate);
+}
+
+// `--area <名前>`: 差分を見ずに共有ゲートと指定領域の段だけを走らせる。
+function runArea() {
+  const name = argv[argv.indexOf('--area') + 1];
+  if (!name || !Object.hasOwn(AREAS, name)) {
+    console.error(`[ci:affected] 未知の領域名: ${name ?? '(未指定)'} (候補: ${Object.keys(AREAS).join(', ')})`);
+    process.exit(2);
+  }
+  console.log(`[ci:affected] --area ${name}: 共有ゲートと ${AREAS[name].label} の段を実行します。`);
+  runShared();
+  for (const stage of AREAS[name].stages) runPnpm(stage);
+  console.log('\n[ci:affected] 完了。');
+  process.exit(0);
+}
+
 // ── 4. メイン ──
 // 直接起動時のみ実行する。テストは `classifyChanges` を import するだけで git に触れない。
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -193,20 +276,37 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 function main() {
+  if (argv.includes('--area')) runArea();
   if (argv.includes('--all')) runFullCi('--all 指定');
 
-  const base = resolveBase();
-  if (!base) runFullCi('ベース ref を解決できませんでした');
+  // 明示のベース指定(`--base` / `CI_AFFECTED_BASE`)は pre-push の stdin より優先する。
+  const pushed = argv.includes('--pre-push') && !explicitBase() ? pushRanges() : null;
+  if (pushed === undefined) runFullCi('ベース ref を解決できませんでした');
+  if (pushed && pushed.length === 0) {
+    console.log('[ci:affected] push 対象は ref の削除だけです。検査をスキップします。');
+    process.exit(0);
+  }
+  let diffRanges = pushed;
+  if (!diffRanges) {
+    const base = resolveBase();
+    if (!base) runFullCi('ベース ref を解決できませんでした');
+    diffRanges = [`${base}...HEAD`];
+  }
 
-  const diffRange = `${base}...HEAD`;
-  // `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を
-  // 無効化し、UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が
-  // 外れ、docs だけの変更でも不要にフル `ci` へフォールバックしてしまう。
-  const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', diffRange], { allowFail: true });
-  if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
-
-  const changed = out.split('\n').filter(Boolean);
-  console.log(`[ci:affected] ベース: ${base}  (${diffRange})`);
+  const changed = [];
+  for (const diffRange of diffRanges) {
+    // `-c core.quotePath=false`: 非 ASCII パスの八進エスケープ＋引用符付き出力(`"docs/…\346…"`)を
+    // 無効化し、UTF-8 リテラルで受け取る。これが無いと `p.startsWith('docs/')` 等の BENIGN 判定が
+    // 外れ、docs だけの変更でも不要にフル `ci` へフォールバックしてしまう。
+    // `--no-renames`: rename 検出が効くと移動先のパスしか出ず、`pie-chart/` から `docs/` への
+    // 移動が docs だけの変更に見えて移動元の領域が 1 段も走らない。削除 + 追加として両方を出す。
+    const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', '--no-renames', diffRange], {
+      allowFail: true,
+    });
+    if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
+    for (const p of out.split('\n').filter(Boolean)) if (!changed.includes(p)) changed.push(p);
+    console.log(`[ci:affected] 差分範囲: ${diffRange}`);
+  }
   console.log(`[ci:affected] 変更ファイル数: ${changed.length}`);
   console.log('[ci:affected] 注: coverage 85% ゲートはフル `pnpm run ci` でのみ検査します (affected/領域別は速度優先で対象外)');
 
@@ -221,16 +321,7 @@ function main() {
   console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
   if (benign.length) console.log(`[ci:affected] 領域 CI 不要の変更: ${benign.length} 件 (${benign.join(', ')})`);
 
-  // 共有ゲートは領域の有無に関わらず 1 回だけ実行(comments は .ps1/.md 等も検査するため常時必要)。
-  // claude-hooks と canon-summary も同列: `.claude/` は git 追跡外で diff に現れないため領域発火の
-  // 対象にできず、diff の中身に関わらず常時検査する側に置くしかない (canon-summary は正典の
-  // `docs/*/src/設計正典.md` だけが変わった場合も、要約とのずれをここで捕まえる)。test:scripts も同列: `scripts/` の
-  // `ci-machinery` 領域は段を持たず、`scripts/*.test.mjs` はここで常時実行する。
-  runPnpm('check:comments');
-  runPnpm('check:claude-hooks');
-  runPnpm('check:canon-summary');
-  runPnpm('check:ci');
-  runPnpm('test:scripts');
+  runShared();
 
   if (areas.length === 0) {
     console.log('\n[ci:affected] 変更領域なし。共有ゲートのみで完了。');

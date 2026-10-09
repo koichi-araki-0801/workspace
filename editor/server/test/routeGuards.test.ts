@@ -94,7 +94,7 @@ beforeAll(async () => {
     // ルート登録用プラグインは慣習で `xxxRoutes` と名付ける。module namespace object の
     // 列挙順は宣言順ではなく**エクスポート名のアルファベット順**(ECMAScript 仕様)なので、
     // 「最初に見つかった関数」で拾うと、モジュールへ非プラグインの関数エクスポートを
-    // 足したとき(例: `previewHost.ts` の `bundleSafeToInline`)アルファベット順で先に来る
+    // 足したとき(例: 判定用の補助関数)アルファベット順で先に来る
     // 側を誤って fastify プラグインとして register してしまう。名前で絞る。
     const plugin = (loaded.openapiRoutes ??
       Object.entries(loaded).find(

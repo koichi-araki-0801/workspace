@@ -83,6 +83,10 @@ function buildServerOptions(): FastifyHttpOptions<http.Server> {
   return serverOptions;
 }
 
+// canvas は相対参照のフォントをアプリの URL で取りに行く。そこへ SPA の index.html を返すと
+// OTS がフォントとして読めずエラーを出すので、フォント拡張子は 404 にする。
+const FONT_EXT_RE = /\.(woff2?|ttf|otf)$/i;
+
 export interface BuildAppOptions {
   /** DB 実行面。既定は本番のプール接続で、テストと rest e2e は in-memory フェイクを渡す。 */
   sproc?: SprocClient;
@@ -241,11 +245,15 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
     });
 
     // catch-all。未知の `/api/*` は 404 JSON(Express の `^(?!\/api).*` catch-all が /api を除外し
-    // 既定 404 を返していたのと同じ)。それ以外は SPA シェル(上でメモリ保持した `indexHtml`)を
-    // 返す。認証状態の更新が確実に反映されるよう `no-store`(ブラウザの旧 epoch シェル再利用防止)。
+    // 既定 404 を返していたのと同じ)。フォントの要求も 404(`FONT_EXT_RE`)。それ以外は SPA
+    // シェル(上でメモリ保持した `indexHtml`)を返す。認証状態の更新が確実に反映されるよう
+    // `no-store`(ブラウザの旧 epoch シェル再利用防止)。
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api')) {
         return reply.code(404).send({ kind: 'not_found', message: '対象が見つかりません' });
+      }
+      if (FONT_EXT_RE.test(request.url.split('?')[0] ?? '')) {
+        return reply.code(404).send();
       }
       return reply
         .header('Cache-Control', 'no-store')

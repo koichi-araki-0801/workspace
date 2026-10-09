@@ -40,7 +40,7 @@
   <text class="title" x="710" y="80"><tspan class="mono">server/</tspan>　Fastify</text>
   <text class="item" x="710" y="130">・REST API（<tspan class="mono">/api/*</tspan>・OpenAPI <tspan class="mono">/api/docs</tspan>）</text>
   <text class="item" x="710" y="166">・vivliostyle CLI（PDF / preview 中継・egress 遮断）</text>
-  <text class="item" x="710" y="202">・申請 → 承認ゲート（<tspan class="mono">applyConfirmedSave</tspan>）</text>
+  <text class="item" x="710" y="202">・申請 → 承認ゲート（<tspan class="mono">applyConfirmedWrite</tspan>）</text>
   <text class="item" x="710" y="238">・sproc ゲートウェイ 7 本 + セッション認証</text>
   <text class="small" x="710" y="274">rest モードで SQL Server 接続（実装済・本番未デプロイ）</text>
   <text class="small" x="710" y="300">local モードは DB 不要（fixtures + ファイル）</text>

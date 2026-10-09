@@ -12,6 +12,7 @@
 import {
   type ApproveReviewResult,
   isOk,
+  type ReviewRequest,
   type ReviewRequestMeta,
   toReviewMeta,
 } from '@editor/shared';
@@ -22,14 +23,12 @@ import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
-import {
-  type BlockStatus,
-  buildDiffDoc,
-  diffHighlightCss,
-  hasCoarseDiff,
-} from '@/features/compare/htmlBlockDiff';
+import { buildFramedDiffDoc } from '@/features/compare/framedDiffDoc';
+import { type BlockStatus, hasCoarseDiff } from '@/features/compare/htmlBlockDiff';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { formatDateTimeShort } from '@/lib/format';
+import { companyCodeOfTemplateId } from '@/lib/fundImages';
+import { pairSyncResultText } from '@/lib/pairSyncText';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
 import ReviewNoticeBar from './ReviewNoticeBar.vue';
@@ -89,6 +88,9 @@ const changedNames = computed(() => {
 const MAX_RENDERED_ROWS = 200;
 const cappedRows = computed(() => visibleRows.value.slice(0, MAX_RENDERED_ROWS));
 const hiddenRowCount = computed(() => Math.max(0, visibleRows.value.length - MAX_RENDERED_ROWS));
+
+// iframe ドキュメントの組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差)。
+const buildDoc = buildFramedDiffDoc(14);
 
 /**
  * 各行の `srcdoc` を**データ依存の computed で 1 度だけ**組み立てる。`buildDoc` は
@@ -177,17 +179,10 @@ watch([loading, loadError], ([l, e]) => {
 });
 defineExpose({ gotoPage });
 
-// ── iframe ドキュメント組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差) ──
-const HIGHLIGHT_CSS = diffHighlightCss(14);
-
 // `iframe` を中身の高さに合わせる(CompareResultView と共有)。高さは子からの postMessage
 // で受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
 // 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
-const { fitFrame, withHeightReporter } = useIframeAutoFit();
-
-function buildDoc(fragment: string, css: string): string {
-  return withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
-}
+const { fitFrame } = useIframeAutoFit();
 
 /**
  * 変更箇所の色分けを面積上限(`MAX_LCS_CELLS`)で諦め、全文まとめての色分けに落ちたパーツか。
@@ -204,7 +199,7 @@ async function approve() {
     // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
     if (res.value.staleWarning) {
       toast(
-        '承認して反映しました。ただし申請後に現行版が変更されていたため、上書きした可能性があります。',
+        '承認して反映しました。ただし申請後に現行版が変更されていました（同じテンプレの他の基準日の承認で CSS が変わった場合を含みます）。上書きした可能性があります。',
         'default',
         6000,
       );
@@ -213,31 +208,48 @@ async function approve() {
     }
     notifySyncResult(res.value.sync);
     notifyNoteMasterResult(res.value.noteMaster);
+    // 承認の応答はテンプレートのメタしか持たない。決着後の申請は読み直して得る。
+    const decided = review.value;
     await load();
-    // `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)
-    // はメタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
-    if (review.value) emit('decided', toReviewMeta(review.value));
+    emitDecided(decided, {
+      status: 'approved',
+      reviewedBy: auth.user?.username ?? null,
+      reviewedAt: new Date().toISOString(),
+      comment: comment.value.trim() || null,
+    });
   }
 }
 
 /**
- * 承認直後に走った交付版⇄全体版のパーツ自動同期の結果を通知する。同期はベストエフォート
+ * 決着を親へ伝える。読み直した申請が決着済みならそれを、読み直しに失敗して承認待ちのまま
+ * なら決着前の申請へ決着の内容を重ねたものを使う。承認・却下はサーバで成立しているので、
+ * 承認待ちのまま伝えると一覧に決着済みの申請が承認待ちとして残り、ボタンも押せたままになる。
+ * `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)は
+ * メタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
+ */
+function emitDecided(
+  before: ReviewRequest | null,
+  decision: Pick<ReviewRequestMeta, 'status' | 'reviewedBy' | 'reviewedAt' | 'comment'>,
+): void {
+  const reloaded = review.value;
+  if (reloaded && reloaded.id === before?.id && reloaded.status !== 'pending' && !loadError.value) {
+    emit('decided', toReviewMeta(reloaded));
+    return;
+  }
+  if (!before) return;
+  review.value = { ...before, ...decision };
+  emit('decided', toReviewMeta(review.value));
+}
+
+/**
+ * 承認直後に走った交付版⇄全体版のパーツと CSS の自動同期の結果を通知する。同期はベストエフォート
  * (失敗しても承認は成立)のため、失敗・スキップは destructive/長め表示で見落としを防ぐ。
  * スキップの内訳(競合など)は同期先テンプレを開いた時のバナーが恒常表示する。
  */
 function notifySyncResult(sync: ApproveReviewResult['sync']): void {
-  if (!sync) return;
-  if (sync.error) {
-    toast(`ペア(${sync.pairTemplateId})への自動同期に失敗しました: ${sync.error}`, 'error', 8000);
-    return;
-  }
-  if (sync.applied.length === 0 && sync.skipped.length === 0) return;
-  const skippedNote = sync.skipped.length > 0 ? `・スキップ ${sync.skipped.length} 件(要確認)` : '';
-  toast(
-    `ペア ${sync.pairTemplateId} へ ${sync.applied.length} パーツを自動同期しました${skippedNote}`,
-    'default',
-    6000,
-  );
+  const r = pairSyncResultText(sync);
+  if (!r) return;
+  toast(r.text, r.variant, r.variant === 'error' ? 8000 : 6000);
 }
 
 /**
@@ -269,8 +281,10 @@ async function reject() {
   const res = await rejectReview(comment.value.trim());
   if (isOk(res)) {
     toastSuccess('却下しました');
+    const decided = review.value;
     await load();
-    if (review.value) emit('decided', toReviewMeta(review.value));
+    const { status, reviewedBy, reviewedAt, comment: reason } = res.value;
+    emitDecided(decided, { status, reviewedBy, reviewedAt, comment: reason });
   }
 }
 
@@ -296,11 +310,18 @@ async function openPdf() {
   try {
     // 記入済みインスタンスは描画済みの文書なので描画を通さない(理由は
     // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
-    // diff 由来の申請版本文は描画前のテンプレ本文なので従来どおり描画を通す。`filledHtml` が
-    // 空文字の申請(描画中・描画失敗のまま申請)は diff 由来の本文へ倒し、隔離描画を通す。
-    const filledHtml = review.value.filledHtml;
-    const html = filledHtml || afterBodyHtml.value;
-    const res = await preview.renderPdf(html, cssAfter.value, {}, false, Boolean(filledHtml));
+    // `filledHtml` が空文字の申請(描画中・描画失敗のまま申請)は diff 由来の申請版本文へ倒す。
+    // これも `renderTemplateBody` がサンプル値で描画した後の HTML なので、同じく描画を通さない
+    // (もう一度通すと、本文中の `{{` に見える文字が空の値で消える)。
+    const html = review.value.filledHtml || afterBodyHtml.value;
+    const res = await preview.renderPdf(
+      html,
+      cssAfter.value,
+      {},
+      false,
+      true,
+      companyCodeOfTemplateId(review.value.templateId),
+    );
     if (!isOk(res)) {
       toast('PDFの作成に失敗しました。時間をおいて再度お試しください。', 'error');
       return;
@@ -347,6 +368,7 @@ onMounted(async () => {
       <!-- 技術的警告 4 種(truncated / printOnlyCss / cssChanged / 行打ち切り)は 1 行へ集約。 -->
       <ReviewNoticeBar
         :css-changed="cssChanged"
+        :shared-across-base-dates="review?.origin === 'edit'"
         :css-before="cssBefore"
         :css-after="cssAfter"
         :print-only-css="printOnlyCss"
@@ -387,6 +409,7 @@ onMounted(async () => {
         :before-page-count="beforePageCount"
         :after-page-count="afterPageCount"
         :is-create="review.origin === 'create'"
+        :company-code="companyCodeOfTemplateId(review.templateId)"
       />
 
       <template v-else>

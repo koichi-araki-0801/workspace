@@ -3,8 +3,8 @@
 // =============================================================================
 // 「属性から新規作成」は `POST /api/generate`(Python 生成器。テスト用の偽物 `server/scripts/fake_generate_template.py`)
 // を経て `pending/` に置かれ、そのうえで編集画面へ遷移する。作成経路(?created=1)= 差し込み値
-// ハイライト有りであることを実画面で固定する(設計正典「編集 2 系統」)。生成器のスケルトンは
-// `.page` を持たないので、`openEditor` へは委ねず遷移先で直接 canvas を待つ。
+// ハイライト有りであることを実画面で固定する(設計正典「編集 2 系統」)。編集画面へは作成の操作で
+// 遷移するので、`openEditor`(URL を開く)へは委ねず遷移先で直接 canvas を待つ。
 import fs from 'node:fs';
 import path from 'node:path';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
@@ -20,11 +20,9 @@ test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集
   await page.goto('/create', { waitUntil: 'commit' });
   await page.getByText('作成するファンドを指定').first().waitFor();
 
-  // 委託会社は会社名で選ぶ(値はファイル名の会社コード AM01。Rep1 のコードとは別)。
+  // 委託会社の候補は「略称（Rep1 の委託会社コード）」(値はファイル名の会社コード AM01)。
   await page.getByPlaceholder('委託会社を入力/選択').click();
-  await page
-    .getByRole('option', { name: '三井住友トラスト・アセットマネジメント株式会社' })
-    .click();
+  await page.getByRole('option', { name: /^AM01（/ }).click();
   await page.getByPlaceholder('ファンドを入力/選択').click();
   await page.getByRole('option', { name: /^510037/ }).click();
   // Select トリガの accessible name はプレースホルダ span の中身に付かないため
@@ -40,8 +38,8 @@ test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集
   const url = new URL(page.url());
   expect(decodeURIComponent(url.pathname)).toBe('/edit/AM01_510037_交付版');
 
-  // 生成器のスケルトンは `.page` を持たない(最小の帳票 1 枚。`fake_generate_template.py`)ので、
-  // canvas の描画完了は見出し要素で待つ。
+  // 生成器のスケルトンは最小の帳票 1 枚(`fake_generate_template.py`)なので、canvas の描画完了は
+  // 見出し要素で待つ。
   const frame = page.frameLocator('iframe.gjs-frame');
   await frame.locator('.report-title').first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.locator('body')).toHaveClass(/jinja-vars-highlight/, { timeout: 15_000 });

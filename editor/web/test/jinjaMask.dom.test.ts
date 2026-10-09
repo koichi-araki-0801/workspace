@@ -1,6 +1,11 @@
+import { parseHTML } from 'linkedom';
 import { describe, expect, it } from 'vitest';
-import { b64encode, extractJinjaTokens, toEditable, toTemplate } from '../src/lib/jinjaMask';
-import { renderJinja } from '../src/lib/nunjucksRender';
+import { toFilled } from '../src/lib/fillJinja';
+import type { HtmlParser } from '../src/lib/htmlParser';
+import { defaultHtmlParser } from '../src/lib/htmlParser';
+import { b64encodeUtf8 as b64encode } from '../src/lib/jinjaAttrs';
+import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
+import { renderJinja } from './helpers/renderJinja';
 
 const cases: Record<string, string> = {
   'inline var': `<p>こんにちは {{ user.name }} さん</p>`,
@@ -24,38 +29,17 @@ const cases: Record<string, string> = {
 describe('jinjaMask round-trip preserves all Jinja tokens', () => {
   for (const [name, raw] of Object.entries(cases)) {
     it(name, () => {
-      const restored = toTemplate(toEditable(raw));
+      const restored = toTemplate(toFilled(raw, {}));
       expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
     });
   }
-});
-
-describe('toEditable produces GrapesJS-safe markers', () => {
-  it('wraps inline vars in locked chips', () => {
-    const e = toEditable(`<p>{{ a }}</p>`);
-    expect(e).toContain('data-gjs-type="jinja-var"');
-    expect(e).toContain('data-jinja=');
-  });
-
-  it('absorbs for-loops onto the wrapped element (no stray text in table)', () => {
-    const e = toEditable(`<tbody>{% for h in xs %}<tr><td>{{ h }}</td></tr>{% endfor %}</tbody>`);
-    expect(e).toContain('data-jinja-open=');
-    expect(e).toContain('data-jinja-close=');
-    // the raw {% for %} text should no longer float between tbody and tr
-    expect(e).not.toMatch(/<tbody>\s*\{%\s*for/);
-  });
-
-  it('leaves attribute jinja untouched (not wrapped in a chip)', () => {
-    const e = toEditable(`<a href="{{ url }}">x</a>`);
-    expect(e).toContain('href="{{ url }}"');
-  });
 });
 
 describe('toTemplate pretty mode', () => {
   // 整形は placeholder マスク後に行うため、Jinja トークンは欠落も改変もしない。
   for (const [name, raw] of Object.entries(cases)) {
     it(`preserves all Jinja tokens (${name})`, () => {
-      const restored = toTemplate(toEditable(raw), { pretty: true });
+      const restored = toTemplate(toFilled(raw, {}), { pretty: true });
       expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
     });
   }
@@ -67,18 +51,9 @@ describe('toTemplate pretty mode', () => {
     // タグ間に入るインデント空白はブロック要素では表示に影響しないので畳んでから比較する
     // (整形が変えてよいのはこの空白だけ — テキストノードの内容は両者で不変)。
     const norm = (s: string) => s.replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
-    const plain = toTemplate(toEditable(raw), {});
-    const pretty = toTemplate(toEditable(raw), { pretty: true });
+    const plain = toTemplate(toFilled(raw, {}), {});
+    const pretty = toTemplate(toFilled(raw, {}), { pretty: true });
     expect(norm(renderJinja(plain, data).html)).toBe(norm(renderJinja(pretty, data).html));
-  });
-});
-
-describe('jinja data attribute names stay stable', () => {
-  // 属性名リテラルは意図的に定数(jinjaAttrs.ts)を import せず固定する: 定数の値を
-  // 誤変更したとき、このテストと fixture round-trip が「破壊」として検知するため。
-  it('canvas CSS still targets [data-jinja-open]', async () => {
-    const { jinjaChipCanvasCss } = await import('../src/features/editor/jinjaComponents');
-    expect(jinjaChipCanvasCss).toContain('[data-jinja-open]');
   });
 });
 
@@ -114,17 +89,13 @@ describe('toTemplate は復元マスクの中身を検査して復号を限定�
     expect(() => toTemplate(editable)).toThrow();
   });
 
-  it('data-jinja-block に if ブロックでない base64 を仕込むと throw する', () => {
-    const enc = b64encode('<div onclick=alert(1)>x</div>');
-    const editable = `<div data-jinja-block="${enc}">x</div>`;
-    expect(() => toTemplate(editable)).toThrow();
-  });
-
-  it('data-jinja-open に stmt トークンでない base64 を仕込むと throw する', () => {
-    const openEnc = b64encode('<img src=x onerror=alert(1)>');
+  it('旧形式の属性(data-jinja-block / data-jinja-open)は中身を復号せず legacy-draft で throw する', () => {
+    const attack = b64encode('<img src=x onerror=alert(1)>');
     const closeEnc = b64encode('{% endfor %}');
-    const editable = `<ul><li data-jinja-open="${openEnc}" data-jinja-close="${closeEnc}">x</li></ul>`;
-    expect(() => toTemplate(editable)).toThrow();
+    expect(() => toTemplate(`<div data-jinja-block="${attack}">x</div>`)).toThrow(/legacy-draft/);
+    expect(() =>
+      toTemplate(`<ul><li data-jinja-open="${attack}" data-jinja-close="${closeEnc}">x</li></ul>`),
+    ).toThrow(/legacy-draft/);
   });
 
   it('テキストへ私用領域文字で偽 placeholder を直書きすると復号されず throw する', () => {
@@ -151,7 +122,7 @@ describe('toTemplate は復元マスクの中身を検査して復号を限定�
 describe('full document round-trip', () => {
   it('keeps doctype and all tokens', () => {
     const raw = `<!doctype html>
-<html><head><title>{{ fund.name }}</title></head>
+<html><head><title>fund</title></head>
 <body>
 <table><tbody>
 {% for h in holdings %}
@@ -159,7 +130,7 @@ describe('full document round-trip', () => {
 {% endfor %}
 </tbody></table>
 </body></html>`;
-    const restored = toTemplate(toEditable(raw));
+    const restored = toTemplate(toFilled(raw, {}));
     expect(restored.toLowerCase()).toContain('<!doctype html>');
     expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
   });
@@ -169,9 +140,63 @@ describe('full document round-trip', () => {
   // `asFragment` はこの形でも本文(body inner)を返すことを契約として固定する。
   it('restores the body inner from a `<body>`-wrapped fragment', () => {
     const raw = '<div class="page"><p>基準価額 {{ fund.nav }} 円</p></div>';
-    const wrapped = `<body id="wrapper">${toEditable(raw)}</body>`;
+    const wrapped = `<body id="wrapper">${toFilled(raw, {})}</body>`;
     const restored = toTemplate(wrapped, { asFragment: true });
     expect(restored).toContain('{{ fund.nav }}');
     expect(extractJinjaTokens(restored)).toEqual(extractJinjaTokens(raw));
+  });
+});
+
+describe('normalizeForRoundTrip', () => {
+  const n = (s: string) => normalizeForRoundTrip(s, defaultHtmlParser);
+  it('Jinja と節点の端に接する改行入りの空白を無視し、パーサの並べ替えは両側に同じく効く', () => {
+    const a =
+      '<table><tbody>\n{% for r in rows %}\n<tr><td>1</td></tr>\n{% endfor %}\n</tbody></table>';
+    const b = '<table><tbody>{% for r in rows %}<tr><td>1</td></tr>{% endfor %}</tbody></table>';
+    expect(n(a)).toBe(n(b));
+  });
+  it('端の空白だけのテキストも無視する', () => {
+    expect(n('<div>\n  <p>a</p>\n</div>')).toBe(n('<div><p>a</p></div>'));
+  });
+  it('中身の違いは残す', () => {
+    expect(n('<p>a</p>')).not.toBe(n('<p>b</p>'));
+  });
+  it('GrapesJS が捨てない空白の差は残す', () => {
+    expect(n('<p>{{ a }}\nb</p>')).not.toBe(n('<p>{{ a }}b</p>'));
+    expect(n('<p>a\n{{ b }}</p>')).not.toBe(n('<p>a{{ b }}</p>'));
+    expect(n('<pre>a\nb</pre>')).not.toBe(n('<pre>ab</pre>'));
+    expect(n('<pre>\n\n</pre>')).not.toBe(n('<pre></pre>'));
+    expect(n('<textarea>a\nb</textarea>')).not.toBe(n('<textarea>ab</textarea>'));
+    expect(n('<script>a\nb</script>')).not.toBe(n('<script>ab</script>'));
+  });
+  it('GrapesJS が捨てる空白は無視する', () => {
+    expect(n('<p><b>a</b>\n<i>b</i></p>')).toBe(n('<p><b>a</b><i>b</i></p>'));
+    expect(n('<p>  <b>a</b></p>')).toBe(n('<p><b>a</b></p>'));
+    expect(n('<p>{{ a }}\n{{ b }}</p>')).toBe(n('<p>{{ a }}{{ b }}</p>'));
+  });
+  it('ループの外へ出た行を jsdom でも見分ける', () => {
+    const a = '<table><tbody>{% for r in rows %}<tr><td>1</td></tr>{% endfor %}</tbody></table>';
+    const b = '<table><tbody>{% for r in rows %}{% endfor %}<tr><td>1</td></tr></tbody></table>';
+    expect(n(a)).not.toBe(n(b));
+  });
+  it('丁度 1 個の空白と、非 Jinja の inline 同士の間の空白は残す', () => {
+    expect(n('<p><b>a</b> <i>b</i></p>')).not.toBe(n('<p><b>a</b><i>b</i></p>'));
+    expect(n('<p>{{ a }} {{ b }}</p>')).not.toBe(n('<p>{{ a }}{{ b }}</p>'));
+  });
+  it('属性の順序の差は無視し、値の差は残す', () => {
+    expect(n('<svg class="a" viewBox="0 0 1 1"></svg>')).toBe(
+      n('<svg viewBox="0 0 1 1" class="a"></svg>'),
+    );
+    expect(n('<p class="a" title="t">x</p>')).toBe(n('<p title="t" class="a">x</p>'));
+    expect(n('<p class="a" title="t">x</p>')).not.toBe(n('<p class="b" title="t">x</p>'));
+  });
+  it('linkedom のパーサでも同じ結果になる', () => {
+    const parse: HtmlParser = (h) => parseHTML(h).document as unknown as Document;
+    const a = '<ul>\n{% for p in xs %}\n<li>{{ p }}</li>\n{% endfor %}\n</ul>';
+    const b = '<ul>{% for p in xs %}<li>{{ p }}</li>{% endfor %}</ul>';
+    expect(normalizeForRoundTrip(a, parse)).toBe(normalizeForRoundTrip(b, parse));
+    const c = '<svg class="a" viewBox="0 0 1 1"><use xlink:href="#x" x="1"></use></svg>';
+    const d = '<svg viewBox="0 0 1 1" class="a"><use x="1" xlink:href="#x"></use></svg>';
+    expect(normalizeForRoundTrip(c, parse)).toBe(normalizeForRoundTrip(d, parse));
   });
 });

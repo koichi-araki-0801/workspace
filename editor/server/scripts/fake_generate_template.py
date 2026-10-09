@@ -86,7 +86,7 @@ def main() -> int:
   <head>
     <meta charset="utf-8" />
     <title>{{{{ fund.name }}}} レポート</title>
-    <link rel="stylesheet" href="css/{{{{ fund.code }}}}.css" />
+    <link rel="stylesheet" href="../css/{company}_{fund}_{edition}.css" />
   </head>
   <body>
     <header class="report-header">

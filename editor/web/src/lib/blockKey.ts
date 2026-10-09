@@ -40,7 +40,11 @@ export function rawKey(el: HTMLElement): string {
 /** 要素からアンカー文字列を作る関数の型。canvas 側は自動 id を除いた版を差し込む。 */
 export type RawKeyOf = (el: HTMLElement) => string;
 
-/** 兄弟 `siblings` の中で `el` が同アンカーの何番目か(1 始まり)を付した一意キー。 */
+/**
+ * 兄弟 `siblings` の中で `el` が同アンカーの何番目か(1 始まり)を付した一意キー。本番は
+ * `occurrenceKeys` で並び全体を数えるので、これが同じ値になることをテストから直接検証するために
+ * 公開する。
+ */
 export function occurrenceKey(
   el: HTMLElement,
   siblings: readonly HTMLElement[],
@@ -55,4 +59,14 @@ export function occurrenceKey(
     }
   }
   return `${base}#${n}`;
+}
+
+/** 出現順に `${base}#${n}` を振る（同じ base の 2 つ目から #2）。並び全体を 1 回の走査で数える。 */
+export function occurrenceKeys(bases: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return bases.map((base) => {
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return `${base}#${n}`;
+  });
 }

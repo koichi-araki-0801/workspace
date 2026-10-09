@@ -5,7 +5,12 @@
 // 逆算して置く。数百ページ規模では番号を手入力するため、入力文字列の解釈(空・非数値・
 // 範囲外)も同じ関数群で安全化する。ここは DOM 非依存の分岐だけを直接叩く。
 import { describe, expect, it } from 'vitest';
-import { directOffset, parsePageIndex } from '@/features/compare/pageMatch';
+import {
+  alignWarningText,
+  directOffset,
+  layoutRows,
+  parsePageIndex,
+} from '@/features/compare/pageMatch';
 
 describe('directOffset', () => {
   it('指定ページ index になる offset を返す(行 index との差)', () => {
@@ -48,5 +53,210 @@ describe('parsePageIndex', () => {
 
   it('ページ数 0 の側でも 0 起点 index は 0 へ収まる', () => {
     expect(parsePageIndex('5', 0)).toBe(0);
+  });
+});
+
+describe('layoutRows', () => {
+  it('ずらしていなければ max(ページ数) 行で、警告は無い', () => {
+    const r = layoutRows([0, 0, 0], [0, 0, 0], 3, 3);
+    expect(r.rowCount).toBe(3);
+    expect(r.missing).toEqual({ before: [], after: [] });
+    expect(r.duplicated).toEqual({ before: [], after: [] });
+  });
+
+  it('比較先を連動で 1 つ前へ: 末尾であふれたページの行を足し、二重のページを報告する', () => {
+    const r = layoutRows([0, 0, 0, 0, 0], [0, 0, -1, -1, -1], 5, 5);
+    expect(r.rowCount).toBe(6);
+    expect(r.afterOff[5] + 5).toBe(4);
+    expect(r.duplicated.after).toEqual([1]);
+    expect(r.missing).toEqual({ before: [], after: [] });
+  });
+
+  it('比較先を連動で 1 つ後ろへ: 飛ばしたページを missing で返し、行は足さない', () => {
+    const r = layoutRows([0, 0, 0, 0, 0], [0, 0, 1, 1, 1], 5, 5);
+    expect(r.rowCount).toBe(5);
+    expect(r.missing.after).toEqual([2]);
+  });
+
+  it('足した行をずらすと、その offset が保たれ二重のページを報告する', () => {
+    const grown = layoutRows([0, 0, 0, 0, 0], [0, 0, -1, -1, -1], 5, 5);
+    const after = [...grown.afterOff];
+    after[5] -= 1;
+    const r = layoutRows(grown.beforeOff, after, 5, 5);
+    expect(r.afterOff[5]).toBe(grown.afterOff[5] - 1);
+    expect(r.duplicated.after).toContain(3);
+  });
+
+  it('足した行を両側とも対応なしにすると、末尾なら削る', () => {
+    const r = layoutRows(
+      [0, 0, 0, 0, 0, directOffset(null, 5)],
+      [0, 0, 0, 0, 0, directOffset(null, 5)],
+      5,
+      5,
+    );
+    expect(r.rowCount).toBe(5);
+  });
+
+  it('途中の対応なしの行は使い回さず、あふれたページを行の順序どおり末尾へ足す', () => {
+    const n = (r: number) => directOffset(null, r);
+    const r = layoutRows([0, 0, n(2), n(3), n(4), directOffset(2, 5)], [], 4, 4);
+    const shown = r.beforeOff.map((o, row) => row + o);
+    expect(shown.slice(2, 5)).toEqual([2 + n(2), 3 + n(3), 4 + n(4)]);
+    expect(shown[5]).toBe(2);
+    expect(shown[6]).toBe(3);
+    expect(r.missing.before).toEqual([]);
+  });
+
+  it('操作を重ねても、全ページが表示か報告のどちらかに載り、組み直しは冪等', () => {
+    for (const seed0 of [1, 12345, 777, 4242, 99991]) {
+      let seed = seed0;
+      const rnd = (n: number) => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return (seed >>> 8) % n;
+      };
+      for (let t = 0; t < 20; t++) {
+        const counts = [rnd(6), rnd(6)];
+        const base = Math.max(counts[0], counts[1], 1);
+        let cur = layoutRows([], [], counts[0], counts[1]);
+        for (let step = 0; step < 40; step++) {
+          const prevRows = cur.rowCount;
+          const offs = [[...cur.beforeOff], [...cur.afterOff]];
+          const row = rnd(prevRows);
+          const side = rnd(2);
+          offs[side][row] =
+            rnd(4) === 0
+              ? rnd(2) === 0
+                ? directOffset(null, row)
+                : directOffset(rnd(Math.max(counts[side], 1)), row)
+              : offs[side][row] + rnd(3) - 1;
+          cur = layoutRows(offs[0], offs[1], counts[0], counts[1]);
+
+          expect(cur.rowCount).toBeGreaterThanOrEqual(base);
+          expect(cur.beforeOff).toHaveLength(cur.rowCount);
+          expect(cur.afterOff).toHaveLength(cur.rowCount);
+          const sides = [
+            {
+              off: cur.beforeOff,
+              count: counts[0],
+              miss: cur.missing.before,
+              dup: cur.duplicated.before,
+            },
+            {
+              off: cur.afterOff,
+              count: counts[1],
+              miss: cur.missing.after,
+              dup: cur.duplicated.after,
+            },
+          ];
+          for (const sd of sides) {
+            const seen = new Array<number>(sd.count).fill(0);
+            const shownRows: (number | null)[] = sd.off.map((o, rr) => {
+              const p = rr + o;
+              return p >= 0 && p < sd.count ? p : null;
+            });
+            for (const p of shownRows) if (p != null) seen[p]++;
+            expect(sd.miss).toEqual(seen.flatMap((c, p) => (c === 0 ? [p] : [])));
+            expect(sd.dup).toEqual(seen.flatMap((c, p) => (c > 1 ? [p] : [])));
+            const appended = shownRows.slice(prevRows).filter((p): p is number => p != null);
+            expect([...appended].sort((x, y) => x - y)).toEqual(appended);
+          }
+          if (cur.rowCount > base) {
+            const last = cur.rowCount - 1;
+            const lastShown = [cur.beforeOff, cur.afterOff].some((o, i) => {
+              const p = last + o[last];
+              return p >= 0 && p < counts[i];
+            });
+            expect(lastShown).toBe(true);
+          }
+          expect(layoutRows(cur.beforeOff, cur.afterOff, counts[0], counts[1])).toEqual(cur);
+        }
+      }
+    }
+  });
+
+  it('ずらしを戻して再計算すると、足した行は基準の行数へ戻る', () => {
+    const grown = layoutRows([0, 0, 0, 0, 0], [0, 0, -1, -1, -1], 5, 5);
+    expect(grown.rowCount).toBe(6);
+    const back = layoutRows(grown.beforeOff, [0, 0, 0, 0, 0, 0], 5, 5);
+    expect(back.rowCount).toBe(5);
+    expect(back.beforeOff).toHaveLength(5);
+    expect(back.afterOff).toHaveLength(5);
+  });
+
+  it('対応なし(directOffset(null))の行は行を増やさない', () => {
+    const r = layoutRows([0, 0, 0], [0, directOffset(null, 1), 0], 3, 3);
+    expect(r.rowCount).toBe(3);
+    expect(r.missing.after).toEqual([1]);
+  });
+
+  it('ページ数が違う(3 と 5)ときも両側の全ページが載る', () => {
+    const r = layoutRows([0], [0], 3, 5);
+    expect(r.rowCount).toBe(5);
+    expect(r.missing).toEqual({ before: [], after: [] });
+  });
+
+  it('配列より後ろの行は最後の offset を引き継ぐ', () => {
+    const r = layoutRows([0], [-1], 3, 3);
+    expect(r.rowCount).toBe(4);
+    expect(r.afterOff).toEqual([-1, -1, -1, -1]);
+    expect(r.missing).toEqual({ before: [], after: [] });
+  });
+
+  it('報告の再現: 比較元を行 1 から 1 つ前へずらし、行 1 の比較先を対応なしにしても比較元の 3 ページ目が出る', () => {
+    const r = layoutRows([0, -1, -1], [0, directOffset(null, 1), 0], 3, 3);
+    const shown = r.beforeOff.map((o, row) => row + o);
+    expect(shown).toContain(2);
+    expect(r.missing.before).toEqual([]);
+  });
+
+  it('ページ数 0 でも 1 行は残る', () => {
+    const r = layoutRows([], [], 0, 0);
+    expect(r.rowCount).toBe(1);
+    expect(r.missing).toEqual({ before: [], after: [] });
+  });
+});
+
+describe('alignWarningText', () => {
+  const layout = (missing: [number[], number[]], duplicated: [number[], number[]]) => ({
+    beforeOff: [],
+    afterOff: [],
+    rowCount: 0,
+    missing: { before: missing[0], after: missing[1] },
+    duplicated: { before: duplicated[0], after: duplicated[1] },
+  });
+
+  it('問題が無ければ null', () => {
+    expect(alignWarningText(layout([[], []], [[], []]))).toBeNull();
+  });
+
+  it('出ないページは 1 起点で、側を「、」ページを「・」でつなぐ', () => {
+    expect(alignWarningText(layout([[2], [6, 7]], [[], []]))).toBe(
+      'どの行にも表示されていないページがあります: 比較元 3、比較先 7・8',
+    );
+  });
+
+  it('該当の無い側は書かない', () => {
+    expect(alignWarningText(layout([[], [6, 7]], [[], []]))).toBe(
+      'どの行にも表示されていないページがあります: 比較先 7・8',
+    );
+  });
+
+  it('二重のページの文言', () => {
+    expect(alignWarningText(layout([[], []], [[], [1]]))).toBe(
+      '2 つ以上の行に表示されているページがあります: 比較先 2',
+    );
+  });
+
+  it('両方あるときは " / " で 1 行につなぐ', () => {
+    expect(alignWarningText(layout([[2], []], [[], [1]]))).toBe(
+      'どの行にも表示されていないページがあります: 比較元 3 / 2 つ以上の行に表示されているページがあります: 比較先 2',
+    );
+  });
+
+  it('1 側 10 件を超えたら「ほか N ページ」に縮める', () => {
+    const pages = Array.from({ length: 13 }, (_, i) => i);
+    expect(alignWarningText(layout([pages, []], [[], []]))).toBe(
+      'どの行にも表示されていないページがあります: 比較元 1・2・3・4・5・6・7・8・9・10 ほか 3 ページ',
+    );
   });
 });

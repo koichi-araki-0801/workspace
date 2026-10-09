@@ -22,21 +22,36 @@ const measure = (fn: () => void): number => {
   return performance.now() - t0;
 };
 
+/** 空回しのあと `runs` 回測った最小値。JIT の暖機前や GC・他プロセスの割り込みで混じる外れ値を除く。 */
+const minOf = (fn: () => void, runs: number): number => {
+  let best = Number.POSITIVE_INFINITY;
+  for (let k = 0; k < runs; k++) best = Math.min(best, measure(fn));
+  return best;
+};
+
 describe('extractSyncParts の線形性', () => {
   it('閉じ > を持たないタグの連続に対して入力長の 4 倍で 4 倍以下の時間しか掛からない', () => {
     // 二次なら長さ 4 倍で約 16 倍。線形なら約 4 倍。マシン差に強い「比」で主張する。
-    const t1 = measure(() => extractSyncParts('<a '.repeat(10_000)));
-    const t4 = measure(() => extractSyncParts('<a '.repeat(40_000)));
+    const small = '<a '.repeat(10_000);
+    const large = '<a '.repeat(40_000);
+    extractSyncParts(small);
+    const t1 = minOf(() => extractSyncParts(small), 5);
+    const t4 = minOf(() => extractSyncParts(large), 5);
     expect(t4).toBeLessThan(Math.max(t1, 0.5) * 8);
     expect(t4).toBeLessThan(1_000);
-  });
+  }, 30_000);
 
   it('旧実装は同じ入力で二次に膨らむ(この差分が本修正の対象)', () => {
-    const s1 = measure(() => legacyScan('<a '.repeat(2_000)));
-    const s2 = measure(() => legacyScan('<a '.repeat(4_000)));
-    // 旧実装の比が線形(2 倍)に収まっていたら、この回帰テストは意味を失っている。
-    expect(s2).toBeGreaterThan(Math.max(s1, 0.05) * 2.5);
-  });
+    // 長さ 4 倍で、二次なら約 16 倍・線形なら約 4 倍。両者の中間の 8 を境にする。
+    // 単発計測は数 ms で揺れるため、空回しのあと複数回の最小値同士で比べる。
+    const small = '<a '.repeat(2_000);
+    const large = '<a '.repeat(8_000);
+    legacyScan(small);
+    const s1 = minOf(() => legacyScan(small), 5);
+    const s4 = minOf(() => legacyScan(large), 5);
+    // 旧実装の比が線形(4 倍)に収まっていたら、この回帰テストは意味を失っている。
+    expect(s4).toBeGreaterThan(Math.max(s1, 0.05) * 8);
+  }, 30_000);
 
   it('style の中身は走査対象にならない(承認者から見えない位置に隠せない)', () => {
     // この種のペイロードは `<style>` の CSS コメント内に置け、差分にもプレビューにも

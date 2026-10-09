@@ -15,7 +15,7 @@
 // `docAssets.ts` は**ファイルを配信ルートへ写すだけ**で HTML を 1 バイトも読まない。そこへ
 // 展開を置くと「タグ境界を正しく求める走査器」をもう 1 つ持つことになり、`inlineCss.ts`
 // 冒頭が戒めている「`[^>]*` で属性値を跨いで span を食う」種類の誤爆を二重に抱える。
-// 対して本モジュールは `inlineCss.scanTags` と `resolveServedAssetPath` をそのまま使う =
+// 対して本モジュールは `inlineCss.scanTags` と `resolveDocAssetPath(…, DOC_DIR)` をそのまま使う =
 // **残す/落とすの判定(`dropsUnservedRef`)と完全に同じ物差し**で展開対象を決められる。
 // 実行順も `inlineCss` の**後**にする: そこで既に「実体の無い相対参照」は要素ごと落ちて
 // いるので、本モジュールが見る `<script src>` は必ず配信ルートに実体がある。
@@ -27,7 +27,12 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { resolveServedAssetPath } from '@editor/shared';
+import {
+  DOC_DIR,
+  INLINEABLE_SCRIPT_TYPES,
+  neutralizeRawTextClose,
+  resolveDocAssetPath,
+} from '@editor/shared';
 import { scanTags, type TagSpan } from './inlineCss.js';
 
 /**
@@ -36,16 +41,6 @@ import { scanTags, type TagSpan } from './inlineCss.js';
  * (= 従来どおり 404 で不実行。挙動は退行するが文書は壊れない)。
  */
 export const MAX_INLINE_SCRIPT_BYTES = 2 * 1024 * 1024;
-
-/**
- * `</script` を無害化する。`<style>` 側の `STYLE_CLOSE_RE`(`inlineCss.ts`)と同じ発想で、
- * raw text の終端は最初に現れる `</script` 1 つだけなので、JS 本文に字面があると
- * **要素がそこで閉じ、残りが地の HTML として再解釈される**(= 任意マークアップの注入)。
- *
- * 置換は `/` を `\/` にするだけ。JS では文字列リテラル中・正規表現リテラル中のいずれでも
- * `\/` は `/` と同義なので意味は変わらず、HTML パーサからは `</script` に一致しなくなる。
- */
-const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
 
 /**
  * 展開を諦めるべき本文か。
@@ -63,12 +58,6 @@ const SCRIPT_CLOSE_RE = /<\/(?=script)/gi;
 function isUnsafeToInline(body: string): boolean {
   return body.includes('<!--');
 }
-
-/**
- * インライン化後も意味を保てる `type` 値(小文字比較)。空 = 省略も同義で classic 扱い。
- * ここに無い `type`(`text/template` 等のデータブロック)は実行面ではないので触らない。
- */
-const INLINEABLE_TYPES = new Set(['', 'module', 'text/javascript', 'application/javascript']);
 
 /**
  * 開始タグを組み直す。**原文を編集せず、属性の許可リストで作り直す。**
@@ -89,7 +78,7 @@ function rebuildOpenTag(tag: TagSpan): string | undefined {
     if (a.name === 'src') continue;
     if (a.name === 'type') {
       type = a.value.trim().toLowerCase();
-      if (!INLINEABLE_TYPES.has(type)) return undefined;
+      if (!INLINEABLE_SCRIPT_TYPES.has(type)) return undefined;
       continue;
     }
     return undefined;
@@ -118,10 +107,10 @@ function elementEnd(tags: readonly TagSpan[], index: number, tag: TagSpan): numb
 }
 
 /**
- * `servedRoot`(= 配信ルート)へ既に配置済みの実体を読み、`<script src>` をインライン
- * `<script>` へ展開した HTML を返す。
+ * `servedRoot`(= 作業フォルダ。文書は `doc/` に、資産はその兄弟に置かれている)へ既に
+ * 配置済みの実体を読み、`<script src>` をインライン `<script>` へ展開した HTML を返す。
  *
- * 判定は `resolveServedAssetPath` **1 本**で、`inlineCss` の残す/落とす判定と同じ物差し。
+ * 判定は `resolveDocAssetPath(…, DOC_DIR)` **1 本**で、`inlineCss` の残す/落とす判定と同じ物差し。
  * 別実装の判定を置くと「落とさないのに展開もしない」形の穴が必ず生まれる。
  *
  * 展開できない参照(実体が読めない・大きすぎる・`<!--` を含む・タグの形が想定外)は
@@ -142,7 +131,7 @@ export async function inlineDocScripts(
     if (tag.isEnd || tag.name !== 'script') continue;
     const src = tag.attrs.find((a) => a.name === 'src');
     if (src === undefined) continue;
-    const rel = resolveServedAssetPath(src.value);
+    const rel = resolveDocAssetPath(src.value, DOC_DIR);
     if (rel === undefined || !served.has(rel)) continue;
     const openTag = rebuildOpenTag(tag);
     if (openTag === undefined) continue;
@@ -162,7 +151,7 @@ export async function inlineDocScripts(
       start: tag.start,
       end: elementEnd(scan.tags, i, tag),
       // 元の中身(空のはず)は捨てる。HTML 仕様上 `src` 付き script の中身は実行されない。
-      text: `${openTag}\n${body.replace(SCRIPT_CLOSE_RE, '<\\/')}\n</script>`,
+      text: `${openTag}\n${neutralizeRawTextClose(body, 'script')}\n</script>`,
     });
   }
   if (replacements.length === 0) return html;

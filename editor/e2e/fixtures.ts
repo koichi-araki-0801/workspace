@@ -6,11 +6,14 @@
 // (「下書きが無い」「コメントが 1 件」など)。直列に依存し合うテストを持つファイルだけが
 // `test.use({ keepDataRootAcrossTests: true })` で自ファイル内の共有へ切り替える。
 //
-// リセットの射程は **dataRoot だけ**。sproc フェイクの in-memory テーブル(ユーザー・台帳・
-// 監査)と `auth/loginRateLimit.ts` の計数はサーバプロセス側にあり、テストをまたいで残る。
+// リセットの射程は **dataRoot と、ログインの試行計数**。計数は `auth/loginRateLimit.ts` の
+// IP ごとの上限(成功も数える)が、直列で 1 台のサーバへ繰り返すログインの累計で当たるのを
+// 防ぐため、dataRoot と同じくテストごとに e2e サーバの制御ルートで白紙へ戻す。sproc フェイクの
+// in-memory テーブル(ユーザー・台帳・監査)はサーバプロセス側にあり、テストをまたいで残る。
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as base } from '@playwright/test';
+import { E2E_RESET_LOGIN_LIMIT_URL } from '../server/scripts/e2e-rest-paths';
 import { seedDataRoot } from '../server/scripts/e2e-rest-seed';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -31,6 +34,10 @@ export const test = base.extend<{
   keepDataRootAcrossTests: [false, { option: true }],
   freshDataRoot: [
     async ({ keepDataRootAcrossTests }, use, testInfo) => {
+      // 全 project が同じ rest サーバを使うので失敗は握りつぶさない(計数が残ると後続が
+      // 原因の見えない形で落ちる)。keepDataRoot のファイルでもテストごとに呼ぶ。
+      const reset = await fetch(E2E_RESET_LOGIN_LIMIT_URL, { method: 'POST' });
+      if (!reset.ok) throw new Error(`ログイン計数のリセットに失敗: HTTP ${reset.status}`);
       if (!keepDataRootAcrossTests || testInfo.file !== lastFile) {
         await seedDataRoot(repoRoot);
         lastFile = testInfo.file;

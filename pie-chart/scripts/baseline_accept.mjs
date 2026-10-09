@@ -5,7 +5,7 @@
 // 初回セットアップと「意図的な出力変更の確定」の両方をこの 1 コマンドに正式化する
 // (従来はオーナー環境の Claude フックによる暗黙コピーだけが生成手段だった)。
 // 必ずコミット済みのクリーンな状態で実行すること — 未検証の変更を基準に凍結すると
-// 以後の `npm run batch:diff` が退行を検出できなくなる。
+// 以後の `pnpm run batch:diff` が退行を検出できなくなる。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +20,7 @@ const svgCount = (dir) =>
 
 if (svgCount(currentDir) === 0) {
   console.error(
-    `[baseline:accept] ${currentDir} に SVG がありません。先に \`npm run batch\` を実行してください`,
+    `[baseline:accept] ${currentDir} に SVG がありません。先に \`pnpm run batch\` を実行してください`,
   );
   process.exit(1);
 }

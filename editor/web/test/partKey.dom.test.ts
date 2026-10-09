@@ -1,8 +1,20 @@
 import type { Editor } from 'grapesjs';
 import { describe, expect, it, vi } from 'vitest';
-import { canvasRawKey, partEls, partLabelMap, partPathKeyFor } from '@/features/editor/partKey';
+import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
+import {
+  canvasRawKey,
+  jinjaAnchoredParts,
+  legacyPartKeyCount,
+  pagesOf,
+  partLabelMap,
+  partOf,
+  partPageIndexMap,
+  partPathKeyFor,
+  partsOf,
+} from '@/features/editor/partKey';
 import { partMapsFromHtml } from '@/features/reviews/reviewPartMaps';
-import { occurrenceKey, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { occurrenceKey, occurrenceKeys, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { b64encodeUtf8 } from '@/lib/jinjaAttrs';
 
 /** innerHTML から canvas wrapper 相当の root 要素を作る(jsdom)。 */
 function root(html: string): HTMLElement {
@@ -52,108 +64,201 @@ describe('blockKey.occurrenceKey', () => {
 describe('partPathKeyFor — 版を跨いで安定', () => {
   it('同じ catalog パーツは基準日/版種が違っても同じキーになる', () => {
     const kofu = root(
-      '<div class="page"><div data-part-id="cover">交付版 2024</div><table class="summary"><tbody><tr><td>100</td></tr></tbody></table></div>',
+      '<div data-part-id="cover">交付版 2024</div><table class="summary"><tbody><tr><td>100</td></tr></tbody></table>',
     );
     const zentai = root(
-      '<div class="page"><div data-part-id="cover">全体版 2025</div><table class="summary"><tbody><tr><td>200</td></tr></tbody></table></div>',
+      '<div data-part-id="cover">全体版 2025</div><table class="summary"><tbody><tr><td>200</td></tr></tbody></table>',
     );
-    const k1 = partPathKeyFor(q(kofu, '[data-part-id="cover"]'), kofu);
-    const k2 = partPathKeyFor(q(zentai, '[data-part-id="cover"]'), zentai);
-    expect(k1).toBe('.page#1/cover#1');
+    const k1 = partPathKeyFor(q(kofu, '[data-part-id="cover"]'), kofu, rawKey);
+    const k2 = partPathKeyFor(q(zentai, '[data-part-id="cover"]'), zentai, rawKey);
+    expect(k1).toBe('cover#1');
     expect(k2).toBe(k1);
   });
 
   it('パーツ内の子要素を選んでも、囲うパーツのキーへ解決する', () => {
     const r = root(
-      '<div class="page"><div data-part-id="cover">表紙</div><table class="summary"><tbody><tr><td>cell</td></tr></tbody></table></div>',
+      '<div data-part-id="cover">表紙</div><table class="summary"><tbody><tr><td>cell</td></tr></tbody></table>',
     );
-    const fromCell = partPathKeyFor(q(r, 'td'), r);
-    const fromTable = partPathKeyFor(q(r, 'table'), r);
-    expect(fromCell).toBe('.page#1/.summary#1');
+    const fromCell = partPathKeyFor(q(r, 'td'), r, rawKey);
+    const fromTable = partPathKeyFor(q(r, 'table'), r, rawKey);
+    expect(fromCell).toBe('.summary#1');
     expect(fromCell).toBe(fromTable);
   });
 
-  it('同種パーツの複数挿入は出現順 #n で区別する', () => {
+  it('キーは区切りを跨いだ文書全体の通し番号で、ページを含まない', () => {
     const r = root(
-      '<div class="page"><table class="summary"></table><table class="summary"></table></div>',
+      '<section class=s></section><div class=pagebreak></div><section class=s></section>',
     );
-    const tables = partEls(q(r, '.page')).filter((e) => e.tagName === 'TABLE');
-    expect(partPathKeyFor(tables[0], r)).toBe('.page#1/.summary#1');
-    expect(partPathKeyFor(tables[1], r)).toBe('.page#1/.summary#2');
+    const [first, , second] = Array.from(r.children) as HTMLElement[];
+    expect(partPathKeyFor(first, r, rawKey)).toBe('.s#1');
+    expect(partPathKeyFor(second, r, rawKey)).toBe('.s#2');
   });
 
-  it('.page が無い構成では body#1 をページアンカーにする', () => {
-    const r = root('<div data-part-id="solo">x</div>');
-    expect(partPathKeyFor(q(r, '[data-part-id="solo"]'), r)).toBe('body#1/solo#1');
-  });
-
-  it('.page 要素自体を選んでも安定なキーを返す(劣化せず文字列)', () => {
-    const r = root('<div class="page"><h1 class="t">A</h1></div>');
-    const key = partPathKeyFor(q(r, '.page'), r);
-    expect(typeof key).toBe('string');
-    expect(key?.startsWith('.page#1/')).toBe(true);
-  });
-
-  it('.page を持つ文書で .page の外にある要素は part を解決できない(null)', () => {
-    const r = root('<div class="page"><p>in</p></div><p id="out">out</p>');
-    expect(partPathKeyFor(q(r, '#out'), r)).toBeNull();
-  });
-
-  it('ページ番号は出現順(2 ページ目のパーツは .page#2)', () => {
+  it('区切りを選ぶと null、パーツの中の子を選ぶと囲むパーツのキー', () => {
     const r = root(
-      '<div class="page"><h1 class="t">A</h1></div><div class="page"><h1 class="t">B</h1></div>',
+      '<section class=s></section><div class=pagebreak></div><section class=s><p>x</p></section>',
     );
-    const second = q(r.children[1] as HTMLElement, 'h1');
-    expect(partPathKeyFor(second, r)).toBe('.page#2/.t#1');
+    expect(partPathKeyFor(q(r, '.pagebreak'), r, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(r, 'p'), r, rawKey)).toBe('.s#2');
+  });
+
+  it('根そのもの・根の外・数えない要素(<style>・赤入れ)を選ぶと null', () => {
+    const r = root('<style>.a{}</style><p class="a">A</p><del data-redline=""><p>gone</p></del>');
+    const outside = document.createElement('p');
+    expect(partPathKeyFor(r, r, rawKey)).toBeNull();
+    expect(partPathKeyFor(outside, r, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(r, 'style'), r, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(r, 'del p'), r, rawKey)).toBeNull();
+  });
+
+  it('前にページを 1 つ足しても、後ろの別クラスのパーツのキーは変わらない', () => {
+    const before = root('<h1 class="t">A</h1><div class=pagebreak></div><p class="lead">B</p>');
+    const after = root(
+      '<h1 class="t">A</h1><div class=pagebreak></div><table class="new"></table>' +
+        '<div class=pagebreak></div><p class="lead">B</p>',
+    );
+    expect(partPathKeyFor(q(after, '.lead'), after, rawKey)).toBe(
+      partPathKeyFor(q(before, '.lead'), before, rawKey),
+    );
+    expect(partPathKeyFor(q(after, '.lead'), after, rawKey)).toBe('.lead#1');
+  });
+
+  it('inline の改ページで分かれても、キーは通し番号のまま', () => {
+    const r = root('<p class="a">1</p><p class="a" style="break-before:page">2</p>');
+    const [, second] = Array.from(r.children) as HTMLElement[];
+    expect(partPathKeyFor(second, r, rawKey)).toBe('.a#2');
+  });
+});
+
+describe('partsOf / partOf / pagesOf', () => {
+  it('partsOf は区切りと数えない要素を除いた根の直下のパーツ', () => {
+    const r = root(
+      '<style>.a{}</style><p class="a">A</p><div class=pagebreak></div>' +
+        '<span data-body-style=""></span><del data-redline=""></del><p class="b">B</p>',
+    );
+    expect(partsOf(r).map((e) => e.className)).toEqual(['a', 'b']);
+    expect(pagesOf(r).map((p) => p.map((e) => e.className))).toEqual([['a'], ['b']]);
+  });
+
+  it('partOf は根の直下のパーツまでさかのぼり、パーツでなければ null', () => {
+    const r = root('<div class="x"><span>in</span></div><div class=pagebreak></div>');
+    expect(partOf(q(r, 'span'), r)).toBe(q(r, '.x'));
+    expect(partOf(q(r, '.pagebreak'), r)).toBeNull();
+  });
+
+  it('パーツが無い根は 1 ページ・0 パーツ', () => {
+    const r = root('');
+    expect(partsOf(r)).toEqual([]);
+    expect(pagesOf(r)).toEqual([[]]);
+    expect(partLabelMap(r).size).toBe(0);
+  });
+});
+
+describe('legacyPartKeyCount — 旧形式(ページ/パーツ)のキーを数える', () => {
+  it('/ を含むキーだけを数える', () => {
+    const none = new Set<string>();
+    expect(legacyPartKeyCount(['.s#1', 'body#1/.s#1', '.page#2/.x#1'], none)).toBe(2);
+    expect(legacyPartKeyCount([], none)).toBe(0);
+    expect(legacyPartKeyCount(new Set(['cover#1']), none)).toBe(0);
+  });
+
+  it('クラス名に / を含む今のパーツのキーは旧形式に数えない', () => {
+    const r = root('<div class="w-1/2">A</div><p class="b">B</p>');
+    const current = partLabelMap(r);
+    expect(current.has('.w-1/2#1')).toBe(true);
+    expect(legacyPartKeyCount(['.w-1/2#1', '.page#1/.b#1'], current)).toBe(1);
   });
 });
 
 describe('partLabelMap — 全パーツの人間向けラベル', () => {
-  it('各パーツに ページN・パーツM を通し番号で振り、キーは partPathKeyFor と一致する', () => {
+  it('各パーツに ページN・パーツM を振り、キーは partPathKeyFor と一致する', () => {
     const r = root(
-      '<div class="page"><div data-part-id="cover">表紙</div><table class="summary"></table></div>' +
-        '<div class="page"><h1 class="t">本文</h1></div>',
+      '<div data-part-id="cover">表紙</div><table class="summary"></table>' +
+        '<div class=pagebreak></div><h1 class="t">本文</h1>',
     );
     const map = partLabelMap(r);
-    // 同じキー体系(partPathKeyFor と一致)でラベルが引ける。
-    const coverKey = partPathKeyFor(q(r, '[data-part-id="cover"]'), r);
-    const summaryKey = partPathKeyFor(q(r, '.summary'), r);
-    const bodyKey = partPathKeyFor(q(r, '.t'), r);
-    expect(coverKey).toBe('.page#1/cover#1');
+    const coverKey = partPathKeyFor(q(r, '[data-part-id="cover"]'), r, rawKey);
+    const summaryKey = partPathKeyFor(q(r, '.summary'), r, rawKey);
+    const bodyKey = partPathKeyFor(q(r, '.t'), r, rawKey);
+    expect(coverKey).toBe('cover#1');
     expect(map.get(coverKey ?? '')).toBe('ページ1・パーツ1');
     expect(map.get(summaryKey ?? '')).toBe('ページ1・パーツ2');
     expect(map.get(bodyKey ?? '')).toBe('ページ2・パーツ1');
     expect(map.size).toBe(3);
   });
 
-  it('.page が無い構成は body を 1 ページ扱いにする', () => {
-    const r = root('<div data-part-id="solo">x</div><p>y</p>');
-    const map = partLabelMap(r);
-    expect(map.get('body#1/solo#1')).toBe('ページ1・パーツ1');
-    expect(map.get('body#1/p#1')).toBe('ページ1・パーツ2');
+  it('2 ページ目の先頭のパーツは ページ2・パーツ1、ページ index は 1', () => {
+    const r = root(
+      '<section class=s></section><div class=pagebreak></div><section class=s></section>',
+    );
+    expect(partLabelMap(r).get('.s#2')).toBe('ページ2・パーツ1');
+    expect(partPageIndexMap(r).get('.s#2')).toBe(1);
+  });
+
+  it('白紙のページはページ番号に数え、パーツの番号はページごとに 1 から', () => {
+    const r = root(
+      '<div class=pagebreak></div><section class=s></section><section class=s></section>' +
+        '<div class=pagebreak></div><div class=pagebreak></div><section class=s></section>',
+    );
+    expect([...partLabelMap(r)]).toEqual([
+      ['.s#1', 'ページ2・パーツ1'],
+      ['.s#2', 'ページ2・パーツ2'],
+      ['.s#3', 'ページ4・パーツ1'],
+    ]);
   });
 });
 
 describe('canvasRawKey — canvas 側は id をモデルの明示属性から読む', () => {
-  /** `Components.getById` だけを持つ最小の `Editor` 相当。 */
+  /**
+   * `Components.getById` だけを持つ最小の `Editor` 相当。クラスは GrapesJS の `getClasses` と
+   * 同じく、モデルの `class` 属性から読む。
+   */
   function fakeEditor(attrsById: Record<string, Record<string, unknown>>): Editor {
     return {
-      Components: { getById: (id: string) => ({ get: () => attrsById[id] }) },
+      Components: {
+        getById: (id: string) => ({
+          get: () => attrsById[id],
+          getClasses: () =>
+            String(attrsById[id]?.class ?? '')
+              .split(' ')
+              .filter(Boolean),
+        }),
+      },
     } as unknown as Editor;
   }
 
   it('モデル属性に id が無ければ GrapesJS の自動 id を無視し、class/tag へ落ちる', () => {
     const r = root('<p class="lead" id="i1">A</p><p class="lead" id="i2">B</p>');
     const els = Array.from(r.children) as HTMLElement[];
-    const keyOf = canvasRawKey(fakeEditor({ i1: {}, i2: {} }));
+    const keyOf = canvasRawKey(fakeEditor({ i1: { class: 'lead' }, i2: { class: 'lead' } }));
     expect(occurrenceKey(els[0], els, keyOf)).toBe('.lead#1');
     expect(occurrenceKey(els[1], els, keyOf)).toBe('.lead#2');
+  });
+
+  it('根の直下の原文チップは、承認・比較が読む描画後の要素と同じアンカーになる', () => {
+    const chip = (src: string, kind: string, id: string) =>
+      `<span class="jinja-chip jinja-${kind}" id="${id}" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="${kind}">x</span>`;
+    const r = root(
+      chip('<textarea class="memo">{{ v }}</textarea>', 'rawtext', 'c1') +
+        chip('<script>var a;</script>', 'script', 'c2') +
+        chip('<math><mi>x</mi></math>', 'math', 'c3') +
+        chip('{% raw %}{{ x }}{% endraw %}', 'rawtext', 'c4'),
+    );
+    const els = Array.from(r.children) as HTMLElement[];
+    const cls = { class: 'jinja-chip' };
+    const keyOf = canvasRawKey(fakeEditor({ c1: cls, c2: cls, c3: cls, c4: cls }));
+    expect(els.map((el) => occurrenceKey(el, els, keyOf))).toEqual([
+      '.memo#1',
+      'script#1',
+      'math#1',
+      '.jinja-chip#1',
+    ]);
   });
 
   it('モデル属性に明示 id があれば、その id をキーへ残す', () => {
     const r = root('<p class="lead" id="i1">A</p>');
     const el = q(r, 'p');
-    const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary' } }));
+    const keyOf = canvasRawKey(fakeEditor({ i1: { id: 'summary', class: 'lead' } }));
     expect(occurrenceKey(el, [el], keyOf)).toBe('summary#1');
   });
 
@@ -164,9 +269,38 @@ describe('canvasRawKey — canvas 側は id をモデルの明示属性から読
     expect(keyOf(el)).toBe('cover');
   });
 
+  it('選択中・ホバー中に GrapesJS が付けるクラスはキーに使わない(モデルのクラスを読む)', () => {
+    const r = root(
+      '<section id="i1" class="gjs-selected">x</section>' +
+        '<section id="i2" class="gjs-hovered">y</section>' +
+        '<p id="i3" class="lead gjs-selected">z</p>',
+    );
+    const ed = {
+      Components: {
+        getById: (id: string) => ({
+          get: () => ({}),
+          getClasses: () => (id === 'i3' ? ['lead'] : []),
+        }),
+      },
+    } as unknown as Editor;
+    const keyOf = canvasRawKey(ed);
+    expect(keyOf(q(r, '#i1'))).toBe('section');
+    expect(keyOf(q(r, '#i2'))).toBe('section');
+    expect(keyOf(q(r, '#i3'))).toBe('.lead');
+  });
+
+  it('component を引けない要素でも、GrapesJS の gjs- クラスは読み飛ばす', () => {
+    const ed = { Components: { getById: () => undefined } } as unknown as Editor;
+    const r = root(
+      '<section class="gjs-selected gjs-pointer-init">x</section><p class="gjs-hovered a">y</p>',
+    );
+    expect(canvasRawKey(ed)(q(r, 'section'))).toBe('section');
+    expect(canvasRawKey(ed)(q(r, 'p'))).toBe('.a');
+  });
+
   it('id もクラスも無い要素はタグ名で表し、GrapesJS の自動 id を引かない', () => {
     const ed = { Components: { getById: vi.fn(() => undefined) } } as unknown as Editor;
-    const r = root('<div class="page"><section>x</section></div>');
+    const r = root('<section>x</section>');
     expect(canvasRawKey(ed)(q(r, 'section'))).toBe('section');
     expect(ed.Components.getById).not.toHaveBeenCalled();
   });
@@ -176,35 +310,265 @@ describe('canvasRawKey — 承認タブ(静的パース)とのキー集合一致
   it('canvas 側に自動 id が付いていても、静的パース側と同じキー集合になる', () => {
     // data-part-id を持たないテンプレート(seed テンプレートと同条件)を模す。
     const html =
-      '<div class="page"><table class="summary"></table><h1 class="t">A</h1></div>' +
-      '<div class="page"><p class="lead">B</p></div>';
-    // canvas 側は GrapesJS が全要素へ揮発性の id(ccid)を付けて回る(`.page` も例外でない。
-    // ページ側のキーにも自動 id が混ざらないことを同時に固定する)。モデル側の明示属性は
+      '<table class="summary"></table><h1 class="t">A</h1>' +
+      '<div class="pagebreak"></div><p class="lead">B</p>';
+    // canvas 側は GrapesJS が全要素へ揮発性の id(ccid)を付けて回る。モデル側の明示属性は
     // どの要素も持たない(= 静的パース側と同じく class/tag へ落ちるべき)。
     const canvasHtml = html.replace(
       /<(div|table|h1|p)( class="[^"]+")?>/g,
       (_m, tag, cls) => `<${tag}${cls ?? ''} id="i${tag}">`,
     );
     const canvasRoot = root(canvasHtml);
-    const ed = { Components: { getById: () => ({ get: () => undefined }) } } as unknown as Editor;
+    const classesById: Record<string, string[]> = {
+      idiv: ['pagebreak'],
+      itable: ['summary'],
+      ih1: ['t'],
+      ip: ['lead'],
+    };
+    const ed = {
+      Components: {
+        getById: (id: string) => ({ get: () => undefined, getClasses: () => classesById[id] }),
+      },
+    } as unknown as Editor;
     const canvasKeys = [...partLabelMap(canvasRoot, canvasRawKey(ed)).keys()].sort();
     const staticKeys = [...partMapsFromHtml(html).labels.keys()].sort();
     expect(canvasKeys).toEqual(staticKeys);
   });
 });
 
-describe('partEls — 赤入れ装飾はパーツとして数えない', () => {
+describe('canvas・承認タブ・比較が同じパーツを同じキーと番号で数える', () => {
+  it('<style>・地の文・赤入れ・区切りを含む文書で、3 者のキーとラベルが一致する', () => {
+    // 保存される文書(承認・比較が読む)。本文の `<style>` と、根の直下の地の文を含む。
+    const html =
+      '<style>.a{color:red}</style>地の文<style class="a" id="y">.c{}</style>' +
+      '<style class="a">.d{}</style><p class="a">A</p>' +
+      '<p class="a">A2</p>' +
+      '<div class="pagebreak"></div>前置き<section class="s">S</section>' +
+      '<div class="pagebreak"></div><style>.b{}</style><p class="a">A3</p>';
+    // canvas の生 DOM。`<style>` は置き場の要素、赤入れ表示の削除要素が兄弟に挟まる。
+    const canvas = root(
+      '<span data-body-style=""></span>地の文<span data-body-style=""></span>' +
+        '<span data-body-style=""></span><p class="a">A</p>' +
+        '<del data-redline="" class="redline-block"><p class="a">gone</p></del><p class="a">A2</p>' +
+        '<div class="pagebreak"></div>前置き<section class="s">S</section>' +
+        '<div class="pagebreak"></div><span data-body-style=""></span><p class="a">A3</p>',
+    );
+    const canvasLabels = partLabelMap(canvas);
+    const reviewLabels = partMapsFromHtml(html).labels;
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    const want = [
+      ['.a#1', 'ページ1・パーツ1'],
+      ['.a#2', 'ページ1・パーツ2'],
+      ['.s#1', 'ページ2・パーツ1'],
+      ['.a#3', 'ページ3・パーツ1'],
+    ];
+    expect([...canvasLabels]).toEqual(want);
+    // パーツと同じクラスを持つ `<style>` も、比較側でパーツの番号を進めない。
+    const h = '<style class="a"></style><p class="a">A</p>';
+    const block = buildHtmlDiff(h, h).pages[0].blocks.find((b) => b.afterHtml.startsWith('<p'));
+    expect(block?.partKey).toBe('.a#1');
+    expect([...reviewLabels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+  });
+});
+
+describe('根の直下の SVG も 3 者がパーツに数える', () => {
+  it('canvas・承認タブ・比較のキーとラベルが一致する', () => {
+    const html =
+      '<p class="a">A</p><svg class="g" viewBox="0 0 1 1"><rect width="1" height="1"/></svg>' +
+      '<div class="pagebreak"></div><p class="a">A2</p>';
+    const canvasLabels = partLabelMap(root(html));
+    const reviewLabels = partMapsFromHtml(html).labels;
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    const want = [
+      ['.a#1', 'ページ1・パーツ1'],
+      ['.g#1', 'ページ1・パーツ2'],
+      ['.a#2', 'ページ2・パーツ1'],
+    ];
+    expect([...canvasLabels]).toEqual(want);
+    expect([...reviewLabels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+  });
+});
+
+describe('クラスの無いパーツを選択・ホバーしていても、3 者のキーとラベルが一致する', () => {
+  it('canvas 側の gjs-selected / gjs-hovered はパーツのクラスとして数えない', () => {
+    // 保存される文書。パーツは自前のクラスを持たない `section`。
+    const html =
+      '<section><p>A</p></section><section><p>B</p></section>' +
+      '<div class="pagebreak"></div><section><p>C</p></section>';
+    // canvas の生 DOM。GrapesJS は全要素へ自動 id を付け、選択中・ホバー中の要素へだけ
+    // 状態のクラスを足す(モデルのクラスには無く、保存 HTML にも出ない)。
+    const canvas = root(
+      '<section id="c1" class="gjs-selected"><p>A</p></section>' +
+        '<section id="c2" class="gjs-hovered"><p>B</p></section>' +
+        '<div id="c3" class="pagebreak"></div><section id="c4"><p>C</p></section>',
+    );
+    const modelClasses: Record<string, string[]> = { c3: ['pagebreak'] };
+    const ed = {
+      Components: {
+        getById: (id: string) => ({ get: () => ({}), getClasses: () => modelClasses[id] ?? [] }),
+      },
+    } as unknown as Editor;
+    const want = [
+      ['section#1', 'ページ1・パーツ1'],
+      ['section#2', 'ページ1・パーツ2'],
+      ['section#3', 'ページ2・パーツ1'],
+    ];
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    expect([...partLabelMap(canvas, canvasRawKey(ed))]).toEqual(want);
+    expect([...partMapsFromHtml(html).labels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+    expect(partPathKeyFor(q(canvas, '#c1 p'), canvas, canvasRawKey(ed))).toBe('section#1');
+  });
+});
+
+describe('本文全体を固めた canvas も、保存した文書と同じパーツを同じキーと番号で数える', () => {
+  // 保存・描画した文書(承認・比較が読む)には包みもチップも無い。`{% set %}` と Jinja コメントは
+  // 描画で消える。
+  const html =
+    '<p class="a">A</p><div class="pagebreak"></div><section class="s">S</section>' +
+    '<p class="a">A2</p><div class="pagebreak"></div><p class="a">A3</p>';
+  // 作成タブの canvas。本文全体が `div.jinja-frozen-body` に包まれ、根の直下にチップが並ぶ。
+  const canvasHtml =
+    '<span class="jinja-chip jinja-stmt" data-jinja="eA==">{% set x = 1 %}</span>' +
+    '<div class="jinja-frozen-body" data-opaque="eA==" data-opaque-kind="body">' +
+    '<span class="jinja-chip jinja-comment" data-jinja="eA==">{# c #}</span>' +
+    `${html}</div>`;
+  const want = [
+    ['.a#1', 'ページ1・パーツ1'],
+    ['.s#1', 'ページ2・パーツ1'],
+    ['.a#2', 'ページ2・パーツ2'],
+    ['.a#3', 'ページ3・パーツ1'],
+  ];
+
+  it('canvas・承認タブ・比較の 3 者のキーとラベルが一致する', () => {
+    const canvas = root(canvasHtml);
+    const diffLabels = new Map(
+      buildHtmlDiff(html, html)
+        .pages.flatMap((p) => p.blocks)
+        .filter((b) => b.label.includes('・'))
+        .map((b) => [b.partKey, b.label]),
+    );
+    expect([...partLabelMap(canvas)]).toEqual(want);
+    expect([...partMapsFromHtml(html).labels]).toEqual(want);
+    expect([...diffLabels]).toEqual(want);
+    expect(buildHtmlDiff(html, html).afterPageCount).toBe(3);
+  });
+
+  it('包みの中の要素から、そのパーツとキーを引ける。包み・チップはパーツではない', () => {
+    const canvas = root(canvasHtml);
+    expect(partOf(q(canvas, '.s'), canvas)).toBe(q(canvas, '.s'));
+    expect(partPathKeyFor(q(canvas, '.s'), canvas, rawKey)).toBe('.s#1');
+    expect(partOf(q(canvas, '.jinja-frozen-body'), canvas)).toBeNull();
+    expect(partOf(q(canvas, '.jinja-stmt'), canvas)).toBeNull();
+    expect(partOf(q(root(html), '.s'), canvas)).toBeNull();
+  });
+});
+
+describe('赤入れ装飾はパーツとして数えない', () => {
   it('[data-redline] の兄弟が挿入されてもパーツ採番とキーが変わらない', () => {
-    const plain = root('<div class="page"><p class="a">A</p><p class="b">B</p></div>');
+    const plain = root('<p class="a">A</p><p class="b">B</p>');
     const withDel = root(
-      '<div class="page"><p class="a">A</p><del data-redline="" class="redline-block"><p class="x">gone</p></del><p class="b">B</p></div>',
+      '<p class="a">A</p><del data-redline="" class="redline-block"><p class="x">gone</p></del><p class="b">B</p>',
     );
-    const pagePlain = q(plain, '.page');
-    const pageDel = q(withDel, '.page');
-    expect(partEls(pageDel).map((e) => e.className)).toEqual(
-      partEls(pagePlain).map((e) => e.className),
+    expect(partsOf(withDel).map((e) => e.className)).toEqual(
+      partsOf(plain).map((e) => e.className),
     );
-    expect(partPathKeyFor(q(withDel, '.b'), withDel)).toBe(partPathKeyFor(q(plain, '.b'), plain));
-    expect([...partLabelMap(withDel).values()]).toEqual([...partLabelMap(plain).values()]);
+    expect(partPathKeyFor(q(withDel, '.b'), withDel, rawKey)).toBe(
+      partPathKeyFor(q(plain, '.b'), plain, rawKey),
+    );
+    expect([...partLabelMap(withDel)]).toEqual([...partLabelMap(plain)]);
+  });
+});
+
+// アンカーの属性(data-part-id → id → class の採用順)の原文に Jinja があると、canvas(原文)と
+// 承認タブ(ファンドの値で描いた後)でキーが一致しない。警告用に、採用される属性で判定する。
+describe('jinjaAnchoredParts', () => {
+  const ids = (r: HTMLElement, keyOf: (el: HTMLElement) => string = rawKey) =>
+    jinjaAnchoredParts(r, keyOf).map((el) => el.textContent);
+
+  it('採用されるアンカーの属性の原文に {{ / {% / {# があるパーツだけを返す', () => {
+    const r = root(
+      '<p class="{{ c }}">A</p>' +
+        '<p data-part-id="{{ pid }}" class="x">B</p>' +
+        '<p data-part-id="fixed" class="{{ c }}">C</p>' +
+        '<p id="{% if a %}x{% endif %}">D</p>' +
+        '<p class="ok {{ c }}">E</p>' +
+        '<p class="{# note #}">F</p>' +
+        '<div class="pagebreak"></div>' +
+        '<div class="a"><p class="{{ c }}">G</p></div>',
+    );
+    expect(ids(r)).toEqual(['A', 'B', 'D', 'F']);
+  });
+
+  it('固めた要素は表示用の値ではなく、運んでいる原文の属性で判定する', () => {
+    const src = '<p class="{% if a %}x{% endif %}">H</p>';
+    const r = root(
+      `<p class="x" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="frozen">H</p>` +
+        `<p class="y" data-opaque="${b64encodeUtf8('<p class="y">I</p>')}" data-opaque-kind="frozen">I</p>` +
+        '<p class="z" data-opaque="%%%" data-opaque-kind="frozen">J</p>',
+    );
+    expect(ids(r)).toEqual(['H']);
+  });
+
+  it('固めた表(包みの子がそのパーツ 1 つだけ)は、包みが運ぶ原文の属性で判定する', () => {
+    const wrap = (src: string, display: string) =>
+      `<div class="jinja-frozen-body" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="frozen">${display}</div>`;
+    const r = root(
+      wrap(
+        '<table class="{{ c }}"><tr><td>K</td></tr></table>',
+        '<table class="x"><tr><td>K</td></tr></table>',
+      ) +
+        wrap(
+          '<table class="y"><tr><td>L</td></tr></table>',
+          '<table class="y"><tr><td>L</td></tr></table>',
+        ),
+    );
+    expect(ids(r)).toEqual(['K']);
+  });
+
+  it('包みの子が複数のときは包みの原文を読まず、各パーツの表示用のアンカーで判定する', () => {
+    const src =
+      '<table class="{{ c }}"><tr><td>M</td></tr></table><table class="y"><tr><td>N</td></tr></table>';
+    const r = root(
+      `<div class="jinja-frozen-body" data-opaque="${b64encodeUtf8(src)}" data-opaque-kind="frozen">` +
+        '<table class="x"><tr><td>M</td></tr></table><table class="y"><tr><td>N</td></tr></table></div>',
+    );
+    expect(ids(r)).toEqual([]);
+  });
+
+  it('アンカー関数(canvas では canvasRawKey)の結果で判定する', () => {
+    const r = root('<p class="a">A</p><p class="b">B</p>');
+    expect(ids(r, (el) => (el.textContent === 'B' ? '.{{' : '.a'))).toEqual(['B']);
+  });
+});
+
+describe('blockKey.occurrenceKeys', () => {
+  it('同じ基底の 2 つ目から #2 を振り、出現順に 1 回で数える', () => {
+    expect(occurrenceKeys(['.a', 'div', '.a', '#text', '.a', 'div'])).toEqual([
+      '.a#1',
+      'div#1',
+      '.a#2',
+      '#text#1',
+      '.a#3',
+      'div#2',
+    ]);
+    expect(occurrenceKeys([])).toEqual([]);
   });
 });

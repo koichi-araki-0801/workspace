@@ -18,7 +18,7 @@ import { defineComponent, h, reactive } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
 
 const TPL = 'AM01_510037_20240710_交付版';
-const COVER = '.page#1/h1#1';
+const COVER = 'h1#1';
 
 /** `PartNoteEntry` の全項目を埋める fixture(`as` は使わない)。 */
 function noteEntry(patch: Partial<PartNoteEntry> = {}): PartNoteEntry {
@@ -52,11 +52,20 @@ const route = reactive({ query: {} as Record<string, string> });
 const auth = reactive({ isApprover: true });
 const editPath = { value: undefined as string | undefined };
 
-vi.mock('@/api/repositories', () => ({
-  useReviewRepo: () => ({ listReviews: listReviewsFn }),
-  useTemplateRepo: () => ({ getTemplate: getTemplateFn, getSampleData: getSampleDataFn }),
-  useNoteRepo: () => ({ listNotes: listNotesFn, addNote: addNoteFn }),
-}));
+vi.mock('@/api/repositories', async () => {
+  const { ok } = await import('@editor/shared');
+  return {
+    useReviewRepo: () => ({ listReviews: listReviewsFn }),
+    useTemplateRepo: () => ({
+      getTemplate: getTemplateFn,
+      getSampleData: getSampleDataFn,
+      // 属性欄の委託会社・ファンド名(Rep1)。この画面の関心ではないので空で返す。
+      listCompanies: async () => ok([]),
+      listFunds: async () => ok([]),
+    }),
+    useNoteRepo: () => ({ listNotes: listNotesFn, addNote: addNoteFn }),
+  };
+});
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }));
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }));
 vi.mock('@/stores/tabMemory', () => ({
@@ -76,7 +85,6 @@ function meta(patch: Partial<ReviewRequestMeta>): ReviewRequestMeta {
     id: 'rv1',
     templateId: TPL,
     attributes: ATTRS,
-    fundCode: '510037',
     origin: 'edit',
     status: 'pending',
     submittedBy: 'editor1',
@@ -100,7 +108,7 @@ function template(patch: Partial<Template> = {}): Template {
       updatedAt: '2026-09-03T00:00:00.000Z',
       updatedBy: 'editor1',
     },
-    html: '<div class="page"><h1></h1><p></p></div>',
+    html: '<h1></h1><p></p>',
     css: '',
     filled: '',
     ...patch,
@@ -329,8 +337,8 @@ describe('コメントの宛先', () => {
     getTemplateFn.mockResolvedValue(
       ok(
         template({
-          html: '<div class="page"><h1></h1></div>',
-          filled: '<div class="page"><h1></h1><p></p><table></table></div>',
+          html: '<h1></h1>',
+          filled: '<h1></h1><p></p><table></table>',
         }),
       ),
     );
@@ -385,7 +393,7 @@ describe('宛先の区画別化(表示中の宛先へ投稿する)', () => {
     await selects[0].setValue(COVER);
     await w.findAll('[data-stub-add]')[0].trigger('click');
     await flushPromises();
-    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文', {});
+    expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文');
   });
 
   it('宛先が未選択なら追加を押しても投稿しない(composable が null キーで早期 return する)', async () => {

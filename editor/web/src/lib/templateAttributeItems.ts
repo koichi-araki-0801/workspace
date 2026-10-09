@@ -6,14 +6,14 @@
 
 import type { TemplateAttributes } from '@editor/shared';
 
-export interface TemplateAttributeItem {
+interface TemplateAttributeItem {
   key: keyof TemplateAttributes;
   label: string;
   value: string;
 }
 
 const LABELS: ReadonlyArray<[keyof TemplateAttributes, string]> = [
-  ['companyCode', '委託会社コード'],
+  ['companyCode', '委託会社'],
   ['fundCode', 'ファンドコード'],
   ['baseDate', '基準日'],
   ['editionType', '版種'],

@@ -11,6 +11,8 @@
 // server の `repositories/noteRepo.ts` と同じにする。
 import {
   type AddNoteOptions,
+  countAtCapacity,
+  entriesCapacityMessage,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
@@ -18,6 +20,7 @@ import {
   type NotePatch,
   type NoteRepository,
   type NoteStatus,
+  notesCapacityMessage,
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
@@ -79,12 +82,12 @@ function assertPathKeyLength(pathKey: string): void {
  * (`files/notesFile.ts` と同じ方針)。
  */
 function entriesAtCapacity(entries: readonly PartNoteEntry[]): boolean {
-  return entries.length >= MAX_NOTE_ENTRIES_PER_PART;
+  return countAtCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
 }
 
 /** 1 版インスタンス(pathKey の件数)が上限に達しているか。新規キーの追加可否にのみ使う。 */
 function notesAtCapacity(tpl: Record<string, PartNoteEntry[]>, pathKey: string): boolean {
-  return !(pathKey in tpl) && Object.keys(tpl).length >= MAX_NOTES_PER_TEMPLATE;
+  return !(pathKey in tpl) && countAtCapacity(Object.keys(tpl).length, MAX_NOTES_PER_TEMPLATE);
 }
 
 /** 投稿 ID から所在(パーツキー・位置)を引く。 */
@@ -127,16 +130,11 @@ export const localNoteRepo: NoteRepository = {
       const all = readStore();
       const tpl = all[templateId] ?? {};
       if (notesAtCapacity(tpl, pathKey)) {
-        throw validation(
-          `このテンプレートのコメントは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`,
-        );
+        throw validation(notesCapacityMessage(MAX_NOTES_PER_TEMPLATE));
       }
       const entries = tpl[pathKey] ?? [];
       if (entriesAtCapacity(entries)) {
-        throw validation(
-          `このパーツのコメントは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
-            '不要なコメントを削除してください。',
-        );
+        throw validation(entriesCapacityMessage(MAX_NOTE_ENTRIES_PER_PART));
       }
       const replyTo = opts.replyTo ?? null;
       const parent = replyTo === null ? null : requireParent(entries, replyTo);

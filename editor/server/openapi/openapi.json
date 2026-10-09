@@ -930,6 +930,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
+              "type": "string"
+            },
+            "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
           }
         ],
         "responses": {
@@ -991,6 +1000,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
+              "type": "string"
+            },
+            "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
           }
         ],
         "responses": {
@@ -1959,9 +1977,9 @@
         "tags": [
           "vivliostyle"
         ],
-        "summary": "ファンド別画像(images/)を 1 つ返す",
+        "summary": "画像(images/ 直下)を 1 つ返す",
         "operationId": "getFundAssetImage",
-        "description": "`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。ファイル名は `<fund>_<画像名>.<拡張子>` の約束だが、名前の規則は検査しない。サブフォルダ・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、SVG には `Content-Security-Policy: sandbox` を付ける。",
+        "description": "`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。名前の規則は検査しない。会社フォルダ 1 段の画像は `/fund-assets/images/{dir}/{file}` で取る。`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、SVG には `Content-Security-Policy: sandbox` を付ける。",
         "parameters": [
           {
             "in": "path",
@@ -2015,6 +2033,126 @@
         }
       }
     },
+    "/fund-assets/images/{dir}/{file}": {
+      "get": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "画像(images/ の会社フォルダ 1 段)を 1 つ返す",
+        "operationId": "getFundAssetImageInDir",
+        "description": "`imagesDir/<dir>/<file>` の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。フォルダは 1 段まで(2 段以上は経路が無く 404)。フォルダ名は大小文字を区別せずに実フォルダを探す(`smtam` で `SMTAM` を引く)。ファイル名は区別する。フォルダ名とテンプレの会社コードの照合はしない(テンプレ ID を持たない経路のため)。`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名・リンクのフォルダ・許可外の拡張子は 404。末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答ヘッダは `/fund-assets/images/{file}` と同じ。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dir",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "画像",
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が無い / 配信対象外 / SVG 検査の違反(本文なし)"
+          }
+        }
+      }
+    },
+    "/fund-assets/inspect": {
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "画像が配信されるかを確かめる(中身は返さない)",
+        "operationId": "inspectFundAssets",
+        "description": "参照ごとに、`/fund-assets/images/...` の配信ルートと同じ判定(経路の検査 → 実体 → 読み込み → SVG の検査)を行い、`ok` / `missing` / `svg_rejected` を返す。`svg_rejected` には SVG の検査の違反の文言を `violations` に載せる。`missing` は存在しない・経路が不正(`..`・区切り・予約名など)・許可外の拡張子を区別しない。1 回 50 件まで(超えると 400)。ファイルの中身は返さない。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundAssetInspectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "参照ごとの判定(要求と同じ順)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundAssetInspectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/build": {
       "post": {
         "tags": [
@@ -2022,7 +2160,7 @@
         ],
         "summary": "インライン HTML+CSS から PDF を生成",
         "operationId": "buildInline",
-        "description": "\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。リクエストの `css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "description": "\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。リクエストの `css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。`<script src=\"../js/x.js\">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**してから組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2085,7 +2223,7 @@
         ],
         "summary": "vivliostyle プロジェクト(zip)から PDF を生成",
         "operationId": "buildProject",
-        "description": "リクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n任意クエリ: `entry`, `size`, `singleDoc`。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "description": "リクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n任意クエリ: `entry`, `size`, `singleDoc`(`singleDoc` は zip に config が無いときだけ効き、config があるときは無視する)。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。実行されるのは HTML に直接書いたインライン `<script>` だけである。zip へ `.js` は同梱できず、`<script src>` は相対 URL の解決基準がずれて 404 になる(サーバはインライン展開しない)。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
         "requestBody": {
           "content": {
             "application/zip": {
@@ -2130,6 +2268,16 @@
               }
             }
           },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
           "413": {
             "description": "プロジェクトが大きすぎる (kind=validation)",
             "content": {
@@ -2160,7 +2308,7 @@
         ],
         "summary": "複数のレンダリング済み文書を 1 つの PDF へ結合",
         "operationId": "buildMerge",
-        "description": "`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。リクエストの `css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "description": "`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。リクエストの `css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。`<script src=\"../js/x.js\">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**してから組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2263,7 +2411,7 @@
         ],
         "summary": "ライブプレビューを起動 (inline JSON または project zip)",
         "operationId": "startPreview",
-        "description": "inline は `application/json` (BuildInlineRequest)、project は `application/zip`。返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。\n\nzip 経路の受入条件は `POST /build/project` と**同一**である(同じ展開・検証を通る):\n\nリクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n",
+        "description": "inline は `application/json` (BuildInlineRequest)、project は `application/zip`。返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。\n\nzip 経路の受入条件と任意クエリ(`entry` `size` `singleDoc`)は `POST /build/project` と**同一**である(同じ展開・検証を通る):\n\nリクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n",
         "responses": {
           "201": {
             "description": "起動したセッション",
@@ -2287,6 +2435,26 @@
           },
           "401": {
             "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "プロジェクト zip が大きすぎる (zip 経路のみ。kind=validation)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2382,6 +2550,16 @@
           },
           "401": {
             "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2636,7 +2814,7 @@
             }
           },
           "403": {
-            "description": "権限不足 (admin 限定など)",
+            "description": "権限不足 (admin 限定)、または自分自身のロール変更・無効化 (code=USER_SELF_CHANGE)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2647,6 +2825,16 @@
           },
           "404": {
             "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "有効な admin が 0 人になる変更 (code=LAST_ADMIN)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2821,10 +3009,16 @@
           "partKey": {
             "type": "string",
             "minLength": 1,
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "change": {
             "type": "string"
+          },
+          "id": {
+            "description": "履歴 1 件の id(web が採番。重複表示の除去に使う)",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
         "required": [
@@ -2839,7 +3033,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 512,
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "content": {
             "type": "string",
@@ -2910,13 +3104,14 @@
             "type": "string",
             "maxLength": 1048576
           },
-          "fundCode": {
-            "type": "string",
-            "minLength": 1
-          },
           "filledHtml": {
             "type": "string",
             "maxLength": 4194304
+          },
+          "cssBaseline": {
+            "description": "確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす",
+            "type": "string",
+            "maxLength": 1048576
           },
           "origin": {
             "description": "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
@@ -2931,7 +3126,6 @@
           "templateId",
           "html",
           "css",
-          "fundCode",
           "origin"
         ]
       },
@@ -2998,6 +3192,47 @@
           "templateId"
         ]
       },
+      "FundAssetInspectRequest": {
+        "type": "object",
+        "properties": {
+          "refs": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundAssetRef"
+            }
+          }
+        },
+        "required": [
+          "refs"
+        ]
+      },
+      "FundAssetRef": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会社フォルダ(直下なら null)"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "ファイル名"
+          }
+        },
+        "required": [
+          "dir",
+          "file"
+        ]
+      },
       "BuildInlineRequest": {
         "type": "object",
         "properties": {
@@ -3018,7 +3253,7 @@
             "type": "string"
           },
           "singleDoc": {
-            "description": "単一ドキュメント扱い",
+            "description": "受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)",
             "type": "boolean"
           }
         },
@@ -3315,15 +3550,15 @@
         "properties": {
           "companyCode": {
             "type": "string",
-            "description": "委託会社コード"
+            "description": "委託会社(ファイル名の会社コード = Rep1 の委託会社略称)"
           },
           "fundCode": {
             "type": "string",
             "description": "ファンドコード"
           },
           "baseDate": {
-            "description": "基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない",
-            "example": "20240710",
+            "description": "基準日(yyyymmdd または yyyy-mm-dd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない",
+            "example": "2024-05-17",
             "type": "string"
           },
           "editionType": {
@@ -3446,11 +3681,15 @@
           },
           "css": {
             "type": "string",
-            "description": "fundCode ごとの共有 CSS"
+            "description": "テンプレ単位の CSS(css/<会社>_<ファンド>_<版種>.css。基準日違いの文書で共有)"
           },
           "filled": {
             "type": "string",
             "description": "エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。静的な fill が無ければ空で、エディタは都度描画にフォールバックする"
+          },
+          "cssMissing": {
+            "description": "確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。あれば付けない。生成直後(pending)は pending の CSS ファイルが無いとき true",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3492,10 +3731,16 @@
                   "enum": [
                     "初期差分",
                     "両側変更",
-                    "ペア側先行"
+                    "ペア側先行",
+                    "ペア側削除",
+                    "ペア側削除・ソース変更"
                   ]
                 },
                 "detectedAt": {
+                  "type": "string"
+                },
+                "deletedIn": {
+                  "description": "ペア側削除系の競合で、パーツを消した側の版種(交付版 / 全体版)",
                   "type": "string"
                 }
               },
@@ -3507,12 +3752,44 @@
               "additionalProperties": false
             },
             "description": "未解決競合(自動同期停止中)のパーツ一覧"
+          },
+          "cssConflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ruleKey": {
+                  "type": "string"
+                },
+                "detectedAt": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "規則を相手側の規則と照合できず転写を止めたときの種類",
+                  "type": "string",
+                  "enum": [
+                    "照合不可"
+                  ]
+                },
+                "sourceEdition": {
+                  "description": "変更を持っていた側(転写元)の版種",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ruleKey",
+                "detectedAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "未解決の CSS 規則の競合(ペア側が版種固有に直してある、または照合できず転写を止めた規則)"
           }
         },
         "required": [
           "pairTemplateId",
           "pairExists",
-          "conflicts"
+          "conflicts",
+          "cssConflicts"
         ],
         "additionalProperties": false
       },
@@ -3667,6 +3944,17 @@
                 "type": "null"
               }
             ]
+          },
+          "targetEdition": {
+            "description": "対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3736,7 +4024,7 @@
           },
           "partKey": {
             "type": "string",
-            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
+            "description": "版を跨いで安定なパーツ構造キー(文書全体でのアンカー#通し番号)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
           },
           "user": {
             "type": "string"
@@ -3771,7 +4059,7 @@
           },
           "pathKey": {
             "type": "string",
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "content": {
             "type": "string",
@@ -3846,9 +4134,6 @@
           "attributes": {
             "$ref": "#/components/schemas/TemplateAttributes"
           },
-          "fundCode": {
-            "type": "string"
-          },
           "origin": {
             "$ref": "#/components/schemas/ReviewOrigin"
           },
@@ -3919,7 +4204,6 @@
           "id",
           "templateId",
           "attributes",
-          "fundCode",
           "origin",
           "status",
           "submittedBy",
@@ -3942,9 +4226,6 @@
           },
           "attributes": {
             "$ref": "#/components/schemas/TemplateAttributes"
-          },
-          "fundCode": {
-            "type": "string"
           },
           "origin": {
             "$ref": "#/components/schemas/ReviewOrigin"
@@ -4027,7 +4308,6 @@
           "id",
           "templateId",
           "attributes",
-          "fundCode",
           "origin",
           "status",
           "submittedBy",
@@ -4049,7 +4329,7 @@
           },
           "staleWarning": {
             "type": "boolean",
-            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意。CSS は基準日をまたいで共有されるため、他の基準日の承認による変更も含む)"
           },
           "sync": {
             "description": "ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落",
@@ -4114,6 +4394,38 @@
             },
             "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
           },
+          "css": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "applied": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ペアの CSS へ写した規則のキー"
+                  },
+                  "conflicts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ペア側が承認前と違うため写さなかった規則のキー"
+                  }
+                },
+                "required": [
+                  "applied",
+                  "conflicts"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CSS の転写結果。承認で CSS が変わらなかったときは null"
+          },
           "error": {
             "anyOf": [
               {
@@ -4130,6 +4442,7 @@
           "pairTemplateId",
           "applied",
           "skipped",
+          "css",
           "error"
         ],
         "additionalProperties": false
@@ -4315,6 +4628,64 @@
           "css",
           "fundCode",
           "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "FundAssetInspectResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundAssetInspectResult"
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "FundAssetInspectResult": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会社フォルダ(直下なら null)"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "ファイル名"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "missing",
+              "svg_rejected"
+            ]
+          },
+          "violations": {
+            "description": "`svg_rejected` のときだけ。SVG の検査の違反の文言",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "dir",
+          "file",
+          "status"
         ],
         "additionalProperties": false
       },

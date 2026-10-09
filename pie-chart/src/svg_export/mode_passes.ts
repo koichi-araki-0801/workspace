@@ -18,18 +18,20 @@ import {
   normalizeAngle,
   angleInBand,
   nudgeTextAwayFromPie,
-  pieYAtX,
   placementBox,
   placementExtent,
   radialFraction,
   degToRad,
   isOtherCategory,
-  boxOverlapAmount,
   pxToLogical,
+  boxDistToOrigin,
+  hugRimAt,
+  pieYAtX,
+  sortByAngleDesc,
 } from '../layout/geometry.js';
-import { TOP_BAND_HALF_WIDTH_DEG, topBandSonohokaZone } from '../layout/placement.js';
+import { topBandSonohokaZone } from '../layout/placement.js';
 import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
-import { clampPlacement, blockedInY } from './post_layout.js';
+import { clampPlacement } from './post_layout.js';
 import { boxPieIntrusionMax, boxViewOverflowMax, countLeaderCrossings } from './leader_geometry.js';
 import type { Coord } from './leader_geometry.js';
 // do-no-harm ゲート・採点は emit_repair.ts の共通基盤を使う (循環 import だが関数宣言のみ参照で安全)。
@@ -74,11 +76,22 @@ const TOP_SEAM_ESCAPE_HALF_WIDTH_DEG = 32;
 // 最大の降下量」を採る。冠直下は円の幅が急に広がるため、刻みを細かくしても得られる余地は僅か。
 const RESTACK_DROP_STEPS = 8;
 
-// leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `isRedundantUpperLeftSmallLeader` /
-// `resolveLeaderCrossings` / `distPointToSegment`) と型 `Pt` / `Coord` は `leader_geometry.ts` 側。
+// leader 折れ線の幾何プリミティブ (`computeDrawnLeader` / `distPointToSegment`) と型 `Pt` / `Coord` は `leader_geometry.ts` 側。
 /** `leftStackMode` の左列とみなす placement (side=left・baseline=bottom・非 inside・x<0)。 */
 export function isLeftStackMember(p: Placement): boolean {
   return p.item.side === 'left' && p.baseline === 'bottom' && !p.insideSlice && p.x < 0;
+}
+
+/** 左上クラスタ (isUpperLeft) の左列とみなす placement (flipToRight・inside を除き、baseline=bottom・x<0)。 */
+function isUpperLeftStackMember(p: Placement): boolean {
+  return (
+    p.item.side === 'left' &&
+    p.item.isUpperLeft === true &&
+    !p.item.flipToRight &&
+    !p.insideSlice &&
+    p.baseline === 'bottom' &&
+    p.x < 0
+  );
 }
 
 /** twoLineLeftStackMode の左列メンバ (上部「その他」・真下中央・flip・inside を除く左側外側ラベル)。 */
@@ -111,9 +124,7 @@ export function applyTwoLineLeftColumn(placements: Placement[], cfg: PieLayoutCo
   const members = twoLineLeftColumnMembers(placements);
   if (members.length < 6) return;
   // 角度順 (上→下 = sin 降順)。
-  members.sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
+  sortByAngleDesc(members);
   // X: mid-angle 放射方向に rim から TWO_LINE_LEFT_OUT_FACTOR 倍だけ外へ離す。参考 PDF のように
   // ラベルと円の間に隙間を空け、rim→box の斜めリーダーを見えるようにする。anchor=end のまま。
   // 円から離す方向なので円侵入は起きない (clampPlacement の左端クランプは長名でのみ効く)。
@@ -207,8 +218,7 @@ export function applyLeftStackClusterEvenSpread(
   // 12 時 (midAngle=90°) 近傍の小スライスは「上部左の縦列」ではないので run から外す
   // (top-right 逃がし対象。境界は狭い: 香港 13° vs スイス 21°)。
   const isTopBand = (p: Placement): boolean =>
-    Math.abs(((((p.item.midAngle ?? 0) % 360) + 360) % 360) - 90) <=
-    LEFT_CLUSTER_TOP_BAND_EXCLUDE_DEG;
+    Math.abs(normalizeAngle(p.item.midAngle ?? 0) - 90) <= LEFT_CLUSTER_TOP_BAND_EXCLUDE_DEG;
   const left = placements
     .filter(
       (p) =>
@@ -243,10 +253,8 @@ export function applyLeftStackClusterEvenSpread(
   const below = left.slice(run.length);
   // 積み順は**角度順 (上→下 = sin 降順)**。box 中心順は baseline で箱が重なっていると角度順と
   // 食い違い、そのまま積むと縦並び=角度順の逆転 (inv) を作る (実測: pdf07 の韓国・ウォン重なり)。
-  const bySin = (a: Placement, b: Placement): number =>
-    Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0));
-  run.sort(bySin);
-  below.sort(bySin);
+  sortByAngleDesc(run);
+  sortByAngleDesc(below);
   const all = [...run, ...below];
 
   // do-no-harm 用に対象メンバの現状を退避 + 採点 before。本パスは emit 最終段なので、採点用
@@ -336,11 +344,7 @@ export function applyLeftStackClusterEvenSpread(
       p.y = newY;
     } else {
       // below の大スライス: 新 Y での左 rim (x=-sqrt(r^2-y^2)) を起点に pie クリアランス nudge。
-      const measured = placementExtent(p, cfg);
-      const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - newY * newY));
-      const nudged = nudgeTextAwayFromPie(-rimXmag, newY, p.anchor, p.baseline, measured, cfg);
-      p.x = nudged.x;
-      p.y = nudged.y;
+      hugRimAt(p, newY, 'left', cfg);
     }
     p.twoLineLeftColumn = true;
     if (!isCluster) clampPlacement(p, cfg);
@@ -492,6 +496,35 @@ export function applyLeftStackClusterEvenSpread(
 }
 
 /**
+ * 角度順 (上→下) に並んだ列の隣接ペアを、上箱高 + `scaledMinGap` まで上下均等に広げる (最大 8 巡)。
+ * 角度順は崩さない。`clamp` が true なら動かしたラベルを都度 `clampPlacement` で範囲内に収める。
+ */
+function spreadByAngleOrder(byAngle: Placement[], cfg: PieLayoutConfig, clamp: boolean): void {
+  const eps = 1e-6;
+  for (let iter = 0; iter < 8; iter += 1) {
+    let moved = false;
+    for (let i = 0; i + 1 < byAngle.length; i += 1) {
+      const u = byAngle[i]; // 上 (高 sin)
+      const l = byAngle[i + 1]; // 下 (低 sin)
+      const bu = placementBox(u, cfg);
+      const need = bu.top - bu.bottom + cfg.scaledMinGap; // 上箱高 + gap = 必要な中心 (top) 間隔
+      const cur = u.y - l.y;
+      if (cur < need - eps) {
+        const d = need - cur;
+        u.y += d / 2;
+        l.y -= d / 2;
+        if (clamp) {
+          clampPlacement(u);
+          clampPlacement(l);
+        }
+        moved = true;
+      }
+    }
+    if (!moved) break;
+  }
+}
+
+/**
  * leftStackMode 専用の順序保存 de-collision。汎用 resolveLabelOverlaps は箱中心ベクトル押しで
  * 密な左列の角度順を反転させる (例: 細い "カナダドル" が上へ catapult) ため、その左列だけを
  * 自然 rim Y (= 角度順に単調・最小変位) に再アンカーし、角度順 (上→下 = sin 降順) を保ったまま
@@ -511,30 +544,8 @@ export function spreadLeftStackByAngle(
     if (typeof ny === 'number') p.y = ny;
   }
   // 角度順 (上→下 = sin 降順)。
-  const byAngle = [...stack].sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
-  const eps = 1e-6;
-  for (let iter = 0; iter < 8; iter += 1) {
-    let moved = false;
-    for (let i = 0; i + 1 < byAngle.length; i += 1) {
-      const u = byAngle[i]; // 上 (高 sin)
-      const l = byAngle[i + 1]; // 下 (低 sin)
-      const bu = placementBox(u, cfg);
-      const need = bu.top - bu.bottom + cfg.scaledMinGap; // 上箱高 + gap = 必要な中心 (top) 間隔
-      const cur = u.y - l.y; // baseline=bottom なので box.top=y。u.y>l.y を維持したい
-      if (cur < need - eps) {
-        const d = need - cur;
-        // 上を上へ・下を下へ均等に分離 (角度順を保ったまま広げる)。clamp は clampPlacement が吸収。
-        u.y += d / 2;
-        l.y -= d / 2;
-        clampPlacement(u);
-        clampPlacement(l);
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
+  const byAngle = sortByAngleDesc([...stack]);
+  spreadByAngleOrder(byAngle, cfg, true);
 }
 
 /**
@@ -565,7 +576,7 @@ const LEFT_STACK_ALIGN_MIN_GAP_FRACTION = 0.25;
  * 自スライス rim 高さから始め、隣接ペアの必要間隔 (箱高 + floor) と上下端を反復投影で満たす。
  * 目標列が角度順に単調なので投影後も角度順 (=値順) は保たれる。y は箱中心オフセット保存で移動し
  * baseline 向き差を吸収。円キャップより完全に上/下のラベルは X 現状維持 (rim が無い)。
- * 移動ラベルは skipLeader を解除し、leader は emit の描画段が最終 box から再計算して追従する。
+ * leader は emit の描画段が最終 box から再計算して追従する。
  * do-no-harm: `emitDefectsWorsened` (一級 + through/cross 新規対 + inv) 悪化で全 revert。
  */
 export function alignLeftStackToAnchors(
@@ -612,7 +623,6 @@ export function alignLeftStackToAnchors(
   const intrusionBefore = boxPieIntrusionMax(placements, cfg);
   const origX = stack.map((p) => p.x);
   const origY = stack.map((p) => p.y);
-  const origSkip = stack.map((p) => Boolean(p.skipLeader));
 
   // 目標中心 = 自スライスの rim 高さ。隣接ペアの必要間隔 (箱高の半分ずつ + floor) と per-label の
   // 上下境界を反復投影で満たす (押し合いは対称に半分ずつ)。目標列が角度順に単調なので順序は保たれる。
@@ -675,8 +685,6 @@ export function alignLeftStackToAnchors(
     // 極寄りの新 y でも旧位置相当まで x を左へ引き戻し、箱左端が viewBox を割る clips を新規に作る
     // (`tidyTopRightEscapeeStack` の stale minTextX と同型)。pie クリアランスは上の
     // `nudgeTextAwayFromPie` が現在 y で保証し、その他の悪化は下の do-no-harm ゲートが拾う。
-    // 前段 gap-close が rim ハグ前提で立てた leader 抑制を解除 (縮退判定は leader 再計算が行う)。
-    p.skipLeader = false;
   }
 
   // 二級の box 円侵入 (`countDefects` は数えない) も安全網として非増加を要求する。
@@ -687,7 +695,6 @@ export function alignLeftStackToAnchors(
     stack.forEach((p, i) => {
       p.x = origX[i];
       p.y = origY[i];
-      p.skipLeader = origSkip[i];
     });
   }
 }
@@ -720,7 +727,7 @@ export function applyTopBandClusterReorder(
   coord: Coord,
   leftStackMode: boolean,
 ): void {
-  // forceTopRight 済 (= clusterTopBandBottomRight で右上 rim へ逃げた) item は再配置対象外。
+  // forceTopRight 済 (= `clusterTopBandBottom` で右上 rim へ逃げた) item は再配置対象外。
   // layout/placement.ts 側で確定済みの右上 rim 配置を尊重し、左帯の再スタックには参加させない。
   const cluster = placements.filter(
     (p) => p.item.clusterTopBand === true && !p.insideSlice && !p.forceTopRight,
@@ -772,9 +779,7 @@ export function applyTopBandClusterReorder(
         top = p.y + measured.height / 2;
         bot = p.y - measured.height / 2;
       }
-      const closestX = Math.max(left, Math.min(0, right));
-      const closestY = Math.max(bot, Math.min(0, top));
-      const dist = Math.hypot(closestX, closestY);
+      const dist = boxDistToOrigin({ left, right, top, bottom: bot });
       if (dist >= pieR + clearance) return;
       // pie 上側 (y > 0) に居る前提: y を上げて離す
       const need = pieR + clearance - dist + 1e-3;
@@ -988,9 +993,7 @@ function restackLiftedIfOverlapping(
       p.y = before - (need * step) / RESTACK_DROP_STEPS;
       clampPlacement(p);
       const moved = placementBox(p, cfg);
-      const nx = Math.max(moved.left, Math.min(moved.right, 0));
-      const ny = Math.max(moved.bottom, Math.min(moved.top, 0));
-      if (Math.hypot(nx, ny) >= cfg.pieRadius) break;
+      if (boxDistToOrigin(moved) >= cfg.pieRadius) break;
       p.y = before;
       clampPlacement(p);
     }
@@ -1150,41 +1153,18 @@ export function reorderLeftStackWithCondense(
     x: p.x,
     y: p.y,
     baseline: p.baseline,
-    skipLeader: p.skipLeader,
     nameScaleX: p.nameScaleX,
   }));
 
   // 各ラベルを自然 rim Y (sin*r = 角度順に単調・スライス直近) へ再アンカー。spanTop から詰めると低角度
   // ラベルがスライスから離れ leader が円を貫く (pie 侵入) ため、必ず自然 rim 高さに戻す。
-  const byAngle = [...stack].sort(
-    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-  );
+  const byAngle = sortByAngleDesc([...stack]);
   for (const p of byAngle) p.y = Math.sin(degToRad(p.item.midAngle ?? 0)) * pieR;
   // 角度順を保ったまま隣接を box 高+minGap に広げる (spreadLeftStackByAngle と同手・上下均等割り)。
-  for (let iter = 0; iter < 8; iter += 1) {
-    let moved = false;
-    for (let i = 0; i + 1 < byAngle.length; i += 1) {
-      const u = byAngle[i];
-      const l = byAngle[i + 1];
-      const bu = placementBox(u, cfg);
-      const need = bu.top - bu.bottom + cfg.scaledMinGap;
-      const cur = u.y - l.y;
-      if (cur < need - 1e-6) {
-        const d = need - cur;
-        u.y += d / 2;
-        l.y -= d / 2;
-        moved = true;
-      }
-    }
-    if (!moved) break;
-  }
+  spreadByAngleOrder(byAngle, cfg, false);
   // 各ラベルを新 Y で左 rim にハグ (X=-sqrt(r²-y²) 起点に pie nudge) → leader を短く保つ。
   for (const p of byAngle) {
-    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - p.y * p.y));
-    const measured = placementExtent(p, cfg);
-    const nudged = nudgeTextAwayFromPie(-rimXmag, p.y, p.anchor, p.baseline, measured, cfg);
-    p.x = nudged.x;
-    p.y = nudged.y;
+    hugRimAt(p, p.y, 'left', cfg);
     clampPlacement(p);
   }
   // 幅広ラベルを viewBox に収める長体圧縮 (per-member・横のみ・下限 0.7)。
@@ -1210,7 +1190,6 @@ export function reorderLeftStackWithCondense(
       s.p.x = s.x;
       s.p.y = s.y;
       s.p.baseline = s.baseline;
-      s.p.skipLeader = s.skipLeader;
       s.p.nameScaleX = s.nameScaleX;
     }
   }
@@ -1287,7 +1266,6 @@ export function separateLeftColumnByHeight(
     p,
     x: p.x,
     y: p.y,
-    skipLeader: p.skipLeader,
     nameScaleX: p.nameScaleX,
   }));
 
@@ -1335,7 +1313,6 @@ export function separateLeftColumnByHeight(
     for (const s of snapshot) {
       s.p.x = s.x;
       s.p.y = s.y;
-      s.p.skipLeader = s.skipLeader;
       s.p.nameScaleX = s.nameScaleX;
     }
   }
@@ -1363,15 +1340,7 @@ const LEFT_STACK_GAP_EXCESS_FACTOR = 1.6;
  * applyOutsideLeaderAngularOrder の後 (角度順確定後の最終 Y 上) に呼ぶ。
  */
 export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): void {
-  const stack = placements.filter(
-    (p) =>
-      p.item.side === 'left' &&
-      p.item.isUpperLeft === true &&
-      !p.item.flipToRight &&
-      !p.insideSlice &&
-      p.baseline === 'bottom' &&
-      p.x < 0,
-  );
+  const stack = placements.filter(isUpperLeftStackMember);
   if (stack.length < 3) return;
   stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
 
@@ -1402,28 +1371,20 @@ export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutCo
   const before = maxOverlap();
   const origY = stack.map((p) => p.y);
   const origX = stack.map((p) => p.x);
-  const origSkip = stack.map((p) => Boolean(p.skipLeader));
 
-  const pieR = cfg.pieRadius;
   for (let i = 0; i < stack.length; i += 1) {
     if (shift[i] <= tol) continue;
     const p = stack[i];
     const newY = p.y + shift[i];
     // 新 Y で左 rim にハグする X (= -sqrt(r^2 - y^2)) を起点に pie クリアランス nudge。
-    const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - newY * newY));
-    const measured = placementExtent(p, cfg);
-    const nudged = nudgeTextAwayFromPie(-rimXmag, newY, p.anchor, p.baseline, measured, cfg);
-    p.x = nudged.x;
-    p.y = nudged.y;
+    hugRimAt(p, newY, 'left', cfg);
     clampPlacement(p);
-    p.skipLeader = true; // rim ハグ位置に詰めたので leader は不要 (はみ出し防止)
   }
 
   if (maxOverlap() > before + tol) {
     stack.forEach((p, i) => {
       p.y = origY[i];
       p.x = origX[i];
-      p.skipLeader = origSkip[i];
     });
   }
 }
@@ -1458,15 +1419,7 @@ export function relieveLeftStackSpacing(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  const stack = placements.filter(
-    (p) =>
-      p.item.side === 'left' &&
-      p.item.isUpperLeft === true &&
-      !p.item.flipToRight &&
-      !p.insideSlice &&
-      p.baseline === 'bottom' &&
-      p.x < 0,
-  );
+  const stack = placements.filter(isUpperLeftStackMember);
   if (stack.length < 4) return;
   stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
   // 論理→px の横スケール (右ほど大。線形なので 2 点差で求まる)。見切れ量から右シフト量を逆算する。
@@ -1556,7 +1509,6 @@ export function reshapeToLeftRimHug(p: Placement, cfg: PieLayoutConfig, y: numbe
   p.baseline = 'bottom';
   p.forceTopRight = false;
   p.dominantOutsideEdge = true;
-  p.skipLeader = false;
   p.maxTextX = undefined;
   p.minTextX = undefined;
   p.maxTextY = undefined;
@@ -1565,7 +1517,7 @@ export function reshapeToLeftRimHug(p: Placement, cfg: PieLayoutConfig, y: numbe
   // その外側 (+ clearance) に右端を置く。これで Y を動かさずにパイ侵入を避け、等間隔が保たれる。
   const measured = placementExtent(p, cfg);
   const edgeY = Math.max(0, y - measured.height);
-  const rimXmag = Math.sqrt(Math.max(0, pieR * pieR - edgeY * edgeY));
+  const rimXmag = pieYAtX(edgeY, cfg);
   p.x = -(rimXmag + radialFraction(cfg, 0.02, 0.2));
   p.y = y;
   p.origTextX = p.x;
@@ -1629,7 +1581,7 @@ export function reorderTopBandLeftClusterByAngle(
   const maxLeaderPie = (): number => {
     let m = 0;
     for (const p of placements) {
-      const r = computeDrawnLeader(p, cfg, false);
+      const r = computeDrawnLeader(p, cfg);
       if (r.skipLeader) continue;
       for (let k = 0; k + 1 < r.pathPoints.length; k += 1) {
         const d = distPointToSegment(
@@ -1661,10 +1613,7 @@ export function reorderTopBandLeftClusterByAngle(
       // 中央寄せだと下段に大きな空きが残るため、上端基準でタイトに積む。間隔は上ラベルの実 box 高 +
       // クラスタ専用の小ギャップ (scaledMinGap より狭く詰める)。
       // ラベルを上げると box 下端が上がり rim ハグがパイへ近づく → リーダーが短く接続が締まる。
-      const byAngle = [...cluster].sort(
-        (a, b) =>
-          Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
-      );
+      const byAngle = sortByAngleDesc([...cluster]);
       const scaleY = Math.abs(coord.yScale(0) - coord.yScale(1));
       // 天井 (box 上端=textY が viewBox 上端 +1px に来る logical Y)。baseline=bottom なので box 上端=textY。
       const ceilTopY = scaleY > 1e-9 ? (coord.yScale(0) - 1) / scaleY : pieR;
@@ -1722,7 +1671,6 @@ function reshapeToTopRightEscape(p: Placement, cfg: PieLayoutConfig, yOffset = 0
   p.leaderBendFollowsEndpointX = false;
   p.forceTopRight = true;
   p.dominantOutsideEdge = true;
-  p.skipLeader = false;
   // 左配置由来のクランプ境界は右逃がし/縦積みを引き戻すため解除する。真のはみ出しは
   // 呼び出し側の do-no-harm (maxViewOverflow) ゲートが弾く。
   p.maxTextX = undefined;

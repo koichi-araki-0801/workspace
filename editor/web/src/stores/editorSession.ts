@@ -10,7 +10,7 @@
 import type { PartHistoryEntry } from '@editor/shared';
 import { defineStore } from 'pinia';
 import { reactive } from 'vue';
-import { editorUiKey, undoStacksKey } from '@/lib/storageKeys';
+import { cssBaselineKey, editorUiKey, undoStacksKey } from '@/lib/storageKeys';
 
 /** Undo/Redo 用の不透明スナップショット(editor の capture と一致: body HTML + CSS)。 */
 export interface EditorSnapshot {
@@ -102,8 +102,6 @@ function writeUiMap(map: UiMap): void {
 interface EditSession {
   /** パーツ構造キー(`partKey`)ごとのセッション内修正履歴(新しい順)。 */
   partHistory: Record<string, PartHistoryEntry[]>;
-  /** セッション内履歴エントリ id の採番カウンタ。 */
-  seq: number;
   /** Undo スタック(過去スナップショット)。 */
   undoPast: EditorSnapshot[];
   /** Redo スタック(未来スナップショット)。 */
@@ -138,6 +136,15 @@ function writeUndoMap(map: UndoMap): boolean {
   }
 }
 
+/** CSS の baseline の sessionStorage の写しを消す(使えなければ何もしない)。 */
+function removeCssBaselineMirror(templateId: string): void {
+  try {
+    sessionStorage.removeItem(cssBaselineKey(templateId));
+  } catch {
+    /* 消せなくても、次に編集画面を開けば測り直して上書きする */
+  }
+}
+
 /**
  * 編集セッションストア。`templateId` をキーに編集セッション state を保持し、編集画面と
  * プレビュー画面の往復を跨いで履歴/Undo/Redo を維持する。`useTemplateEditor.ts` が
@@ -147,6 +154,39 @@ function writeUndoMap(map: UndoMap): boolean {
  */
 export const useEditorSessionStore = defineStore('editorSession', () => {
   const sessions = reactive<Record<string, EditSession>>({});
+  /**
+   * 確定版の CSS を編集画面が読み込んだ直後の `getCss()`(`openCanvas.ts`)。申請に載せる
+   * (プレビュー画面が読む)。セッションの形(`EditSession`)とは別に持つ。プレビュー画面の
+   * 再読み込みでも申請に載るよう sessionStorage にも置く(タブの寿命 = 編集セッションの寿命)。
+   * 編集画面を開くたびに測り直して上書きする。
+   */
+  const cssBaselines = new Map<string, string>();
+
+  /** CSS の baseline を記録する。測れなかったとき(null)は前の値を消す。 */
+  function setCssBaseline(templateId: string, css: string | null): void {
+    if (css === null) {
+      cssBaselines.delete(templateId);
+      removeCssBaselineMirror(templateId);
+      return;
+    }
+    cssBaselines.set(templateId, css);
+    try {
+      sessionStorage.setItem(cssBaselineKey(templateId), css);
+    } catch {
+      /* 置けなくても同じタブのプレビュー往復はメモリで足りる */
+    }
+  }
+
+  /** CSS の baseline。編集画面を経ていない・測れなかったときは null。 */
+  function cssBaselineOf(templateId: string): string | null {
+    const mem = cssBaselines.get(templateId);
+    if (mem !== undefined) return mem;
+    try {
+      return sessionStorage.getItem(cssBaselineKey(templateId));
+    } catch {
+      return null;
+    }
+  }
 
   /** 編集セッションを取得する。無ければ Undo 永続ミラーから hydrate して生成する。 */
   function ensure(templateId: string): EditSession {
@@ -155,7 +195,6 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
       const e = readUndoMap()[templateId];
       sessions[templateId] = {
         partHistory: {},
-        seq: 0,
         undoPast: e?.past ?? [],
         undoFuture: e?.future ?? [],
         // `allowEdit`/`selectedKey` は永続ミラーに含まれない(常に既定のまま)。
@@ -231,6 +270,8 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
   /** 編集セッションを破棄する(メニュー復帰での破棄 / 確定保存後)。永続ミラーも消す。 */
   function clear(templateId: string): void {
     delete sessions[templateId];
+    cssBaselines.delete(templateId);
+    removeCssBaselineMirror(templateId);
     const map = readUndoMap();
     if (templateId in map) {
       delete map[templateId];
@@ -243,5 +284,14 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     }
   }
 
-  return { sessions, ensure, persist, persistUi, reset, clear };
+  return {
+    sessions,
+    ensure,
+    persist,
+    persistUi,
+    reset,
+    clear,
+    setCssBaseline,
+    cssBaselineOf,
+  };
 });

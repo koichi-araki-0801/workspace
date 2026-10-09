@@ -15,7 +15,7 @@
 import { type NoteMasterReflectSummary, parseAnyTemplateFileName } from '@editor/shared';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import { readFilledHtml, readTemplateHtml } from '../files/templateFiles.js';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
 import { logger } from '../logger.js';
 import type { ConfirmedTarget } from '../repositories/confirmedWrite.js';
 import type { PartRepo } from '../repositories/partRepo.js';
@@ -57,7 +57,7 @@ export function createNoteMasterService({
 
       try {
         const [html, catalog] = await Promise.all([
-          (target === 'filled' ? readFilledHtml : readTemplateHtml)(`${templateId}.html`),
+          readConfirmedHtml(target, `${templateId}.html`),
           parts.listParts({}),
         ]);
         const reflectIds = new Set(

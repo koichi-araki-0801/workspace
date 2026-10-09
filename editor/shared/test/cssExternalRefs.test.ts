@@ -7,12 +7,16 @@
 // **報告されること**の主張に置き、正常系は誤検知しないことの回帰に絞る。
 import { describe, expect, it } from 'vitest';
 import {
+  collectCssStringsInFunctions,
+  collectCssStructure,
   collectCssUrlCandidates,
+  collectCssUrlSpans,
   collectCssUrlSpansInContext,
   findExternalRefsInCss,
   isAllowedDataUrl,
   isSelfContainedUrl,
 } from '../src/security/cssExternalRefs.js';
+import { stripUrlIgnoredChars } from '../src/security/urlNormalize.js';
 
 const LF = String.fromCharCode(0x0a);
 const CR = String.fromCharCode(0x0d);
@@ -85,6 +89,80 @@ describe('バックスラッシュで書いた scheme 相対 URL', () => {
   });
 });
 
+// ── URL パーサが外す文字(前後の C0 制御文字と空白、途中の TAB/LF/CR)──
+// ブラウザは CSS のエスケープを解いた値を URL パーサへ渡し、URL パーサは前後の U+0020 以下を
+// 捨て、TAB/LF/CR を位置を問わず消す。エスケープで書いた `\1 ` や `\9 ` が残ったまま scheme の
+// 形を見ると「相対参照」と読み、ブラウザが取りに行く `http://…` を素通しする。
+describe('URL パーサが外す文字を挟んだ外部 URL', () => {
+  it.each([
+    ['前に U+0001', String.raw`.a{background:url("\1 http://evil.example/x")}`],
+    ['scheme の途中に TAB', String.raw`.a{background:url("ht\9 tp://evil.example/x")}`],
+    [
+      '引用符文字列の scheme の途中に LF',
+      String.raw`.a{background:image-set("ht\a tp://evil.example/x" 1x)}`,
+    ],
+    ['未引用 url() の前に U+001F', String.raw`.a{background:url(\1f http://evil.example/x)}`],
+  ])('%s も報告する', (_label, css) => {
+    expect(findExternalRefsInCss(css)).not.toEqual([]);
+  });
+
+  it('引用符文字列の中の「バックスラッシュ + CRLF」(行継続)を挟んだ scheme も報告する', () => {
+    const css = `.a{background:url("ht\\${CR}${LF}tps://evil.example/x")}`;
+    expect(findExternalRefsInCss(css)).not.toEqual([]);
+  });
+
+  it('stripUrlIgnoredChars は前後の U+0020 以下と途中の TAB/LF/CR だけを外す', () => {
+    const c = String.fromCharCode;
+    expect(stripUrlIgnoredChars(`${c(1)} ht${c(9)}t${CR}${LF}ps://x/y ${LF}`)).toBe('https://x/y');
+    expect(stripUrlIgnoredChars(`${c(0xa0)}a${c(0xa0)}`)).toBe(`${c(0xa0)}a${c(0xa0)}`);
+  });
+
+  it.each([
+    `${String.fromCharCode(1)}http://evil.example/x`,
+    `ht${String.fromCharCode(9)}tp://evil.example/x`,
+    `https:${LF}//evil.example/x`,
+    `/${CR}/evil.example/x`,
+    `d${LF}ata:text/html,x`,
+  ])('%j は外部参照(自己完結ではない)', (url) => {
+    expect(isSelfContainedUrl(url)).toBe(false);
+  });
+
+  it('外す文字を挟んでも同梱資産・#id・許可した data: は通す(遮断しすぎない)', () => {
+    expect(isSelfContainedUrl(`${String.fromCharCode(1)}#g`)).toBe(true);
+    expect(isSelfContainedUrl(`fonts/a${String.fromCharCode(9)}b.woff2`)).toBe(true);
+    expect(isSelfContainedUrl(`data:image/p${LF}ng;base64,A`)).toBe(true);
+    expect(isAllowedDataUrl(`${String.fromCharCode(1)}data:image/png;base64,A`)).toBe(true);
+  });
+});
+
+// ── CSS の入力前処理(CRLF・CR・FF は LF へ畳まれる)──
+// 16 進エスケープの後ろの空白は 1 個だけ食われる。ブラウザは前処理で CRLF を LF 1 個にしてから
+// 字句を読むので、`\75` + CRLF + `rl(` は `url(` になる。原文のまま読むと CR だけが食われ、LF が
+// ident を切って `url(` を見落とす。
+describe('CRLF をまたぐエスケープ', () => {
+  it.each([
+    ['CRLF', `${CR}${LF}`],
+    ['CR', CR],
+    ['FF', FF],
+  ])('エスケープ `75` + %s + `rl(` を url() として読む', (_label, nl) => {
+    const css = `${String.raw`.a{background:\75`}${nl}rl(http://evil.example/x)}`;
+    expect(findExternalRefsInCss(css)).toEqual(['url(http://evil.example/x)']);
+  });
+
+  it('CRLF の後ろの位置は原文のオフセットで返す(置換・規則分割がずれない)', () => {
+    const css = `.a{}${CR}${LF}${CR}${LF}.b{background:url(x.png)}${CR}${LF}.c{}`;
+    const [span] = collectCssUrlSpans(css);
+    expect(span).toEqual({
+      value: 'x.png',
+      start: css.indexOf('url('),
+      end: css.indexOf(')') + 1,
+    });
+    const punct = collectCssStructure(css).punct.map((p) => p.at);
+    const expected = [...css].flatMap((ch, at) => ('{};'.includes(ch) ? [at] : []));
+    expect(punct).toEqual(expected);
+  });
+});
+
 describe('isAllowedDataUrl', () => {
   it('許可リストの data: URI だけを真にする(SVG は入れない)', () => {
     expect(isAllowedDataUrl('data:image/png;base64,AAAA')).toBe(true);
@@ -127,5 +205,190 @@ describe('collectCssUrlSpansInContext は入力サイズに対して線形', () 
     expect([a?.inFontFaceSrc, b?.inFontFaceSrc]).toEqual([true, true]);
     const spans = collectCssUrlSpansInContext('@font-face{src:url(#a);x:url(#c)}');
     expect(spans.map((x) => x.inFontFaceSrc)).toEqual([true, false]);
+  });
+});
+
+describe('collectCssStructure — 規則分割のための構造(検査と同じ走査器)', () => {
+  it('コメント・文字列の中の括弧は拾わず、位置と at-rule 名を返す', () => {
+    const css = '/* x */@media a{.b{c:"{"}}';
+    const s = collectCssStructure(css);
+    expect(s.comments).toEqual([{ start: 0, end: 7 }]);
+    expect([...s.atRules]).toEqual([[7, 'media']]);
+    expect(s.punct).toEqual([
+      { ch: '{', at: 15 },
+      { ch: '{', at: 18 },
+      { ch: '}', at: 24 },
+      { ch: '}', at: 25 },
+    ]);
+  });
+
+  it('url() の中の括弧と ; は拾わない', () => {
+    expect(collectCssStructure('.a{background:url(x{;}.png)}').punct).toEqual([
+      { ch: '{', at: 2 },
+      { ch: '}', at: 27 },
+    ]);
+  });
+
+  it('閉じていないコメントは末尾まで', () => {
+    expect(collectCssStructure('.a{}/* x').comments).toEqual([{ start: 4, end: 8 }]);
+  });
+
+  it('エスケープした at-rule 名は解決して返す', () => {
+    expect([...collectCssStructure('@\\6d edia x{}').atRules]).toEqual([[0, 'media']]);
+  });
+});
+
+describe('collectCssStringsInFunctions — 関数の引数にある引用符の文字列', () => {
+  it('関数名(小文字・エスケープ解決後)と値の組を、いちばん内側の関数で返す', () => {
+    expect(
+      collectCssStringsInFunctions(
+        String.raw`.a{background:IMAGE-SET("a.png" 1x, \69mage-set('b\'c'));x:f(g("d"), "e")}`,
+      ),
+    ).toEqual([
+      { value: 'a.png', fn: 'image-set' },
+      { value: "b'c", fn: 'image-set' },
+      { value: 'd', fn: 'g' },
+      { value: 'e', fn: 'f' },
+    ]);
+  });
+
+  it('関数の外の文字列・コメント・url() の中は数えない', () => {
+    expect(
+      collectCssStringsInFunctions(
+        '/* f("x") */.a{font-family:"F";fill:url("y.png");content:"z"} f() "w" @namespace "n";',
+      ),
+    ).toEqual([]);
+  });
+
+  it('関数名の後に空白やコメントを挟んだ括弧は関数ではなく、外側の関数を引き継ぐ', () => {
+    expect(collectCssStringsInFunctions('.a{b:f/**/("x")}')).toEqual([]);
+    expect(collectCssStringsInFunctions('.a{b:f(("x"))}')).toEqual([{ value: 'x', fn: 'f' }]);
+  });
+
+  it('閉じた関数の後ろの文字列は関数の外', () => {
+    expect(collectCssStringsInFunctions('.a{b:f("x") "y"}')).toEqual([{ value: 'x', fn: 'f' }]);
+  });
+
+  it('カスタムプロパティと initial-value の最上位の文字列は関数名を空で返す', () => {
+    expect(
+      collectCssStringsInFunctions(
+        String.raw`.a{--u:"x";\2d-v:"y";color:"z"}@property --w{syntax:"*";INITIAL-VALUE:"q"}`,
+      ),
+    ).toEqual([
+      { value: 'x', fn: '' },
+      { value: 'y', fn: '' },
+      { value: 'q', fn: '' },
+    ]);
+  });
+
+  it('関数の中の ; や } では関数を抜けない(ブラウザも関数を ) まで読む)', () => {
+    expect(collectCssStringsInFunctions('.a{b:f(;}.c{d:"x"')).toEqual([{ value: 'x', fn: 'f' }]);
+  });
+
+  it('カスタムプロパティの値の {} は値のブロックで、規則のブロックとして宣言を区切らない', () => {
+    expect(collectCssStringsInFunctions('.a{--u:{} "x"}.b{--v:{"y"}}')).toEqual([
+      { value: 'x', fn: '' },
+      { value: 'y', fn: '' },
+    ]);
+    // 普通のプロパティ名の後の `{` は入れ子の規則(`a:hover{…}`)なので、中の宣言を読む。
+    expect(collectCssStringsInFunctions('.p{a:hover{--u:"z";color:"w"}}')).toEqual([
+      { value: 'z', fn: '' },
+    ]);
+  });
+
+  it('[] や {} の中の ) では関数を閉じない(閉じ文字は最も内側の括弧と合うものだけ)', () => {
+    expect(collectCssStringsInFunctions('.a{b:f({)} "x") "y";c:g([)] "z")}')).toEqual([
+      { value: 'x', fn: 'f' },
+      { value: 'z', fn: 'g' },
+    ]);
+  });
+});
+
+// 名前空間 URI はブラウザが取得しない。`@namespace [接頭辞] <文字列 | url()>;` の形に最上位で
+// 収まる値だけを外し、形から外れたら(2 つ目の値・関数で包む・`;` で閉じない・規則のブロックの
+// 中)今までどおり外部参照として拒む。
+describe('@namespace の名前空間 URI', () => {
+  it.each([
+    '@namespace "http://www.w3.org/2000/svg";',
+    '@namespace svg url(http://www.w3.org/2000/svg);',
+    "@namespace svg url('http://www.w3.org/2000/svg');",
+    '@namespace url("http://www.w3.org/1999/xhtml") ;',
+    '@NAMESPACE svg "http://www.w3.org/2000/svg";',
+    '@\\6e amespace "http://www.w3.org/2000/svg";',
+    '@namespace /* c */ svg /* d */ "http://www.w3.org/2000/svg" /* e */;',
+  ])('前置きの URI は外部参照にしない %s', (ns) => {
+    expect(findExternalRefsInCss(`${ns}.a{color:red}`)).toEqual([]);
+  });
+
+  // 規則を閉じたあと(深さが 0 へ戻ったあと)の `@namespace` も最上位として読む。
+  it.each([
+    ['規則の後ろ', '.a{color:red}@namespace "http://www.w3.org/2000/svg";'],
+    ['空の @media{} の後ろ', '@media print{}@namespace "http://www.w3.org/2000/svg";'],
+  ])('最上位へ戻った後ろの @namespace は外部参照にしない: %s', (_name, css) => {
+    expect(findExternalRefsInCss(css)).toEqual([]);
+  });
+
+  it.each([
+    ['2 つ目の値', '@namespace "http://a/" "http://evil/x";', ['"http://a/"', '"http://evil/x"']],
+    ['関数で包む', '@namespace image-set("http://evil/x" 1x);', ['"http://evil/x"']],
+    [
+      '; で閉じずにブロックが続く',
+      '@namespace url(http://evil/a) .a{background:url(http://evil/b)}',
+      ['url(http://evil/a)', 'url(http://evil/b)'],
+    ],
+    ['閉じずに終わる', '@namespace "http://evil/x"', ['"http://evil/x"']],
+    ['前置きが 2 語', '@namespace a b "http://evil/x";', ['"http://evil/x"']],
+    [
+      'URI の後ろにエスケープした URL',
+      '@namespace svg url(x) url(\\68ttp://evil/x);',
+      ['url(http://evil/x)'],
+    ],
+    [
+      '@namespace の後ろの規則',
+      '@namespace "http://www.w3.org/2000/svg";.a{background:url(http://evil/x)}',
+      ['url(http://evil/x)'],
+    ],
+    ['@namespace 以外の at-rule の前置き', '@charset "http://evil/x";', ['"http://evil/x"']],
+    ['@import の文字列', '@import "http://evil/x";', ['@import', '"http://evil/x"']],
+    ['@import の url()', '@import url(http://evil/x);', ['@import', 'url(http://evil/x)']],
+    ['@media の前置きの url()', '@media url(http://evil/x){.a{color:red}}', ['url(http://evil/x)']],
+    ['宣言の url()', '.a{background:url(http://evil/x)}', ['url(http://evil/x)']],
+    ['カスタムプロパティの文字列', '.a{--x:"http://evil/x"}', ['"http://evil/x"']],
+    ['image-set の文字列', '.a{background:image-set("http://evil/x" 1x)}', ['"http://evil/x"']],
+    // 規則のブロックの中の `@namespace` は最上位ではないので、名前空間として読まない。
+    ['規則の中の @namespace', '.a{@namespace url(http://evil/x);}', ['url(http://evil/x)']],
+    ['@media の中の @namespace', '@media print{@namespace "http://evil/x";}', ['"http://evil/x"']],
+    [
+      'カスタムプロパティの値の @namespace',
+      '.a{--x:@namespace "http://evil/x";}',
+      ['"http://evil/x"'],
+    ],
+    // style 属性(宣言の並び)は `{` が無く規則のブロックの深さが 0 のままなので、深さだけでは
+    // 値の中と見分けられない。
+    ['宣言の並びの値の @namespace', '--x:@namespace "http://evil/x";', ['"http://evil/x"']],
+    // HTML 全体を CSS として舐める経路(`server/src/security/externalRefs.ts` の解析を諦めた入力)。
+    ['HTML の属性の並び', '<img alt=@namespace src="https://evil/x">', ['"https://evil/x"']],
+  ])('形から外れたら外部参照のまま: %s', (_name, css, want) => {
+    expect(findExternalRefsInCss(css)).toEqual(want);
+  });
+
+  it('collectCssUrlSpansInContext は名前空間 URI の url() に印を付け、ほかには付けない', () => {
+    const spans = collectCssUrlSpansInContext(
+      '@namespace svg url(http://www.w3.org/2000/svg);.a{fill:url(#g)}',
+    );
+    expect(spans.map((s) => [s.value, s.inNamespacePrelude])).toEqual([
+      ['http://www.w3.org/2000/svg', true],
+      ['#g', false],
+    ]);
+  });
+
+  it('collectCssUrlCandidates は名前空間 URI も候補として拾う(取得しない資産の配置判断なので)', () => {
+    expect(collectCssUrlCandidates('@namespace url(x.svg);')).toEqual(['x.svg']);
+  });
+
+  it('collectCssStringsInFunctions は前置きの文字列を数えない', () => {
+    expect(collectCssStringsInFunctions('@namespace svg "http://www.w3.org/2000/svg";')).toEqual(
+      [],
+    );
   });
 });

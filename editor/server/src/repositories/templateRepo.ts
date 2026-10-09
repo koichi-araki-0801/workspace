@@ -24,36 +24,28 @@ import {
 } from '@editor/shared';
 import { asString, asStringOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import {
-  deleteDraft,
-  draftExists,
-  draftMtime,
-  readDraft,
-  writeDraft,
-} from '../files/draftFiles.js';
+import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
 import { findInProgressIds } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
 import {
-  attrKey,
   filledExists,
   findTemplateId,
   listFilledFiles,
   listTemplateFiles,
   readFilledHtml,
-  readFundCss,
+  readTemplateCss,
   readTemplateHtml,
-  templateAttrKeys,
+  templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
-import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
 import { fileToMeta } from './templateMeta.js';
 
 const ATTR_KEYS = ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const;
 
 /** 大文字小文字を区別しない一致。ファイル名由来の属性と利用者の選択を照合する。 */
-export const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-export const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
+const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
 
 /** dropdown query の先頭 `depth` 個の設定済みフィールドにメタが一致するか。 */
 function matchesUpTo(m: TemplateMeta, q: DropdownQuery, depth: number): boolean {
@@ -88,17 +80,23 @@ function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOpti
 }
 
 /**
- * 編集タブが扱うテンプレ。`filled/`(確定)に、`includePending` なら `pending/`(生成直後の
- * 未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
+ * 編集タブが扱うテンプレ(値入り HTML = 基準日を持つものだけ)。`filled/`(確定)に、
+ * `includePending` なら `pending/`(生成直後の未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
  */
 async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[]> {
-  const files = await listFilledFiles();
+  // 値入り HTML は基準日を持つ 4 つ区切り(会社_ファンド_基準日_版種)だけ。3 つ区切りの名前
+  // (例 ファンド_基準日_版種)はテンプレートの形に読めてしまうので、名前の形で先に外す。
+  const files = (await listFilledFiles()).filter((f) => parseTemplateFileName(f) !== null);
   const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(isMeta);
   if (!includePending) return confirmed;
   // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、
   // 綴り違いの pending が消し残ると完全一致では同じテンプレが二重に出る。
   const confirmedIds = new Set(confirmed.map((m) => m.id.toLowerCase()));
-  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id.toLowerCase()));
+  // 作成タブの生成物(基準日なし)は作成タブの「作成中のテンプレートを開く」から開くので、
+  // id の形(基準日を持つ 4 つ区切り)で先に絞り、読まずに捨てる。
+  const pendingIds = (await listPendingIds()).filter(
+    (id) => !confirmedIds.has(id.toLowerCase()) && parseTemplateFileName(`${id}.html`) !== null,
+  );
   const pending = (
     await Promise.all(
       pendingIds.map(async (id): Promise<TemplateMeta | null> => {
@@ -135,7 +133,7 @@ export interface TemplateRepo {
   getDropdownOptions(q: DropdownQuery, scope: DropdownScope): Promise<DropdownOptions>;
   listTemplates(q: DropdownQuery): Promise<TemplateMeta[]>;
   getTemplate(id: string): Promise<Template>;
-  saveDraft(templateId: string, html: string, css: string, loginId: string): Promise<void>;
+  saveDraft(templateId: string, html: string, css: string): Promise<void>;
   getDraft(templateId: string): Promise<TemplateDraft | null>;
   discardDraft(templateId: string): Promise<void>;
   getSampleData(fundCode: string): Promise<SampleData>;
@@ -180,7 +178,6 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       // テンプレートは基準日で使い回さないので、テンプレートフォルダ(templates/)に 3 つ区切りの
       // ファイルがあるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
       const files = await listTemplateFiles();
-      const templateKeys = templateAttrKeys(files);
       const templateId = findTemplateId(files, companyCode, fundCode, editionType);
       const created = templateId !== null;
       // 作業中は、作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している下書きは
@@ -209,7 +206,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         .map(([code]) => ({
           fundCode: code,
           fundName: names.get(code) ?? '',
-          hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
+          hasTemplate: findTemplateId(files, companyCode, code, editionType) !== null,
         }))
         .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
       return { created, ...extra, seriesFunds };
@@ -228,12 +225,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      * `pending/`(生成直後の未確定実体)のファイル走査から導く。`templates/`(作成タブの
      * Jinja)は一覧に出さない — 値入り HTML が無いテンプレを編集して申請する事故を防ぐため。
      *
-     * 混ぜない設計は一度採ったが不成立だった: 作成タブは生成後に `/edit/:id` へ 1 回遷移する
-     * だけで、履歴タブは遷移経路を持たない。そのため一覧から外すと、生成直後にブラウザを
-     * 閉じた時点でその id へ到達する手段が UI から消える(= 作ったテンプレが行方不明になる)。
+     * 基準日を持たないテンプレート(作成タブの生成物)は出さない。生成直後の作業中のものは
+     * 作成タブの「作成中のテンプレートを開く」(`CreatableInfo.inProgressId`)から開ける。
      *
      * 未承認の内容を扱ってはいけない画面(比較タブ・結合 PDF)は**呼び出し側**で
-     * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
+     * `status === 'published'` に絞る。一覧側で落とすと、承認前の `pending/` へ編集タブから戻れなくなる。
      */
     async listTemplates(q) {
       return (await scanEditableMetas(true))
@@ -259,13 +255,13 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       if (isFilled && (await filledExists(fileName))) {
         const html = await readFilledHtml(fileName);
-        const css = await readFundCss(meta.attributes.fundCode);
-        return { meta, html, css, filled: html };
+        const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
+        return { meta, html, css, filled: html, ...(cssFound ? {} : { cssMissing: true }) };
       }
       if (!isFilled && (await templateExists(fileName))) {
         const html = await readTemplateHtml(fileName);
-        const css = await readFundCss(meta.attributes.fundCode);
-        return { meta, html, css, filled: '' };
+        const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
+        return { meta, html, css, filled: '', ...(cssFound ? {} : { cssMissing: true }) };
       }
       const pending = await readPending(id);
       if (!pending) throw notFound(`テンプレートが見つかりません: ${id}`);
@@ -274,19 +270,26 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         html: pending.html,
         css: pending.css,
         filled: '',
+        ...(pending.cssFound ? {} : { cssMissing: true }),
       };
     },
 
     /** 自動保存ドラフトはファイルのみ(`<dataRoot>/drafts`、git 管理外)。DB は引かない。 */
-    async saveDraft(templateId, html, css, _loginId) {
+    async saveDraft(templateId, html, css) {
       await writeDraft(templateId, html, css);
     },
 
     async getDraft(templateId) {
-      if (!(await draftExists(templateId))) return null;
-      const { html, css } = await readDraft(`${templateId}.html`, `${templateId}.css`);
+      const draft = await readDraft(templateId);
+      if (!draft) return null;
       // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
-      return { templateId, html, css, savedAt: (await draftMtime(templateId)) ?? '', savedBy: '' };
+      return {
+        templateId,
+        html: draft.html,
+        css: draft.css,
+        savedAt: (await draftMtime(templateId)) ?? '',
+        savedBy: '',
+      };
     },
 
     /** 確定保存せずメニューへ戻った際に、未確定の下書き作業コピーを破棄する。 */
@@ -307,25 +310,4 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       return buildSampleData(master, fundCode);
     },
   };
-}
-
-/**
- * 確定内容を実ファイルへ反映する(承認ワークフロー専用の入口)。実体は
- * `confirmedWrite.applyConfirmedWrite` にあり、ここは呼び出し側
- * (`reviewRepo.approveReview`)の参照を保つための薄い委譲。名前検査・ファンド帰属検査・
- * 実行コード不変性の照合・snapshot/restore・git コミット・監査はすべてチョークポイント側。
- *
- * sproc に依存しないため `createTemplateRepo` の中へは入れない — 入れると
- * `createReviewRepo` がテンプレート集約ごと受け取る必要が生じ、承認の依存が広がる。
- */
-export function applyConfirmedSave(req: {
-  templateId: string;
-  target: ConfirmedTarget;
-  html: string;
-  css: string;
-  fundCode: string;
-  commitMessage: string;
-  author: string;
-}): Promise<TemplateMeta> {
-  return applyConfirmedWrite({ kind: 'review-approve', ...req });
 }

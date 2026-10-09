@@ -7,20 +7,22 @@
 // 指定ページ同士を並べられるようにする。ずらしは Worker(`buildHtmlDiffAligned`)での
 // 再 diff で反映し、設定は一時的(画面を離れる/再比較で破棄)。
 import { type TemplateVersionMeta, toAppError } from '@editor/shared';
-import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw } from '@lucide/vue';
+import { ChevronDown, ChevronLeft, ChevronRight, RotateCcw, TriangleAlert } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import PageNav from '@/components/PageNav.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { DropdownMenu, DropdownMenuItem, Tooltip } from '@/components/ui/overlays';
 import { logError } from '@/lib/appError';
+import { isEditableTarget } from '@/lib/dom';
 import { formatDateTimeShort } from '@/lib/format';
 import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { cn } from '@/lib/utils';
 import { htmlWorker } from '@/workers';
-import { buildDiffDoc, diffHighlightCss, type HtmlDiff, type PagePair } from './htmlBlockDiff';
+import { buildFramedDiffDoc } from './framedDiffDoc';
+import type { HtmlDiff, PagePair } from './htmlBlockDiff';
 import PageMatchInput from './PageMatchInput.vue';
-import { directOffset } from './pageMatch';
+import { alignWarningText, directOffset, layoutRows } from './pageMatch';
 
 const props = defineProps<{
   before: TemplateVersionMeta; // ファイルA(左)
@@ -80,12 +82,7 @@ function goNextChanged() {
 
 // ── グローバルキーボード送り(←/→、Shift で変更ページ間) ──────────────────
 // `PageNav` の入力欄にフォーカスしないとキー操作できなかったのを補う。入力系への
-// フォーカス中はキーを奪わない(`useEditorShortcuts.ts` の isEditableTarget と同方針)。
-function isEditableTarget(t: EventTarget | null): boolean {
-  if (!(t instanceof HTMLElement)) return false;
-  const tag = t.tagName;
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t.isContentEditable;
-}
+// フォーカス中はキーを奪わない(`isEditableTarget`)。
 function onKeydown(e: KeyboardEvent): void {
   if (isEditableTarget(e.target)) return;
   if (e.key === 'ArrowLeft') {
@@ -107,11 +104,15 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 type Side = 'before' | 'after';
 const beforeCount = computed(() => props.diff.beforePageCount);
 const afterCount = computed(() => props.diff.afterPageCount);
-// 行数はどちらか多い方。恒等時に全ページが 1 行ずつ並ぶ。
-const rowCount = computed(() => Math.max(beforeCount.value, afterCount.value, 1));
-
-const beforeOff = ref<number[]>(Array(rowCount.value).fill(0));
-const afterOff = ref<number[]>(Array(rowCount.value).fill(0));
+// 行数はどちらか多い方が基準(恒等時に全ページが 1 行ずつ並ぶ)。ずらして末尾があふれたら
+// `layoutRows` が行を足すので、行数と警告はその結果で持つ。
+const baseRows = computed(() => Math.max(beforeCount.value, afterCount.value, 1));
+const initialLayout = layoutRows([], [], beforeCount.value, afterCount.value);
+const rowCount = ref(initialLayout.rowCount);
+const layout = ref(initialLayout);
+const beforeOff = ref<number[]>(initialLayout.beforeOff);
+const afterOff = ref<number[]>(initialLayout.afterOff);
+const warningText = computed(() => alignWarningText(layout.value));
 // チェック ON のとき、ずらしボタンは「このページだけ」。OFF のとき以降の行も連動。
 const localOnly = ref(false);
 
@@ -135,6 +136,18 @@ function buildPairs(): PagePair[] {
     pairs.push({ before: idxOf('before', i), after: idxOf('after', i) });
   }
   return pairs;
+}
+
+// offset を `layoutRows` で組み直して行数・警告を更新し、再 diff する。現在ページは新しい
+// 行数に収める(ずらしを戻して行が減ったとき、存在しない行を指さないため)。
+function applyLayout() {
+  const l = layoutRows(beforeOff.value, afterOff.value, beforeCount.value, afterCount.value);
+  beforeOff.value = l.beforeOff;
+  afterOff.value = l.afterOff;
+  rowCount.value = l.rowCount;
+  layout.value = l;
+  currentPage.value = Math.min(currentPage.value, Math.max(l.rowCount - 1, 0));
+  realign();
 }
 
 // 連打時は最後の操作だけ反映する(古い結果で上書きしないトークンガード)。
@@ -170,7 +183,7 @@ function shift(side: Side, delta: number) {
   } else {
     for (let j = r; j < off.length; j++) off[j] = (off[j] ?? 0) + delta; // 以降も連動
   }
-  realign();
+  applyLayout();
 }
 
 // 番号入力での直接指定(そのページだけ。連動しない)。値は 0 起点 index か null(対応なし)。
@@ -178,13 +191,13 @@ function setDirect(side: Side, value: number | null) {
   const off = sideOff(side);
   const r = currentPage.value;
   off[r] = directOffset(value, r);
-  realign();
+  applyLayout();
 }
 
 function resetAlign() {
-  beforeOff.value = Array(rowCount.value).fill(0);
-  afterOff.value = Array(rowCount.value).fill(0);
-  realign();
+  beforeOff.value = Array(baseRows.value).fill(0);
+  afterOff.value = Array(baseRows.value).fill(0);
+  applyLayout();
 }
 
 const isAligned = computed(
@@ -207,15 +220,12 @@ const afterMatch = matchModel('after');
 // ブロック級(要素まるごと)は左帯+淡い背景、語句級(テキスト中)は前景の下線で区別する
 // (挿入=緑下線 / 削除=赤下線。打消線は使わず色で挿入・削除を分ける)。語句級は要素級と
 // 入れ子になっても潰れないよう前景寄りの強調にしている。
-const HIGHLIGHT_CSS = diffHighlightCss(18);
+const buildDoc = buildFramedDiffDoc(18);
 
 // `iframe` を中身の高さに合わせる(承認プレビューと共有)。高さは子からの postMessage で
 // 受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
 // 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
-const { fitFrame, withHeightReporter } = useIframeAutoFit();
-
-const buildDoc = (fragment: string, css: string): string =>
-  withHeightReporter(buildDiffDoc(fragment, css, HIGHLIGHT_CSS));
+const { fitFrame } = useIframeAutoFit();
 
 const beforeDoc = computed(() => buildDoc(page.value?.beforeHtml ?? '', props.cssBefore));
 const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssAfter));
@@ -372,6 +382,16 @@ const afterDoc = computed(() => buildDoc(page.value?.afterHtml ?? '', props.cssA
       </Button>
 
       <span v-if="realigning" class="text-xs text-muted-foreground">再計算中…</span>
+
+      <p
+        v-if="warningText"
+        role="status"
+        data-testid="page-align-warning"
+        class="flex w-full items-start justify-center gap-1.5 text-xs text-amber-900 dark:text-amber-200"
+      >
+        <TriangleAlert class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>{{ warningText }}</span>
+      </p>
     </div>
 
     <!-- 現在のページ。再 diff 中は古い内容の表示中であることを減光で示す。 -->

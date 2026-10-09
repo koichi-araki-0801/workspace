@@ -3,8 +3,8 @@
 // 退行を防ぐ要のテスト。
 import { isAppError } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AsyncHtmlWorker } from '../src/workers';
 import { createFallbackWorker } from '../src/workers/fallback';
+import type { AsyncHtmlWorker } from '../src/workers/htmlApi';
 
 /** 4 メソッドの既定実装を持つダミー Worker。`impl` で必要なものだけ差し替える。 */
 function makeWorker(impl: Partial<AsyncHtmlWorker> = {}): AsyncHtmlWorker {

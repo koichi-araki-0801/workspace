@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
-import { K } from '@/api/local/store';
+import { K, read, write } from '@/api/local/store';
 import { confirmSaveLocal, localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
@@ -29,7 +29,6 @@ async function approveSkeleton(fundCode: string, editionType: string, html: stri
     templateId: id,
     html,
     css: '',
-    fundCode,
     origin: 'create',
   });
   if (!isOk(saved)) throw new Error('confirmSaveLocal に失敗');
@@ -261,17 +260,44 @@ describe('localHistoryRepo pdf/create history', () => {
 });
 
 describe('localTemplateRepo dropdowns / generate / drafts', () => {
+  it('基準日なし(作成タブの生成物・承認済みテンプレート)は一覧と候補に出ない', async () => {
+    const approved = await approveSkeleton('510037', '交付版', '<p>{{ fund.name }}</p>');
+    const gen = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510155',
+      editionType: '全体版',
+    });
+    if (!isOk(gen)) throw new Error('generate に失敗');
+    const list = await localTemplateRepo.listTemplates({});
+    if (!isOk(list)) throw new Error('listTemplates に失敗');
+    const ids = list.value.map((m) => m.id);
+    expect(ids).not.toContain(approved);
+    expect(ids).not.toContain(gen.value.template.meta.id);
+    expect(list.value.every((m) => m.attributes.baseDate !== undefined)).toBe(true);
+    for (const scope of ['edit', 'published'] as const) {
+      const opts = await localTemplateRepo.getDropdownOptions(
+        { companyCode: 'AM01', fundCode: '510155' },
+        scope,
+      );
+      if (!isOk(opts)) throw new Error('getDropdownOptions に失敗');
+      expect(opts.value.editionTypes).not.toContain('全体版');
+    }
+  });
+
   it('listCompanies / listFunds / getCreatableInfo は fixtures から作る', async () => {
     const companies = await localTemplateRepo.listCompanies();
+    // 略称(ファイル名の会社コード)と Rep1 の委託会社コードは別の値(検証用 DB と同じ対応)。
     expect(isOk(companies) && companies.value[0]).toMatchObject({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
     });
-    const funds = await localTemplateRepo.listFunds('AM01');
+    const funds = await localTemplateRepo.listFunds('0001');
     expect(isOk(funds) && funds.value.map((f) => f.fundCode)).toContain('510037');
+    const byAbbr = await localTemplateRepo.listFunds('AM01');
+    expect(isOk(byAbbr) && byAbbr.value).toEqual([]);
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '510037',
       editionType: '交付版',
     });
@@ -282,7 +308,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(id).toBe('AM01_510037_交付版');
     const after = await localTemplateRepo.getCreatableInfo({
       companyCode: 'am01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '510037',
       editionType: '交付版',
     });
@@ -303,10 +329,62 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(r.value.template.meta.id).toBe('AM01_510155_全体版');
   });
 
+  describe('generate の CSS の初期値(server の生成と同じ規則)', () => {
+    /** テンプレ単位の CSS を置く(`null` は消す)。 */
+    const putCss = (name: string, css: string | null): void => {
+      const all = read<Record<string, string>>(K.cssOverride, {});
+      if (css === null) delete all[name];
+      else all[name] = css;
+      write(K.cssOverride, all);
+    };
+    const gen = (sourceFundCode?: string) =>
+      localTemplateRepo.generate({
+        companyCode: 'AM01',
+        fundCode: '510155',
+        editionType: '全体版',
+        ...(sourceFundCode === undefined ? {} : { sourceFundCode }),
+      });
+
+    it('コピー元テンプレの CSS を、同じ名前の既存 CSS より優先する', async () => {
+      await approveSkeleton('510037', '全体版', '<p>元</p>');
+      putCss('AM01_510037_全体版.css', '.src{}');
+      putCss('AM01_510155_全体版.css', '.own{}');
+      const r = await gen('510037');
+      if (!isOk(r)) throw new Error('generate に失敗');
+      expect(r.value.template.css).toBe('.src{}');
+    });
+
+    it('コピー元テンプレはあるが CSS ファイルが無ければ、同じ名前の既存 CSS があっても空', async () => {
+      await approveSkeleton('510037', '全体版', '<p>元</p>');
+      putCss('AM01_510037_全体版.css', null);
+      putCss('AM01_510155_全体版.css', '.own{}');
+      const r = await gen('510037');
+      if (!isOk(r)) throw new Error('generate に失敗');
+      expect(r.value.template.css).toBe('');
+    });
+
+    it('コピー元が無ければ同じ名前の既存 CSS、それも無ければ空', async () => {
+      await loginAdmin();
+      putCss('AM01_510155_全体版.css', '.own{}');
+      const withOwn = await gen();
+      if (!isOk(withOwn)) throw new Error('generate に失敗');
+      expect(withOwn.value.template.css).toBe('.own{}');
+      putCss('AM01_510155_全体版.css', null);
+      const none = await localTemplateRepo.generate({
+        companyCode: 'AM01',
+        fundCode: '510155',
+        editionType: '全体版',
+        replaceExisting: true,
+      });
+      if (!isOk(none)) throw new Error('generate に失敗');
+      expect(none.value.template.css).toBe('');
+    });
+  });
+
   it('getCreatableInfo はシリーズに属さないファンドではコピー元の候補を返さない', async () => {
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '999999',
       editionType: '交付版',
     });
@@ -350,18 +428,19 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
   // 各候補は「自分より上位の選択」だけで絞る。版種を選んでも候補がその版種 1 件へ潰れず、
   // 同一会社・ファンド・基準日の別版種(例: 全体版)へ選び直せること(再選択不能バグの回帰)。
   it('getDropdownOptions(published) は未承認(draft)を候補に含めない', async () => {
-    await localAuthRepo.login({ username: 'admin', password: 'admin' });
-    const r = await localTemplateRepo.generate({
-      companyCode: 'ZZ99',
-      fundCode: '000000',
-      editionType: '交付版',
+    // 作成経路で Jinja だけ差し替えた値入り HTML の id は、値入り HTML を失って draft になる。
+    const saved = await confirmSaveLocal({
+      templateId: ID,
+      html: '<p>{{ fund.name }}</p>',
+      css: '',
+      origin: 'create',
     });
-    if (!isOk(r)) throw new Error('generate に失敗');
-    const edit = await localTemplateRepo.getDropdownOptions({}, 'edit');
-    const pub = await localTemplateRepo.getDropdownOptions({}, 'published');
-    expect(isOk(edit) && edit.value.companyCodes).toContain('ZZ99');
-    expect(isOk(pub) && pub.value.companyCodes).not.toContain('ZZ99');
-    expect(isOk(edit) && edit.value.baseDates.every((d) => d !== '')).toBe(true);
+    expect(isOk(saved)).toBe(true);
+    const q = { companyCode: 'AM01', fundCode: FUND, baseDate: '20240710' };
+    const edit = await localTemplateRepo.getDropdownOptions(q, 'edit');
+    const pub = await localTemplateRepo.getDropdownOptions(q, 'published');
+    expect(isOk(edit) && edit.value.editionTypes).toContain('交付版');
+    expect(isOk(pub) && pub.value.editionTypes).not.toContain('交付版');
   });
 
   it('listTemplates の絞り込みは大文字小文字を区別しない', async () => {
@@ -487,7 +566,6 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     const { localReviewRepo } = await import('@/api/local/reviewRepo');
     const sub = await localReviewRepo.submitReview({
       templateId: gen.value.template.meta.id,
-      fundCode: '510003',
       origin: 'create',
       html: '<p>{{ x }}</p>',
       css: '',
@@ -513,7 +591,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     const id = first.value.template.meta.id;
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: 'AM01',
+      rep1CompanyCode: '0001',
       fundCode: '510155',
       editionType: '交付版',
     });
@@ -554,7 +632,6 @@ describe('localHistoryRepo.getSnapshot', () => {
       templateId: ID,
       html: '<p>a</p>',
       css: '',
-      fundCode: FUND,
       origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
@@ -610,7 +687,6 @@ describe('localTemplateRepo の生成と override', () => {
       templateId: ID,
       html: '<p>over</p>',
       css: '.o{}',
-      fundCode: FUND,
       origin: 'create',
       filledHtml: '<p>filled</p>',
     });

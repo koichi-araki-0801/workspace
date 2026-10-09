@@ -15,6 +15,7 @@
     "name": "報告書種別の帯",
     "description": "「交付運用報告書（交付版）」などの報告書種別と決算期・作成対象期間の帯です。",
     "usageNotes": "版種（交付版／全体版）に合わせて文言を調整してください。",
+    "targetEdition": "交付版",
     "updatedAt": "2026-05-01T09:00:00.000Z",
     "updatedBy": "山田 太郎",
     "content": "<div class=\"cover-report-band\">交付運用報告書（交付版）</div><p class=\"cover-report-sub\">第1期（決算日　2025年12月31日）／作成対象期間　2025年1月1日～2025年12月31日</p>"
@@ -46,6 +47,7 @@
     "name": "受益者あてコメント",
     "description": "「受益者のみなさまへ」で始まる表紙右側のあいさつ文です。",
     "usageNotes": "運用状況の概要を簡潔に記載します。長文になりすぎないようにしてください。",
+    "targetEdition": "交付版",
     "updatedAt": "2026-04-20T09:00:00.000Z",
     "updatedBy": "佐藤 花子",
     "content": "<div><p>受益者のみなさまへ</p><p>平素は格別のご愛顧を賜り、厚くお礼申しあげます。さて、当ファンドは、このたび、上記の決算を行いました。ここに期間中の運用状況についてご報告申しあげます。今後とも一層のご愛顧を賜りますよう、お願い申しあげます。</p></div>"
@@ -207,6 +209,7 @@
     "name": "組入上位銘柄表",
     "description": "順位・銘柄名・国地域・組入比率の4列表です（債券系テンプレート向け）。",
     "usageNotes": "銘柄の件数だけ行が増えます。数値は自動入力で差し替わります。",
+    "targetEdition": "全体版",
     "updatedAt": "2026-05-16T09:00:00.000Z",
     "updatedBy": "山田 太郎",
     "content": "<div class=\"sub\"><span class=\"no\">3</span><h3>組入上位銘柄</h3></div><table class=\"data\"><thead><tr><th>順位</th><th>銘柄名</th><th>国・地域</th><th>組入比率</th></tr></thead><tbody><tr><td>1</td><td>サンプル銘柄1</td><td>日本</td><td class=\"num\">12.3％</td></tr><tr><td>2</td><td>サンプル銘柄2</td><td>アメリカ</td><td class=\"num\">10.0％</td></tr><tr><td>3</td><td>サンプル銘柄3</td><td>イギリス</td><td class=\"num\">8.0％</td></tr><tr><td>4</td><td>サンプル銘柄4</td><td>その他</td><td class=\"num\">6.0％</td></tr><tr><td>5</td><td>サンプル銘柄5</td><td>日本</td><td class=\"num\">4.0％</td></tr></tbody></table>"
@@ -217,6 +220,7 @@
     "name": "通貨別配分表",
     "description": "通貨と純資産比を並べた通貨別配分表です。",
     "usageNotes": "債券系テンプレートで使用します。",
+    "targetEdition": "全体版",
     "updatedAt": "2026-05-16T09:00:00.000Z",
     "updatedBy": "山田 太郎",
     "content": "<div class=\"sub\"><span class=\"no\">4</span><h3>通貨別配分</h3></div><table class=\"data alloc-table\"><thead><tr><th>通貨</th><th>純資産比</th></tr></thead><tbody><tr><td>米ドル</td><td class=\"num\">40.0％</td></tr><tr><td>ユーロ</td><td class=\"num\">30.0％</td></tr><tr><td>円</td><td class=\"num\">20.0％</td></tr><tr><td>その他</td><td class=\"num\">10.0％</td></tr></tbody></table>"

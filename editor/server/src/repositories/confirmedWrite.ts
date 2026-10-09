@@ -5,45 +5,43 @@
 // `files/templateFiles.ts` の素の export に置くと、承認ゲートを通らない 2 つの
 // 呼び出し元(`routes/generate.routes.ts` / `sync/pairSyncService.ts`)が直接叩ける。
 // 「唯一の関所」を doc comment ではなくモジュール境界で強制するのが本ファイルの役割で、
-// `atomicWrite` と `templatePath`/`filledPath`/`cssPath` の組み合わせを持つファイルがここ 1 つで
-// あることは `test/confirmedWrite.guard.test.ts` が機械検査する。
+// `atomicWrite` と `templatePath`/`filledPath`/`resolveTemplateCssPath` の組み合わせを持つ
+// ファイルがここ 1 つであることは `test/confirmedWrite.guard.test.ts` が機械検査する。
 //
 // 書込は kind に依らず必ず次を通る:
 //   1. 名前検査(書込先ごとの形。`assertFileNameFor`、`templatePath` / `filledPath` にも内蔵)
-//   2. 帰属検査(review-approve = 申告 fundCode と id の一致 / pair-sync = source から
-//      再計算したペア id と target の一致。**引数で渡された target を信じない**)
+//   2. 帰属検査(CSS の書き先はサーバが id から決める(`cssFileNameOf`)。申請や呼び出し側の値を
+//      使わない / pair-sync = source から再計算したペア id と target の一致。**引数で渡された
+//      target を信じない**)
 //   3. 実行コード不変性の照合(`security/templateScripts.ts`)
 //   4. snapshot → 書込 → 失敗時 restore
 //   5. `afterWrite` フック(同期状態ファイル等)。失敗したら本体も restore して rethrow
 //   6. git コミット(ベストエフォート)と監査イベント
 //
-// `pair-sync` の型に `css` フィールドを**作らない**のは意図的である。ペア転写は本体 HTML
-// だけを書く経路であり、フィールドを用意すると将来誰かがファンド共有 CSS を承認外で
-// 書き換えられるようになる(型で不可能にしておく)。
+// `pair-sync` は CSS も書く(承認前後で変わった規則だけを 3 者比較で当てた結果。`sync/cssSync.ts`)。
+// CSS はテンプレ単位で、交付版と全体版は別ファイルなので、本文と同じく写さないと承認した書式の
+// 変更が片方の版にしか入らず二重メンテになる。承認外の書き換えにならないのは、写す中身が承認済みの
+// 差分だけで、書き先がペア id から決まる(引数でパスを受けない・ペア id は source から再計算する)ため。
 
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import {
   assertSkeletonFileName,
   assertTemplateFileName,
   notFound,
   pairedTemplateId,
-  parseAnyTemplateFileName,
   type TemplateMeta,
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
 import { atomicWrite } from '../files/atomic.js';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
 import { deletePending, readPending } from '../files/pendingFiles.js';
-import {
-  cssPath,
-  filledPath,
-  readFilledHtml,
-  readTemplateHtml,
-  templatePath,
-} from '../files/templateFiles.js';
+import { filledPath, resolveTemplateCssPath, templatePath } from '../files/templateFiles.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { audit, logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
+import { assertNoEditingMarkers } from './editingMarkerGate.js';
 import { fileToMeta } from './templateMeta.js';
 
 // ── 1. module-private な物理書込プリミティブ ──
@@ -62,20 +60,19 @@ async function writeTemplateAndCss(
   target: ConfirmedTarget,
   fileName: string,
   html: string,
-  fundCode: string,
+  stylePath: string,
   css: string,
 ): Promise<void> {
-  // 先に両方のパスを解決する。不正な名前でディレクトリだけ作られる(片方書けて片方落ちる)
-  // 中途半端な状態を避けるため、副作用の前に検査を済ませる。
+  // HTML のパスを先に解決する。不正な名前でディレクトリだけ作られる(片方書けて片方落ちる)
+  // 中途半端な状態を避けるため、副作用の前に検査を済ませる。CSS のパスは呼び出し側が解決済み。
   const htmlPath = htmlPathOf(target, fileName);
-  const stylePath = cssPath(fundCode);
   await fs.mkdir(htmlDirOf(target), { recursive: true });
   await fs.mkdir(config.cssDir, { recursive: true });
   await atomicWrite(htmlPath, html);
   await atomicWrite(stylePath, css);
 }
 
-/** テンプレ本体だけの単ファイル書込(ペア同期。CSS はファンド単位共有なので触らない)。 */
+/** テンプレ本体だけの単ファイル書込(CSS を渡さないペア同期)。 */
 async function writeTemplateHtml(
   target: ConfirmedTarget,
   fileName: string,
@@ -102,16 +99,9 @@ interface Snapshot {
 async function snapshotCurrent(
   target: ConfirmedTarget,
   fileName: string,
-  fundCode: string | null,
+  stylePath: string | null,
 ): Promise<Snapshot> {
-  const read = async (resolve: () => string): Promise<FileSnapshot> => {
-    let p: string;
-    try {
-      p = resolve();
-    } catch {
-      // 規約外の名前は解決できない = そもそも書けないので、補償の対象にしない。
-      return { state: 'unknown' };
-    }
+  const read = async (p: string): Promise<FileSnapshot> => {
     try {
       return { state: 'content', text: await fs.readFile(p, 'utf8') };
     } catch (e) {
@@ -122,8 +112,8 @@ async function snapshotCurrent(
     }
   };
   return {
-    html: await read(() => htmlPathOf(target, fileName)),
-    css: fundCode === null ? { state: 'unknown' } : await read(() => cssPath(fundCode)),
+    html: await read(htmlPathOf(target, fileName)),
+    css: stylePath === null ? { state: 'unknown' } : await read(stylePath),
   };
 }
 
@@ -131,7 +121,7 @@ async function snapshotCurrent(
 async function restoreTemplateAndCss(
   target: ConfirmedTarget,
   fileName: string,
-  fundCode: string | null,
+  stylePath: string | null,
   prev: Snapshot,
 ): Promise<void> {
   const restore = async (snap: FileSnapshot, resolve: () => string): Promise<void> => {
@@ -139,7 +129,7 @@ async function restoreTemplateAndCss(
     else if (snap.state === 'absent') await fs.rm(resolve(), { force: true });
   };
   await restore(prev.html, () => htmlPathOf(target, fileName));
-  if (fundCode !== null) await restore(prev.css, () => cssPath(fundCode));
+  if (stylePath !== null) await restore(prev.css, () => stylePath);
 }
 
 // ── 2. 公開 API ──
@@ -154,12 +144,11 @@ export type ConfirmedTarget = 'filled' | 'template';
  * 確定書込の操作。discriminated union にして「どの経路からの書込か」を型で明示し、
  * 監査へもそのまま載せる(capability 引数。宣言であって強制ではないが、監査で追える)。
  */
-export type ConfirmedWriteOp =
+type ConfirmedWriteOp =
   | {
       kind: 'review-approve';
       target: ConfirmedTarget;
       templateId: string;
-      fundCode: string;
       html: string;
       css: string;
       author: string;
@@ -172,8 +161,12 @@ export type ConfirmedWriteOp =
       targetTemplateId: string;
       sourceTemplateId: string;
       html: string;
+      /** ペアの CSS(承認で変わった規則だけを当てた結果)。省略時は CSS に触れない。 */
+      css?: string;
       actor: string;
       appliedParts: readonly string[];
+      /** 写した CSS 規則のキー(コミットメッセージと監査に件数を残す)。 */
+      appliedCssRules?: readonly string[];
       /**
        * 本体書込の直後に走らせる追加の永続化(同期状態ファイル)。ここが失敗したら
        * 本体も元へ戻す — 「転写済みなのに lastSynced が古い」状態は次回同期で偽競合を作る。
@@ -193,8 +186,7 @@ export async function baselineTemplateHtml(
   target: ConfirmedTarget,
 ): Promise<string> {
   const fileName = `${templateId}.html`;
-  const confirmed =
-    target === 'filled' ? await readFilledHtml(fileName) : await readTemplateHtml(fileName);
+  const confirmed = await readConfirmedHtml(target, fileName);
   if (confirmed !== '') return confirmed;
   const pending = await readPending(templateId);
   return pending?.html ?? '';
@@ -207,21 +199,14 @@ export async function baselineTemplateHtml(
 export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<TemplateMeta> {
   const templateId = op.kind === 'review-approve' ? op.templateId : op.targetTemplateId;
   const fileName = assertFileNameFor(op.target, `${templateId}.html`);
-  const attrs = parseAnyTemplateFileName(fileName);
 
   // ── 帰属検査 ──
-  const fundCode = op.kind === 'review-approve' ? op.fundCode : null;
-  if (op.kind === 'review-approve') {
-    // CSS はファンド単位の共有ファイル。申請が持つ `fundCode` が id の示すファンドと
-    // 食い違うと、別ファンドの共有 CSS を上書きできてしまうため一致を要求する。
-    if (attrs?.fundCode !== op.fundCode) {
-      throw validation(
-        `ファンドコードがテンプレート id と一致しません: ${op.fundCode} (id=${templateId})`,
-      );
-    }
-  } else {
+  // CSS の書き先はサーバが id から決める(review-approve は承認する文書、pair-sync は下で検査する
+  // 転写先)。申請や呼び出し側が書き先を名乗る形にすると、別テンプレの CSS を上書きできてしまう。
+  // 綴り違いが 2 つあればここで止まる(`resolveTemplateCssPath`)。
+  if (op.kind === 'pair-sync') {
     // 転写先は source から再計算する。呼び出し側の計算結果に載った pairId を信じると、
-    // そこを操作するだけで無関係な確定テンプレへ書けてしまう。
+    // そこを操作するだけで無関係な確定テンプレへ書けてしまう。CSS のパス解決より先に置く。
     const expected = pairedTemplateId(op.sourceTemplateId);
     if (expected === null || expected !== op.targetTemplateId) {
       throw validation(
@@ -230,6 +215,17 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
       );
     }
   }
+  const cssText = op.css;
+  let stylePath: string | null = null;
+  if (cssText !== undefined) {
+    stylePath = await resolveTemplateCssPath(templateId);
+    if (stylePath === null) throw validation(`CSS の名前を id から決められません: ${templateId}`);
+  }
+
+  // ── 往復用の印 ──
+  // 書き先(テンプレート / 値入り HTML)も経路(承認 / ペア転写)も問わない。申請の入口を
+  // すり抜けた本文(関所の導入前に積まれた申請を含む)を確定ファイルへ焼き付けない最後の関所。
+  assertNoEditingMarkers(op.html, templateId);
 
   // ── 実行コード不変性 ──
   // 承認者は実行結果しか見ない運用なので、JS が変わっていないことはシステムが保証する。
@@ -240,7 +236,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   });
 
   await ensureRepo();
-  const prev = await snapshotCurrent(op.target, fileName, fundCode);
+  const prev = await snapshotCurrent(op.target, fileName, stylePath);
 
   // 復元(補償)の失敗は握りつぶさない: 復元も同じ rename なので、書込を失敗させた
   // 共有違反(dataRoot がネットワークドライブのときは別クライアント起因でも起きる)が
@@ -248,7 +244,7 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   // 直せなかったことをエラーログと監査に残し、元の例外はそのまま呼び出し側へ返す。
   const restoreOrReport = async (): Promise<void> => {
     try {
-      await restoreTemplateAndCss(op.target, fileName, fundCode, prev);
+      await restoreTemplateAndCss(op.target, fileName, stylePath, prev);
     } catch (restoreErr) {
       logger.error(
         { err: restoreErr, templateId },
@@ -265,8 +261,8 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   };
 
   try {
-    if (op.kind === 'review-approve') {
-      await writeTemplateAndCss(op.target, fileName, op.html, op.fundCode, op.css);
+    if (stylePath !== null && cssText !== undefined) {
+      await writeTemplateAndCss(op.target, fileName, op.html, stylePath, cssText);
     } else {
       await writeTemplateHtml(op.target, fileName, op.html);
     }
@@ -284,11 +280,13 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
     }
   }
 
+  const cssRules = op.kind === 'pair-sync' ? (op.appliedCssRules?.length ?? 0) : 0;
   const commitMessage =
     op.kind === 'review-approve'
       ? op.commitMessage
       : `同期: ${op.targetTemplateId} ← ${op.sourceTemplateId} ` +
-        `(${op.appliedParts.length} パーツ) 実行者=${op.actor}`;
+        `(${op.appliedParts.length} パーツ${cssRules > 0 ? `・書式 ${cssRules} 規則` : ''}) ` +
+        `実行者=${op.actor}`;
   const author = op.kind === 'review-approve' ? op.author : op.actor;
   try {
     await withGitLock(() => commitAll(commitMessage, { name: author }));
@@ -324,7 +322,9 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
             sourceTemplateId: op.sourceTemplateId,
           },
     detail:
-      op.kind === 'pair-sync' ? { appliedParts: op.appliedParts.length } : { fundCode: fundCode },
+      op.kind === 'pair-sync'
+        ? { appliedParts: op.appliedParts.length, appliedCssRules: cssRules }
+        : { cssFile: stylePath === null ? null : path.basename(stylePath) },
   });
 
   if (op.kind === 'review-approve' && op.target === 'template') {

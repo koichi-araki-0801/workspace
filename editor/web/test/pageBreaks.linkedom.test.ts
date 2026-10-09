@@ -1,0 +1,56 @@
+// Worker と同じ linkedom の DOM で判定が動くことの確認。linkedom には `Node` グローバルが無いので、
+// node 環境(web-node)で回す。
+import { parseHTML } from 'linkedom';
+import { describe, expect, it } from 'vitest';
+import { findUncountedBreaks, pageItems, splitPages } from '@/lib/pageBreaks';
+
+const split = (html: string) => {
+  const { document } = parseHTML(`<!doctype html><html><body>${html}</body></html>`);
+  return splitPages(Array.from(document.body.children)).pages.map((p) => p.map((e) => e.id));
+};
+
+describe('splitPages(linkedom)', () => {
+  it('div.pagebreak でページを分け、区切り自身はパーツにしない', () => {
+    expect(
+      split('<section id=a></section><div class="pagebreak"></div><section id=b></section>'),
+    ).toEqual([['a'], ['b']]);
+  });
+
+  it('先頭と連続の区切りは白紙のページを作り、末尾の区切りはページを作らない', () => {
+    expect(
+      split(
+        '<div class=pagebreak></div><section id=a></section><div class=pagebreak></div>' +
+          '<div class=pagebreak></div><section id=b></section><div class=pagebreak></div>',
+      ),
+    ).toEqual([[], ['a'], [], ['b']]);
+  });
+
+  it('根の直下の inline の break-before で前に改ページし、page-break-before は数えない', () => {
+    expect(split('<p id=a></p><p id=b style="break-before:page"></p>')).toEqual([['a'], ['b']]);
+    expect(split('<p id=a></p><p id=b style="page-break-before:always"></p>')).toEqual([
+      ['a', 'b'],
+    ]);
+  });
+
+  it('findUncountedBreaks は入れ子の区切りと inline を返し、赤入れの配下は見ない', () => {
+    const { document } = parseHTML(
+      '<!doctype html><html><body>' +
+        '<div class=pagebreak></div>' +
+        '<section><div id=n1 class=pagebreak></div><p id=n2 style="break-after:page"></p>' +
+        '<div data-redline=""><div class=pagebreak></div></div></section>' +
+        '</body></html>',
+    );
+    expect(findUncountedBreaks(document.body).map((e) => e.id)).toEqual(['n1', 'n2']);
+  });
+});
+
+describe('pageItems(linkedom)', () => {
+  it('<style> を外して数える', () => {
+    const { document } = parseHTML(
+      '<!doctype html><html><body><style>.a{}</style><p id=a></p>' +
+        '<div class=pagebreak></div><style>.b{}</style><p id=b></p></body></html>',
+    );
+    const pages = splitPages(pageItems(Array.from(document.body.children))).pages;
+    expect(pages.map((p) => p.map((e) => e.id))).toEqual([['a'], ['b']]);
+  });
+});

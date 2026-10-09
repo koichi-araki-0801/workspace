@@ -4,7 +4,7 @@
 // 版一覧/スナップ/編集履歴は git(コミット履歴)が正典で、git log/show から導く。
 // PDF出力/作成/パーツ変更は DB には置かず、ファイル監査ログ
 // (`logs/history/*.jsonl`)へ記録/参照する。
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   assertTemplateId,
   type CreateHistoryEntry,
@@ -23,13 +23,13 @@ import {
   validation,
 } from '@editor/shared';
 import { appendHistory, readHistory } from '../files/historyFiles.js';
+import { resolveTemplateCssName } from '../files/templateFiles.js';
 import { commitDate, commitFiles, logAllWithFiles, logForFile, showFile } from '../git/gitRepo.js';
 
 // 版履歴は値入り HTML(`filled/`)のコミットで数える。編集タブ・比較画面が見る履歴は
 // 編集タブが読み書きする本文のもので、作成タブの Jinja(`templates/`)の履歴は画面から参照しない。
 const FILLED_PATHSPEC = 'filled';
 const filledRel = (templateId: string): string => `${FILLED_PATHSPEC}/${templateId}.html`;
-const cssRel = (fundCode: string): string => `css/${fundCode}.css`;
 
 /**
  * 変更ファイル一覧から `filled/*.html` を**すべて**取り出す。
@@ -132,9 +132,12 @@ export async function getSnapshot(
   const resolvedId = templateIdFromFileName(fileName);
   // html/css/日時は互いに独立した git read(`withGitLock` 非経由 = 並列安全)。
   // 逐次 await だと 3 プロセスの起動待ちが直列化するため Promise.all でまとめる。
+  // CSS はテンプレ単位(`css/<会社>_<ファンド>_<版種>.css`)。綴りは今の cssDir の実ファイルに合わせる
+  // (承認は既存の綴りで書くので、履歴の中の綴りも同じ)。旧名(`<fund>.css`)は見ない。
+  const cssName = await resolveTemplateCssName(resolvedId);
   const [html, css, timestamp] = await Promise.all([
     showFile(historyId, filledRel(resolvedId)),
-    showFile(historyId, cssRel(attrs.fundCode)),
+    cssName === null ? Promise.resolve('') : showFile(historyId, `css/${cssName}`),
     commitDate(historyId),
   ]);
   return {
@@ -187,9 +190,11 @@ export async function recordPartChange(
   partKey: string,
   change: string,
   loginId: string,
+  id?: string,
 ): Promise<void> {
   const entry: PartHistoryEntry = {
-    id: `pt-${randomUUID()}`,
+    // web が採番した id があればそれを残す(再読込した永続履歴とセッション内履歴を突き合わせるため)。
+    id: id ?? `pt-${randomUUID()}`,
     templateId,
     partKey,
     user: loginId,
@@ -207,5 +212,21 @@ export async function recordPartChange(
  * テンプレの履歴が 0 件になり「履歴が消えた」ように見える。
  */
 export async function listPartHistory(templateId: string): Promise<PartHistoryEntry[]> {
-  return readHistory<PartHistoryEntry>('part', { where: (e) => e.templateId === templateId });
+  const rows = await readHistory<Omit<PartHistoryEntry, 'id'> & { id?: string }>('part', {
+    where: (e) => e.templateId === templateId,
+  });
+  // id の無い行(手で直した行など)には、内容から決まる id を付ける。ファイルは書き換えず、
+  // 同じ行は読むたびに同じ id になるので、表示側の重複除去がぶれない。
+  return rows.map((e) =>
+    typeof e.id === 'string' && e.id.length > 0
+      ? (e as PartHistoryEntry)
+      : { ...e, id: legacyPartId(e) },
+  );
+}
+
+function legacyPartId(e: Omit<PartHistoryEntry, 'id'>): string {
+  const digest = createHash('sha1')
+    .update(JSON.stringify([e.templateId, e.partKey, e.timestamp, e.change]))
+    .digest('hex');
+  return `legacy-${digest}`;
 }

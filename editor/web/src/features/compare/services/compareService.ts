@@ -9,6 +9,7 @@ import {
   isErr,
   ok,
   type Result,
+  type ReviewOrigin,
   type TemplateMeta,
   type TemplateRepository,
   type TemplateVersionMeta,
@@ -44,8 +45,8 @@ export interface CompareCandidate {
   /** 選択可能な版 = 先頭に現行版(最新のライブ本文) 1 + 確定版(snapshot, 新しい順)。現行版が
    *  常に 1 つあるため、何も編集していないテンプレートでも 1 版以上になり比較対象に選べる。 */
   versions: TemplateVersionMeta[];
-  /** `versions.length`。版数列の表示と既存利用の互換のために保持する。 */
-  versionCount: number;
+  /** 選べる版の数(現行版 1 件 + 確定版。= 確定保存の回数 + 1)。`versions.length` と等しい。 */
+  selectableVersionCount: number;
 }
 
 /** テーブルを「版ごとの行」に平坦化したときの 1 行(テンプレート × 版)。 */
@@ -63,11 +64,11 @@ export interface RenderedVersion {
 }
 
 export interface CompareService {
-  /** cascading-dropdown クエリにヒットするテンプレート一覧(比較対象の選択用)。 */
+  /** cascading-dropdown クエリにヒットするテンプレート一覧(比較対象の選択用)。テストから直接検証するために公開する。 */
   listTemplates(query: DropdownQuery): Promise<Result<TemplateMeta[]>>;
-  /** ヒットしたテンプレートに確定版数を付与した候補一覧。 */
+  /** ヒットしたテンプレートに選べる版(現行版込み)を付与した候補一覧。 */
   listCandidates(query: DropdownQuery): Promise<Result<CompareCandidate[]>>;
-  /** テンプレートの確定版(snapshot 付き)を新しい順で返す。 */
+  /** テンプレートの確定版(snapshot 付き)を新しい順で返す。テストから直接検証するために公開する。 */
   listVersions(templateId: string): Promise<Result<TemplateVersionMeta[]>>;
   /**
    * 1 版の本文を比較用の HTML にする(クライアント側、サーバ往復なし)。値入り HTML は
@@ -85,7 +86,7 @@ export interface CompareService {
     html: string,
     css: string,
     fundCode: string,
-    origin: 'edit' | 'create',
+    origin: ReviewOrigin,
   ): Promise<Result<RenderedVersion>>;
 }
 
@@ -119,7 +120,11 @@ export function createCompareService(
         // (例: 高金利ソブリン)も比較対象に出せる(版リスト側は status で絞らない)。
         const versRes = await versionsWithBaseline(meta.id);
         if (isErr(versRes)) return versRes;
-        candidates.push({ meta, versions: versRes.value, versionCount: versRes.value.length });
+        candidates.push({
+          meta,
+          versions: versRes.value,
+          selectableVersionCount: versRes.value.length,
+        });
       }
       return ok(candidates);
     },
@@ -178,6 +183,32 @@ export function createCompareService(
       return ok({ html: rendered.html, css });
     },
   };
+}
+
+/**
+ * 申請 1 件を「申請版(after)」と「現行版(before)」の組に描画する。承認画面の差分と申請時の
+ * 変更概要が、同じ手順で同じ組を作る。現行版は既存編集(`edit`)だけ取り、作成(新規)や
+ * 取得できないとき(初回確定前など)は空 HTML に倒して全パーツを追加扱いにする(css は申請版)。
+ * 申請版の描画失敗だけが err。
+ */
+export async function renderReviewPair(
+  render: Pick<CompareService, 'renderTemplateBody' | 'renderVersionHtml'>,
+  input: { templateId: string; html: string; css: string; fundCode: string; origin: ReviewOrigin },
+): Promise<Result<{ before: RenderedVersion; after: RenderedVersion }>> {
+  const afterRes = await render.renderTemplateBody(
+    input.html,
+    input.css,
+    input.fundCode,
+    input.origin,
+  );
+  if (isErr(afterRes)) return afterRes;
+  const after = afterRes.value;
+  let before: RenderedVersion = { html: '', css: after.css };
+  if (input.origin === 'edit') {
+    const beforeRes = await render.renderVersionHtml(baselineHistoryId(input.templateId));
+    if (!isErr(beforeRes)) before = beforeRes.value;
+  }
+  return ok({ before, after });
 }
 
 export const useCompareService = (): CompareService =>

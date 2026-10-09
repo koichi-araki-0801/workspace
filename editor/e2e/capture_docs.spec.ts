@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import type { Page } from '@playwright/test';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
-import { login, openEditor, waitForLoaded, waitForStableBox } from './helpers';
+import { login, openEditor, partLocator, waitForLoaded, waitForStableBox } from './helpers';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
@@ -81,7 +81,7 @@ test('capture editor screens', async ({ page }) => {
   await waitForTransitionsSettled(page);
   await page.screenshot({ path: IMG('password-init.png'), animations: 'disabled' });
   await page.goto('/edit');
-  await page.getByText('委託会社コード').first().waitFor();
+  await page.getByText('ファンドコード').first().waitFor();
   await waitForLoaded(page);
 
   // ② 編集タブ（属性ドロップダウンが見える）
@@ -114,7 +114,7 @@ test('capture editor screens', async ({ page }) => {
   // タブ固有の実データ要素(絞り込みバーの見出し・タブボタン・一覧行)を先に待ってから、
   // 一覧を持つ画面は `waitForLoaded` でスケルトンの消滅まで待って撮る。
   await page.goto('/compare');
-  // 待つのは比較画面にしか無い見出し。絞り込みバーの「委託会社コード」はテンプレート作成画面にも
+  // 待つのは比較画面にしか無い見出し。絞り込みバーの「委託会社」はテンプレート作成画面にも
   // 出るため、それを待つと遷移前の画面のまま合格し、作成画面を写した compare-tab.png ができる。
   await page.getByText('ファイルの比較').first().waitFor();
   await waitForLoaded(page);
@@ -152,7 +152,7 @@ test('capture editor screens', async ({ page }) => {
   await page.getByText('編集を許可', { exact: true }).click();
   await expect(page.getByText('編集中', { exact: true })).toBeVisible({ timeout: 10_000 });
   const frame = editorFrame;
-  const block = frame.locator('.page > *').nth(2);
+  const block = partLocator(frame).nth(2);
   // キャンバスの描画が終わる前に掴むと、ブロックが最終寸法になっておらず clip が
   // 小さく切れる(内容の欠けた画像がそのまま手引きへ載る)。可視化と寸法の確定を待つ。
   await block.waitFor({ state: 'visible', timeout: 30_000 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  alignForWidth,
   clampMarginMm,
   clampWidthPct,
   DEFAULT_GEOM,
@@ -69,10 +70,14 @@ describe('geomFromStyle', () => {
     expect(geomFromStyle({ 'margin-bottom': '7' }).marginBottom).toBe(7);
   });
 
-  it('reads page breaks under both legacy and modern property names', () => {
-    expect(geomFromStyle({ 'page-break-before': 'always' }).pageBreakBefore).toBe(true);
-    expect(geomFromStyle({ 'break-before': 'page' }).pageBreakBefore).toBe(true);
-    expect(geomFromStyle({ 'page-break-after': 'always' }).pageBreakAfter).toBe(true);
+  it('前後の改ページ(page-break-before/after)は読まない(区切りの操作は partBreak.ts)', () => {
+    const g = geomFromStyle({ 'page-break-before': 'always', 'break-after': 'page' });
+    expect(g).toEqual(DEFAULT_GEOM);
+    expect(Object.keys(g)).not.toContain('pageBreakBefore');
+    expect(Object.keys(g)).not.toContain('pageBreakAfter');
+  });
+
+  it('reads keep-together under both legacy and modern property names', () => {
     expect(geomFromStyle({ 'break-inside': 'avoid' }).keepTogether).toBe(true);
     expect(geomFromStyle({ 'page-break-inside': 'avoid' }).keepTogether).toBe(true);
   });
@@ -107,10 +112,12 @@ describe('geomToStyle', () => {
     );
   });
 
-  it('pageBreakAfter は page-break-after を always にする', () => {
-    expect(geomToStyle({ ...DEFAULT_GEOM, pageBreakAfter: true })['page-break-after']).toBe(
-      'always',
-    );
+  it('前後の改ページの宣言は書かない(既存の inline を消さない)', () => {
+    const s = geomToStyle(DEFAULT_GEOM);
+    for (const k of ['page-break-before', 'page-break-after', 'break-before', 'break-after']) {
+      expect(Object.keys(s)).not.toContain(k);
+    }
+    expect(geomToStyle({ ...DEFAULT_GEOM, keepTogether: true })['page-break-inside']).toBe('avoid');
   });
 
   it('round-trips a non-trivial geometry through from→to→from', () => {
@@ -120,8 +127,6 @@ describe('geomToStyle', () => {
       indent: 0,
       marginTop: 5,
       marginBottom: 8,
-      pageBreakBefore: true,
-      pageBreakAfter: false,
       keepTogether: true,
     };
     expect(geomFromStyle(geomToStyle(start))).toEqual(start);
@@ -153,22 +158,22 @@ describe('geomChangeLabel', () => {
       '下の余白',
     );
   });
-  it('reports a pageBreakBefore activation', () => {
-    expect(geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, pageBreakBefore: true })).toContain(
-      '前で改ページ」を有効化',
-    );
-  });
-  it('reports a page-break toggle', () => {
-    const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, pageBreakAfter: true });
-    expect(label).toContain('後で改ページ');
-  });
-  it('reports a pageBreakAfter deactivation (before → after order)', () => {
-    expect(geomChangeLabel({ ...DEFAULT_GEOM, pageBreakAfter: true }, DEFAULT_GEOM)).toContain(
-      '後で改ページ」を解除',
-    );
-  });
   it('reports a keep-together toggle', () => {
     const label = geomChangeLabel(DEFAULT_GEOM, { ...DEFAULT_GEOM, keepTogether: true });
     expect(label).toContain('分割しない');
+  });
+});
+
+describe('alignForWidth', () => {
+  it('上限以上は stretch', () => {
+    expect(alignForWidth(WIDTH_PCT_MAX, WIDTH_PCT_MAX, 'center')).toBe('stretch');
+  });
+
+  it('stretch から上限未満へ縮めると left', () => {
+    expect(alignForWidth(60, WIDTH_PCT_MAX, 'stretch')).toBe('left');
+  });
+
+  it('それ以外は配置を維持する', () => {
+    expect(alignForWidth(60, WIDTH_PCT_MAX, 'right')).toBe('right');
   });
 });

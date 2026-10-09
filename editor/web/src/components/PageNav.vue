@@ -23,6 +23,11 @@ const props = withDefaults(
     variant?: ButtonVariants['variant'];
     /** 高さを詰めた小型ボタン(h-7)にするか(プレビュー上部バー用)。 */
     dense?: boolean;
+    /**
+     * 総ページ数に付けるツールチップ。編集画面のページ数は区切り単位で紙のページ数と違いうるので、
+     * 編集画面だけが渡す。渡さなければ総ページ数は表示だけ(フォーカスの対象にもしない)。
+     */
+    countHint?: string;
   }>(),
   { variant: 'outline', dense: false },
 );
@@ -80,7 +85,8 @@ function onInputKeydown(e: KeyboardEvent): void {
 </script>
 
 <template>
-  <div class="flex shrink-0 items-center gap-1.5">
+  <!-- 総ページ数を属性にも持つ。e2e が `/ N` の表示の文字に頼らずに読むため。 -->
+  <div class="flex shrink-0 items-center gap-1.5" :data-page-count="pageCount">
     <Tooltip text="前のページ">
       <Button
         :variant="variant"
@@ -106,7 +112,10 @@ function onInputKeydown(e: KeyboardEvent): void {
         @blur="commit"
         @keydown="onInputKeydown"
       />
-      <span>/ {{ pageCount }}</span>
+      <!-- ヒントはキーボードでも読めるよう、渡したときだけ総ページ数をフォーカスの対象にする。 -->
+      <Tooltip :text="countHint ?? ''" :disabled="!countHint">
+        <span :tabindex="countHint ? 0 : undefined">/ {{ pageCount }}</span>
+      </Tooltip>
     </div>
 
     <Tooltip text="次のページ">

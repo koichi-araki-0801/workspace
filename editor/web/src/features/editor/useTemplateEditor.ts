@@ -15,22 +15,39 @@ import {
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
-import { useNoteRepo } from '@/api/repositories';
+import { useFundAssetRepo, useNoteRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
 import { logError } from '@/lib/appError';
+import { editorAssetWarnings } from '@/lib/assetWarnings';
 import {
   type ConfirmedCanonical,
   readConfirmedCanonical,
   writeConfirmedCanonical,
 } from '@/lib/confirmedCanonical';
+import { companyCodeOfTemplateId, fundCodeOfTemplateId } from '@/lib/fundImages';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
-import { shouldMeasureCanonical } from './confirmedCanonicalGate';
-import { fundCodeOfTemplateId } from './fundImages';
+import { canvasRoot } from './canvasGeometry';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
-import { canvasRawKey, pageEls, partEls, partLabelMap, partPathKeyFor } from './partKey';
+import { leaveAfterSave } from './leaveGuard';
+import { openCanvas } from './openCanvas';
+import { pageWarnings } from './pageWarnings';
+import { type BreakEdge, partBreakLabel } from './partBreak';
+import { insertPartUndoable } from './partInsert';
+import {
+  canvasRawKey,
+  jinjaAnchoredParts,
+  legacyPartKeyCount,
+  partEntries,
+  partLabelMap,
+  partPathKeyFor,
+} from './partKey';
 import { useRedline } from './redline/useRedline';
+import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
+import { syncUi } from './syncUi';
+import { afterTextEdit } from './textEditFinish';
+import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
@@ -56,7 +73,8 @@ export function useTemplateEditor(
   const route = useRoute();
   const auth = useAuthStore();
   const sessionStore = useEditorSessionStore();
-  const g = useGrapes();
+  const fundAssets = useFundAssetRepo();
+  const g = useGrapes({ inspectFundImages: (refs) => fundAssets.inspect(refs) });
 
   // 編集セッション(履歴 + Undo/Redo)。プレビュー往復で EditorView が再マウントされても
   // ストア側に生存し、ここで `ensure` すると同一セッションが返って履歴が継続する。
@@ -68,9 +86,9 @@ export function useTemplateEditor(
 
   /**
    * 確定版の値埋め込み本文を GrapesJS 自身が直列化した形(HTML + CSS)。「未確定」の判定基準。
-   * 文字列比較が成り立つのは同じ直列化を通した同士だけなので canvas から取る。初回に取って
-   * `lib/confirmedCanonical.ts` へ永続し、draft 再開時はそれを使う(無ければ確定版を先に
-   * 読み込んで測る)。作成経路は確定版が無く null。
+   * 文字列比較が成り立つのは同じ直列化を通した同士だけなので canvas から取る。開くたびに
+   * 確定版の読み込みから測り直し(`openCanvas.ts`)、`lib/confirmedCanonical.ts` の永続は
+   * 測れないときの代わりにだけ使う。作成経路は確定版が無く null。
    */
   let confirmedCanonical: ConfirmedCanonical | null = null;
   /** draft が実体として在りうるか(前回セッションの draft、または autosave が 1 度でも走った)。 */
@@ -81,16 +99,6 @@ export function useTemplateEditor(
   const fundName = ref('');
   /** 当該版インスタンス(templateId)の全パーツ履歴(永続層)。onMounted で一度ロードする。 */
   const allPartHistory = ref<PartHistoryEntry[]>([]);
-  /**
-   * 現在の選択パーツの永続履歴。版インスタンス全件から安定構造キー(`currentNoteKey`)で絞る。
-   * GrapesJS の選択/改訂で再評価させるため reactive 値を読む。
-   */
-  const partHistory = computed<PartHistoryEntry[]>(() => {
-    void g.selected.value;
-    void g.revision.value;
-    const key = currentNoteKey();
-    return key ? allPartHistory.value.filter((e) => e.partKey === key) : [];
-  });
   /**
    * 交付版⇄全体版 ペア同期の現況。未解決競合(自動同期停止中のパーツ)があるときだけ
    * canvas 上部にバナーを出す。取得失敗は無視する(バナーは補助情報で、編集を止めない)。
@@ -123,6 +131,16 @@ export function useTemplateEditor(
     return g.selected.value ? geomFromStyle(g.selectedStyle()) : null;
   });
 
+  // 選んだ要素が属するパーツの前後に改ページがあるか(Inspector の「前で改ページ / 後で改ページ」)。
+  // 区切りの増減はページの数え直し(`pageBlocks`)にも出るので、それも依存に含める。
+  const selectedPartBreak = computed<{ before: boolean; after: boolean } | null>(() => {
+    void g.revision.value;
+    void g.pageBlocks.value;
+    if (!g.selected.value) return null;
+    const st = g.partBreakOf(g.editor.value?.getSelected());
+    return st ? { before: st.before !== null, after: st.after !== null } : null;
+  });
+
   const autosave = useAutosave(async () => {
     if (!template.value) return ok(undefined);
     return service.saveDraft(id, g.getBodyHtml(), g.getCss());
@@ -135,6 +153,7 @@ export function useTemplateEditor(
     editing: g.editing,
     dirty,
     parseHtml: g.parseHtmlQuiet,
+    onDecorated: g.refreshPageMarks,
   });
   // ON/OFF はセッションの ui 状態を継ぐ(プレビュー往復で保持、永続ミラー経由でリロードでも復元)。
   redline.enabled.value = sess.ui.redlineEnabled;
@@ -177,31 +196,42 @@ export function useTemplateEditor(
       autosave.trigger();
     },
     100,
-    { past: sess.undoPast, future: sess.undoFuture, onChange: debouncedPersistUndo },
+    {
+      past: sess.undoPast,
+      future: sess.undoFuture,
+      onChange: debouncedPersistUndo,
+      equals: (a, b) => a.html === b.html && a.css === b.css,
+    },
   );
+  const undoStep = { beginUndo, commitUndo, cancelUndo };
+
+  /**
+   * 選択パーツのキー(修正履歴・コメント・右ペインのコメント一覧の絞り込み基準)。選択/編集で
+   * 再評価させるため reactive 値を読む。
+   */
+  const currentNoteKeyRef = computed<string | null>(() => {
+    void g.selected.value;
+    void g.revision.value;
+    return currentNoteKey();
+  });
 
   const { record: recordChange, displayHistory } = usePartEditHistory(
     id,
     // 版を跨いで安定な構造キーで紐づける(メモと共用)。GrapesJS の component id は
-    // リロード/版再生成で再採番され、永続履歴が孤児化するため使わない。選択/編集で
-    // displayHistory を再評価させるため reactive 値を読む(computed の依存に含める)。
-    () => {
-      void g.selected.value;
-      void g.revision.value;
-      return currentNoteKey() ?? undefined;
-    },
+    // リロード/版再生成で再採番され、永続履歴が孤児化するため使わない。
+    () => currentNoteKeyRef.value ?? undefined,
     () => auth.user?.displayName ?? '編集者',
     // 永続 history の getter。選択中はそのパーツに絞り、未選択(全パーツ表示)では全件を返す。
     (key) => (key ? allPartHistory.value.filter((e) => e.partKey === key) : allPartHistory.value),
     // 各編集を永続化する(fire-and-forget)。失敗は log するが表に出さない。
     // セッション内エントリは既に表示済みで、autosave 済み draft が内容を保持するため。
-    (partKey, change) => {
-      service.recordPartChange(id, partKey, change).then((res) => {
+    (partKey, change, entryId) => {
+      service.recordPartChange(id, partKey, change, entryId).then((res) => {
         if (isErr(res)) logError(res.error);
       });
     },
     // セッション内修正履歴もストア管理にし、プレビュー往復で右下の履歴を維持する。
-    { history: sess.partHistory, nextSeq: () => ++sess.seq },
+    { history: sess.partHistory },
   );
 
   // ── パーツ単位コメント(1 段の入れ子スレッド) ──
@@ -209,17 +239,11 @@ export function useTemplateEditor(
   // 繰り越しもしない)。パーツの同定は版内で安定な構造キー(`partKey.ts`)で行う。
   const noteRepo = useNoteRepo();
 
-  /** canvas のルート要素(GrapesJS wrapper、無ければ body)。パーツ列挙/キー解決の基準。 */
-  function canvasRoot(): HTMLElement | undefined {
-    const ed = g.editor.value;
-    return (ed?.getWrapper()?.getEl?.() ?? ed?.Canvas?.getBody?.()) as HTMLElement | undefined;
-  }
-
   /** 現在の canvas 選択を、版を跨いで安定なパーツ構造キーへ解決する(無ければ null)。 */
   function currentNoteKey(): string | null {
     const ed = g.editor.value;
     const el = ed?.getSelected()?.getEl?.() as HTMLElement | undefined;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     if (!ed || !el || !root) return null;
     return partPathKeyFor(el, root, canvasRawKey(ed));
   }
@@ -230,31 +254,31 @@ export function useTemplateEditor(
    */
   const partLabels = computed<Map<string, string>>(() => {
     void g.revision.value;
-    // load 直後は wrapper 要素がまだ無く、`root` を引けても子孫の `.page` 走査が空 Map になる。
-    // `pageEls`(ページ列挙 cache)も依存に含め、ページ確定後の再評価を取りこぼさない。
-    void g.pageEls.value;
+    // load 直後は wrapper 要素がまだ無く、`root` を引けてもパーツの列挙が空 Map になる。
+    // `pageBlocks`(ページの数え直しの結果)も依存に含め、ページ確定後の再評価を取りこぼさない。
+    void g.pageBlocks.value;
     const ed = g.editor.value;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
+  });
+
+  /**
+   * 根の直下のパーツのうち、アンカーの属性の原文に Jinja を持つものの数(警告用。`partLabels` と
+   * 同じ契機で数え直す)。
+   */
+  const jinjaAnchorCount = computed(() => {
+    void g.revision.value;
+    void g.pageBlocks.value;
+    const ed = g.editor.value;
+    const root = canvasRoot(g.editor);
+    return ed && root ? jinjaAnchoredParts(root, canvasRawKey(ed)).length : 0;
   });
 
   const note = useComments(
     () => template.value?.meta.id ?? '',
-    () => {
-      // 選択/編集で再評価させるため reactive 値を読む(computed の依存に含める)。
-      void g.selected.value;
-      void g.revision.value;
-      return currentNoteKey();
-    },
+    () => currentNoteKeyRef.value,
     noteRepo,
   );
-
-  /** 選択パーツのキー(右ペインのコメント一覧へ渡す。選択・編集で再評価)。 */
-  const currentNoteKeyRef = computed<string | null>(() => {
-    void g.selected.value;
-    void g.revision.value;
-    return currentNoteKey();
-  });
 
   /**
    * コメント一覧の行から、そのパーツを canvas 上で選択して見えるようにする。
@@ -265,20 +289,16 @@ export function useTemplateEditor(
    */
   function selectPartByKey(key: string): void {
     const ed = g.editor.value;
-    const root = canvasRoot();
+    const root = canvasRoot(g.editor);
     if (!ed || !root) return;
-    const pages = pageEls(root);
-    const keyOf = canvasRawKey(ed);
-    for (let pi = 0; pi < pages.length; pi += 1) {
-      for (const part of partEls(pages[pi])) {
-        if (partPathKeyFor(part, root, keyOf) !== key) continue;
-        if (g.singlePageMode.value) g.goToPage(pi);
-        const comp = part.id ? ed.Components.getById(part.id) : undefined;
-        if (comp) ed.select(comp);
-        part.scrollIntoView({ block: 'center' });
-        return;
-      }
-    }
+    // ページ番号は `useGrapes.ts` の `pageBlocks` と同じ `splitPages` の番号なので、`goToPage` へ
+    // そのまま渡せる。
+    const hit = partEntries(root, canvasRawKey(ed)).find((e) => e.key === key);
+    if (!hit) return;
+    if (g.singlePageMode.value) g.goToPage(hit.page);
+    const comp = hit.part.id ? ed.Components.getById(hit.part.id) : undefined;
+    if (comp) ed.select(comp);
+    hit.part.scrollIntoView({ block: 'center' });
   }
 
   // メモを持つパーツ集合が変わるたび、canvas のセル風マーカーを更新する。
@@ -297,6 +317,18 @@ export function useTemplateEditor(
     if (record) pushUndo();
     g.patchSelectedStyle(geomToStyle(after));
     if (record) recordChange(label);
+  }
+
+  /**
+   * 選んだ要素が属するパーツの前(後ろ)の改ページを ON / OFF する。区切りの挿入・削除と inline の
+   * 宣言の削除を 1 つの変更として、操作の前の snapshot 1 つで戻す。状態が変わらない操作・区切りを
+   * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。
+   */
+  function setPartBreak(edge: BreakEdge, on: boolean) {
+    if (!undoable(undoStep, () => g.setPartBreak(g.editor.value?.getSelected(), edge, on))) return;
+    // 挿入した区切りも現在の lock state に従わせる(`onPartInsert` と同じ)。
+    g.setEditable(allowEdit.value);
+    recordChange(partBreakLabel(edge, on));
   }
 
   /**
@@ -326,13 +358,14 @@ export function useTemplateEditor(
       durationMs: 6000,
       action: {
         label: '元に戻す',
-        onClick: () => {
+        // 深さを比べる前に閉じる。閉じたテキスト編集が 1 手積まれれば「その後の編集」になる。
+        onClick: afterTextEdit(g.finishTextEdit, () => {
           if (undoDepth() !== depthAtOp) {
             toast('その後の編集があるため、Ctrl+Z で順に戻してください');
             return;
           }
           undo();
-        },
+        }),
       },
     });
   }
@@ -340,8 +373,9 @@ export function useTemplateEditor(
   /** 選択の layout style を全消去する(既定配置へ戻す)。 */
   function resetGeom() {
     if (!g.selected.value) return;
-    pushUndo();
-    g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM));
+    // 既定の配置のパーツや区切りの帯(style を持たない)では何も変わらない。無変更でも積むと Redo が
+    // 消え、修正履歴に実際には無い変更が残るので、変わったときだけ確定する。
+    if (!undoable(undoStep, () => g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM)))) return;
     recordChange('配置を初期化');
     toastUndoable('配置を初期化しました');
   }
@@ -350,13 +384,24 @@ export function useTemplateEditor(
     previewPart.value = p;
   }
 
+  /** 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。 */
   function onPartInsert(p: PartCatalogItem) {
-    pushUndo();
-    g.insertPart(p.content, p.id);
-    // 挿入直後の part も現在の lock state に従わせる。
-    g.setEditable(allowEdit.value);
-    previewPart.value = p;
-    recordChange(`パーツ「${p.name}」を追加`);
+    insertPartUndoable(
+      {
+        canInsert: () => g.canInsertPart.value,
+        beginUndo,
+        commitUndo,
+        cancelUndo,
+        insertPart: (content, partId) => g.insertPart(content, partId),
+        // 挿入直後の part も現在の lock state に従わせる。
+        setEditable: () => g.setEditable(allowEdit.value),
+        setPreview: (part) => {
+          previewPart.value = part;
+        },
+        recordChange,
+      },
+      p,
+    );
   }
 
   function moveSelected(dir: -1 | 1) {
@@ -385,42 +430,30 @@ export function useTemplateEditor(
   watch(allowEdit, (v) => {
     sess.ui.allowEdit = v;
   });
-  watch(redline.enabled, (v) => {
-    sess.ui.redlineEnabled = v;
-    sessionStore.persistUi(id);
-  });
-  watch(g.zoom, (v) => {
-    sess.ui.zoom = v;
-    sessionStore.persistUi(id);
-  });
-  watch(g.singlePageMode, (v) => {
-    sess.ui.singlePageMode = v;
-    sessionStore.persistUi(id);
-  });
-  watch(g.currentPageIndex, (v) => {
-    sess.ui.currentPage = v;
-    sessionStore.persistUi(id);
-  });
+  syncUi(sessionStore, id, redline.enabled, 'redlineEnabled');
+  syncUi(sessionStore, id, g.zoom, 'zoom');
+  syncUi(sessionStore, id, g.singlePageMode, 'singlePageMode');
+  syncUi(sessionStore, id, g.currentPageIndex, 'currentPage');
   watch(
     () => g.selected.value,
     () => {
-      sess.ui.selectedKey = currentNoteKey();
+      sess.ui.selectedKey = currentNoteKeyRef.value;
     },
   );
   // 選択の復元は canvas の描画確定(ページ要素が出揃う)を待つ 1 回きりの watch。早すぎると
   // まだ要素が無く `selectPartByKey` が何も見つけられずに終わる。
   let restoredSelection = false;
   watch(
-    () => g.pageEls.value,
-    (els) => {
-      if (restoredSelection || els.length === 0) return;
+    () => g.pageBlocks.value,
+    (pages) => {
+      if (restoredSelection || pages.every((page) => page.length === 0)) return;
       restoredSelection = true;
       if (sess.ui.selectedKey) selectPartByKey(sess.ui.selectedKey);
     },
   );
 
   // 選択変更で catalog part を解決する。永続履歴は `allPartHistory`(版インスタンス全件)を
-  // onMounted で一度ロードし、表示は `partHistory` computed が選択キーで in-memory に絞るため、
+  // onMounted で一度ロードし、表示は `displayHistory` が選択キーで in-memory に絞るため、
   // 選択ごとの非同期 fetch も race 対策も不要になった。
   watch(
     () => g.selected.value,
@@ -444,12 +477,14 @@ export function useTemplateEditor(
     // 前回セッションの未確定 draft が残っていれば、最初から dirty 扱いにする。
     dirty.value = res.value.hasDraft;
     draftMayExist = res.value.hasDraft;
-    // 別タブの下書きを破棄して確定版から開いたときは、ミラーから復元した Undo も捨てる。
-    // 残すと Undo 1 回で破棄したはずの本文が戻り、autosave で下書きとして書き戻る。
-    if (res.value.discardedStaleDraft) {
+    // 別タブの下書きや旧形式の下書きを破棄して確定版から開いたときは、ミラーから復元した
+    // Undo も捨てる。残すと Undo 1 回で破棄したはずの本文が戻り、autosave で下書きとして書き戻る。
+    if (res.value.discardedStaleDraft || res.value.discardedLegacyDraft) {
       sessionStore.reset(id);
       syncUndoFlags(); // 空にした配列へボタンの活性を追随させる
     }
+    // 旧形式の下書きの破棄は利用者の編集を捨てるので、黙らずに知らせる。
+    if (res.value.discardedLegacyDraft) toast(LEGACY_DRAFT_MESSAGE);
     for (const p of res.value.parts) partsById.set(p.id, p);
 
     const canvas = canvasEl.value;
@@ -463,47 +498,42 @@ export function useTemplateEditor(
     g.setFundImageContext({
       mode: res.value.template.filled ? 'filled' : 'jinja',
       fundCode: fundCodeOfTemplateId(id),
+      companyCode: companyCodeOfTemplateId(id),
     });
     // 倍率・ページ送りモードはセッションの ui 状態から復元する(`load` より前に当てる必要が
     // ある — `setInitialZoom` は次の `applyInitialZoom` 呼び出しの基準値を差し替えるだけ)。
     g.setInitialZoom(sess.ui.zoom ?? 1);
     g.setSinglePageMode(sess.ui.singlePageMode);
     const isCreateRoute = route.query.created === '1';
+    // Jinja を含む本文の `<style>` は、作成経路だけ `toFilled` と同じサンプルで描画して canvas で
+    // 効かせる。編集経路の本文は値入りで、`<style>` は描画済みの素の要素なので渡さない。
+    g.setStyleSample(isCreateRoute ? res.value.sample : null);
     const tplUpdatedAt = res.value.template.meta.updatedAt;
-    // 確定版の quiet load 失敗を覚えておく(下の 2 箇所の正規形測定を両方とも止めるため)。
-    let confirmedLoadFailed = false;
-    if (!isCreateRoute) {
-      confirmedCanonical = readConfirmedCanonical(id, tplUpdatedAt);
-      // キャッシュが無く draft から開くときだけ、確定版を先に読み込んで正規形を測る。
-      if (!confirmedCanonical && res.value.hasDraft) {
-        if (g.load(res.value.confirmedBody, res.value.template.css, { quiet: true })) {
-          confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
-          writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
-        } else {
-          // false になるのは確定版側の CSS に外部参照が残っているときだけ(draft の CSS は
-          // 下の本読み込みが通す入口ガードを既に通過済み)。確定版が古くて汚れているだけで
-          // draft 自体は正当なので、ここで編集を止めない。ただし正規形は作らない —
-          // この時点の canvas は確定版の内容ではなく(quiet load が拒否されて素通りしていない)
-          // 直前の状態のままで、これを正規形として測って直後に draft を読み込むと
-          // 「draft 自身から作った正規形」と一致してしまい、`settleIfClean` が「変更なし」と
-          // 誤認して正当な draft を自動で消す(過去の回帰実績)。confirmedCanonical は null の
-          // まま進め、⑥ の同一判定は効かせない。dirty は上で立てた `hasDraft` に従う
-          // 従来どおりの挙動へ落ちる。
-          confirmedLoadFailed = true;
-        }
-      }
-    }
+    // 本文の読み込みと、確定版の正規形・CSS の baseline の測定(下書きから開くときは確定版を
+    // 先に quiet load する)。順序と測る時点の理由は `openCanvas.ts` を見よ。
+    const opened = openCanvas(g, {
+      isCreateRoute,
+      hasDraft: res.value.hasDraft,
+      confirmedBody: res.value.confirmedBody,
+      confirmedCss: res.value.template.css,
+      editableBody: res.value.editableBody,
+      css: res.value.css,
+      cachedCanonical: isCreateRoute ? null : readConfirmedCanonical(id, tplUpdatedAt),
+    });
     // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の
     // エディタ枠を残さず一覧へ戻す(不正 id と同じ後始末)。トーストは load が出している。
-    if (!g.load(res.value.editableBody, res.value.css)) {
+    if (!opened.loaded) {
       router.replace({ name: 'edit' });
       return;
     }
-    if (shouldMeasureCanonical(isCreateRoute, !!confirmedCanonical, confirmedLoadFailed)) {
-      confirmedCanonical = { html: g.getBodyHtml(), css: g.getCss() };
+    confirmedCanonical = opened.canonical;
+    if (opened.measuredCanonical && confirmedCanonical)
       writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
-    }
-    // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後は `.page` 列挙がまだ
+    // 申請(プレビュー画面)へ渡す。プレビュー往復では編集セッションと同じく残る。
+    sessionStore.setCssBaseline(id, opened.cssBaseline);
+    // 確定版の quiet load 失敗時は、確定版との同一判定(`scheduleCleanCheck`)を起動しない。
+    const confirmedLoadFailed = opened.loadFailed;
+    // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後はページの数え直しがまだ
     // 確定しておらず `goToPage` の clamp がページ総数 1 として効いてしまう。
     requestAnimationFrame(() => {
       if (g.singlePageMode.value && sess.ui.currentPage > 0) g.goToPage(sess.ui.currentPage);
@@ -521,18 +551,17 @@ export function useTemplateEditor(
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
     void note.reload();
-    // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `partHistory` computed が
+    // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `displayHistory` が
     // 選択キーで絞る(リロード後も安定構造キーで一致するため右下の履歴が復元される)。
     void service.listPartHistory(id).then((res) => {
       if (isOk(res)) allPartHistory.value = res.value;
       else logError(res.error);
     });
-    // ペア同期の競合バナー用。編集経路のみ(作成経路 `?created=1` は未確定テンプレでペア無し)。
-    if (route.query.created !== '1') {
-      void service.getSyncStatus(id).then((res) => {
-        if (isOk(res)) syncStatus.value = res.value;
-      });
-    }
+    // ペア同期の競合バナー用。作成経路(`?created=1`)でも取る — CSS の競合はテンプレ単位で記録され、
+    // 作成タブでも見える必要がある(パーツの競合は値入り HTML のペアだけが持つので作成経路では空)。
+    void service.getSyncStatus(id).then((res) => {
+      if (isOk(res)) syncStatus.value = res.value;
+    });
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
     g.onChange(markChanged);
@@ -655,13 +684,12 @@ export function useTemplateEditor(
 
   // アプリ内 navigation guard。編集セッションはブラウザタブの寿命なので、タブ遷移・
   // プレビュー往復・精査画面往復のどれでも破棄しない(draft は autosave 済み、履歴と
-  // Undo/Redo は `editorSession` ストアが templateId 単位で保持する)。進行中の保存だけは
-  // 待ってから離れる — 離脱直後に着地した保存が、次の画面で読んだ内容より古い draft を
-  // 書き戻さないため。閉じたタブが残した draft の破棄は `loadForEdit` が次回オープン時に行う。
-  onBeforeRouteLeave(async () => {
-    await autosave.settled();
-    return true;
-  });
+  // Undo/Redo は `editorSession` ストアが templateId 単位で保持する)。ただし離れる前に、
+  // debounce 待ちを含む未保存の変更を保存し終える — 待たないと最後の編集が draft に残らず、
+  // 離脱直後に着地した保存が次の画面で読んだ内容より古い draft を書き戻すこともある。
+  // 保存できなければ離れるかを確かめる(`leaveGuard.ts`)。閉じたタブが残した draft の破棄は
+  // `loadForEdit` が次回オープン時に行う。
+  onBeforeRouteLeave((to) => leaveAfterSave(autosave.flush, { toLogin: to.name === 'login' }));
 
   return {
     g,
@@ -669,12 +697,25 @@ export function useTemplateEditor(
     template,
     fundName,
     syncStatus,
-    fundImageWarning: g.fundImageWarning,
-    partHistory,
+    // 資産(CSS・画像・SVG)の警告の後ろに改ページ・パーツの警告を並べる。旧形式のキーは読み込んだ
+    // メモと永続の修正履歴の両方から数える(どちらも同じキーでパーツに当てるので、どちらも表示から
+    // 漏れる)。
+    assetWarnings: computed(() => [
+      ...editorAssetWarnings(id, template.value?.cssMissing === true, g.imageWarnings.value),
+      ...pageWarnings({
+        ...g.pageBreakFacts.value,
+        jinjaAnchors: jinjaAnchorCount.value,
+        legacyKeys: legacyPartKeyCount(
+          [...note.all.value.map((e) => e.pathKey), ...allPartHistory.value.map((e) => e.partKey)],
+          partLabels.value,
+        ),
+      }),
+    ]),
     displayHistory,
     partLabels,
     selectedPart,
     selectedGeom,
+    selectedPartBreak,
     noteEntries: note.entries,
     canNote: note.canNote,
     addNote: note.add,
@@ -693,16 +734,22 @@ export function useTemplateEditor(
     autosave,
     canUndo,
     canRedo,
-    undo,
-    redo,
+    // 画面から呼ぶ Undo 可能な操作(と Undo/Redo)は、テキスト編集を先に閉じて追記を別の 1 手に
+    // 確定させてから走らせる(`afterTextEdit`)。ハンドルの drag は `useGeomHandles.ts` が閉じる。
+    undo: afterTextEdit(g.finishTextEdit, undo),
+    redo: afterTextEdit(g.finishTextEdit, redo),
     beginUndo,
     applyGeom,
+    applyGeomEdit: afterTextEdit(g.finishTextEdit, (patch: Partial<LayoutGeom>) =>
+      applyGeom(patch),
+    ),
+    setPartBreak: afterTextEdit(g.finishTextEdit, setPartBreak),
     recordGeomDiff,
-    resetGeom,
-    moveSelected,
-    deletePart,
+    resetGeom: afterTextEdit(g.finishTextEdit, resetGeom),
+    moveSelected: afterTextEdit(g.finishTextEdit, moveSelected),
+    deletePart: afterTextEdit(g.finishTextEdit, deletePart),
     onPartSelect,
-    onPartInsert,
+    onPartInsert: afterTextEdit(g.finishTextEdit, onPartInsert),
     redlineEnabled: redline.enabled,
     redlineAvailable: redline.available,
     toggleRedline: redline.toggle,

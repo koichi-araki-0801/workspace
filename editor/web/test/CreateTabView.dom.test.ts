@@ -10,6 +10,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPOS_KEY } from '@/api/repositories';
 import CreateTabView from '@/features/templates/CreateTabView.vue';
+import CreateFundSelect from '@/features/templates/components/CreateFundSelect.vue';
 
 const { routeQuery, router, confirmMock } = vi.hoisted(() => {
   const routeQuery: Record<string, unknown> = {};
@@ -150,5 +151,36 @@ describe('CreateTabView', () => {
     expect(templates.generate).toHaveBeenCalledWith(
       expect.not.objectContaining({ replaceExisting: true }),
     );
+  });
+
+  it('問い合わせ中に属性が欠けたら、前の属性の作成可否が後から届いても反映しない', async () => {
+    let release: (v: unknown) => void = () => {};
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    templates.getCreatableInfo.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }) as never,
+    );
+    await settle();
+    const select = w.findComponent(CreateFundSelect);
+    select.vm.$emit('update', {
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: '510099',
+      editionType: '交付版',
+    });
+    await settle();
+    select.vm.$emit('update', {
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: undefined,
+      editionType: undefined,
+    });
+    await settle();
+    release(ok({ created: false, seriesFunds: SERIES }));
+    await settle();
+    // 前の属性(510099)のシリーズ候補で「シリーズから作成」カードが現れない。
+    expect(buttonNamed(w, '既存のシリーズを元に作成')).toBeUndefined();
   });
 });

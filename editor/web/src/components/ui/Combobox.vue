@@ -22,11 +22,10 @@ import {
 import { computed, ref } from 'vue';
 import { cn } from '@/lib/utils';
 import { filterComboboxOptions } from './comboboxFilter';
-
-type Option = string | { label: string; value: string };
+import { normalizeOptions, type UiOption } from './options';
 
 const props = defineProps<{
-  options: Option[];
+  options: UiOption[];
   placeholder?: string;
   disabled?: boolean;
   class?: string;
@@ -36,9 +35,7 @@ const model = defineModel<string | undefined>();
 // 入力中の検索文字。`ComboboxInput` の v-model に束縛し, 絞り込みの照合に使う。
 const search = ref('');
 
-const normalized = computed(() =>
-  props.options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o)),
-);
+const normalized = computed(() => normalizeOptions(props.options));
 
 // コードの前方一致に加えて、会社名・ファンド名でも探せるよう表示名の部分一致でも絞る。
 const filtered = computed(() => filterComboboxOptions(normalized.value, search.value));

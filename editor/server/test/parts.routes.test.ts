@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { FakePartSeed } from './fakes/sprocFake.js';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 vi.mock('../src/auth/session.js', async (importOriginal) => ({
@@ -34,7 +35,7 @@ process.env.LOG_DIR = path.join(root, 'logs');
 
 const as = (username: string) => ({ cookie: username });
 
-async function buildApp(): Promise<FastifyInstance> {
+async function buildApp(parts?: FakePartSeed[]): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { createDeps } = await import('../src/deps.js');
@@ -69,7 +70,7 @@ async function buildApp(): Promise<FastifyInstance> {
   }
 
   const store = createSessionStub({ getSessionUser: (sid) => userOf(sid) });
-  const deps = createDeps(await createFakeSproc(), store);
+  const deps = createDeps(await createFakeSproc(parts ? { parts } : {}), store);
   const app = Fastify();
   decorateSessionStore(app, store);
   app.setErrorHandler(errorHandler);
@@ -107,6 +108,42 @@ describe('parts.routes', () => {
     expect((list.json() as Array<{ id: string }>).some((p) => p.id === 'p-cover-title')).toBe(true);
   });
 
+  it('GET /parts は editionType を sproc の版種へ渡し、戻りに targetEdition を載せる', async () => {
+    const seed = (id: string, targetEdition: string | null) => ({
+      id,
+      category: '表紙',
+      majorClass: '見出し',
+      middleClass: 'タイトル',
+      minorClass: '標準',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition,
+    });
+    const scoped = await buildApp([
+      seed('both', null),
+      seed('only-delivered', '交付版'),
+      seed('only-whole', '全体版'),
+    ]);
+    try {
+      const filtered = await scoped.inject({
+        method: 'GET',
+        url: `/parts?editionType=${encodeURIComponent('交付版')}`,
+        headers: as('editor'),
+      });
+      const items = filtered.json() as Array<{ id: string; targetEdition: string | null }>;
+      expect(items.map((i) => [i.id, i.targetEdition])).toEqual([
+        ['both', null],
+        ['only-delivered', '交付版'],
+      ]);
+      const all = await scoped.inject({ method: 'GET', url: '/parts', headers: as('editor') });
+      expect((all.json() as unknown[]).length).toBe(3);
+    } finally {
+      await scoped.close();
+    }
+  });
+
   it('POST /templates/:templateId/part-history は 204 で追記し、GET に user 付きで現れる(partKey 欠落は 400)', async () => {
     const url = `/templates/${encodeURIComponent(ID)}/part-history`;
     expect(
@@ -132,6 +169,97 @@ describe('parts.routes', () => {
         user: 'editor',
       }),
     ]);
+  });
+
+  it('part-history: POST の id を保存して GET が返す(UUID でなければ 400、省略は pt- 始まり)', async () => {
+    const tid = 'AM01_510037_20240711_交付版';
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const post = (payload: object) =>
+      app.inject({ method: 'POST', url, headers: as('editor'), payload });
+    const id = '3f2b8c1e-9a4d-4c6e-8b7a-1d2e3f4a5b6c';
+    expect((await post({ partKey: 'k', change: 'a', id })).statusCode).toBe(204);
+    expect((await post({ partKey: 'k', change: 'b', id: 'not-a-uuid' })).statusCode).toBe(400);
+    expect((await post({ partKey: 'k', change: 'c' })).statusCode).toBe(204);
+    const got = (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+      id: string;
+      change: string;
+    }>;
+    expect(got.find((e) => e.change === 'a')?.id).toBe(id);
+    expect(got.find((e) => e.change === 'c')?.id).toMatch(/^pt-/);
+    expect(got.some((e) => e.change === 'b')).toBe(false);
+  });
+
+  it('part-history: id の無い古い行には legacy- の決まった id を付け、再読込でも変わらない', async () => {
+    const tid = 'AM01_510037_20240712_交付版';
+    const dir = path.join(root, 'logs', 'history');
+    fs.mkdirSync(dir, { recursive: true });
+    const row = {
+      templateId: tid,
+      partKey: 'k',
+      user: 'u',
+      timestamp: '2026-01-01T00:00:00Z',
+      change: 'old',
+    };
+    fs.appendFileSync(path.join(dir, 'part.jsonl'), `${JSON.stringify(row)}\n`, 'utf8');
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const read = async () =>
+      (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+        id: string;
+      }>;
+    const first = await read();
+    expect(first).toHaveLength(1);
+    expect(first[0].id).toMatch(/^legacy-[0-9a-f]{40}$/);
+    expect((await read())[0].id).toBe(first[0].id);
+  });
+
+  it('part-history: id が空文字の行にも legacy- の id を付け、他テンプレの行は混ぜない', async () => {
+    const tid = 'AM01_510037_20240714_交付版';
+    const other = 'AM01_510037_20240715_交付版';
+    const dir = path.join(root, 'logs', 'history');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = { partKey: 'k', user: 'u', timestamp: '2026-01-02T00:00:00Z' };
+    const rows = [
+      { ...base, templateId: tid, change: 'empty-id', id: '' },
+      { ...base, templateId: other, change: 'other-tpl', id: 'pt-other' },
+      { ...base, templateId: tid, change: 'with-id', id: 'pt-own' },
+    ];
+    fs.appendFileSync(
+      path.join(dir, 'part.jsonl'),
+      `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`,
+      'utf8',
+    );
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const got = (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+      id: string;
+      change: string;
+    }>;
+    expect(got.map((e) => e.change).sort()).toEqual(['empty-id', 'with-id']);
+    expect(got.find((e) => e.change === 'empty-id')?.id).toMatch(/^legacy-[0-9a-f]{40}$/);
+    expect(got.find((e) => e.change === 'with-id')?.id).toBe('pt-own');
+  });
+
+  it('part-history: legacy id はフィールド境界をまたいだ同じ連結でも別の id になる', async () => {
+    const tid = 'AM01_510037_20240713_交付版';
+    const dir = path.join(root, 'logs', 'history');
+    fs.mkdirSync(dir, { recursive: true });
+    const base = { templateId: tid, user: 'u', timestamp: '2026-01-01T00:00:00Z' };
+    const rows = [
+      { ...base, partKey: 'a b', change: 'c' },
+      { ...base, partKey: 'a', change: 'b c' },
+    ];
+    const lines = rows
+      .map(
+        (r) => `${JSON.stringify(r)}
+`,
+      )
+      .join('');
+    fs.appendFileSync(path.join(dir, 'part.jsonl'), lines, 'utf8');
+    const url = `/templates/${encodeURIComponent(tid)}/part-history`;
+    const got = (await app.inject({ method: 'GET', url, headers: as('editor') })).json() as Array<{
+      id: string;
+    }>;
+    expect(got).toHaveLength(2);
+    expect(got[0].id).not.toBe(got[1].id);
   });
 
   it('POST /templates/:templateId/part-history: viewer は 403、未ログインは 401', async () => {

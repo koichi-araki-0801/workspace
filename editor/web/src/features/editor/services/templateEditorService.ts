@@ -22,6 +22,7 @@ import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
+import { isLegacyDraft } from './legacyDraft';
 
 /** editor が template を編集用に開くために必要な一式。 */
 interface EditorLoad {
@@ -31,14 +32,21 @@ interface EditorLoad {
   /** 確定版の値埋め込み本文。赤入れの基準。draft 有無に関わらず解決する。 */
   confirmedBody: string;
   css: string;
+  /**
+   * 値の差込(`toFilled`)に使ったサンプル。作成タブの canvas が、Jinja を含む本文の `<style>` を
+   * 同じ値で描画して効かせるのに使う(`useGrapes` の `setStyleSample`)。
+   */
+  sample: SampleData;
   /** canvas 選択を docs へ解決するための catalog parts。 */
   parts: PartCatalogItem[];
-  /** editor タイトル用の表示 fund 名(sample data 由来。無ければファイル名にフォールバック)。 */
+  /** editor タイトルの既定(ファイル名。ファンド名は上部バーが Rep1 から引いて差し替える)。 */
   fundName: string;
   /** 未確定の draft が既に存在したか(前回セッションの編集途中)。dirty 初期化に使う。 */
   hasDraft: boolean;
   /** 別セッションの下書きを破棄して確定版から開いたか。Undo スタックの後始末に使う。 */
   discardedStaleDraft: boolean;
+  /** 読み込めない旧形式の下書きを破棄して確定版から開いたか。Undo の後始末と利用者への通知に使う。 */
+  discardedLegacyDraft: boolean;
 }
 
 interface TemplateEditorService {
@@ -47,7 +55,12 @@ interface TemplateEditorService {
   /** 未確定 draft を破棄する(所属の記録も消す)。 */
   discardDraft(id: string): Promise<Result<void>>;
   listPartHistory(templateId: string): Promise<Result<PartHistoryEntry[]>>;
-  recordPartChange(templateId: string, partKey: string, change: string): Promise<Result<void>>;
+  recordPartChange(
+    templateId: string,
+    partKey: string,
+    change: string,
+    id?: string,
+  ): Promise<Result<void>>;
   /** 交付版⇄全体版 ペア同期の現況(未解決競合)。編集画面を開いた時のバナー表示用。 */
   getSyncStatus(templateId: string): Promise<Result<PairSyncStatus>>;
 }
@@ -57,6 +70,13 @@ export function createTemplateEditorService(
   parts: PartRepository,
   owner: DraftOwner = draftOwner,
 ): TemplateEditorService {
+  /** 下書きを破棄し、成功したときだけこのセッションの所有記録を外す。 */
+  async function discardAndRelease(id: string): Promise<Result<void>> {
+    const res = await templates.discardDraft(id);
+    if (isOk(res)) owner.release(id);
+    return res;
+  }
+
   return {
     async loadForEdit(id) {
       const tplRes = await templates.getTemplate(id);
@@ -75,14 +95,21 @@ export function createTemplateEditorService(
       // 下書きを採用しない形で吸収する — 古い下書きを黙って復元するより確定版から開く方が
       // 規則に沿い、残った実体は次の autosave が上書きする。
       if (draft && !owner.belongsToSession(id)) {
-        const dropped = await templates.discardDraft(id);
-        if (isOk(dropped)) owner.release(id);
+        await discardAndRelease(id);
         draft = null;
         discardedStaleDraft = true;
       }
+      // 旧形式の下書きは読み手が無く、そのまま開くと申請時に復元できない。別セッションの下書きと
+      // 同じく破棄して確定版から開く(破棄の失敗も同じく下書きを採用しない形で吸収する)。
+      let discardedLegacyDraft = false;
+      if (draft && isLegacyDraft(draft.html, tpl.filled ? 'filled' : 'template')) {
+        await discardAndRelease(id);
+        draft = null;
+        discardedLegacyDraft = true;
+      }
 
-      // sample data は値の差込と editor タイトルの両方を駆動する。ここでの失敗が
-      // load をブロックしてはならない(差込は空値になるだけ)。
+      // sample data は値の差込を駆動する。ここでの失敗が load をブロックしてはならない
+      // (差込は空値になるだけ)。
       let sample: SampleData = {};
       try {
         const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
@@ -120,19 +147,20 @@ export function createTemplateEditorService(
         );
       }
 
-      let fundName = tpl.meta.fileName.replace(/\.html$/, '');
-      const fund = sample.fund as { name?: string } | undefined;
-      if (fund?.name) fundName = fund.name;
+      // タイトルの既定はファイル名。ファンド名は上部バーが Rep1 から引いて差し替える。
+      const fundName = tpl.meta.fileName.replace(/\.html$/, '');
 
       return ok({
         template: tpl,
         editableBody,
         confirmedBody,
         css,
+        sample,
         parts: partsRes.value,
         fundName,
         hasDraft: !!draft,
         discardedStaleDraft,
+        discardedLegacyDraft,
       });
     },
 
@@ -142,16 +170,12 @@ export function createTemplateEditorService(
       return res;
     },
 
-    async discardDraft(id) {
-      const res = await templates.discardDraft(id);
-      if (isOk(res)) owner.release(id);
-      return res;
-    },
+    discardDraft: discardAndRelease,
 
     listPartHistory: (templateId) => parts.listPartHistory(templateId),
 
-    recordPartChange: (templateId, partKey, change) =>
-      parts.recordPartChange(templateId, partKey, change),
+    recordPartChange: (templateId, partKey, change, id) =>
+      parts.recordPartChange(templateId, partKey, change, id),
 
     getSyncStatus: (templateId) => templates.getSyncStatus(templateId),
   };

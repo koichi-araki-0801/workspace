@@ -26,7 +26,6 @@ export interface LayoutItem {
   signedValue?: number;
   percent?: number;
   percentText?: string;
-  color?: string;
 
   // 角度・分類 (buildProfiles)
   midAngle?: number;
@@ -84,7 +83,7 @@ export interface LayoutItem {
   topRightRejected?: boolean;
 
   // pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`layout/placement.ts` の
-  // `clampAndBuildPlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
+  // `finalizePlacement`) を、このチャートでは行わない印。名残制約は本来不要だが偶発的に
   // 隣接ラベルの重なり回避として働いているチャートがあり、除去すると重なり/leader 貫通が増える。
   // `svg_export/pipeline.ts` の `pickCapClearanceParity` が不具合増を検知した時だけ立てて旧挙動へ戻す。
   capParityRejected?: boolean;
@@ -144,8 +143,7 @@ export interface LayoutItem {
   singleDominantInside?: boolean;
 
   // 同「二分割」型の左半分を占める第2スライス (2番目・≥35%・左) の印。外側 rim 配置のまま
-  // (テキスト位置不変)、`leader_geometry.ts` の `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS`
-  // を上書きして leader を消す (スライス直近で冗長なため)。`layout/diagnostics.ts` の `markBisectedPie` が立てる。
+  // (テキスト位置不変)、`leader_geometry.ts` の `computeDrawnLeader` が leader を消す (スライス直近で冗長なため)。`layout/diagnostics.ts` の `markBisectedPie` が立てる。
   bisectedSecondSliceNoLeader?: boolean;
 }
 
@@ -256,8 +254,6 @@ export interface Placement {
   minTextY?: number;
   origTextX: number;
   origTextY: number;
-  upperLeftHairpinCheck: boolean;
-  skipLeader: boolean;
   insideSlice: boolean;
   /** 円外 (rim / leader) 配置由来。emit 段で「遠ければ leader 復活」判定の対象。 */
   dominantOutsideEdge?: boolean;
@@ -284,7 +280,7 @@ export interface Placement {
    * 円外 rim/leader 配置で pie クリアランスを保証すべきラベル (`draft.pieClearance` 由来)。
    * `clampPlacement` が **現在の y** から pie クリアランス X 上下限を動的に再計算し、
    * viewBox 端制約より優先させる (ラベルが draft より大きい |y| へ動いて円が太くなった位置でも
-   * 円内へ食い込まないようにする)。`clampAndBuildPlacement` の静的計算は draft 時点の y で固定
+   * 円内へ食い込まないようにする)。`finalizePlacement` の静的計算は draft 時点の y で固定
    * されるため、後段で y が動いた時の保証はこのフラグ経由の動的クランプが担う。
    */
   pieClearance?: boolean;
@@ -298,21 +294,21 @@ export interface Placement {
   /**
    * `applyVerticalDeclipFallback` が縦 spread で上/下へ動かして採用したラベル。リーダーを箱の縦中央
    * (`leaderAttachTargetY`) ではなく **アンカー側の縁の水平中央** (上へ動かした=アンカーが下なら下縁中央)
-   * へ接続し、長い斜めリーダーを見やすくする。`computeDrawnLeader` の `alwaysDraw` 経路でのみ効く
+   * へ接続し、長い斜めリーダーを見やすくする。`computeDrawnLeader` で効く
    * (描画パス限定・scorer 不変)。フラグを立てるラベルは見切れチャートの移動採用分のみ = 他チャート byte 不変。
    */
   declipBottomLeader?: boolean;
   /**
    * 「二分割」型の第2スライス (左) ラベル印 (`item.bisectedSecondSliceNoLeader` 由来)。
-   * `computeDrawnLeader` が `ALWAYS_DRAW_OUTSIDE_LEADERS` を上書きして leader を確定スキップする
-   * (スライス直近で線が冗長なため。テキスト位置は不変)。`clampAndBuildPlacement` が item から複写。
+   * `computeDrawnLeader` が leader を確定スキップする
+   * (スライス直近で線が冗長なため。テキスト位置は不変)。`finalizePlacement` が item から複写。
    */
   bisectedSecondSliceNoLeader?: boolean;
   /**
    * leader を**書き出し側の縦縁・縦中央** (end=右縁の 3 時、cornerGap だけ縁の外) へ
    * アンカーからの 2 点直線で接続する明示オプトイン。`applyLeftStackClusterEvenSpread` が移動した
    * ラベルに立てる (既定の行中央シードだと長い斜め leader が truncate で上縁の角に刺さって見える)。
-   * `computeDrawnLeader` の `alwaysDraw` 経路でのみ効く (描画パス限定・scorer 不変)。
+   * `computeDrawnLeader` で効く (描画パス限定・scorer 不変)。
    */
   sideCenterLeader?: boolean;
 }
@@ -369,10 +365,7 @@ export interface PieLayoutConfig {
   // 密集側 (片側に外側ラベルが多く寄った列) の rim ラベル半径倍率。1.0 で従来。密集側だけ
   // ラベルを円から少し離して窮屈さと leader 交差圧を緩和する (`markDenseSideOutsidePush`)。
   denseSideOutsideRadiusFactor: number;
-  radialExitRenderScale: number;
   radialExitLen: number;
-  yTop: number;
-  yBottom: number;
   minGap: number;
   minGapMultiline: number;
   minGapDense: number;
@@ -445,7 +438,6 @@ export interface PieLayoutConfig {
   readonly scaledLabelRadius: number;
   readonly renderLabelRadius: number;
   readonly scaledRadialExitLen: number;
-  readonly renderRadialExitLen: number;
   readonly scaledMinGap: number;
   readonly scaledMinGapMultiline: number;
   readonly scaledMinGapDense: number;
@@ -462,7 +454,6 @@ export interface PieLayoutConfig {
   readonly leftInitTopInset: number;
   readonly bottomSpecialY: number;
   readonly lowerBandYThreshold: number;
-  readonly flipHorizontalCap: number;
   readonly flipPieClearance: number;
   readonly singleSliceLabelOffset: number;
 }

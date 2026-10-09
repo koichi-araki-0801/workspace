@@ -20,6 +20,7 @@ import {
   templateIdFromFileName,
   validation,
 } from '@editor/shared';
+import { GenerateRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
@@ -28,18 +29,13 @@ import { deleteDraft } from '../files/draftFiles.js';
 import { findInProgressIds } from '../files/inProgress.js';
 import { deletePending, writePending } from '../files/pendingFiles.js';
 import { hasPendingCreateReview } from '../files/reviewFiles.js';
-import {
-  findTemplateId,
-  hasTemplateFor,
-  listTemplateFiles,
-  readFundCss,
-} from '../files/templateFiles.js';
+import { findTemplateId, listTemplateFiles, readTemplateCss } from '../files/templateFiles.js';
 import { generateTemplate } from '../generate/pyTemplate.js';
 import { auditedRethrow } from '../logger.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
-import { GenerateRequest } from '../openapi/schemas.js';
 import { recordCreate } from '../repositories/historyRepo.js';
+import { actorOf } from './routeHelpers.js';
 
 // トークン単位の検査はここに私有の複製を置かず `@editor/shared` の
 // `assertTemplateAttributeToken` 1 本を呼ぶ。同じ判定を呼び出し元ごとの私有複製で持つと、
@@ -55,7 +51,7 @@ export const generateRoutes: FastifyPluginAsync<{
     { preHandler: [requireAuth, requireEditor, validate(GenerateRequest)] },
     async (request) => {
       const body = request.body;
-      const loginId = request.user?.username ?? 'system';
+      const loginId = actorOf(request);
       const { meta, html, css } = await auditedRethrow(
         request,
         'template.generate',
@@ -71,10 +67,16 @@ export const generateRoutes: FastifyPluginAsync<{
             ? assertTemplateAttributeToken('コピー元ファンドコード', body.sourceFundCode)
             : undefined;
           // 画面はコピー元テンプレートが無い候補で作成を止めるが、API を直接呼ばれても同じ結果にする。
-          if (
-            sourceFundCode &&
-            !(await hasTemplateFor(attributes.companyCode, sourceFundCode, attributes.editionType))
-          ) {
+          // 照合は大文字小文字を区別しない(CSS の初期値にもこの id を使う)。
+          const sourceId = sourceFundCode
+            ? findTemplateId(
+                await listTemplateFiles(),
+                attributes.companyCode,
+                sourceFundCode,
+                attributes.editionType,
+              )
+            : null;
+          if (sourceFundCode && sourceId === null) {
             throw validation(`コピー元のテンプレートがありません: ${sourceFundCode}`);
           }
           const fileName = skeletonFileName(attributes);
@@ -122,7 +124,9 @@ export const generateRoutes: FastifyPluginAsync<{
             attributes.fundCode,
             attributes.editionType,
           );
-          const css = await readFundCss(attributes.fundCode);
+          // CSS の初期値: コピー元テンプレの CSS → 同じ名前の既存 CSS → 空(`readTemplateCss` は無ければ空)。
+          // コピー元の有無は上で検査済み。
+          const css = await readTemplateCss(sourceId ?? id);
           const meta: TemplateMeta = {
             id,
             attributes,
@@ -133,17 +137,20 @@ export const generateRoutes: FastifyPluginAsync<{
           };
 
           // REST モード: 生成器が書いた pending/<id>.html を、注記マスタを適用した HTML と CSS で
-          // 書き直し → 作成記録の順。CSS はファンド共有ファイルなので pending にしか書かない — 共有 CSS の
-          // 書き換えは承認経路(`applyConfirmedWrite`)の専権である。前回の下書きは、生成器が成功した
-          // ここで初めて捨てる(失敗したら作業を残す。前の pending/ は生成器の約束で残る)。下書きが
-          // 残ると、編集画面を開いたときに古い下書きが新しい生成物を覆う。コメント(notes/)と
-          // パーツ変更履歴は同じテンプレートの記録なので残す。確定側(templates/)は ① が守る。
+          // 書き直し → 作成記録の順。CSS は同じテンプレの基準日違いで共有するので pending にしか
+          // 書かない — css/ の書き換えは承認経路(`applyConfirmedWrite`)の専権である。前回の
+          // 下書きは、生成器が成功したここで初めて捨てる(失敗したら作業を残す。前の pending/ は
+          // 生成器の約束で残る)。下書きが残ると、編集画面を開いたときに古い下書きが新しい生成物を
+          // 覆う。コメント(notes/)とパーツ変更履歴は同じテンプレートの記録なので残す。確定側
+          // (templates/)は ① が守る。
           if (config.requireAuth) {
-            await writePending(id, html, css);
             // 綴り違いの古い下書き・pending も同じテンプレートの作業なので捨てる(生成物は id の綴りで置く)。
+            // 古い綴りの pending は書く前に消す。大文字小文字を区別しないファイルシステムでは
+            // 古い綴りと id の綴りが同じファイルなので、書いた後に消すと新しい生成物ごと消える。
+            for (const p of inProgress.pending) if (p !== id) await deletePending(p);
+            await writePending(id, html, css);
             for (const d of inProgress.drafts) await deleteDraft(d);
             await deleteDraft(id);
-            for (const p of inProgress.pending) if (p !== id) await deletePending(p);
             await recordCreate(attributes, sourceFundCode, loginId);
           } else {
             // local モードは pending を持たない。生成器は約束どおり書くので、読み終えたここで消す。

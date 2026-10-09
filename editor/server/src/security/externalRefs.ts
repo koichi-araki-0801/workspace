@@ -31,28 +31,35 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   decodeHtmlEntities,
+  EXTERNAL_REF_MESSAGE,
   findExternalRefsInCss,
   findExternalRefsInTag,
   isSelfContainedUrl,
+  MAX_REPORTED_REFS,
   nestedHtmlAttrsFor,
   validation,
 } from '@editor/shared';
 import { scanTags } from '../vivliostyle/inlineCss.js';
 
-/** 拒否時にクライアントへ返す文言。外部クライアントの契約になるので変えるときは OpenAPI も。 */
-export const EXTERNAL_REF_MESSAGE =
-  'CSSまたはHTMLに外部参照(@import / 絶対URLのurl() / 絶対URLのhref・src)が含まれるため' +
-  'PDFを作成できません。' +
-  'フォントや画像やスクリプトは文書に同梱するか、同梱資産への相対パス(css/… css/fonts/… js/…)で' +
-  '指定してください。';
-
-/** 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。 */
+/**
+ * 応答に載せる機械可読コード(OpenAPI に明記。クライアントはこれで分岐する)。
+ * テストから直接検証するために公開する。
+ */
 export const EXTERNAL_REF_CODE = 'DOCUMENT_EXTERNAL_REF';
 
+/** 外部参照の拒否(400)。応答には参照の頭だけと総数を載せる。 */
+function throwExternalRef(where: string, refs: readonly string[]): never {
+  throw validation(EXTERNAL_REF_MESSAGE, {
+    code: EXTERNAL_REF_CODE,
+    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
+  });
+}
+
 /** タグ境界が一意に決まらない HTML を拒んだときの文言とコード。 */
-export const UNPARSABLE_MESSAGE =
+const UNPARSABLE_MESSAGE =
   'HTMLのタグが閉じていないためPDFを作成できません。' +
   '閉じていないタグ・コメント・<style>/<script> を閉じてから送信してください。';
+/** テストから直接検証するために公開する。 */
 export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
 
 /**
@@ -60,12 +67,9 @@ export const UNPARSABLE_CODE = 'DOCUMENT_UNPARSABLE';
  * `UNPARSABLE_CODE` を使う — クライアントから見た意味は「中身を検査できないので受け取れない」
  * で同じであり、コードを増やすと外部契約が理由なく太る。
  */
-export const JSON_UNPARSABLE_MESSAGE =
+const JSON_UNPARSABLE_MESSAGE =
   'JSONファイルを読めないためPDFを作成できません。' +
   '構文を確認してから送信してください(検査できないファイルは受け取れません)。';
-
-/** 応答へ載せる参照の最大件数。全部返すと入力の反射になるので頭だけ返す。 */
-const MAX_REPORTED_REFS = 5;
 
 /**
  * 文書(HTML + 付随 CSS)に含まれる外部参照をすべて列挙する。空配列 = 参照なし。
@@ -82,9 +86,10 @@ export function findDocumentExternalRefs(html: string, css: string): string[] {
 }
 
 /**
- * `srcdoc` の中の HTML を走査し直す深さの上限。1 段で足りる(`srcdoc` の中の `srcdoc` も
- * 同じ経路でもう 1 段拾えるが、無限に降りる意味は無い)。上限を置くのは自己参照する
- * 入力で走査が止まらなくなるのを防ぐため。
+ * 入れ子の HTML(`srcdoc` の値・raw text 要素の中身)を走査し直す深さの上限。1 段で足りる
+ * (`srcdoc` の中の `srcdoc` も同じ経路でもう 1 段拾えるが、無限に降りる意味は無い)。
+ * 上限を置くのは自己参照する入力で走査が止まらなくなるのを防ぐため。上限の先は読み飛ばさず
+ * `NESTED_UNPARSABLE_REF` として数える — 黙って飛ばすと、重ねるだけで内側が検査から消える。
  */
 const MAX_NESTED_HTML_DEPTH = 2;
 
@@ -121,18 +126,16 @@ function collectFromTags(
   for (const tag of tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
       out.push(...findExternalRefsInCss(tag.rawText));
-    } else if (
-      tag.rawText !== undefined &&
-      tag.name !== 'script' &&
-      depth < MAX_NESTED_HTML_DEPTH
-    ) {
+    } else if (tag.rawText !== undefined && tag.name !== 'script') {
       // `title` / `textarea` / `noscript` の中身。走査器はこれらを常に raw text として
       // 読み飛ばすが、**HTML 名前空間の外ではそうではない** — `<svg><title>` は foreign
       // content で普通の外来要素になり、内側の `<img src=https://…>` は実要素として
       // 取得しにいく。読み飛ばした範囲を検査しないと、そこが外部参照ゲートの死角になる。
       // `script` を除くのは、中身が JS であってマークアップではないため(字面の一致を
       // 参照として数えると誤検知が出る。実行面の固定は `templateScripts` の担当)。
-      collectHtmlRefs(tag.rawText, out, depth + 1);
+      // 上限に達したら中身にタグの字面があるときだけ fail closed にする(散文は参照を持てない)。
+      if (depth < MAX_NESTED_HTML_DEPTH) collectHtmlRefs(tag.rawText, out, depth + 1);
+      else if (tag.rawText.includes('<')) out.push(NESTED_UNPARSABLE_REF);
     }
     // 属性値は走査器が切り出したものを使う。原文への正規表現で拾うと
     // `data-style="…"` や他属性の値の中の字面まで拾って誤検知になる。
@@ -151,11 +154,15 @@ function collectFromTags(
     out.push(...findExternalRefsInTag(tag.name, tag.attrs));
     // `srcdoc` は URL ではなく HTML 文書。URL として検査すると必ず「相対参照」と判定され、
     // 中に書いた絶対参照が丸ごと検査から消える(`htmlExternalRefs.ts` の注記)。
-    if (depth >= MAX_NESTED_HTML_DEPTH) continue;
     const nested = nestedHtmlAttrsFor(tag.name);
     if (nested.length === 0) continue;
     for (const a of tag.attrs) {
-      if (nested.includes(a.name)) collectHtmlRefs(decodeHtmlEntities(a.value), out, depth + 1);
+      if (!nested.includes(a.name)) continue;
+      if (depth < MAX_NESTED_HTML_DEPTH) {
+        collectHtmlRefs(decodeHtmlEntities(a.value), out, depth + 1);
+      } else if (a.value.trim() !== '') {
+        out.push(NESTED_UNPARSABLE_REF);
+      }
     }
   }
 }
@@ -173,14 +180,11 @@ export function assertNoDocumentExternalRefs(html: string, css: string, where: s
   }
   const refs = findDocumentExternalRefs(html, css);
   if (refs.length === 0) return;
-  throw validation(EXTERNAL_REF_MESSAGE, {
-    code: EXTERNAL_REF_CODE,
-    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
-  });
+  throwExternalRef(where, refs);
 }
 
 /** 展開済みファイルの検査のしかた。`inert` = バイナリ資産で参照を書けない。 */
-export type InspectionKind = 'css' | 'doc' | 'markdown' | 'json' | 'inert';
+type InspectionKind = 'css' | 'doc' | 'markdown' | 'json' | 'inert';
 
 /**
  * 展開を許す拡張子ごとの検査のしかた。
@@ -293,10 +297,7 @@ export function assertNoJsonExternalRefs(text: string, where: string): void {
     throw validation(JSON_UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE, cause: { where } });
   }
   if (refs.length === 0) return;
-  throw validation(EXTERNAL_REF_MESSAGE, {
-    code: EXTERNAL_REF_CODE,
-    cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
-  });
+  throwExternalRef(where, refs);
 }
 
 /**
@@ -326,19 +327,11 @@ function findMarkdownExternalRefs(md: string): string[] {
 /** markdown 原稿の外部参照を拒む(生 HTML ブロックも同時に見る)。 */
 export function assertNoMarkdownExternalRefs(md: string, where: string): void {
   const refs = findMarkdownExternalRefs(md);
-  if (refs.length > 0)
-    throw validation(EXTERNAL_REF_MESSAGE, {
-      code: EXTERNAL_REF_CODE,
-      cause: { where, refs: refs.slice(0, MAX_REPORTED_REFS), total: refs.length },
-    });
+  if (refs.length > 0) throwExternalRef(where, refs);
   // markdown 内の生 HTML は HTML として検査する。走査できない字面は markdown では
   // 珍しくない(`<` を素で書ける)ので、ここでは参照だけを見て未走査には倒さない。
   const htmlRefs = findDocumentExternalRefs(md, '');
-  if (htmlRefs.length > 0)
-    throw validation(EXTERNAL_REF_MESSAGE, {
-      code: EXTERNAL_REF_CODE,
-      cause: { where, refs: htmlRefs.slice(0, MAX_REPORTED_REFS), total: htmlRefs.length },
-    });
+  if (htmlRefs.length > 0) throwExternalRef(where, htmlRefs);
 }
 
 /**

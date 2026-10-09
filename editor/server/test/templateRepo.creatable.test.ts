@@ -49,12 +49,13 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-  it('hasTemplateFor は templates/ だけを、大文字小文字を区別せずに見る', async () => {
-    const { hasTemplateFor } = await import('../src/files/templateFiles.js');
-    expect(await hasTemplateFor('am01', '510037', '交付版')).toBe(true);
-    expect(await hasTemplateFor('AM01', '510003', '交付版')).toBe(false); // 全体版だけ
-    expect(await hasTemplateFor('AM01', '110024', '交付版')).toBe(false); // filled/ にしか無い
-    expect(await hasTemplateFor('AM01', '510155', '交付版')).toBe(false); // 旧形式だけ
+  it('findTemplateId は templates/ だけを、大文字小文字を区別せずに見る', async () => {
+    const { findTemplateId, listTemplateFiles } = await import('../src/files/templateFiles.js');
+    const files = await listTemplateFiles();
+    expect(findTemplateId(files, 'am01', '510037', '交付版')).not.toBeNull();
+    expect(findTemplateId(files, 'AM01', '510003', '交付版')).toBeNull(); // 全体版だけ
+    expect(findTemplateId(files, 'AM01', '110024', '交付版')).toBeNull(); // filled/ にしか無い
+    expect(findTemplateId(files, 'AM01', '510155', '交付版')).toBeNull(); // 旧形式だけ
   });
 
   it('委託会社は略称をファイル名の会社コード、Rep1 のコードを rep1CompanyCode で返す', async () => {

@@ -159,8 +159,11 @@ rem Launch through run-in-job: a hidden watchdog tears down the whole tree (node
 rem tsx watch, the forked PDF worker daemon and the headless chromium it spawns) even
 rem when this window is closed with the X button, which sends no signal. See
 rem scripts\run-in-job.ps1. %~dp0 stays editor\ even after the cd above.
+call :utf8on
 call "%~dp0scripts\run-in-job.bat" pnpm run dev
-if errorlevel 1 goto :serverfail
+set "RUNRC=%ERRORLEVEL%"
+call :cprestore
+if not "%RUNRC%"=="0" goto :serverfail
 goto :end
 
 rem --- production -------------------------------------------------------------
@@ -193,8 +196,11 @@ pushd "%~dp0server" || (
   echo [start] ERROR: cannot enter "%~dp0server".
   exit /b 1
 )
+call :utf8on
 call "%~dp0scripts\run-in-job.bat" node "%~dp0server\dist\index.js"
-if errorlevel 1 goto :serverfail
+set "RUNRC=%ERRORLEVEL%"
+call :cprestore
+if not "%RUNRC%"=="0" goto :serverfail
 goto :end
 
 rem --- error exits ------------------------------------------------------------
@@ -229,7 +235,8 @@ exit /b 1
 :serverfail
 rem Server exited non-zero. Keep the window open so the error above is readable
 rem (double-click closes it otherwise), which is what made crashes look silent.
-set "RC=%ERRORLEVEL%"
+rem RUNRC is the server's exit code captured before :cprestore reset ERRORLEVEL.
+set "RC=%RUNRC%"
 call :cleanup
 echo [start] server exited with code %RC%
 pause
@@ -238,6 +245,22 @@ exit /b %RC%
 :end
 call :cleanup
 endlocal
+exit /b 0
+
+rem --- subroutines: console code page while the server runs --------------------
+rem The server logs through pino, which writes UTF-8 bytes straight to the console
+rem handle (unlike console.log, which uses the wide console API). On a Japanese code
+rem page (932) every Japanese log line is therefore garbled. Switch the console to
+rem UTF-8 (65001) only for the server run, then restore the caller's code page so an
+rem interactive cmd session is left as it was. chcp prints "...: 932"; set /a trims it.
+:utf8on
+set "OLDCP="
+for /f "tokens=2 delims=:" %%c in ('chcp') do set /a "OLDCP=%%c" >nul 2>nul
+chcp 65001 >nul
+exit /b 0
+
+:cprestore
+if defined OLDCP chcp %OLDCP% >nul
 exit /b 0
 
 rem --- subroutine: free the listen port (called before launch) ----------------

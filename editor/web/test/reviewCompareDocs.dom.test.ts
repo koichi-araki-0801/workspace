@@ -2,6 +2,7 @@
 // reviewCompareDocs.test.ts — 精査画面の左右組版比較に渡す完全文書の組み立て
 // =============================================================================
 import { describe, expect, it } from 'vitest';
+import { buildHtmlDiff, MAX_TOP_LEVEL_BLOCKS } from '@/features/compare/htmlBlockDiff';
 import { buildCompareDocs } from '@/features/reviews/services/reviewCompareDocs';
 
 describe('buildCompareDocs', () => {
@@ -22,10 +23,12 @@ describe('buildCompareDocs', () => {
     }
   });
 
-  it('.page ×2 のうち index 1 だけ changed → 2 個目の .page にのみマーカーとアンカーが付く', () => {
+  it('2 ページのうち index 1 だけ changed → 2 ページ目のパーツにだけマーカーとアンカーが付く', () => {
     const { afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
-      afterHtml: '<div class="page">page1</div><div class="page">page2-changed</div>',
+      beforeHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div>',
+      afterHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2-changed</div>',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),
@@ -36,7 +39,7 @@ describe('buildCompareDocs', () => {
     expect(anchors).toEqual(['review-anchor-2']);
   });
 
-  it('既存 id を持つ .page は id を温存し anchors にその id を入れる', () => {
+  it('既存 id を持つパーツは id を温存し anchors にその id を入れる', () => {
     const { afterDoc, anchors } = buildCompareDocs({
       beforeHtml: '<div class="page" id="custom-id">page1</div>',
       afterHtml: '<div class="page" id="custom-id">page1-changed</div>',
@@ -52,14 +55,15 @@ describe('buildCompareDocs', () => {
 
   it('after に無いページ index は before から拾う（削除ページ）', () => {
     const { anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
+      beforeHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div>',
       afterHtml: '<div class="page">page1</div>',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),
       marker: true,
     });
-    // after は index 1 に .page が無いので before から取得
+    // after には index 1 のページが無いので before から取得
     expect(anchors).toContain('review-anchor-2');
   });
 
@@ -101,10 +105,12 @@ describe('buildCompareDocs', () => {
     expect(layer(a)).not.toBe(layer(b));
   });
 
-  it('期待ページ数と実際の .page 数が一致する場合は通常通りマークする', () => {
+  it('期待ページ数と数えたページ数が一致する場合は通常通りマークする', () => {
     const { afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
-      afterHtml: '<div class="page">page1</div><div class="page">page2-changed</div>',
+      beforeHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div>',
+      afterHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2-changed</div>',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),
@@ -116,8 +122,8 @@ describe('buildCompareDocs', () => {
     expect(anchors).toEqual(['review-anchor-2']);
   });
 
-  it('期待ページ数と実際の .page 数が不一致(page-break 欠落等)ならその面を無印へdegrade', () => {
-    // page-break が効かず 2 ページ分の内容が 1 個の .page に潰れたケースを想定。
+  it('期待ページ数と数えたページ数が不一致(区切りの欠落等)ならその面を無印へdegrade', () => {
+    // 区切りが無く 2 ページ分の内容が 1 ページに潰れたケースを想定。
     // changedPageIndexes=[0] をそのまま適用すると、本来無関係な合成 1 ページを
     // 「変更ページ」として誤ってマークしてしまうため、不一致面は無印にする。
     const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
@@ -147,10 +153,10 @@ describe('buildCompareDocs', () => {
     expect(afterDoc).toContain('data-review-marker');
   });
 
-  it('.page が無い文書はマーカー無し・anchors 空にdegrade', () => {
+  it('本文が空の文書はマーカー無し・anchors 空にdegrade', () => {
     const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '<div>no page</div>',
-      afterHtml: '<div>no page</div>',
+      beforeHtml: '',
+      afterHtml: '  ',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([0]),
@@ -163,12 +169,129 @@ describe('buildCompareDocs', () => {
     expect(anchors).toEqual([]);
   });
 
+  describe('ページはパーツ単位(div.pagebreak 区切り)', () => {
+    const pb = '<div class="pagebreak"></div>';
+    const html3 =
+      `<section>a1</section><p>a2</p>${pb}<section>b1</section><p>b2</p>${pb}` +
+      '<section>c1</section>';
+    const opts = {
+      beforeHtml: html3,
+      afterHtml: html3,
+      cssBefore: '',
+      cssAfter: '',
+      marker: true,
+    };
+    const bodyOf = (doc: string) => new DOMParser().parseFromString(doc, 'text/html').body;
+
+    it('変更ページの各パーツにだけ印が付き、他ページと区切りには付かない', () => {
+      const { afterDoc } = buildCompareDocs({ ...opts, changedPageIndexes: new Set([1]) });
+      const kids = Array.from(bodyOf(afterDoc).children);
+      expect(kids.map((e) => e.hasAttribute('data-review-marker'))).toEqual([
+        false,
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+      ]);
+      expect(kids[2]?.className).toBe('pagebreak');
+      expect(kids[5]?.className).toBe('pagebreak');
+    });
+
+    it('pageAnchors は各ページの先頭のパーツの id(3 件)で、既存 id は上書きしない', () => {
+      const html = `<section id="mine">a1</section>${pb}<section>b1</section>${pb}<section>c1</section>`;
+      const { pageAnchors, anchors, afterDoc } = buildCompareDocs({
+        ...opts,
+        beforeHtml: html,
+        afterHtml: html,
+        changedPageIndexes: new Set([1]),
+      });
+      expect(pageAnchors).toEqual(['mine', 'review-anchor-2', 'review-anchor-3']);
+      expect(anchors).toEqual(['review-anchor-2']);
+      expect(bodyOf(afterDoc).querySelector('#review-anchor-2')?.textContent).toBe('b1');
+    });
+
+    it('白紙のページ(連続した区切り)はページに数え、アンカーはそのページの区切りに付けて印は付けない', () => {
+      const html = `<section>a1</section>${pb}<div class="pagebreak" id="k2"></div><section>c1</section>`;
+      const { pageAnchors, anchors, afterDoc } = buildCompareDocs({
+        ...opts,
+        beforeHtml: html,
+        afterHtml: html,
+        changedPageIndexes: new Set([1]),
+        beforeExpectedPageCount: 3,
+        afterExpectedPageCount: 3,
+      });
+      // 2 ページ目は 2 つ目の区切り(既存 id を上書きしない)だけの白紙のページ。
+      expect(pageAnchors).toEqual(['review-anchor-1', 'k2', 'review-anchor-3']);
+      expect(anchors).toEqual(['k2']);
+      expect(bodyOf(afterDoc).querySelector('[data-review-marker]')).toBeNull();
+    });
+
+    it('期待ページ数と数えた数が違えば無印', () => {
+      const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
+        ...opts,
+        changedPageIndexes: new Set([1]),
+        beforeExpectedPageCount: 2,
+        afterExpectedPageCount: 2,
+      });
+      expect(afterDoc).not.toContain('data-review-marker');
+      expect(anchors).toEqual([]);
+      expect(pageAnchors).toEqual([]);
+    });
+
+    it('body の要素の並びは入力と同じ(包む要素を作らない)', () => {
+      const { afterDoc } = buildCompareDocs({ ...opts, changedPageIndexes: new Set([0, 1, 2]) });
+      const tags = Array.from(bodyOf(afterDoc).children).map(
+        (e) => `${e.tagName.toLowerCase()}.${e.className}`,
+      );
+      expect(tags).toEqual([
+        'section.',
+        'p.',
+        'div.pagebreak',
+        'section.',
+        'p.',
+        'div.pagebreak',
+        'section.',
+      ]);
+    });
+  });
+
+  it('要素の無い本文(文字だけ)は 1 ページで、そのページのアンカーは空文字(ジャンプしない)', () => {
+    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
+      beforeHtml: 'text only',
+      afterHtml: 'text only changed',
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([0]),
+      marker: true,
+    });
+    expect(pageAnchors).toEqual(['']);
+    expect(anchors).toEqual([]);
+    expect(afterDoc).not.toContain('data-review-marker');
+  });
+
+  it('文書に無いページ index の変更は印もアンカーも付けない', () => {
+    const html = '<p>a</p><div class="pagebreak"></div><p>b</p>';
+    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([5]),
+      marker: true,
+    });
+    expect(anchors).toEqual([]);
+    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
+    expect(afterDoc).not.toContain('data-review-marker');
+  });
+
   it('pageAnchors は全ページ分(index=ページ index)で、anchors は変更ページのみに留まる', () => {
     const { pageAnchors, anchors } = buildCompareDocs({
       beforeHtml:
-        '<div class="page">page1</div><div class="page">page2</div><div class="page">page3</div>',
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div><div class="pagebreak"></div><div class="page">page3</div>',
       afterHtml:
-        '<div class="page">page1</div><div class="page">page2-changed</div><div class="page">page3</div>',
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2-changed</div><div class="pagebreak"></div><div class="page">page3</div>',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),
@@ -180,8 +303,10 @@ describe('buildCompareDocs', () => {
 
   it('変更のないページ(コメント宛先)も pageAnchors から id が引ける', () => {
     const { pageAnchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
-      afterHtml: '<div class="page">page1</div><div class="page">page2-changed</div>',
+      beforeHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div>',
+      afterHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2-changed</div>',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),
@@ -207,7 +332,8 @@ describe('buildCompareDocs', () => {
 
   it('after のみ期待ページ数不一致なら pageAnchors は before から補われる', () => {
     const { pageAnchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div><div class="page">page2</div>',
+      beforeHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div>',
       afterHtml: '<div class="page">page1+page2 collapsed</div>',
       cssBefore: '',
       cssAfter: '',
@@ -224,8 +350,9 @@ describe('buildCompareDocs', () => {
     // → pageAnchors.length === 3、indexes 0-1 は after から、index 2 は before から
     const { pageAnchors } = buildCompareDocs({
       beforeHtml:
-        '<div class="page">page1</div><div class="page">page2</div><div class="page">page3</div>',
-      afterHtml: '<div class="page">page1</div><div class="page">page2</div>',
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div><div class="pagebreak"></div><div class="page">page3</div>',
+      afterHtml:
+        '<div class="page">page1</div><div class="pagebreak"></div><div class="page">page2</div>',
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),
@@ -234,5 +361,78 @@ describe('buildCompareDocs', () => {
       marker: true,
     });
     expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
+  });
+
+  it('申請者 CSS の相対 url() を文書基準へ付け替えて埋め込む', () => {
+    const { beforeDoc, afterDoc } = buildCompareDocs({
+      beforeHtml: '<div class="page">b</div>',
+      afterHtml: '<div class="page">a</div>',
+      cssBefore: '@font-face{src:url(fonts/a.woff2)}',
+      cssAfter: '.p{background:url(../images/x.svg)}',
+      changedPageIndexes: new Set(),
+      marker: false,
+    });
+    expect(beforeDoc).toContain('../css/fonts/a.woff2');
+    expect(afterDoc).toContain('../images/x.svg');
+    expect(afterDoc).not.toContain('"images/x.svg"');
+  });
+
+  it('本文の <style> はパーツに数えず、印も付けない(ページの先頭は <style> の次のパーツ)', () => {
+    const html =
+      '<style>.a{}</style><p class="a">1</p><div class="pagebreak"></div>' +
+      '<style>.b{}</style><p class="b">2</p>';
+    const { afterDoc, pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([1]),
+      marker: true,
+      afterExpectedPageCount: 2,
+    });
+    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
+    expect(afterDoc).toContain('<p class="b" id="review-anchor-2" data-review-marker="">2</p>');
+    expect(afterDoc).not.toMatch(/<style[^>]*data-review-marker/);
+  });
+
+  // 直下要素の打ち切り(`truncated`)で diff 側のページ数が減った面は、数えたページ数と
+  // 食い違うので無印(安全側)になる。
+  it('打ち切りでページ数が食い違った面は無印', { timeout: 60_000 }, () => {
+    const many = Array.from({ length: MAX_TOP_LEVEL_BLOCKS }, () => '<p>x</p>').join('');
+    const html = `<!doctype html><html><body>${many}<div class="pagebreak"></div><p>tail</p></body></html>`;
+    const diff = buildHtmlDiff(html, html);
+    expect(diff.truncated).toBe(true);
+    expect(diff.afterPageCount).toBe(1);
+    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set([0]),
+      marker: true,
+      beforeExpectedPageCount: diff.beforePageCount,
+      afterExpectedPageCount: diff.afterPageCount,
+    });
+    expect(afterDoc).not.toContain('data-review-marker=');
+    expect(anchors).toEqual([]);
+    expect(pageAnchors).toEqual([]);
+  });
+
+  it('本文全体を固めた canvas と同じページ数で、保存した文書のページにアンカーを付ける', () => {
+    // 承認は保存・描画した文書(包み・チップ無し)を読む。canvas の 3 ページ(`partKey.dom.test.ts`)と
+    // 同じ数になる。
+    const html =
+      '<p class="a">A</p><div class="pagebreak"></div><section class="s">S</section>' +
+      '<div class="pagebreak"></div><p class="a">A3</p>';
+    const { pageAnchors } = buildCompareDocs({
+      beforeHtml: html,
+      afterHtml: html,
+      cssBefore: '',
+      cssAfter: '',
+      changedPageIndexes: new Set(),
+      marker: true,
+      afterExpectedPageCount: 3,
+    });
+    expect(pageAnchors).toHaveLength(3);
   });
 });

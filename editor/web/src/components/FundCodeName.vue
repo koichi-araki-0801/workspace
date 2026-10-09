@@ -1,21 +1,28 @@
 <script setup lang="ts">
 // =============================================================================
-// FundCodeName.vue — ファンドコード＋解決済みファンド名の共有表示部品
+// FundCodeName.vue — ファンドコード＋Rep1 のファンド名の共有表示部品
 // =============================================================================
 import { watch } from 'vue';
-import { useFundNames } from '@/lib/useFundNames';
+import { useRep1Names } from '@/lib/useRep1Names';
 
 /**
- * ファンドコード(等幅)＋解決済みのファンド名(淡色)を並べて表示する共有表示部品。
- * 名前は `useFundNames.ts` の `useFundNames`(モジュールキャッシュ)で best-effort
- * 解決し、未収録ならコードのみ表示する。一覧の各セルで使っても重複 fetch は起きない。
+ * ファンドコード(等幅)＋Rep1 のファンド名(淡色)。Rep1 のファンドは会社単位でしか引けない
+ * ので委託会社の略称も受ける。取得前・失敗の間はコードだけ、Rep1 に無ければ「（未登録）」。
+ * 名前は `useRep1Names` のモジュールキャッシュで解決するので、一覧の各セルで使っても
+ * 重複取得は起きない。
  */
-const props = defineProps<{ code: string }>();
-const { resolve, nameOf } = useFundNames();
-watch(() => props.code, (c) => resolve([c]), { immediate: true });
+const props = defineProps<{ companyCode: string; code: string }>();
+const { resolveFunds, fundName } = useRep1Names();
+watch(
+  () => props.companyCode,
+  (c) => resolveFunds(c),
+  { immediate: true },
+);
 </script>
 
 <template>
   <span class="mono font-medium">{{ code }}</span>
-  <span v-if="nameOf(code)" class="ml-2 text-sm text-muted-foreground">{{ nameOf(code) }}</span>
+  <span v-if="fundName(companyCode, code)" class="ml-2 text-sm text-muted-foreground">{{
+    fundName(companyCode, code)
+  }}</span>
 </template>

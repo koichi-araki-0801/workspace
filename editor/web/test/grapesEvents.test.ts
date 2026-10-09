@@ -4,11 +4,10 @@ import { ref } from 'vue';
 import { type GrapesEventDeps, wireGrapesEvents } from '@/features/editor/grapesEvents';
 
 // =============================================================================
-// grapesEvents.test.ts — content/style 変更時の重い再計測が rAF で 1 フレーム
-// 1 回へ集約される(coalescing)ことを検証する。fireChange の即時部
-// (revision/rect/move/change)はイベントごとに走り、重い `recomputeLayout`
-// (break 集合 → guide → ページ列挙 → 縦配置)はフレーム単位で束ねられる、が
-// 確認したい不変条件。順序は `recomputeLayout` 内部の詳細(useGrapes 側)。
+// grapesEvents.test.ts — content/style 変更の配線を検証する。fireChange はイベントごとに
+// layout 変更の通知(`notifyLayoutChanged`)・move・change を即時に呼び、重い再計測の
+// 間引き(rAF 1 フレーム 1 回)は通知の先(`useGrapes.ts` の `scheduleLayoutRecompute`、
+// `rafOnce.test.ts`)が担う。`recomputeLayout` は `load` で同期に 1 回だけ走る。
 // =============================================================================
 
 /** `ed.on(names, cb)` を記録し `emit(name)` で発火できる最小の偽 editor。 */
@@ -52,37 +51,37 @@ function setup() {
     refreshMove: vi.fn(),
     refreshPageGuides: vi.fn(),
     recomputeLayout: vi.fn(),
+    notifyLayoutChanged: vi.fn(),
     change: vi.fn(),
   };
-  const revision = ref(0);
   // 偽の依存。`GrapesEventDeps` の細部型(SelectedInfo 等)はテスト挙動に無関係なため
   // まとめてキャストする(実行時の呼び出しは spy で観測する)。
   const deps = {
     selected: ref(null),
     selectedRect: ref(null),
-    revision,
-    zoom: ref(1),
     refreshRect: spies.refreshRect,
     refreshMove: spies.refreshMove,
     refreshPageGuides: spies.refreshPageGuides,
     recomputeLayout: spies.recomputeLayout,
+    notifyLayoutChanged: spies.notifyLayoutChanged,
     applyInitialZoom: vi.fn(),
     onCanvasLoad: vi.fn(),
     toInfo: vi.fn(),
     isLocked: () => false,
+    isApplyingLockState: () => false,
     canvasCss: '',
     callbacks: { change: spies.change },
   } as unknown as GrapesEventDeps;
   wireGrapesEvents(ed, deps);
-  return { ed, spies, revision };
+  return { ed, spies };
 }
 
-describe('wireGrapesEvents — fireChange の重い再計測 coalescing', () => {
+describe('wireGrapesEvents — fireChange の即時部', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('複数の content/style 変更を 1 フレームへ束ね、recomputeLayout は 1 回だけ走る', () => {
-    const flush = stubRaf();
-    const { ed, spies, revision } = setup();
+  it('content/style 変更のたびに通知・move・change が即時に走り、再計測は直接走らせない', () => {
+    stubRaf();
+    const { ed, spies } = setup();
 
     // 連続発火を模す(テキスト入力中の component:update 連打など)。
     ed.emit('component:update');
@@ -91,32 +90,19 @@ describe('wireGrapesEvents — fireChange の重い再計測 coalescing', () => 
     ed.emit('component:styleUpdate');
     ed.emit('component:update');
 
-    // 即時部はイベントごとに走る。
-    expect(revision.value).toBe(5);
-    expect(spies.refreshRect).toHaveBeenCalledTimes(5);
+    expect(spies.notifyLayoutChanged).toHaveBeenCalledTimes(5);
     expect(spies.refreshMove).toHaveBeenCalledTimes(5);
     expect(spies.change).toHaveBeenCalledTimes(5);
-
-    // 重い再計測はフレーム前には未実行(集約待ち)。
+    // 間引きは通知の先が担う。ここからは `load` 以外で `recomputeLayout` を呼ばない。
     expect(spies.recomputeLayout).not.toHaveBeenCalled();
-
-    // 1 フレーム経過 — 5 連打が 1 回に集約される。
-    flush();
-    expect(spies.recomputeLayout).toHaveBeenCalledTimes(1);
   });
 
-  it('次フレームでは再スケジュールされ、recomputeLayout がもう一度走る', () => {
-    const flush = stubRaf();
+  it('load で recomputeLayout を同期に 1 回走らせる', () => {
+    stubRaf();
     const { ed, spies } = setup();
-
-    ed.emit('component:update');
-    flush();
+    (ed as unknown as { Canvas: unknown }).Canvas = { getDocument: () => null };
+    ed.emit('load');
     expect(spies.recomputeLayout).toHaveBeenCalledTimes(1);
-
-    ed.emit('component:update');
-    ed.emit('component:update');
-    flush();
-    expect(spies.recomputeLayout).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -126,22 +112,21 @@ describe('wireGrapesEvents — 編集可否切替中の dirty 抑制', () => {
   // `setEditable` は全 Component へ `editable`/`draggable` を set して回り、保存内容の
   // 変わらない `component:update` を大量発火させる。change(dirty/autosave)へ流すと
   // 「編集を許可を触っただけで未確定 + 無編集 draft 生成」になるため、適用中は
-  // change だけを止め、幾何の追随(revision/rect)は生かす — が確認したい不変条件。
-  it('isApplyingLockState 中の component:update は change を呼ばず revision は進む', () => {
+  // change だけを止め、幾何の追随(layout 変更の通知)は生かす — が確認したい不変条件。
+  it('isApplyingLockState 中の component:update は change を呼ばず 通知は進む', () => {
     stubRaf();
     const ed = makeFakeEditor();
     const spies = { change: vi.fn() };
-    const revision = ref(0);
+    const notifyLayoutChanged = vi.fn();
     let applying = false;
     const deps = {
       selected: ref(null),
       selectedRect: ref(null),
-      revision,
-      zoom: ref(1),
       refreshRect: vi.fn(),
       refreshMove: vi.fn(),
       refreshPageGuides: vi.fn(),
       recomputeLayout: vi.fn(),
+      notifyLayoutChanged,
       applyInitialZoom: vi.fn(),
       onCanvasLoad: vi.fn(),
       toInfo: vi.fn(),
@@ -156,7 +141,7 @@ describe('wireGrapesEvents — 編集可否切替中の dirty 抑制', () => {
     ed.emit('component:update');
     ed.emit('component:update');
     expect(spies.change).not.toHaveBeenCalled();
-    expect(revision.value).toBe(2);
+    expect(notifyLayoutChanged).toHaveBeenCalledTimes(2);
 
     // 切替適用が終われば通常の変更は従来どおり dirty へ届く。
     applying = false;
@@ -173,14 +158,14 @@ describe('wireGrapesEvents — 保存内容に現れない prop だけの compon
     ed.emit('component:update', { changed });
   }
 
-  it('open / status だけの更新は change を呼ばず、revision は進む', () => {
+  it('open / status だけの更新は change を呼ばず、通知は進む', () => {
     stubRaf();
-    const { ed, spies, revision } = setup();
+    const { ed, spies } = setup();
     emitUpdate(ed, { open: true });
     emitUpdate(ed, { status: 'selected' });
     emitUpdate(ed, { open: true, status: 'hovered' });
     expect(spies.change).not.toHaveBeenCalled();
-    expect(revision.value).toBe(3);
+    expect(spies.notifyLayoutChanged).toHaveBeenCalledTimes(3);
   });
 
   it('内容の変更を含む更新は change を呼ぶ(UI 状態と混ざっていても)', () => {
@@ -197,5 +182,49 @@ describe('wireGrapesEvents — 保存内容に現れない prop だけの compon
     ed.emit('component:update');
     emitUpdate(ed, {});
     expect(spies.change).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ドラッグの移動判定は「親か兄弟内の位置のどちらか」が変わったときだけ true。別ページ(親)へ
+// 同じ番目で移した場合も記録しないと cancelUndo が Undo の 1 手を落とす。
+describe('wireGrapesEvents — ドラッグ移動の判定', () => {
+  function drag(start: { p: object; i: number }, end: { p: object; i: number }) {
+    const ed = makeFakeEditor();
+    let cur = start;
+    ed.getSelected = (() => ({ index: () => cur.i, parent: () => cur.p })) as never;
+    const reorderEnd = vi.fn();
+    const deps = {
+      selected: ref(null),
+      selectedRect: ref(null),
+      refreshRect: vi.fn(),
+      refreshMove: vi.fn(),
+      refreshPageGuides: vi.fn(),
+      recomputeLayout: vi.fn(),
+      notifyLayoutChanged: vi.fn(),
+      applyInitialZoom: vi.fn(),
+      onCanvasLoad: vi.fn(),
+      toInfo: vi.fn(),
+      isLocked: () => false,
+      isApplyingLockState: () => false,
+      canvasCss: '',
+      callbacks: { change: vi.fn(), reorderStart: vi.fn(), reorderEnd },
+    } as unknown as GrapesEventDeps;
+    wireGrapesEvents(ed, deps);
+    ed.emit('component:drag:start');
+    cur = end;
+    ed.emit('component:drag:end');
+    return reorderEnd;
+  }
+  const pageA = {};
+  const pageB = {};
+
+  it('別の親の同じ番目へ移したら移動', () => {
+    expect(drag({ p: pageA, i: 2 }, { p: pageB, i: 2 })).toHaveBeenCalledWith(true);
+  });
+  it('同じ親の別の番目なら移動', () => {
+    expect(drag({ p: pageA, i: 2 }, { p: pageA, i: 3 })).toHaveBeenCalledWith(true);
+  });
+  it('同じ親の同じ番目なら移動していない', () => {
+    expect(drag({ p: pageA, i: 2 }, { p: pageA, i: 2 })).toHaveBeenCalledWith(false);
   });
 });

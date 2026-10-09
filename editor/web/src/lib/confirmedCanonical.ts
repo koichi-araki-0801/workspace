@@ -2,9 +2,9 @@
 // confirmedCanonical.ts — 確定版正規形(HTML + CSS)の localStorage キャッシュ
 // =============================================================================
 // 役割: 「未確定」の判定基準になる確定版の正規形(canvas を通して GrapesJS 自身が直列化した
-// 形)を templateId + updatedAt をキーに保持する。確定版から開いた初回に取り、draft 再開時は
-// これを使って canvas の二重 load を避ける。updatedAt が変われば(承認で確定版が更新されれば)
-// 使わない。null の版はキャッシュしない。読めない・書けないは「無い」として扱う(判定側が
+// 形)を templateId + updatedAt をキーに保持する。確定版を読み込むたびに測り直して上書きし、
+// 下書きから開いて確定版の読み込みを拒まれたときだけこれを使う(`openCanvas.ts`)。updatedAt が
+// 変われば(承認で確定版が更新されれば)使わない。null の版はキャッシュしない。読めない・書けないは「無い」として扱う(判定側が
 // フォールバックする)。
 
 import { confirmedCanonicalKey } from '@/lib/storageKeys';

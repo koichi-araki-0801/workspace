@@ -77,8 +77,10 @@ watch(
     method.value = null;
     info.value = null;
     const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
-    if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) return;
+    // 世代は問い合わせないときも進める。前の属性の問い合わせが飛んでいると、その応答が
+    // 後から届いて消したばかりの作成可否を埋め戻すため。
     const isLatest = latestResolve.begin();
+    if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) return;
     const res = await templates.getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType });
     if (!isLatest()) return; // 属性を変え直した後に届いた旧応答は捨てる
     if (isErr(res)) {

@@ -10,6 +10,28 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { type BuildWorker, BuildWorkerPool } from './buildWorkerPool.js';
 
+/**
+ * 子プロセスを**子孫ごと**止める。daemon もジョブ毎 spawn の worker も `@vivliostyle/cli` の
+ * `build()` 経由で headless chromium を *子プロセス* として起こす。Windows の
+ * `child.kill('SIGKILL')` は当該プロセスのみを殺し子孫へ伝播しないため、親だけ消えて
+ * chromium が孤児化する。OS 標準の `taskkill /T`(ツリー)/`/F`(強制) で子孫ごと一掃する
+ * (`tree-kill` npm 追加はオフラインバンドル方針に反するため不採用)。
+ */
+export function killProcessTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (process.platform === 'win32' && pid) {
+    // fire-and-forget。`taskkill` 不在等の起動失敗で出る `'error'` を握り潰さないと
+    // unhandled となり親 server 全体が落ちるため、必ずハンドラを付ける。起動に失敗した
+    // ときは最終手段として本体だけでも SIGKILL で確実に落とす(ツリーは殺せず
+    // chromium 子孫の孤児化は残るが、本体の生存で呼び出し側が待ち続ける最悪を防ぐ)。
+    spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('error', () => {
+      child.kill('SIGKILL');
+    });
+    return;
+  }
+  child.kill('SIGKILL');
+}
+
 /** daemon の IPC 応答(`pdf-build-worker-daemon.mjs` の契約)。 */
 interface WorkerReply {
   id: number;
@@ -60,22 +82,7 @@ class ForkedBuildWorker implements BuildWorker {
   kill(): void {
     if (this.dead) return;
     this.dead = true;
-    // daemon は `@vivliostyle/cli` の `build()` 経由で headless chromium を *子プロセス* として
-    // 起こす。Windows の `child.kill('SIGKILL')` は当該プロセスのみを殺し子孫へ伝播しないため、
-    // daemon だけ消えて chromium が孤児化する。OS 標準の `taskkill /T`(ツリー)/`/F`(強制) で
-    // 子孫ごと一掃する(`tree-kill` npm 追加はオフラインバンドル方針に反するため不採用)。
-    const pid = this.child.pid;
-    if (process.platform === 'win32' && pid) {
-      // fire-and-forget。`taskkill` 不在等の起動失敗で出る `'error'` を握り潰さないと
-      // unhandled となり親 server 全体が落ちるため、必ずハンドラを付ける。起動に失敗した
-      // ときは最終手段として daemon 本体だけでも SIGKILL で確実に落とす(ツリーは殺せず
-      // chromium 子孫の孤児化は残るが、daemon 生存でプールが再起動を繰り返す最悪を防ぐ)。
-      spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' }).on('error', () => {
-        this.child.kill('SIGKILL');
-      });
-      return;
-    }
-    this.child.kill('SIGKILL');
+    killProcessTree(this.child);
   }
 
   onExit(cb: (err?: Error) => void): void {

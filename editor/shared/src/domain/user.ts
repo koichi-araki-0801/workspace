@@ -4,7 +4,7 @@
 import type { User } from '../index.js';
 
 /** ユーザーが存在し、かつ admin ロールを持つとき true。 */
-export function isAdmin(user: User | null | undefined): boolean {
+export function isAdmin(user: Pick<User, 'role'> | null | undefined): boolean {
   return user?.role === 'admin';
 }
 
@@ -12,7 +12,7 @@ export function isAdmin(user: User | null | undefined): boolean {
  * 確定保存を承認できる(精査者)権限を持つとき true。`approver` と `admin` が該当する。
  * 承認画面/導線の出し分けに使う(サーバ側 `requireApprover` と同じ判定基準)。
  */
-export function isApprover(user: User | null | undefined): boolean {
+export function isApprover(user: Pick<User, 'role'> | null | undefined): boolean {
   return user?.role === 'approver' || user?.role === 'admin';
 }
 

@@ -5,29 +5,36 @@
 // web 側にしか無く一覧表示のたびに全件計算はできないため、**申請者のブラウザが申請時に
 // 1 回計算して meta に保存**する。参考情報であり承認判断には使わない(精査画面はその場で
 // 実差分を計算する)。計算のどこで失敗しても null を返し、申請そのものは決して止めない。
-import { isErr, type PartRepository, type Result, type ReviewChangedSummary } from '@editor/shared';
+import {
+  isErr,
+  type PartRepository,
+  type Result,
+  type ReviewChangedSummary,
+  type ReviewOrigin,
+} from '@editor/shared';
 import { usePartRepo } from '@/api/repositories';
-import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
+import {
+  type CompareService,
+  type RenderedVersion,
+  renderReviewPair,
+  useCompareService,
+} from '@/features/compare/services/compareService';
 import { htmlWorker } from '@/workers';
-import { loadPartNameMap, partIdFromBlockKey } from './partNames';
+import { loadPartNameMap, partNameOf } from './partNames';
 
 interface SummaryInput {
   templateId: string;
   html: string;
   css: string;
   fundCode: string;
-  origin: 'edit' | 'create';
+  origin: ReviewOrigin;
 }
 
 /** 依存の束(テストで差し替える点)。実運用は `createChangedSummaryService` が既定を組む。 */
-export interface SummaryDeps {
-  renderAfter: (
-    html: string,
-    css: string,
-    fundCode: string,
-    origin: 'edit' | 'create',
-  ) => Promise<Result<{ html: string; css: string }>>;
-  renderBefore: (templateId: string) => Promise<Result<{ html: string; css: string }>>;
+interface SummaryDeps {
+  renderPair: (
+    input: SummaryInput,
+  ) => Promise<Result<{ before: RenderedVersion; after: RenderedVersion }>>;
   buildHtmlDiff: (
     beforeHtml: string,
     afterHtml: string,
@@ -51,9 +58,7 @@ function summaryLabel(
   fallbackLabel: string,
   nameById: ReadonlyMap<string, string>,
 ): string {
-  const id = partIdFromBlockKey(key);
-  const name = id ? nameById.get(id) : undefined;
-  return name ?? fallbackLabel;
+  return partNameOf(key, nameById) ?? fallbackLabel;
 }
 
 /**
@@ -84,23 +89,10 @@ async function computeUnbounded(
   deps: SummaryDeps,
 ): Promise<ReviewChangedSummary | null> {
   try {
-    const afterRes = await deps.renderAfter(input.html, input.css, input.fundCode, input.origin);
-    if (isErr(afterRes)) return null;
-    let beforeHtml = '';
-    let cssBefore = afterRes.value.css;
-    if (input.origin === 'edit') {
-      const beforeRes = await deps.renderBefore(input.templateId);
-      if (!isErr(beforeRes)) {
-        beforeHtml = beforeRes.value.html;
-        cssBefore = beforeRes.value.css;
-      }
-    }
-    const diff = await deps.buildHtmlDiff(
-      beforeHtml,
-      afterRes.value.html,
-      cssBefore,
-      afterRes.value.css,
-    );
+    const pairRes = await deps.renderPair(input);
+    if (isErr(pairRes)) return null;
+    const { before, after } = pairRes.value;
+    const diff = await deps.buildHtmlDiff(before.html, after.html, before.css, after.css);
     const nameById = await deps.loadNames();
     const changed = diff.pages.flatMap((p) => p.blocks).filter((b) => b.status !== 'same');
     const names = [...new Set(changed.map((b) => summaryLabel(b.key, b.label, nameById)))];
@@ -111,7 +103,7 @@ async function computeUnbounded(
 }
 
 /** 申請ボタンの event handler から使う入口。 */
-export interface ChangedSummaryService {
+interface ChangedSummaryService {
   computeChangedSummary(input: SummaryInput): Promise<ReviewChangedSummary | null>;
 }
 
@@ -123,9 +115,7 @@ export function createChangedSummaryService(
   return {
     computeChangedSummary: (input) =>
       computeChangedSummaryWith(input, {
-        renderAfter: (html, css, fundCode, origin) =>
-          compare.renderTemplateBody(html, css, fundCode, origin),
-        renderBefore: (templateId) => compare.renderVersionHtml(`baseline:${templateId}`),
+        renderPair: (input) => renderReviewPair(compare, input),
         buildHtmlDiff: (b, a, cb, ca) => htmlWorker.buildHtmlDiff(b, a, cb, ca),
         loadNames: () => loadPartNameMap(parts),
       }),

@@ -2,10 +2,12 @@
 // runtime/seaRuntime.ts — SEA(単一 exe)実行時のアセット参照とモジュール解決封鎖
 // -----------------------------------------------------------------------------
 // 配布物は **exe 1 個**で、実行されるコードとデータ(subset-font の JS 閉包 / harfbuzz
-// wasm / 埋込フォント woff2)はすべて Authenticode 署名の内側にある。exe の隣や上位
-// ディレクトリの `node_modules` を実行時に解決すると、書き込み可能な場所(既定 ACL の
-// `C:\` は Authenticated Users が AppendData を持つ)へ置かれた偽モジュールが署名の
-// 外から読み込まれ、別ユーザーが起動した exe の中で攻撃者のコードが走る。ゆえに SEA では
+// wasm / 埋込フォント woff2)はすべて exe の内側にある。例外は DB ドライバ(`sqlserverv8.node`)で、
+// ネイティブモジュールは実ファイルからしか読めないため、照合してから一時フォルダ経由で読む
+// (`runtime/nativeDriver.ts`)。
+// exe の隣や上位ディレクトリの `node_modules` を実行時に解決すると、書き込み可能な場所
+// (既定 ACL の `C:\` は Authenticated Users が AppendData を持つ)へ置かれた偽モジュールが
+// exe の外から読み込まれ、別ユーザーが起動した exe の中で攻撃者のコードが走る。ゆえに SEA では
 //   1. builtin 以外のモジュール解決をすべて拒否する(`installSeaGuards`)
 //   2. 外部ファイル参照は SEA アセットの **固定キー許可リスト**経由のみにする
 // の 2 段で閉じる。1 は多層防御で、主防御は「解決が必要なコードが 1 行も無い」こと。
@@ -14,8 +16,9 @@
 // 拡張子判定のような述語へ緩めると、`basename` 経由の間接指定や末尾空白で許可リストが
 // 素通しになる(`test/sea_runtime.test.ts` が迂回入力で固定している)。
 //
-// 呼び出し側: `cli.ts`(`installSeaGuards`)/ `svg_export/font.ts`(`readSeaAsset`)/
-// `runtime/subsetFontFs.ts`(sentinel 経由の wasm 読み出し)/ `input/db.ts`(`isSea`)。
+// 呼び出し側: `cli.ts`(`installSeaGuards` / `isSea` / `readSeaAsset`)/ `svg_export/font.ts`
+// (`isSea` / `readSeaAsset`)/ `runtime/subsetFontFs.ts`(sentinel 経由の wasm 読み出し)/
+// `input/sproc.ts`(`isSea`)/ `runtime/dbChild.ts`(`readSeaAsset` でドライバを取り出す)。
 // アセットキーの一覧は `scripts/build-exe.mjs` の sea-config `assets` と一致させること
 // (ビルド側のアサートが不一致を検出する)。
 // =============================================================================
@@ -24,12 +27,17 @@ import Module from 'node:module';
 
 // ── 1. 許可リスト(固定) ────────────────────────────────────────────────────
 
-/** exe へ埋め込む SEA アセットのキー。`build-exe.mjs` の `assets` と 1:1 で対応する。 */
+/**
+ * exe へ埋め込む SEA アセットのキー。`build-exe.mjs` の `assets` と 1:1 で対応する。
+ * `sqlserverv8.node` は `--no-db` のビルドでは埋め込まれない(読み出す前に
+ * `embeddedDriverSha256()` が空かどうかで止める)。
+ */
 export const SEA_ASSET_KEYS: ReadonlySet<string> = new Set([
   'BIZUDPGothic-Regular.woff2',
   'BIZUDPGothic-Bold.woff2',
   'hb-subset.wasm',
   'OFL-BIZUDPGothic.txt',
+  'sqlserverv8.node',
 ]);
 
 /**

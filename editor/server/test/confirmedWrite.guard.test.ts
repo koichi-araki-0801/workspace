@@ -58,9 +58,8 @@ describe('書込プリミティブの import 許可リスト', () => {
     // 増えても減っても落ちる。新しいファイルがディスクへ直接書き始めたことに気付くための
     // 検査であって、「危険な書き込みを列挙する」検査ではない。
     const allowed = [
-      'files/draftFiles.ts',
+      'files/idPairStore.ts',
       'files/notesFile.ts',
-      'files/pendingFiles.ts',
       'files/reviewFiles.ts',
       'files/syncFiles.ts',
       'repositories/confirmedWrite.ts',
@@ -73,14 +72,25 @@ describe('書込プリミティブの import 許可リスト', () => {
     expect(actual.sort()).toEqual(allowed.sort());
   });
 
-  it('templatePath / cssPath / filledPath を import してよいのは confirmedWrite.ts だけ', () => {
+  it('createIdPairStore を import してよいのは draftFiles.ts と pendingFiles.ts だけ', () => {
+    // 任意のディレクトリへ書ける汎用の書き込み口。templates/・filled/ を渡す利用者が現れると
+    // 承認ゲートを通らずに確定ファイルを書けるので、利用者を固定する。
+    const actual = listSources().filter((rel) =>
+      /from\s+'(?:\.\.?\/)*(?:files\/)?idPairStore\.js'/.test(
+        fs.readFileSync(path.join(SRC, rel), 'utf8'),
+      ),
+    );
+    expect(actual.sort()).toEqual(['files/draftFiles.ts', 'files/pendingFiles.ts']);
+  });
+
+  it('templatePath / resolveTemplateCssPath / filledPath を import してよいのは confirmedWrite.ts だけ', () => {
     // この 3 つは確定ディレクトリと連結する唯一の解決子。`atomicWrite` と組み合わせられる
     // のがチョークポイント 1 ファイルだけであることが「唯一の関所」の実体である。
     const actual = listSources().filter((rel) => {
       const text = fs.readFileSync(path.join(SRC, rel), 'utf8');
       const m = /import\s*\{([^}]*)\}\s*from\s*'(?:\.\.?\/)*files\/templateFiles\.js'/.exec(text);
       if (!m) return false;
-      return /\b(templatePath|cssPath|filledPath)\b/.test(m[1]);
+      return /\b(templatePath|resolveTemplateCssPath|filledPath)\b/.test(m[1]);
     });
     expect(actual).toEqual(['repositories/confirmedWrite.ts']);
   });
@@ -128,29 +138,49 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         targetTemplateId: OTHER,
         sourceTemplateId: SOURCE,
         html: '<p>のっとり</p>',
+        css: '.pwned{}',
         actor: 'attacker',
         appliedParts: ['p1'],
       }),
     ).rejects.toSatisfy(isAppError);
     expect(read(OTHER)).toBe('<p>他人のテンプレ</p>');
     expect(auditCalls).toEqual([]);
+    expect(fs.existsSync(path.join(cssDir, 'AM01_999999_全体版.css'))).toBe(false);
   });
 
-  it('review-approve の fundCode が id と食い違えば書かない', async () => {
-    await expect(
-      confirmedWrite.applyConfirmedWrite({
-        kind: 'review-approve',
-        target: 'template',
-        templateId: SOURCE,
-        fundCode: '999999',
-        html: '<p>x</p>',
-        css: 'body{}',
-        author: 'editor1',
-        commitMessage: 'm',
-      }),
-    ).rejects.toSatisfy(isAppError);
-    expect(fs.existsSync(path.join(templatesDir, `${SOURCE}.html`))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, '999999.css'))).toBe(false);
+  it('review-approve の CSS は id から決まり、同じファンドの別の版種や別のファンドの CSS に触れない', async () => {
+    fs.writeFileSync(path.join(cssDir, 'AM01_510037_全体版.css'), '.zentai{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_999999_交付版.css'), '.other{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'review-approve',
+      target: 'filled',
+      templateId: 'AM01_510037_20240710_交付版',
+      html: '<p>x</p>',
+      css: '.kofu{}',
+      author: 'approver1',
+      commitMessage: 'm',
+    });
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), 'utf8')).toBe('.kofu{}');
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_510037_全体版.css'), 'utf8')).toBe('.zentai{}');
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_999999_交付版.css'), 'utf8')).toBe('.other{}');
+    expect(fs.readdirSync(cssDir).sort()).toEqual(
+      ['AM01_510037_交付版.css', 'AM01_510037_全体版.css', 'AM01_999999_交付版.css'].sort(),
+    );
+  });
+
+  it('既存の CSS の綴り(am01_…)があればその綴りで書き、別名を増やさない', async () => {
+    fs.writeFileSync(path.join(cssDir, 'am01_510037_交付版.css'), '.old{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'review-approve',
+      target: 'template',
+      templateId: 'AM01_510037_交付版',
+      html: '<p>x</p>',
+      css: '.new{}',
+      author: 'approver1',
+      commitMessage: 'm',
+    });
+    expect(fs.readdirSync(cssDir)).toEqual(['am01_510037_交付版.css']);
+    expect(fs.readFileSync(path.join(cssDir, 'am01_510037_交付版.css'), 'utf8')).toBe('.new{}');
   });
 
   it('承認経路でも実行コードの追加は拒否する(承認を通しても JS は変えられない)', async () => {
@@ -160,7 +190,6 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         kind: 'review-approve',
         target: 'template',
         templateId: SOURCE,
-        fundCode: '510037',
         html: '<html><script>col.width=1</script><script>fetch("/x")</script></html>',
         css: '',
         author: 'approver1',
@@ -184,6 +213,56 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toSatisfy(isAppError);
     expect(read(PAIR)).toBe('<html><p>ペア側</p></html>');
+  });
+
+  it('テンプレートへの確定でも、往復用の印が残った本文は書かない', async () => {
+    seed(SOURCE, '<p>{{ fund.name }}</p>');
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'template',
+        templateId: SOURCE,
+        html: '<p><!--jinja-rt:t:e3sgc2V0IGEgPSAxICV9-->{{ fund.name }}</p>',
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    expect(read(SOURCE)).toBe('<p>{{ fund.name }}</p>');
+    expect(fs.existsSync(path.join(cssDir, `${SOURCE}.css`))).toBe(false);
+  });
+
+  it('値入り HTML への確定でも、往復用の印が残った本文は書かない', async () => {
+    const id = 'AM01_510037_20250101_交付版';
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'filled',
+        templateId: id,
+        html: '<table><tbody><tr data-jinja-loop-clone=""><td>1</td></tr></tbody></table>',
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    expect(fs.existsSync(path.join(filledDir, `${id}.html`))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'AM01_510037_交付版.css'))).toBe(false);
+  });
+
+  it('ペア転写でも、往復用の印が残った本文は書かない', async () => {
+    seed(PAIR, '<p>ペア側</p>');
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'pair-sync',
+        target: 'template',
+        targetTemplateId: PAIR,
+        sourceTemplateId: SOURCE,
+        html: '<p><span data-jinja="e3sgYSB9fQ==">1</span></p>',
+        actor: 'approver1',
+        appliedParts: ['p1'],
+      }),
+    ).rejects.toMatchObject({ kind: 'validation' });
+    expect(read(PAIR)).toBe('<p>ペア側</p>');
   });
 
   it('afterWrite が失敗したら本体を元のバイト列へ戻す', async () => {
@@ -229,7 +308,6 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         kind: 'review-approve',
         target: 'filled',
         templateId: 'AM01_510037_交付版',
-        fundCode: '510037',
         html: '<p>x</p>',
         css: '',
         author: 'approver1',
@@ -237,7 +315,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toSatisfy(isAppError);
     expect(fs.existsSync(path.join(filledDir, 'AM01_510037_交付版.html'))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, '510037.css'))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'AM01_510037_交付版.css'))).toBe(false);
   });
 
   it('テンプレート(target=template)に値入り HTML の id(4 つ区切り)は書けない', async () => {
@@ -246,7 +324,6 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         kind: 'review-approve',
         target: 'template',
         templateId: 'AM01_510037_20240710_交付版',
-        fundCode: '510037',
         html: '<p>x</p>',
         css: '',
         author: 'approver1',
@@ -254,5 +331,67 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toSatisfy(isAppError);
     expect(fs.readdirSync(templatesDir)).toEqual([]);
+  });
+
+  const cssFile = (name: string) => path.join(cssDir, name);
+
+  it('ペア転写の CSS は転写先 id から決まる CSS にだけ書く', async () => {
+    seed(PAIR, '<p>ペア側</p>');
+    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.old{}', 'utf8');
+    fs.writeFileSync(cssFile('AM01_510037_交付版.css'), '.source{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'pair-sync',
+      target: 'template',
+      targetTemplateId: PAIR,
+      sourceTemplateId: SOURCE,
+      html: '<p>ペア側</p>',
+      css: '.new{}',
+      actor: 'approver1',
+      appliedParts: [],
+      appliedCssRules: ['.new'],
+    });
+    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.new{}');
+    expect(fs.readFileSync(cssFile('AM01_510037_交付版.css'), 'utf8')).toBe('.source{}');
+    const ev = auditCalls.at(-1) as { detail: Record<string, number> };
+    expect(ev.detail.appliedCssRules).toBe(1);
+  });
+
+  it('css を渡さないペア転写は CSS に触れない', async () => {
+    seed(PAIR, '<p>元</p>');
+    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.keep{}', 'utf8');
+    await confirmedWrite.applyConfirmedWrite({
+      kind: 'pair-sync',
+      target: 'template',
+      targetTemplateId: PAIR,
+      sourceTemplateId: SOURCE,
+      html: '<p>転写後</p>',
+      actor: 'approver1',
+      appliedParts: ['p1'],
+    });
+    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.keep{}');
+  });
+
+  it('afterWrite が失敗したらペアの CSS も元へ戻す(無かった CSS は消す)', async () => {
+    seed(PAIR, '<p>元</p>');
+    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.old{}', 'utf8');
+    const fail = () =>
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'pair-sync',
+        target: 'template',
+        targetTemplateId: PAIR,
+        sourceTemplateId: SOURCE,
+        html: '<p>転写後</p>',
+        css: '.new{}',
+        actor: 'approver1',
+        appliedParts: ['p1'],
+        afterWrite: async () => {
+          throw new Error('同期状態の書込に失敗');
+        },
+      });
+    await expect(fail()).rejects.toThrow('同期状態の書込に失敗');
+    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.old{}');
+    fs.rmSync(cssFile('AM01_510037_全体版.css'));
+    await expect(fail()).rejects.toThrow('同期状態の書込に失敗');
+    expect(fs.existsSync(cssFile('AM01_510037_全体版.css'))).toBe(false);
   });
 });

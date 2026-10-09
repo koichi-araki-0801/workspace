@@ -16,7 +16,7 @@
 
 import { BUILD_QUEUE_FULL_MESSAGE } from './buildWorkerPool.js';
 
-export interface BuildAdmissionOptions {
+interface BuildAdmissionOptions {
   /** 同時に走らせる最大件数。`1` 未満は 1 として扱う(0 は全ビルドが永久に待つだけ)。 */
   maxConcurrent: number;
   /**

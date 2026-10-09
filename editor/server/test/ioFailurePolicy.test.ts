@@ -102,3 +102,78 @@ describe('templateFiles.readFilledHtml', () => {
     await expect(files.readFilledHtml(`${id}.html`)).rejects.toThrow();
   });
 });
+
+describe('pendingFiles.readPending', () => {
+  let pending: typeof import('../src/files/pendingFiles.js');
+  const pendingDir = path.join(tmp, 'pending');
+
+  beforeAll(async () => {
+    pending = await import('../src/files/pendingFiles.js');
+    fs.mkdirSync(pendingDir, { recursive: true });
+  });
+
+  it('pending が無ければ null(正常な「無い」)', async () => {
+    expect(await pending.readPending('AM01_777777_交付版')).toBeNull();
+  });
+
+  it('HTML だけ在って CSS が無ければ CSS は空文字(正常な「無い」)', async () => {
+    const id = 'AM01_666666_交付版';
+    fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
+    expect(await pending.readPending(id)).toEqual({
+      html: '<p>P</p>',
+      css: '',
+      cssFound: false,
+    });
+  });
+
+  it('CSS が空のファイルとして在れば cssFound は true', async () => {
+    const id = 'AM01_666667_交付版';
+    fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
+    fs.writeFileSync(path.join(pendingDir, `${id}.css`), '', 'utf8');
+    expect(await pending.readPending(id)).toEqual({ html: '<p>P</p>', css: '', cssFound: true });
+  });
+
+  it('CSS の読み取り失敗は例外にする', async () => {
+    // 空文字へ倒すと、編集画面が空の CSS で開き、そのまま申請・承認すると CSS が空で確定する。
+    const id = 'AM01_555555_交付版';
+    fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
+    fs.mkdirSync(path.join(pendingDir, `${id}.css`), { recursive: true });
+    await expect(pending.readPending(id)).rejects.toThrow();
+  });
+
+  it('HTML の読み取り失敗は例外にする', async () => {
+    // null へ倒すと「pending が無い」と読まれ、実行コード不変性の基準が空になる。
+    const id = 'AM01_444444_交付版';
+    fs.mkdirSync(path.join(pendingDir, `${id}.html`), { recursive: true });
+    await expect(pending.readPending(id)).rejects.toThrow();
+  });
+});
+
+describe('draftFiles.readDraft', () => {
+  let drafts: typeof import('../src/files/draftFiles.js');
+  const draftsDir = path.join(tmp, 'drafts');
+
+  beforeAll(async () => {
+    drafts = await import('../src/files/draftFiles.js');
+    fs.mkdirSync(draftsDir, { recursive: true });
+  });
+
+  it('下書きが無ければ null(正常な「無い」)', async () => {
+    const id = 'AM01_777777_交付版';
+    expect(await drafts.readDraft(id)).toBeNull();
+  });
+
+  it('CSS の読み取り失敗は例外にする', async () => {
+    // 空文字へ倒すと、復元した下書きの CSS が空になり、次の自動保存で空のまま上書きされる。
+    const id = 'AM01_555555_交付版';
+    fs.writeFileSync(path.join(draftsDir, `${id}.html`), '<p>D</p>', 'utf8');
+    fs.mkdirSync(path.join(draftsDir, `${id}.css`), { recursive: true });
+    await expect(drafts.readDraft(id)).rejects.toThrow();
+  });
+
+  it('HTML の読み取り失敗は例外にする', async () => {
+    const id = 'AM01_444444_交付版';
+    fs.mkdirSync(path.join(draftsDir, `${id}.html`), { recursive: true });
+    await expect(drafts.readDraft(id)).rejects.toThrow();
+  });
+});

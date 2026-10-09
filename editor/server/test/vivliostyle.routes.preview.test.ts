@@ -54,7 +54,10 @@ vi.mock('../src/vivliostyle/build.js', () => ({
     if (buildFail.merge) throw new Error('merge build failed(テストの意図的失敗)');
     return Buffer.from('%PDF-1.4 merged');
   },
-  prepareInlineDoc: async () => ({ dir: TEST_TMP_DIR, entry: path.join(TEST_TMP_DIR, 'x.html') }),
+  prepareInlineDoc: async () => ({
+    dir: TEST_TMP_DIR,
+    config: { entry: ['doc/index.html'], base: '/vivliostyle' },
+  }),
 }));
 
 /**
@@ -208,6 +211,14 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     }
   });
 
+  it.each([
+    ['JSON 本文', { payload: { html: '<p>x</p>', css: '' } }],
+    ['本文なし', { payload: undefined }],
+  ])('POST /build/project: zip でない本文(%s)は 400', async (_label, { payload }) => {
+    const res = await app.inject({ method: 'POST', url: '/build/project', payload });
+    expect(res.statusCode).toBe(400);
+  });
+
   // `previewManager.list(actor)` は `PreviewSessionMeta[]`(`{ id, mode, createdAt, expiresAt,
   // url }`)を返す(`previewManager.ts:210-214`)。mock がそれと違う形(id 文字列の配列など)を
   // 返すと、ルートが実際に mock の戻りをそのまま JSON へ流しているかを検査できない
@@ -250,6 +261,26 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toMatchObject({ mode: 'project' });
+  });
+
+  it('POST /preview(zip): config があれば singleDoc を起動へ渡さず、無ければ渡す', async () => {
+    const { previewManager } = await import('../src/vivliostyle/previewServer.js');
+    const start = vi.mocked(previewManager.start);
+    const z = new JSZip();
+    z.file('index.html', '<p>x</p>');
+    z.file('vivliostyle.config.json', '{"entry":"index.html"}');
+    const withConfig = await z.generateAsync({ type: 'nodebuffer' });
+    const post = (payload: Buffer) =>
+      app.inject({
+        method: 'POST',
+        url: '/preview?singleDoc=true',
+        headers: { 'content-type': 'application/zip' },
+        payload,
+      });
+    expect((await post(withConfig)).statusCode).toBe(201);
+    expect(start.mock.calls.at(-1)?.[0]).not.toHaveProperty('singleDoc', true);
+    expect((await post(zip)).statusCode).toBe(201);
+    expect(start.mock.calls.at(-1)?.[0]).toHaveProperty('singleDoc', true);
   });
 
   // `/build/project` の `?entry=` 封じ込めは `vivliostyleRoutes.entry.test.ts` が見るが、

@@ -33,7 +33,7 @@ function envPositiveInt(name: string, def: number): number {
 export const PIE_MAX_ITEMS = envPositiveInt('PIE_MAX_ITEMS', 32);
 
 /** この件数を超えたら「時間がかかる」と stderr へ警告する(待たされていることの可視化)。 */
-export const PIE_WARN_ITEMS = 16;
+const PIE_WARN_ITEMS = 16;
 
 /**
  * 項目数の上限判定。**割り当ての直前** (`renderPdfStylePieToSvg` が唯一の funnel) から
@@ -96,17 +96,30 @@ export const MAX_XLSX_BYTES = envPositiveInt('PIE_MAX_XLSX_BYTES', 4 * 1024 * 10
 export const MAX_JSON_BYTES = envPositiveInt('PIE_MAX_JSON_BYTES', 8 * 1024 * 1024);
 
 /**
- * `--sql` の結果セットが持てる行数。`MAX_RANGE_ROWS` と同水準で、意味も同じ
- * 「指定そのものの正気度を見る」— 集計を忘れた SELECT が明細を数十万行返すと、行 → 項目の
+ * ストアドの結果セットが持てる行数。`MAX_RANGE_ROWS` と同水準で、意味も同じ
+ * 「指定そのものの正気度を見る」— 集計を忘れたストアドが明細を数十万行返すと、行 → 項目の
  * 変換とそれに続く `Object.keys` / 文字列化で待たされたうえ、最後に `PIE_MAX_ITEMS` で
  * 落ちる。どこで落ちたか分かるよう、行の変換に入る前に行数で切る。
  *
  * これは**結果セットが手元に来た後**の上限である。msnodesqlv8 の one-shot API は全行を
  * 溜めてからコールバックへ渡すので、フェッチそのものを途中で止める術はドライバ側の
  * ストリーミング API に移らない限り無い。巨大な明細を DB から引かせないことは
- * `SELECT TOP` や集計を書くクエリ側の責務で、本上限はその指定ミスを早く見せる装置。
+ * 集計を書くストアド側の責務で、本上限はその指定ミスを早く見せる装置。
  */
 export const MAX_DB_ROWS = envPositiveInt('PIE_MAX_DB_ROWS', 10_000);
+
+/**
+ * ストアドの実行を待つ秒数。過ぎるとドライバがクエリを取り消す。exe では、子プロセスが
+ * 応答しなくなったときに親が止めるまでの時間もこの値から決める(`runtime/dbChild.ts`)。
+ * 上限を設けるのは、桁の打ち間違いで実質無期限に待つ設定を作らないため。
+ */
+export const DB_QUERY_TIMEOUT_S = (() => {
+  const seconds = envPositiveInt('PIE_DB_QUERY_TIMEOUT_S', 60);
+  if (seconds > 3600) {
+    throw new Error(`PIE_DB_QUERY_TIMEOUT_S must be 3600 or less (got ${seconds}).`);
+  }
+  return seconds;
+})();
 
 /**
  * ラベル名が XML 1.0 として出力できる文字だけで構成されていることを検査する。

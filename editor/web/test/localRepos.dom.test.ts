@@ -1,9 +1,10 @@
 import { isErr, isOk, type PartHistoryEntry } from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { localAuthRepo } from '@/api/local/authRepo';
+import { localFundAssetRepo } from '@/api/local/fundAssetRepo';
 import { localHistoryRepo } from '@/api/local/historyRepo';
 import { localPartRepo } from '@/api/local/partRepo';
-import { K, partCatalog } from '@/api/local/store';
+import { fixtureCss, K, partCatalog } from '@/api/local/store';
 import { confirmSaveLocal, localTemplateRepo } from '@/api/local/templateRepo';
 import { localUserRepo } from '@/api/local/userRepo';
 
@@ -39,6 +40,32 @@ describe('localTemplateRepo.getTemplate', () => {
     if (isErr(r)) expect(r.error.kind).toBe('not_found');
   });
 
+  it('CSS があるテンプレは cssMissing を立てない', async () => {
+    const r = await localTemplateRepo.getTemplate('AM01_510037_20240710_交付版');
+    expect(isOk(r) && r.value.css).toBe(fixtureCss['AM01_510037_交付版.css']);
+    expect(isOk(r) && r.value.cssMissing).toBeFalsy();
+  });
+
+  it('CSS ファイルが無いテンプレは css を空にして cssMissing を立てる', async () => {
+    const saved = fixtureCss['AM01_510155_交付版.css'];
+    delete fixtureCss['AM01_510155_交付版.css'];
+    try {
+      const r = await localTemplateRepo.getTemplate('AM01_510155_20240710_交付版');
+      expect(isOk(r) && r.value.css).toBe('');
+      expect(isOk(r) && r.value.cssMissing).toBe(true);
+    } finally {
+      fixtureCss['AM01_510155_交付版.css'] = saved;
+    }
+  });
+
+  it('承認で空の CSS を保存したテンプレは、不在ではない', async () => {
+    const id = 'AM01_510037_20240710_全体版';
+    await confirmSaveLocal({ templateId: id, html: '<p>x</p>', css: '', origin: 'edit' });
+    const r = await localTemplateRepo.getTemplate(id);
+    expect(isOk(r) && r.value.css).toBe('');
+    expect(isOk(r) && r.value.cssMissing).toBeFalsy();
+  });
+
   it("origin='edit' の確定保存は filled を更新し html は据え置く", async () => {
     const id = 'AM01_510037_20240710_交付版';
     const before = await localTemplateRepo.getTemplate(id);
@@ -46,7 +73,6 @@ describe('localTemplateRepo.getTemplate', () => {
       templateId: id,
       html: '<p>値入り更新</p>',
       css: '',
-      fundCode: '510037',
       origin: 'edit',
     });
     const after = await localTemplateRepo.getTemplate(id);
@@ -60,7 +86,6 @@ describe('localTemplateRepo.getTemplate', () => {
       templateId: id,
       html: '<p>{{ x }}</p>',
       css: '',
-      fundCode: '510037',
       origin: 'create',
     });
     const after = await localTemplateRepo.getTemplate(id);
@@ -107,7 +132,6 @@ describe('confirmSaveLocal round-trip', () => {
       templateId: target.id,
       html: '<p>round-trip</p>',
       css: '.x{}',
-      fundCode: target.attributes.fundCode,
       origin: 'create',
     });
     expect(isOk(saved)).toBe(true);
@@ -129,10 +153,40 @@ describe('confirmSaveLocal round-trip', () => {
       templateId: target.id,
       html: '<p>値入り</p>',
       css: '.x{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     expect(isOk(saved) && saved.value.status).toBe('published');
+  });
+
+  it('CSS はテンプレ単位: fixtures はテンプレ名で引け、交付版の確定保存は全体版の CSS を変えない', async () => {
+    // vitest は `.css?raw` の中身を空にするため、fixtures の CSS はキー(ファイル名)だけを確かめる。
+    expect(Object.keys(fixtureCss)).toContain('AM01_510037_交付版.css');
+    expect(Object.keys(fixtureCss)).toContain('AM01_510037_全体版.css');
+    const kofuId = 'AM01_510037_20240710_交付版';
+    const zentaiId = 'AM01_510037_20240710_全体版';
+    const seeded = await confirmSaveLocal({
+      templateId: zentaiId,
+      html: '<p>全体版</p>',
+      css: '.only-zentai{}',
+      origin: 'edit',
+    });
+    expect(isOk(seeded)).toBe(true);
+    const saved = await confirmSaveLocal({
+      templateId: kofuId,
+      html: '<p>x</p>',
+      css: '.only-kofu{}',
+      origin: 'edit',
+    });
+    expect(isOk(saved)).toBe(true);
+    const kofu = await localTemplateRepo.getTemplate(kofuId);
+    const zentai = await localTemplateRepo.getTemplate(zentaiId);
+    expect(isOk(kofu) && kofu.value.css).toBe('.only-kofu{}');
+    expect(isOk(zentai) && zentai.value.css).toBe('.only-zentai{}');
+    // 基準日違いの同じテンプレは同じ CSS を読む(キーは基準日を含まない)。
+    expect(JSON.parse(localStorage.getItem(K.cssOverride) ?? '{}')).toEqual({
+      'AM01_510037_交付版.css': '.only-kofu{}',
+      'AM01_510037_全体版.css': '.only-zentai{}',
+    });
   });
 });
 
@@ -154,7 +208,6 @@ describe('confirmSaveLocal version snapshots', () => {
       templateId: target.id,
       html: '<p>v1</p>',
       css: '.v1{}',
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
     });
     expect(isOk(saved)).toBe(true);
@@ -212,6 +265,93 @@ describe('localPartRepo', () => {
     }
   });
 
+  describe('版種での絞り込み', () => {
+    const withEdition = (edition: string) => partCatalog.filter((i) => i.targetEdition === edition);
+    const idsOf = async (editionType?: string) => {
+      const r = await localPartRepo.listParts(editionType === undefined ? {} : { editionType });
+      return isOk(r) ? r.value.map((i) => i.id) : [];
+    };
+
+    it('版種が空なら全件を返す', async () => {
+      expect(await idsOf('')).toHaveLength(partCatalog.length);
+      expect(await idsOf()).toHaveLength(partCatalog.length);
+    });
+
+    it('対象版種が null のパーツは両方の版に出て、一致するパーツだけが専用で出る', async () => {
+      const own = withEdition('交付版');
+      const other = withEdition('全体版');
+      expect(own.length).toBeGreaterThan(0);
+      expect(other.length).toBeGreaterThan(0);
+      const ids = await idsOf('交付版');
+      for (const p of partCatalog.filter((i) => i.targetEdition == null)) {
+        expect(ids).toContain(p.id);
+      }
+      for (const p of own) expect(ids).toContain(p.id);
+      for (const p of other) expect(ids).not.toContain(p.id);
+    });
+
+    it('対象版種が空文字列のパーツも null と同じく両方の版に出る', async () => {
+      const blank = { ...partCatalog[0], id: 'blank-edition', targetEdition: '' };
+      partCatalog.push(blank);
+      try {
+        expect(await idsOf('交付版')).toContain('blank-edition');
+        expect(await idsOf('全体版')).toContain('blank-edition');
+      } finally {
+        partCatalog.pop();
+      }
+    });
+
+    it('分類候補のカテゴリ区分も同じ条件で絞る', async () => {
+      const r = await localPartRepo.getPartClassificationOptions({ editionType: '交付版' });
+      expect(isOk(r)).toBe(true);
+      if (!isOk(r)) return;
+      const visible = partCatalog.filter(
+        (i) => i.targetEdition == null || i.targetEdition === '交付版',
+      );
+      expect(r.value.categories).toEqual([
+        ...new Set(visible.map((i) => i.classification.category)),
+      ]);
+    });
+
+    it('全体版専用のパーツだけのカテゴリは、交付版の候補（カテゴリと下位）から消える', async () => {
+      const seed = {
+        ...partCatalog[0],
+        id: 'only-whole',
+        targetEdition: '全体版',
+        classification: {
+          category: '全体版専用',
+          majorClass: '大X',
+          middleClass: '中X',
+          minorClass: '小X',
+        },
+      };
+      partCatalog.push(seed);
+      try {
+        const q = { category: '全体版専用', majorClass: '大X', middleClass: '中X' };
+        const own = await localPartRepo.getPartClassificationOptions({
+          ...q,
+          editionType: '交付版',
+        });
+        const all = await localPartRepo.getPartClassificationOptions(q);
+        const whole = await localPartRepo.getPartClassificationOptions({
+          ...q,
+          editionType: '全体版',
+        });
+        if (!isOk(own) || !isOk(all) || !isOk(whole)) throw new Error('unexpected err');
+        expect(own.value.categories).not.toContain('全体版専用');
+        expect(own.value.majorClasses).toEqual([]);
+        expect(own.value.middleClasses).toEqual([]);
+        expect(own.value.minorClasses).toEqual([]);
+        expect(all.value.categories).toContain('全体版専用');
+        expect(all.value.minorClasses).toEqual(['小X']);
+        expect(whole.value.categories).toContain('全体版専用');
+        expect(whole.value.minorClasses).toEqual(['小X']);
+      } finally {
+        partCatalog.splice(partCatalog.indexOf(seed), 1);
+      }
+    });
+  });
+
   it('cascades classification options (major classes scoped to the chosen category)', async () => {
     const category = partCatalog[0].classification.category;
     const r = await localPartRepo.getPartClassificationOptions({ category });
@@ -264,6 +404,18 @@ describe('localPartRepo', () => {
     const other = await localPartRepo.listPartHistory('T2');
     if (isOk(other)) expect(other.value).toEqual([]);
   });
+
+  it('recordPartChange stores the given id, and falls back to a ph- id without one', async () => {
+    await localPartRepo.recordPartChange('T1', 'A', '指定あり', 'entry-1');
+    await localPartRepo.recordPartChange('T1', 'A', '指定なし');
+    const r = await localPartRepo.listPartHistory('T1');
+    expect(isOk(r)).toBe(true);
+    if (isOk(r)) {
+      const byChange = Object.fromEntries(r.value.map((e) => [e.change, e.id]));
+      expect(byChange['指定あり']).toBe('entry-1');
+      expect(byChange['指定なし']).toMatch(/^ph-/);
+    }
+  });
 });
 
 describe('allMetas の localStorage 読み取り回数', () => {
@@ -275,5 +427,18 @@ describe('allMetas の localStorage 読み取り回数', () => {
     expect(keys.filter((k) => k === K.filledOverride)).toHaveLength(1); // 'editor:filled'
     expect(keys.filter((k) => k === K.htmlOverride)).toHaveLength(1); // 'editor:html'
     spy.mockRestore();
+  });
+});
+
+describe('localFundAssetRepo.inspect', () => {
+  it('サーバが無いので、どの ref も ok を返す', async () => {
+    const r = await localFundAssetRepo.inspect([
+      { dir: 'smtam', file: 'qr.svg' },
+      { dir: null, file: 'a.png' },
+    ]);
+    expect(isOk(r) && r.value).toEqual([
+      { dir: 'smtam', file: 'qr.svg', status: 'ok' },
+      { dir: null, file: 'a.png', status: 'ok' },
+    ]);
   });
 });

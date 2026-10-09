@@ -38,14 +38,16 @@ interface Part {
 }
 const parts = JSON.parse(fs.readFileSync(path.join(fixtures, 'parts.json'), 'utf8')) as Part[];
 const T_PART = '[ug01].[Rep1_運報自動化_Editor_パーツカタログ]';
+// `対象版種` は parts.json に値があっても常に NULL で入れる。新しい環境は「全パーツ共通」から
+// 始め、版種の振り分けは運用で UPDATE して決める(local モードとテストは parts.json の値を使う)。
 const partRows = parts
   .map((p) => {
     const c = p.classification;
     return `IF NOT EXISTS (SELECT 1 FROM ${T_PART} WHERE [パーツID] = ${q(p.id)})
   INSERT INTO ${T_PART}
-    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定],[次回反映既定])
+    ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定],[次回反映既定],[対象版種])
   VALUES (${q(p.id)}, ${q(c.category)}, ${q(c.majorClass)}, ${q(c.middleClass)}, ${q(c.minorClass)},
-    ${q(p.name)}, ${q(p.description)}, ${q(p.usageNotes)}, ${q(p.content)}, ${dt(p.updatedAt)}, ${q(p.updatedBy)}, ${q(p.syncDefault)}, ${q(p.masterReflectDefault)});`;
+    ${q(p.name)}, ${q(p.description)}, ${q(p.usageNotes)}, ${q(p.content)}, ${dt(p.updatedAt)}, ${q(p.updatedBy)}, ${q(p.syncDefault)}, ${q(p.masterReflectDefault)}, NULL);`;
   })
   .join('\nGO\n');
 const partSql = `${BOM}/* seed: パーツカタログ (生成物 — gen-seed.ts from web fixtures) */

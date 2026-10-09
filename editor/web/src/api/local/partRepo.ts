@@ -7,14 +7,18 @@ import type {
   PartHistoryEntry,
   PartRepository,
 } from '@editor/shared';
+import { uniq } from '@editor/shared';
 import { attempt } from './attempt';
-import { currentUser, delay, K, now, partCatalog, read, uid, uniqStable, write } from './store';
+import { currentUser, delay, K, now, partCatalog, read, uid, write } from './store';
 
 // 分類フィルタは「上位が一致して初めて下位を見る」cascade。各段の述語を 1 か所に
 // 定義し、候補生成(段階別)と一覧(最下位まで)の両方で共有する。
 const cls = (i: PartCatalogItem) => i.classification;
+// 版種が空なら全件。そうでなければ対象版種なし(null・空文字列とも両版共通)か一致するものだけを通す。
+const matchEdition = (i: PartCatalogItem, q: PartClassificationQuery) =>
+  !q.editionType || !i.targetEdition || i.targetEdition === q.editionType;
 const matchCat = (i: PartCatalogItem, q: PartClassificationQuery) =>
-  !q.category || cls(i).category === q.category;
+  matchEdition(i, q) && (!q.category || cls(i).category === q.category);
 const matchMajor = (i: PartCatalogItem, q: PartClassificationQuery) =>
   matchCat(i, q) && (!q.majorClass || cls(i).majorClass === q.majorClass);
 const matchMiddle = (i: PartCatalogItem, q: PartClassificationQuery) =>
@@ -26,14 +30,16 @@ export const localPartRepo: PartRepository = {
   getPartClassificationOptions: (query: PartClassificationQuery) =>
     attempt(() =>
       delay({
-        categories: uniqStable(partCatalog.map((i) => cls(i).category)),
-        majorClasses: uniqStable(
+        categories: uniq(
+          partCatalog.filter((i) => matchEdition(i, query)).map((i) => cls(i).category),
+        ),
+        majorClasses: uniq(
           partCatalog.filter((i) => matchCat(i, query)).map((i) => cls(i).majorClass),
         ),
-        middleClasses: uniqStable(
+        middleClasses: uniq(
           partCatalog.filter((i) => matchMajor(i, query)).map((i) => cls(i).middleClass),
         ),
-        minorClasses: uniqStable(
+        minorClasses: uniq(
           partCatalog.filter((i) => matchMiddle(i, query)).map((i) => cls(i).minorClass),
         ),
       }),
@@ -49,11 +55,11 @@ export const localPartRepo: PartRepository = {
       return delay(all.filter((e) => e.templateId === templateId));
     }),
 
-  recordPartChange: (templateId: string, partKey: string, change: string) =>
+  recordPartChange: (templateId: string, partKey: string, change: string, id?: string) =>
     attempt(() => {
       const all = read<PartHistoryEntry[]>(K.partHist, []);
       all.unshift({
-        id: uid('ph'),
+        id: id ?? uid('ph'),
         templateId,
         partKey,
         user: currentUser()?.displayName ?? '不明',

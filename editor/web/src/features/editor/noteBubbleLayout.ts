@@ -20,7 +20,7 @@
 // 単純化した。
 
 /** 配置計算の入力(すべて overlay 層の px)。 */
-export interface BubbleAnchorInput {
+interface BubbleAnchorInput {
   /** 選択パーツの矩形。 */
   part: { left: number; top: number; width: number; height: number };
   /** ページ(帳票)の水平位置と幅。吹き出しをどちら側へ出すかの判定にのみ使う。 */

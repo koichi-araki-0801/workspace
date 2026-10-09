@@ -62,8 +62,6 @@ function makePlacements(
       leaderBendFollowsEndpointX: false,
       origTextX: it.finalX,
       origTextY: it.finalY,
-      upperLeftHairpinCheck: false,
-      skipLeader: false,
       insideSlice: false,
     };
   });

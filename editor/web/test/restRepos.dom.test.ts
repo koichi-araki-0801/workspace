@@ -7,6 +7,7 @@
 import { isErr, isOk } from '@editor/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { restAuthRepo } from '@/api/rest/authRepo';
+import { restFundAssetRepo } from '@/api/rest/fundAssetRepo';
 import { restHistoryRepo } from '@/api/rest/historyRepo';
 import { restNoteRepo } from '@/api/rest/noteRepo';
 import { restPartRepo } from '@/api/rest/partRepo';
@@ -190,14 +191,14 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
     await restPartRepo.getPartClassificationOptions({ category: '表紙' });
     await restPartRepo.listParts({});
     await restPartRepo.listPartHistory('t1');
-    await restPartRepo.recordPartChange('t1', 'note-a#1', '文言修正');
+    await restPartRepo.recordPartChange('t1', 'note-a#1', '文言修正', 'e-1');
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       `GET /api/parts/classification-options?category=${encodeURIComponent('表紙')}`,
       'GET /api/parts',
       'GET /api/templates/t1/part-history',
       'POST /api/templates/t1/part-history',
     ]);
-    expect(calls[3].body).toEqual({ partKey: 'note-a#1', change: '文言修正' });
+    expect(calls[3].body).toEqual({ partKey: 'note-a#1', change: '文言修正', id: 'e-1' });
   });
   it('history: 3 フィード GET、PDF 記録 POST、版一覧、スナップショット(templateId は省略可)', async () => {
     const calls = stubFetch(() => json([]));
@@ -242,7 +243,6 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
       templateId: 't1',
       html: '',
       css: '',
-      fundCode: 'f',
       origin: 'edit',
     });
     await restReviewRepo.listReviews();
@@ -287,5 +287,43 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
     const r = await restReviewRepo.getReview('nope');
     expect(isErr(r) && r.error.kind).toBe('not_found');
     expect(isErr(r) && r.error.message).toBe('無い');
+  });
+});
+
+describe('restFundAssetRepo', () => {
+  it('inspect は POST /api/fund-assets/inspect に { refs } を送り、結果の配列を返す', async () => {
+    const results = [{ dir: 'smtam', file: 'qr.svg', status: 'svg_rejected', violations: ['v'] }];
+    const calls = stubFetch(() => json({ results }));
+    const r = await restFundAssetRepo.inspect([{ dir: 'smtam', file: 'qr.svg' }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      url: '/api/fund-assets/inspect',
+      method: 'POST',
+      body: { refs: [{ dir: 'smtam', file: 'qr.svg' }] },
+    });
+    expect(isOk(r) && r.value).toEqual(results);
+  });
+
+  it('上限(1 回 50 件)を超える ref は分けて問い合わせ、結果を順につなぐ', async () => {
+    const refs = Array.from({ length: 51 }, (_, i) => ({ dir: null, file: `${i}.svg` }));
+    const sizes: number[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as { refs: typeof refs };
+        sizes.push(body.refs.length);
+        return json({ results: body.refs.map((ref) => ({ ...ref, status: 'ok' })) });
+      }),
+    );
+    const r = await restFundAssetRepo.inspect(refs);
+    expect(sizes).toEqual([50, 1]);
+    expect(isOk(r) && r.value.map((x) => x.file)).toEqual(refs.map((x) => x.file));
+  });
+
+  it('ref が無ければ問い合わせない', async () => {
+    const calls = stubFetch();
+    const r = await restFundAssetRepo.inspect([]);
+    expect(calls).toHaveLength(0);
+    expect(isOk(r) && r.value).toEqual([]);
   });
 });

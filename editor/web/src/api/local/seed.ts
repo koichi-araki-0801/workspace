@@ -6,14 +6,23 @@
 // 無いため、複数の確定版を持つテンプレートを数件 seed する。ガード付きで一度だけ
 // 実行し、既存のユーザーデータは決して上書きしない。
 import {
+  cssFileNameOf,
   type EditHistoryEntry,
   editHistoryRowId,
   type TemplateMeta,
   type TemplateSnapshot,
 } from '@editor/shared';
-import { fixtureCss, fixtureFilled, fixtureTemplates, K, META_KEY, read, write } from './store';
+import {
+  fixtureCss,
+  fixtureFilled,
+  fixtureTemplates,
+  K,
+  META_KEY,
+  read,
+  SEED_KEY,
+  write,
+} from './store';
 
-const SEED_KEY = 'editor:seed:compare';
 const SEED_USER = '佐藤花子';
 
 interface SeedVersion {
@@ -105,7 +114,7 @@ export function seedCompareFixtures(): void {
     // (`fixtureTemplates`)を入れると差し込み値が字面のまま並ぶので値入り HTML を優先する。
     const fileName = `${t.templateId}.html`;
     const baseHtml = fixtureFilled[fileName] ?? fixtureTemplates[fileName] ?? '';
-    const css = fixtureCss[t.fundCode] ?? '';
+    const css = fixtureCss[cssFileNameOf(t.templateId) ?? ''] ?? '';
     for (const v of t.versions) {
       // 新しい順 → push で `editHist` を新しい順に保つ(`SEED` は既に整列済み)。
       editHist.push({

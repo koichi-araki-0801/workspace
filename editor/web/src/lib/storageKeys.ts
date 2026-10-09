@@ -84,3 +84,12 @@ const UI_STATE_PREFIX = 'editor:session:ui';
 export function editorUiKey(): string {
   return `${UI_STATE_PREFIX}:${userScope()}`;
 }
+
+const CSS_BASELINE_PREFIX = 'editor:session:css-baseline:v1';
+/**
+ * 確定版の CSS を編集画面が読み込んだ直後の形(申請の `cssBaseline`)の sessionStorage キー
+ * (ユーザー別・テンプレ別。`stores/editorSession.ts`)。
+ */
+export function cssBaselineKey(templateId: string): string {
+  return `${CSS_BASELINE_PREFIX}:${userScope()}:${templateId}`;
+}

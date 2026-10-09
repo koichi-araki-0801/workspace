@@ -14,21 +14,16 @@ import {
   type DropdownScope,
   validation,
 } from '@editor/shared';
+import { CreatableQuery, FundsQuery, SaveDraftRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
-import { CreatableQuery, FundsQuery, SaveDraftRequest } from '../openapi/schemas.js';
+import { pickQuery } from './routeHelpers.js';
 
 function toQuery(q: Record<string, unknown>): DropdownQuery {
-  const pick = (k: string) => (typeof q[k] === 'string' && q[k] ? (q[k] as string) : undefined);
-  return {
-    companyCode: pick('companyCode'),
-    fundCode: pick('fundCode'),
-    baseDate: pick('baseDate'),
-    editionType: pick('editionType'),
-  };
+  return pickQuery(q, ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const);
 }
 
 /** `scope` の検査。省略・空文字は編集タブと同じ `edit`。 */
@@ -39,8 +34,6 @@ function toScope(v: unknown): DropdownScope {
   }
   throw validation(`scope は ${DROPDOWN_SCOPES.join(' / ')} のいずれかです`);
 }
-
-const actor = (req: { user?: { username?: string } }): string => req.user?.username ?? 'system';
 
 type IdParams = { Params: { id: string } };
 type QueryRec = { Querystring: Record<string, unknown> };
@@ -99,7 +92,7 @@ export const templatesRoutes: FastifyPluginAsync<{
       if (body.templateId !== templateId) {
         throw validation('templateId が URL と一致しません');
       }
-      await templates.saveDraft(templateId, body.html, body.css, actor(request));
+      await templates.saveDraft(templateId, body.html, body.css);
       return reply.code(204).send();
     },
   );

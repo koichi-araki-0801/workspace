@@ -10,6 +10,7 @@ import Select from '@/components/ui/Select.vue';
 import SearchFilters from '@/features/templates/components/SearchFilters.vue';
 import { versionLabel } from '@/lib/format';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useLatest } from '@/lib/useLatest';
 import CompareCandidateTable from './CompareCandidateTable.vue';
 import { type CompareCandidate, type CompareVersionRow, useCompareService } from './services/compareService';
 
@@ -22,6 +23,8 @@ const emit = defineEmits<{
 
 const compare = useCompareService();
 const { run } = useAsyncResult();
+// 絞り込みを素早く変えると前の条件の応答が後から届き、候補と選択を上書きしうる。
+const latestCandidates = useLatest();
 
 const candidates = ref<CompareCandidate[]>([]);
 const templateId = ref<string | undefined>(undefined);
@@ -47,8 +50,9 @@ function emitChange() {
 
 async function refreshCandidates(query: DropdownQuery) {
   searched.value = true; // @update/@search のどちらでもユーザー操作時に立つ。
+  const isLatest = latestCandidates.begin();
   const res = await run(() => compare.listCandidates(query));
-  if (isErr(res)) return;
+  if (!isLatest() || isErr(res)) return;
   candidates.value = res.value;
   // 既存選択がまだ候補内にあれば版の選択状態を保持する。消えていた場合は、候補が
   // 1 件に確定したら連動で自動選択し「比較する版」を有効化、複数なら選択をクリアする。

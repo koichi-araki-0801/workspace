@@ -5,13 +5,20 @@
 // 遮断が効くことと同じだけ重要な要件である。片側だけ書くと、次に触る人が
 // 「全部落とせば安全」へ倒して業務を止める。
 import { describe, expect, it } from 'vitest';
-import { normalizeHtmlUrlValue } from '../src/security/htmlEntities.js';
+import { decodeHtmlEntities, normalizeHtmlUrlValue } from '../src/security/htmlEntities.js';
 import {
+  DOC_DIR,
+  DOC_FONTS_DIR,
+  FONT_MIME,
+  FUND_IMAGES_DIR,
   fetchUrlAttrsFor,
   findExternalRefsInTag,
+  IMAGE_MIME,
   isFetchUrlAttr,
   nestedHtmlAttrsFor,
-  resolveServedAssetPath,
+  resolveDocAssetPath,
+  resolveServedRoutePath,
+  splitSrcsetUrls,
 } from '../src/security/htmlExternalRefs.js';
 
 const TAB = String.fromCharCode(0x09);
@@ -93,34 +100,6 @@ describe('取得を起こさない属性は検査しない', () => {
   });
 });
 
-describe('resolveServedAssetPath — 配信ルート相対へ正規化できるか', () => {
-  it.each([
-    ['css/510037.css', 'css/510037.css'],
-    ['./css/510037.css', 'css/510037.css'],
-    ['css/./510037.css', 'css/510037.css'],
-    ['fonts/sub/../x.woff2', 'fonts/x.woff2'],
-    ['css/510037.css?v=1', 'css/510037.css'],
-    ['css/510037.css#a', 'css/510037.css'],
-    ['js/%E6%97%A5.js', 'js/日.js'],
-  ])('%s → %s', (input, expected) => {
-    expect(resolveServedAssetPath(input)).toBe(expected);
-  });
-
-  it.each([
-    ['https://evil.example/x.css', '絶対 URL'],
-    ['//evil.example/x.css', 'scheme 相対'],
-    ['/css/x.css', 'ルート絶対(配信ルート配下ではない)'],
-    ['../secret.css', 'ルート外へ出る'],
-    ['css/../../secret.css', '途中でルート外へ出る'],
-    ['', '空'],
-    ['#frag', '断片のみ'],
-    ['css\\510037.css', 'バックスラッシュ区切り'],
-    ['%E0%A4%A', '復号不能'],
-  ])('%s(%s)は解決しない', (input) => {
-    expect(resolveServedAssetPath(input)).toBeUndefined();
-  });
-});
-
 // ── 迂回入力 ── ブラウザは属性値の文字参照を解き、URL から TAB/LF/CR を落とす。
 // 検査器は「引用符を外しただけの原文」を見るので、正規化しないと**この差が全部穴になる**。
 // 実測でここに並ぶ入力はいずれも「外部参照 0 件」で 400 ゲートを通り抜けていた。
@@ -145,13 +124,16 @@ describe('findExternalRefsInTag — 実体参照・制御文字での迂回は�
     ).toEqual([]);
   });
 
-  it('resolveServedAssetPath も同じ正規化を通す(実体の無い外部参照を解決しない)', () => {
-    expect(resolveServedAssetPath('&#104;ttps://evil.example/x.css')).toBeUndefined();
-    expect(resolveServedAssetPath(`css/510037.css${LF}`)).toBe('css/510037.css');
-  });
-
   it('normalizeHtmlUrlValue は復号 → 除去 → trim の順で効く', () => {
     expect(normalizeHtmlUrlValue('&Tab;htt&#x70;s://x/y')).toBe('https://x/y');
+  });
+
+  // 解けない参照を空文字や置換文字へ倒すと、原文に無い形を判定へ渡してしまう。
+  it.each([
+    ['符号位置の上限を超える数値参照', '&#x110000;'],
+    ['最小表に無い名前つき参照', '&unknownname;'],
+  ])('decodeHtmlEntities は %s を原文のまま残す', (_label, value) => {
+    expect(decodeHtmlEntities(value)).toBe(value);
   });
 });
 
@@ -254,6 +236,103 @@ describe('meta http-equiv=refresh の content', () => {
     ).toEqual([]);
   });
 
+  it.each([
+    [
+      [
+        { name: 'http-equiv', value: '&#114;efresh' },
+        { name: 'content', value: '0;url=https://evil/' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0&#59;url=https://evil/' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url&#61;https://evil/' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=https://evil/' },
+        { name: 'content', value: '0;url=#x' },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: "0;url='https://evil/' x" },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: "0;url='https://evil/" },
+      ],
+    ],
+    [
+      [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=&quot;https://evil/&quot;junk' },
+      ],
+    ],
+  ])('文字参照や重複属性で隠しても外部への refresh を拾う %#', (attrs) => {
+    expect(findExternalRefsInTag('meta', attrs)).not.toEqual([]);
+  });
+
+  // 仕様の refresh の手順は `url` の字を 1 つずつ照合し、合わなければ戻らずに引用符の手順へ進む。
+  // 照合済みの字は捨て、残りを URL とする(`0;url https://evil/` は `https://evil/` へ遷移する)。
+  it.each([
+    ['url の後に = が無い', '0;url https://evil/'],
+    ['url の後に = が無く引用符つき', "0;url 'https://evil/'"],
+    ['url の途中で引用符', "0;ur'https://evil/'"],
+    ['u だけ照合して残り', '0;uhttps://evil/'],
+    ['大文字の URL の後に = が無い', '0; URL "https://evil/"'],
+  ])('url= の形にならない書き方でも外部への refresh を拾う: %s', (_label, content) => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: content },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    ['url の後に = が無い同一文書内', '0;url #top'],
+    ['url だけ', '0;url'],
+    ['url= の後が空', '0;url='],
+  ])('同一文書内・空の refresh は通す: %s', (_label, content) => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: content },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('2 つ目の http-equiv は見ない(ブラウザは最初の属性を採る)', () => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'x' },
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=https://evil/' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('回帰ガード: URL の文字参照は 1 回だけ復号する(&amp;#104;ttps は https にならない)', () => {
+    expect(
+      findExternalRefsInTag('meta', [
+        { name: 'http-equiv', value: 'refresh' },
+        { name: 'content', value: '0;url=&amp;#104;ttps://evil/x' },
+      ]),
+    ).toEqual([]);
+  });
+
   it('refresh 以外の meta の content は URL 判定へ掛けない', () => {
     expect(
       findExternalRefsInTag('meta', [
@@ -274,9 +353,221 @@ describe('バックスラッシュで書いた scheme 相対', () => {
   ])('<img src="%s"> は外部参照として報告される', (value) => {
     expect(findExternalRefsInTag('img', [{ name: 'src', value }])).toHaveLength(1);
   });
+});
 
-  it('resolveServedAssetPath も同じ形を配信ルート配下へ解決しない', () => {
-    expect(resolveServedAssetPath('\\\\evil.example/x.png')).toBeUndefined();
-    expect(resolveServedAssetPath('/\\evil.example/x.png')).toBeUndefined();
+describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論理ルート相対へ解く', () => {
+  it('文書の置き場は doc', () => {
+    expect(DOC_DIR).toBe('doc');
+  });
+
+  it.each([
+    ['../css/A_1_交付版.css', 'css/A_1_交付版.css'],
+    ['../images/smtam/qr.svg', 'images/smtam/qr.svg'],
+    ['../images/logo.png', 'images/logo.png'],
+    ['../js/column-width.js?v=1#top', 'js/column-width.js'],
+    ['../css/%E4%BA%A4%E4%BB%98%E7%89%88.css', 'css/交付版.css'],
+    ['../css/a&amp;b.css', 'css/a&b.css'],
+    ['./../css/x.css', 'css/x.css'],
+    [`../css/x.css${LF}`, 'css/x.css'],
+  ])('文書から %s → %s', (url, expected) => {
+    expect(resolveDocAssetPath(url, 'doc')).toBe(expected);
+  });
+
+  it.each([
+    // 文書直下基準の旧形式は扱わない(doc/ 配下は資産の置き場ではない)。
+    ['css/x.css'],
+    ['images/x.svg'],
+    ['./x.png'],
+    ['../doc/other.html'],
+    // ルートの外・ルートそのもの。
+    ['../../x.css'],
+    ['../'],
+    ['..'],
+    // 絶対参照・scheme 付き・断片だけ。
+    ['http://example.com/x.css'],
+    ['//example.com/x.css'],
+    ['/css/x.css'],
+    ['data:image/png;base64,AAAA'],
+    ['&#104;ttps://evil.example/x.css'],
+    ['#frag'],
+    [''],
+    // `\` は区切りとして扱わない(fail closed)。
+    ['..\\css\\x.css'],
+  ])('文書から %j は undefined', (url) => {
+    expect(resolveDocAssetPath(url, 'doc')).toBeUndefined();
+  });
+
+  it.each([
+    ['fonts/a.woff2', 'css/A_1_交付版.css', 'css/fonts/a.woff2'],
+    ['../images/b.png', 'css/A.css', 'images/b.png'],
+    ['./fonts/b.woff', 'css/A.css', 'css/fonts/b.woff'],
+    ['x.svg', 'images/smtam/a.svg', 'images/smtam/x.svg'],
+  ])('%s を %s から → %s', (url, from, expected) => {
+    expect(resolveDocAssetPath(url, from)).toBe(expected);
+  });
+
+  it.each([
+    ['../../x.png', 'css/A.css'],
+    ['../doc/x.html', 'css/A.css'],
+    ['http://example.com/a.woff2', 'css/A.css'],
+    // 参照元の論理パスそのものが不正。
+    ['x.png', ''],
+    ['x.png', '../A.css'],
+  ])('%s を %j から は undefined', (url, from) => {
+    expect(resolveDocAssetPath(url, from)).toBeUndefined();
+  });
+
+  // ── 日本語ファイル名と百分率符号化 ──
+  it('HTML に百分率符号化で書かれた日本語名は、生の綴りと同じ論理パスへ解ける', () => {
+    expect(resolveDocAssetPath('../images/110024_%E5%9F%BA%E6%BA%96.svg', 'doc')).toBe(
+      'images/110024_基準.svg',
+    );
+    expect(resolveDocAssetPath('../images/110024_基準.svg', 'doc')).toBe('images/110024_基準.svg');
+  });
+
+  it.each([
+    ['%2e%2e でルートの外へ', '../%2e%2e/x.css'],
+    ['%2e%2e で 1 段戻る', '../css/%2e%2e/images/x.svg'],
+    ['%2E%2E(大文字)', '../css/%2E%2E/x.svg'],
+    ['%2e で現在位置', '../css/%2e/x.css'],
+    ['%2F が区切りに化ける', '../css%2F..%2Fimages/x.svg'],
+    ['%2f(小文字)', '..%2fcss/x.css'],
+    ['%5C が区切りに化ける', '../css%5C..%5Cx.css'],
+    ['%00(NUL)', '../css/x%00.css'],
+    ['不正な百分率(末尾)', '../css/%E5%.css'],
+    ['不正な UTF-8 列', '../css/%E5%9F.svg'],
+    ['% 単独', '../css/100%.css'],
+  ])('復号で構造が変わる/壊れる形は undefined: %s', (_label, url) => {
+    expect(() => resolveDocAssetPath(url, 'doc')).not.toThrow();
+    expect(resolveDocAssetPath(url, 'doc')).toBeUndefined();
+  });
+
+  // ── 綴りの揺れ(解決の結果を表で固定する) ──
+  it.each([
+    ['先頭の ./ は無視して解く', './../images/x.svg', 'images/x.svg'],
+    [
+      'バックスラッシュ区切りは fail closed(配信ルート相対と同じ規則)',
+      '..\\images\\x.svg',
+      undefined,
+    ],
+    ['大文字小文字は変えずに返す(実体との照合は呼び出し側)', '../IMAGES/x.svg', 'IMAGES/x.svg'],
+    ['クエリは落として解く(配信ルート相対と同じ規則)', '../images/x.svg?v=1', 'images/x.svg'],
+    ['断片は落として解く(配信ルート相対と同じ規則)', '../images/x.svg#frag', 'images/x.svg'],
+    ['DOC の大文字違いも doc 配下として拒否', '../DOC/x.html', undefined],
+    ['重複スラッシュは畳む', '..//images///x.svg', 'images/x.svg'],
+  ])('%s: %s', (_label, url, expected) => {
+    expect(resolveDocAssetPath(url, 'doc')).toBe(expected);
+  });
+});
+
+// ルートの引数はフレームワークが 1 回復号して渡す。文書の URL 値を解く処理を
+// 掛けると `#` `?` で切られ、`%` がもう一度解かれる。字面のファイル名として扱えることと、
+// それでも置き場の外へ出る形は拒むことの両方を主張する。
+describe('resolveServedRoutePath — 復号済みのルート引数', () => {
+  it.each([
+    ['images/a#b.svg', '# は断片の区切りではない'],
+    ['images/a?b.png', '? はクエリの区切りではない'],
+    ['images/100%25.png', '% はもう一度は解かない'],
+    ['images/%2e%2e/x.svg', '%2e%2e は字面の名前(.. として働かない)'],
+    ['images/..%2fx.svg', '..%2f は字面の名前(区切りとして働かない)'],
+    ['images/a%5cb.svg', '%5c は字面の名前'],
+    ['css/fonts/日本.woff2', '日本語名'],
+    ['images/&#104;.svg', '文字参照は解かない'],
+  ])('%s はそのまま返す(%s)', (input) => {
+    expect(resolveServedRoutePath(input)).toBe(input);
+  });
+
+  it.each([
+    ['images/../x', '途中の ..'],
+    ['../x', '先頭の ..'],
+    ['images/./x', '.'],
+    ['images//x', '空のセグメント'],
+    ['/images/x', 'ルート絶対'],
+    ['//host/share/x', 'UNC・scheme 相対'],
+    ['a\\b', 'バックスラッシュ'],
+    ['\\\\host\\share\\x', 'UNC(バックスラッシュ)'],
+    ['images/a\0.svg', 'NUL'],
+    ['C:/Windows/x', 'ドライブ指定'],
+    ['C:x', 'ドライブ相対'],
+    ['https://evil.example/x', '絶対 URL'],
+    ['', '空'],
+  ])('%j は undefined(%s)', (input) => {
+    expect(resolveServedRoutePath(input)).toBeUndefined();
+  });
+});
+
+// 各呼び出し側(サーバ `docRefs.ts`・web `fundImages.ts`・`findExternalRefsInTag`)が必要とする
+// 候補の分け方を参照実装として持ち、`splitSrcsetUrls` が同じ候補を返すことを確かめる。
+// 関所(`findExternalRefsInTag`)の候補が 1 つでも減ると外部参照の見落としになる。
+describe('splitSrcsetUrls — 複数の URL を詰めた属性値の候補', () => {
+  const firstTokens = (value: string): string[] =>
+    value
+      .split(',')
+      .map((part) => part.trim().split(/\s+/)[0] ?? '')
+      .filter((u) => u !== '');
+  const serverOld = (value: string): string[] => [value, ...firstTokens(value)];
+  const webOld = firstTokens;
+  const gateOld = (value: string): string[] =>
+    value
+      .split(',')
+      .flatMap((part) => part.trim().split(/\s+/))
+      .filter((u) => u !== '');
+  const inputs = [
+    '',
+    ' ',
+    ',',
+    ' , ,',
+    'a.png',
+    'img/a.png 1x, https://evil.example/b.png 2x',
+    '../images/a.png 1x, ../images/b.png 2x',
+    '../images/c.png 480w,../images/d.png',
+    'a.jar https://evil.example/b.jar',
+    'a.jar,https://evil.example/b.jar',
+    `a.png\t1x,\nb.png  2x ,  c.png`,
+    'data:image/png;base64,AAAA 1x, b.png',
+  ];
+
+  it.each(inputs)('%j: 3 つの呼び出し側の候補を変えない', (value) => {
+    expect(splitSrcsetUrls(value, { includeWhole: true })).toEqual(serverOld(value));
+    expect(splitSrcsetUrls(value)).toEqual(webOld(value));
+    expect(splitSrcsetUrls(value, { allTokens: true })).toEqual(gateOld(value));
+  });
+
+  it('記述子を外した URL だけを返し、includeWhole なら値そのものを先頭に足す', () => {
+    expect(splitSrcsetUrls('a.png 1x, b.png 2x')).toEqual(['a.png', 'b.png']);
+    expect(splitSrcsetUrls('a.png 1x', { includeWhole: true })).toEqual(['a.png 1x', 'a.png']);
+    expect(splitSrcsetUrls('a.jar b.jar', { allTokens: true })).toEqual(['a.jar', 'b.jar']);
+  });
+});
+
+// web とサーバの表を 1 つにしたので、どちらの表とも中身が同じであることを固定する(片方だけ
+// 広げると、取りに行っても 404 になる参照を作る)。
+describe('配置の定数と拡張子 → MIME の表', () => {
+  it('置き場の名前', () => {
+    expect(FUND_IMAGES_DIR).toBe('images');
+    expect(DOC_FONTS_DIR).toBe('css/fonts');
+    expect(resolveDocAssetPath('../images/a.png', DOC_DIR)?.startsWith(`${FUND_IMAGES_DIR}/`)).toBe(
+      true,
+    );
+    expect(
+      resolveDocAssetPath('../css/fonts/a.woff2', DOC_DIR)?.startsWith(`${DOC_FONTS_DIR}/`),
+    ).toBe(true);
+  });
+  it('画像の MIME は Map で、利用者入力の拡張子で Object.prototype を引かない', () => {
+    expect([...IMAGE_MIME]).toEqual([
+      ['.svg', 'image/svg+xml'],
+      ['.png', 'image/png'],
+      ['.jpg', 'image/jpeg'],
+      ['.jpeg', 'image/jpeg'],
+    ]);
+    expect(IMAGE_MIME.get('constructor')).toBeUndefined();
+  });
+  it('フォントの MIME', () => {
+    expect(FONT_MIME).toEqual({
+      '.woff2': 'font/woff2',
+      '.woff': 'font/woff',
+      '.ttf': 'font/ttf',
+      '.otf': 'font/otf',
+    });
   });
 });

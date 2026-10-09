@@ -6,21 +6,86 @@
 // 別ファイルにあるため、リテラル散在だと片側だけの typo が round-trip 破壊として
 // しか現れない — 本モジュールを両者が import することで契約をコード上に可視化する。
 //
-// ⚠ 値の変更は既存 fixture(`api/fixtures/filled/*.html`)・保存済みテンプレートとの
-//   互換を壊す。fixture 側リテラルは意図的に定数化しておらず、値を誤変更すると
-//   `htmlWorkerImpl.test.ts` の round-trip が落ちて検知される。
+// 字面そのものは shared の `MARKER_ATTRS`(`editingMarkers.ts`)が正典で、申請の関所の検出と
+// 同じ定数を使う。ここは web の書き手・読み手が使う名前を付けて並べる。
 
-/** inline chip の厳密ソース(base64)。書: `wrapInlineTokens`/`fillInline` → 復: `toTemplate` step1 */
-export const DATA_JINJA = 'data-jinja';
-/** absorb/展開したブロック開始文(base64)。書: `absorbBlocks`/`expandLoops` → 復: `toTemplate` step2 */
-export const DATA_JINJA_OPEN = 'data-jinja-open';
-/** absorb/展開したブロック終了文(base64)。書: `absorbBlocks`/`expandLoops` → 復: `toTemplate` step2 */
-export const DATA_JINJA_CLOSE = 'data-jinja-close';
-/** collapse した if ブロック全体(base64)。書: `collapseIfs` → 復: `toTemplate` step1c */
-export const DATA_JINJA_BLOCK = 'data-jinja-block';
-/** ループ展開の表示専用 clone 行。書: `expandLoops` → 破棄: `toTemplate` step0 */
-export const DATA_JINJA_LOOP_CLONE = 'data-jinja-loop-clone';
-/** opaque mask した verbatim ソース(base64)。書: `opaqueChip` → 復: `toTemplate` step1b */
-export const DATA_OPAQUE = 'data-opaque';
+import { JINJA_DELIMS, MARKER_ATTRS } from '@editor/shared';
+
+/** Jinja の開始記号（式 `{{`・文 `{%`・コメント `{#`）。 */
+export const JINJA_OPEN_RE = /\{[{%#]/;
+const escapeRe = (s: string): string => s.replace(/[{}]/g, '\\$&');
+/** Jinja のトークン 1 個(`{{ … }}`・`{% … %}`・`{# … #}`)。全件を拾う `g` 付きの最短一致。 */
+export const JINJA_TOKEN_RE = new RegExp(
+  JINJA_DELIMS.map((d) => `${escapeRe(d.open)}[\\s\\S]*?${escapeRe(d.close)}`).join('|'),
+  'g',
+);
+/** inline chip の厳密ソース(base64)。書: `tokenChip` → 復: `toTemplate` step 3a */
+export const DATA_JINJA = MARKER_ATTRS.jinja;
+/** opaque mask した verbatim ソース(base64)。書: `opaqueChip` 等 → 復: `toTemplate` step 3b */
+export const DATA_OPAQUE = MARKER_ATTRS.opaque;
 /** opaque chip の種別(script/math)。書: `opaqueChip`。復元には使わず live-render 層の dispatch 用 */
-export const DATA_OPAQUE_KIND = 'data-opaque-kind';
+export const DATA_OPAQUE_KIND = MARKER_ATTRS.opaqueKind;
+/** for のテンプレートの行(1 回目の繰り返し)の最上位要素。表示専用で、`toTemplate` が外す。 */
+export const DATA_JINJA_LOOP_ROW = MARKER_ATTRS.jinjaLoopRow;
+/** チップ(`fillJinja` が Jinja のトークンや原文を表す `span`)のクラス。 */
+export const JINJA_CHIP_CLASS = MARKER_ATTRS.chipClass;
+/**
+ * 固めた範囲を包む `div`(本文全体・表)のクラス。canvas では `display: contents` で、レイアウト上は
+ * 中身が包みの親の直下に並ぶ。書: `fillJinja` の `emitFrozen` / `emitWholeBody`。
+ */
+export const FROZEN_BODY_CLASS = MARKER_ATTRS.frozenBodyClass;
+/** 範囲の印(HTML コメント)の接頭辞。原文のコメントと区別するための名前空間。 */
+const RT_COMMENT_PREFIX = MARKER_ATTRS.rtCommentPrefix;
+
+export type RtMarker =
+  | { kind: 'o'; id: number; payload: string }
+  | { kind: 'c'; id: number; payload: string }
+  | { kind: 'x'; id: number }
+  | { kind: 't'; payload: string };
+
+export function b64encodeUtf8(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+// 不正な UTF-8 は置換文字へ化けると原文が変わるので、`fatal` で例外にして呼び元へ知らせる。
+export function b64decodeUtf8(b: string): string {
+  const bin = atob(b);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+}
+
+/** 壊れた base64・不正な UTF-8 は読めない原文として空文字にする。 */
+export function b64decodeSafe(s: string): string {
+  try {
+    return b64decodeUtf8(s);
+  } catch {
+    return '';
+  }
+}
+
+const B64 = '[A-Za-z0-9+/]*={0,2}';
+const RT_RE = new RegExp(`^${RT_COMMENT_PREFIX}(?:([oc]):(\\d+):(${B64})|x:(\\d+)|t:(${B64}))$`);
+
+export function rtComment(m: RtMarker): string {
+  if (m.kind === 'x') return `<!--${RT_COMMENT_PREFIX}x:${m.id}-->`;
+  if (m.kind === 't') return `<!--${RT_COMMENT_PREFIX}t:${b64encodeUtf8(m.payload)}-->`;
+  return `<!--${RT_COMMENT_PREFIX}${m.kind}:${m.id}:${b64encodeUtf8(m.payload)}-->`;
+}
+
+/** コメントの本文を読む。`jinja-rt:` で始まらなければ null、始まるのに崩れていれば 'invalid'。 */
+export function parseRtCommentData(data: string): RtMarker | 'invalid' | null {
+  if (!data.trimStart().startsWith(RT_COMMENT_PREFIX)) return null;
+  const m = RT_RE.exec(data);
+  if (!m) return 'invalid';
+  try {
+    if (m[1]) return { kind: m[1] as 'o' | 'c', id: Number(m[2]), payload: b64decodeUtf8(m[3]) };
+    if (m[4]) return { kind: 'x', id: Number(m[4]) };
+    if (!m[5]) return 'invalid';
+    return { kind: 't', payload: b64decodeUtf8(m[5]) };
+  } catch {
+    return 'invalid';
+  }
+}

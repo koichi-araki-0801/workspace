@@ -4,6 +4,7 @@
 // =============================================================================
 import { Check, ChevronLeft, ChevronRight, Inbox } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
+import CompanyCodeLabel from '@/components/CompanyCodeLabel.vue';
 import FundCodeName from '@/components/FundCodeName.vue';
 import Button from '@/components/ui/Button.vue';
 import TableContainer from '@/components/ui/TableContainer.vue';
@@ -11,27 +12,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, tableMes
 import { versionLabel } from '@/lib/format';
 import type { CompareVersionRow } from './services/compareService';
 
-const props = withDefaults(
-  defineProps<{
-    /** テンプレート × 版に平坦化済みの行。テンプレートが複数版を持てば複数行になる。 */
-    rows: CompareVersionRow[];
-    /** 現在選択中の版の `historyId`(行ハイライト用)。 */
-    selectedId?: string;
-    /** 1 ページの最大行数。これを超えたら前へ/次へでページ送りする。 */
-    pageSize?: number;
-  }>(),
-  { pageSize: 5 },
-);
+const props = defineProps<{
+  /** テンプレート × 版に平坦化済みの行。テンプレートが複数版を持てば複数行になる。 */
+  rows: CompareVersionRow[];
+  /** 現在選択中の版の `historyId`(行ハイライト用)。 */
+  selectedId?: string;
+}>();
 
 const emit = defineEmits<{ select: [CompareVersionRow] }>();
+
+/** 1 ページの最大行数。これを超えたら前へ/次へでページ送りする。 */
+const PAGE_SIZE = 5;
 
 // ── ページ送り(オフセット式) ──
 // 累積式の `usePagedList` は「ページ送り」要件に合わないため、当該ページ分だけを
 // 切り出す軽量実装をここに閉じる。`rows` が差し替わる(再絞り込み)たびに先頭へ戻す。
 const currentPage = ref(1);
-const totalPages = computed(() => Math.max(1, Math.ceil(props.rows.length / props.pageSize)));
+const totalPages = computed(() => Math.max(1, Math.ceil(props.rows.length / PAGE_SIZE)));
 const pagedRows = computed(() =>
-  props.rows.slice((currentPage.value - 1) * props.pageSize, currentPage.value * props.pageSize),
+  props.rows.slice((currentPage.value - 1) * PAGE_SIZE, currentPage.value * PAGE_SIZE),
 );
 watch(
   () => props.rows,
@@ -46,7 +45,7 @@ watch(
     <Table class="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead class="w-[104px]">委託会社コード</TableHead>
+          <TableHead class="w-[150px]">委託会社</TableHead>
           <TableHead class="w-[260px]">ファンド</TableHead>
           <TableHead class="w-[110px]">基準日</TableHead>
           <TableHead class="w-[84px]">版種</TableHead>
@@ -65,9 +64,14 @@ watch(
             ? 'bg-primary/10 [&>td:first-child]:border-l-2 [&>td:first-child]:border-primary'
             : ''"
         >
-          <TableCell class="mono truncate font-medium">{{ c.meta.attributes.companyCode }}</TableCell>
           <TableCell class="truncate">
-            <FundCodeName :code="c.meta.attributes.fundCode" />
+            <CompanyCodeLabel :code="c.meta.attributes.companyCode" />
+          </TableCell>
+          <TableCell class="truncate">
+            <FundCodeName
+              :company-code="c.meta.attributes.companyCode"
+              :code="c.meta.attributes.fundCode"
+            />
           </TableCell>
           <TableCell class="mono truncate">{{ c.meta.attributes.baseDate }}</TableCell>
           <TableCell class="truncate">{{ c.meta.attributes.editionType }}</TableCell>
@@ -94,7 +98,7 @@ watch(
           </TableCell>
         </TableRow>
         <!-- 1 ページに収まらない時だけページ送りフッタを出す。 -->
-        <TableRow v-if="props.rows.length > props.pageSize">
+        <TableRow v-if="props.rows.length > PAGE_SIZE">
           <TableCell :colspan="6" class="py-2">
             <div class="flex items-center justify-center gap-3 text-[13px]">
               <Button

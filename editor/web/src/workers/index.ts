@@ -12,54 +12,14 @@
 // 与えるのは「メインスレッドを塞がない」だけで、この脅威とは無関係である。描画は
 // opaque オリジンの iframe(`lib/renderHostClient.ts`)が担う。ここに残す diff/mask は
 // **描画済み文字列**に対する処理で、テンプレ式の評価を伴わない。
-import { type SampleData, unexpected } from '@editor/shared';
+import { unexpected } from '@editor/shared';
 import * as Comlink from 'comlink';
-import {
-  buildHtmlDiffAligned as buildHtmlDiffAlignedCore,
-  buildHtmlDiff as buildHtmlDiffCore,
-  type HtmlDiff,
-  type PagePair,
-} from '@/features/compare/htmlBlockDiff';
 import { logError } from '@/lib/appError';
-import { toFilled as toFilledCore } from '@/lib/fillJinja';
-import { type ToTemplateOptions, toTemplate as toTemplateCore } from '@/lib/jinjaMask';
 import { createFallbackWorker } from './fallback';
-import type { HtmlWorkerApi } from './htmlWorkerImpl';
-
-/** メインが `await` で使う非同期 API(Comlink の `Remote<HtmlWorkerApi>` と構造的に同一)。 */
-export interface AsyncHtmlWorker {
-  buildHtmlDiff(
-    before: string,
-    after: string,
-    cssBefore?: string,
-    cssAfter?: string,
-  ): Promise<HtmlDiff>;
-  buildHtmlDiffAligned(
-    before: string,
-    after: string,
-    cssBefore: string | undefined,
-    cssAfter: string | undefined,
-    pairs: PagePair[],
-  ): Promise<HtmlDiff>;
-  toTemplate(editable: string, opts?: ToTemplateOptions): Promise<string>;
-  toFilled(raw: string, sample: SampleData): Promise<string>;
-}
+import { type AsyncHtmlWorker, createHtmlApi, toAsyncApi } from './htmlApi';
 
 // Worker が無い環境では browser/jsdom の DOMParser でメイン実行(core 関数は既定パーサを使う)。
-const mainThreadFallback: AsyncHtmlWorker = {
-  async buildHtmlDiff(before, after, cssBefore, cssAfter) {
-    return buildHtmlDiffCore(before, after, cssBefore, cssAfter);
-  },
-  async buildHtmlDiffAligned(before, after, cssBefore, cssAfter, pairs) {
-    return buildHtmlDiffAlignedCore(before, after, cssBefore, cssAfter, pairs);
-  },
-  async toTemplate(editable, opts) {
-    return toTemplateCore(editable, opts);
-  },
-  async toFilled(raw, sample) {
-    return toFilledCore(raw, sample);
-  },
-};
+const mainThreadFallback: AsyncHtmlWorker = toAsyncApi(createHtmlApi());
 
 /**
  * Worker を構築し、失敗・実行時エラー・ハングのいずれでも `mainThreadFallback` へ倒すプロキシを
@@ -71,7 +31,9 @@ function createHtmlWorker(): AsyncHtmlWorker {
   try {
     // Vite 標準の module worker(本番ビルドで worker チャンクへ自動分割)。
     const worker = new Worker(new URL('./htmlWorker.ts', import.meta.url), { type: 'module' });
-    const remote = Comlink.wrap<HtmlWorkerApi>(worker) as unknown as AsyncHtmlWorker;
+    const remote = Comlink.wrap<ReturnType<typeof createHtmlApi>>(
+      worker,
+    ) as unknown as AsyncHtmlWorker;
     const { worker: proxy, markBroken } = createFallbackWorker(remote, mainThreadFallback);
     // Worker 側の致命エラー(チャンク読込失敗・スクリプト実行例外)は Comlink の message として
     // 返らず、RPC が永久に解決しない。error イベントを捕捉して以降をフォールバックへ倒す。

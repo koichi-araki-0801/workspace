@@ -56,6 +56,9 @@ describe('fake_generate_template.py', () => {
     expect(r.stdout).toBe('');
     expect(readOut('blank')).toContain('{{ fund.name }}');
     expect(readOut('blank')).toContain('ファンド: 510037');
+    // CSS の参照は文書の 1 段上の css/ にあるテンプレ単位の CSS(`../css/<会社>_<ファンド>_<版種>.css`)。
+    expect(readOut('blank')).toContain('href="../css/AM01_510037_交付版.css"');
+    expect(readOut('blank')).not.toContain('fund.code }}.css');
     // 一時ファイルを残さない(名前の変更で置き換える)。
     expect(fs.readdirSync(pendingOf('blank'))).toEqual(['AM01_510037_交付版.html']);
   }, 30_000);

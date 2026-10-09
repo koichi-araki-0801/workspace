@@ -82,6 +82,8 @@ const BUNDLE_FILES = [
 ];
 
 // 容量計算をスキップする大容量ディレクトリ (du が遅いだけで意味が薄いため `(大容量)` 表示)。
+// `DEEP_DIRS` から導かない: `pie-chart/dist-exe` は deep の対象だが、通常の走査では中の
+// light 対象を拾うために降りる必要があり、容量も数えるため。
 const HEAVY = new Set([
   'node_modules',
   '.pnpm-store',

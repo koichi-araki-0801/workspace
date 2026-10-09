@@ -5,11 +5,11 @@
 // 上部バーは編集画面(`EditorTopBar`)と揃え, ズーム(+/-/%)とページ送り(◁ x/y ▷)を集約する。
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
-import { isErr, isOk, type SampleData, type Template } from '@editor/shared';
-import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send } from '@lucide/vue';
+import { isErr, isOk, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
+import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { useReviewRepo } from '@/api/repositories';
+import { useFundAssetRepo, useReviewRepo } from '@/api/repositories';
 import AttributeBar from '@/components/AttributeBar.vue';
 import PageNav from '@/components/PageNav.vue';
 import PageRail from '@/components/PageRail.vue';
@@ -19,19 +19,32 @@ import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { routeOrigin } from '@/features/layout/tabOf';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
 import { editorRoute } from '@/features/templates/editorRoute';
+import {
+  docFundImageRefs,
+  previewAssetWarnings,
+  type SvgRejectedImage,
+  svgRejectedImages,
+} from '@/lib/assetWarnings';
 import { withCropMarks } from '@/lib/cropMarks';
+import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
-import { useTemplatePreviewService } from './services/templatePreviewService';
+import {
+  cssBaselineNotice,
+  jinjaBlockLossNotice,
+  useTemplatePreviewService,
+} from './services/templatePreviewService';
 
 const props = defineProps<{ id: string }>();
 
 const preview = useTemplatePreviewService();
 const reviews = useReviewRepo();
+const fundAssets = useFundAssetRepo();
 const changedSummaryService = useChangedSummaryService();
 const route = useRoute();
 const sessionStore = useEditorSessionStore();
@@ -39,6 +52,8 @@ const template = ref<Template | null>(null);
 const sample = ref<SampleData>({});
 const restoredHtml = ref('');
 const css = ref('');
+// 申請に載せる CSS の baseline(`templatePreviewService` の `cssBaseline`)。null なら載せない。
+const cssBaseline = ref<string | null>(null);
 const previewDoc = ref('');
 const renderError = ref<string | null>(null);
 // 自動保存された draft の有無。上部バーの「変更なし」バッジにだけ使う。
@@ -58,7 +73,11 @@ const displayDoc = computed(() =>
 // 見逃して「無音の白紙」になるため、本文領域に常設のエラー表示を出す。
 const loadFailed = ref(false);
 const { loading: loadingPreview, run: runLoad } = useAsyncResult();
-const { loading: submitting, run: runSubmit } = useAsyncResult();
+const { loading: sending, run: runSubmit } = useAsyncResult();
+// 申請の確認後から送信完了までを通して立てる。送信前の変更概要の計算は長引きうる(数十秒)ため、
+// 送信中だけを見ると、その間にもう一度押されて同じ編集の申請が 2 件できる。
+const preparing = ref(false);
+const submitting = computed(() => preparing.value || sending.value);
 const { loading: exporting, run: runExport } = useAsyncResult();
 // 長引くロード/出力への補足(進捗は取得できないため経過時間ベースの段階メッセージ)。
 const { slow: loadSlow } = useSlowIndicator(loadingPreview);
@@ -79,9 +98,44 @@ function onState(s: typeof nav) {
 }
 
 const fundCode = computed(() => template.value?.meta.attributes.fundCode ?? '');
+// CSS の不在・配信されない画像参照の警告。開くことは止めず、帯で知らせる(編集画面と同じ判定)。
+// 下書きがあるのに CSS の baseline が無い(別タブ・ブックマークから開いた等)ときの知らせ。
+// 申請は止めない — 本文の確定は通り、承認がペアへの CSS の転写だけを飛ばす。
+const baselineNotice = computed(() => cssBaselineNotice(hasDraft.value, cssBaseline.value));
+// SVG の検査で配信しない画像。画像の確認の結果が届いてから入る(それまでは空)。
+const svgRejected = ref<SvgRejectedImage[]>([]);
+const assetWarnings = computed(() =>
+  template.value
+    ? previewAssetWarnings(
+        props.id,
+        template.value.cssMissing === true,
+        previewDoc.value,
+        svgRejected.value,
+      )
+    : [],
+);
+
+/**
+ * 組み立て済み文書の配信対象の画像を確かめ、SVG の検査で配信しないものを警告欄に足す。配信
+ * ルートは理由を出さずに 404 にするので、理由はここで聞く。失敗しても画面は止めず、警告も足さない。
+ */
+async function inspectServedImages(doc: string): Promise<void> {
+  const refs = docFundImageRefs(doc, companyCodeOfTemplateId(props.id));
+  if (refs.length === 0) return;
+  try {
+    const res = await fundAssets.inspect(refs);
+    if (isOk(res)) svgRejected.value = svgRejectedImages(res.value);
+  } catch {
+    // 理由が分からないだけで、プレビューと申請は続けられる。
+  }
+}
 
 onMounted(async () => {
-  const res = await runLoad(() => preview.loadForPreview(props.id));
+  const res = await runLoad(() =>
+    preview.loadForPreview(props.id, {
+      editorCssBaseline: sessionStore.cssBaselineOf(props.id),
+    }),
+  );
   if (isErr(res)) {
     // runLoad が cause をログ + トースト済み。加えて本文に常設エラーを出して無音化を防ぐ。
     loadFailed.value = true;
@@ -92,58 +146,80 @@ onMounted(async () => {
   sample.value = v.sample;
   restoredHtml.value = v.restoredHtml;
   css.value = v.css;
+  cssBaseline.value = v.cssBaseline;
   previewDoc.value = v.previewDoc;
   renderError.value = v.renderError;
   hasDraft.value = v.hasDraft;
   isFilled.value = v.isFilled;
+  void inspectServedImages(v.previewDoc);
 });
 
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
-const origin = computed<'edit' | 'create'>(() =>
-  route.query.created === '1' ? 'create' : 'edit',
-);
+const origin = computed<ReviewOrigin>(() => routeOrigin(route.query));
 
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
-  if (!template.value) return;
+  if (!template.value || submitting.value) return;
+  // 作成経路だけ、範囲の印の両消しで黙って消えた Jinja のブロックを確認の説明で知らせる。
+  const loss =
+    origin.value === 'create' ? jinjaBlockLossNotice(template.value.html, restoredHtml.value) : null;
   const proceed = await confirm({
     title: '確定保存を申請しますか？',
     description:
       '編集内容を精査者(承認者)へ申請します。承認後に本番テンプレートへ反映されます。' +
-      'この時点では実ファイルは変更されません。',
+      'この時点では実ファイルは変更されません。' +
+      (loss ?? ''),
     confirmLabel: '申請する',
   });
-  if (!proceed) return;
-  // 一覧の先出し表示用の変更概要(ベストエフォート・失敗は null で申請は続行)。
-  const changedSummary = await changedSummaryService.computeChangedSummary({
-    templateId: props.id,
-    html: restoredHtml.value,
-    css: css.value,
-    fundCode: fundCode.value,
-    origin: origin.value,
-  });
-  const submitted = await runSubmit(() =>
-    reviews.submitReview({
+  if (!proceed || submitting.value) return;
+  preparing.value = true;
+  let submitted: Awaited<ReturnType<typeof runSubmit>>;
+  try {
+    // 一覧の先出し表示用の変更概要(ベストエフォート・失敗は null で申請は続行)。
+    const changedSummary = await changedSummaryService.computeChangedSummary({
       templateId: props.id,
       html: restoredHtml.value,
       css: css.value,
       fundCode: fundCode.value,
-      // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
-      filledHtml: previewDoc.value,
       origin: origin.value,
-      ...(changedSummary ? { changedSummary } : {}),
-    }),
-  );
+    });
+    submitted = await runSubmit(() =>
+      reviews.submitReview({
+        templateId: props.id,
+        html: restoredHtml.value,
+        css: css.value,
+        // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
+        filledHtml: previewDoc.value,
+        ...(cssBaseline.value !== null ? { cssBaseline: cssBaseline.value } : {}),
+        origin: origin.value,
+        ...(changedSummary ? { changedSummary } : {}),
+      }),
+    );
+  } finally {
+    preparing.value = false;
+  }
   if (isOk(submitted)) {
     // 申請済みの編集は持ち越さない: 編集セッション(履歴 + Undo/Redo)を破棄する。
     sessionStore.clear(props.id);
     toastSuccess('確定保存を申請しました（精査者の承認待ちです）');
   }
+  // 同じ内容が既に承認待ちに載っているので、編集セッションを持ち越す理由が無い。
+  // エラーの toast は `useAsyncResult` が出す。
+  else if (isErr(submitted) && submitted.error.code === 'REVIEW_DUPLICATE') {
+    sessionStore.clear(props.id);
+  }
 }
 
 async function exportPdf() {
   const res = await runExport(() =>
-    preview.renderPdf(restoredHtml.value, css.value, sample.value, cropMarks.value, isFilled.value),
+    preview.renderPdf(
+      restoredHtml.value,
+      css.value,
+      sample.value,
+      cropMarks.value,
+      isFilled.value,
+      template.value?.meta.attributes.companyCode ?? null,
+    ),
   );
   if (isErr(res)) return;
   const url = URL.createObjectURL(res.value);
@@ -262,6 +338,28 @@ async function exportPdf() {
       {{ renderError }}
     </div>
 
+    <div
+      v-if="baselineNotice"
+      class="flex items-start gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      role="alert"
+      data-testid="css-baseline-notice"
+    >
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <span>{{ baselineNotice }}</span>
+    </div>
+
+    <!-- 資産の警告(CSS ファイルの不在・配信されない画像参照)。開くことは止めず、帯で知らせる。 -->
+    <div
+      v-if="assetWarnings.length > 0"
+      class="flex items-start gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      role="alert"
+    >
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <ul class="space-y-0.5">
+        <li v-for="m in assetWarnings" :key="m">{{ m }}</li>
+      </ul>
+    </div>
+
     <!-- PDF 出力が長引く場合の補足(ボタンのスピナーだけでは固まったように見えるため)。 -->
     <div
       v-if="exportSlow"
@@ -272,7 +370,12 @@ async function exportPdf() {
     </div>
 
     <div class="relative flex-1 overflow-hidden">
-      <PreviewPanel ref="panel" :html="displayDoc" @state="onState" />
+      <PreviewPanel
+        ref="panel"
+        :html="displayDoc"
+        :company-code="template?.meta.attributes.companyCode ?? null"
+        @state="onState"
+      />
       <!-- 右端の縦ページ目盛り(スクラバ)。vivliostyle は離散表示なのでスクロール比率は渡さず、
            クリック/ドラッグで `goToPage`(EPAGE ジャンプ)する。 -->
       <PageRail

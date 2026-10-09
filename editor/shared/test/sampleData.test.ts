@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   applyTemplateAttributes,
@@ -77,5 +79,38 @@ describe('buildSampleData のテンプレ属性上書き', () => {
   it('fund.navChange は number(テンプレの符号分岐 `>= 0` が動く型)', () => {
     const out = buildSampleData(undefined, '510037');
     expect(typeof (out.fund as Record<string, unknown>).navChange).toBe('number');
+  });
+});
+
+describe('生成器の骨組みの変数が、基準日の無いテンプレのサンプルで埋まる', () => {
+  // 骨組みは 2 か所: server の偽の生成器(Python の書式なので `{{{{ }}}}` と `{{% %}}` を
+  // 元の Jinja へ戻して読む)と local モードの defaultSkeleton。どちらもテキストとして読む。
+  const sources = [
+    fs
+      .readFileSync(
+        path.resolve(__dirname, '../../server/scripts/fake_generate_template.py'),
+        'utf8',
+      )
+      .replaceAll('{{{{', '{{')
+      .replaceAll('}}}}', '}}')
+      .replaceAll('{{%', '{%')
+      .replaceAll('%}}', '%}'),
+    fs.readFileSync(path.resolve(__dirname, '../../web/src/api/local/store.ts'), 'utf8'),
+  ];
+  it.each(sources.map((s, i) => [i, s] as const))('骨組み %s', (_i, src) => {
+    const loopVars = new Set([...src.matchAll(/\{%\s*for\s+(\w+)\s+in/g)].map((m) => m[1]));
+    const sample = applyTemplateAttributes(buildSampleData(undefined, '510037'), {
+      editionType: '全体版',
+    });
+    for (const [, expr] of src.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) {
+      const [head, ...rest] = expr.split('.');
+      if (loopVars.has(head)) continue;
+      const v = rest.reduce<unknown>(
+        (o, k) => (o as Record<string, unknown> | undefined)?.[k],
+        sample[head],
+      );
+      expect(v, expr).not.toBeUndefined();
+      expect(String(v), expr).not.toBe('');
+    }
   });
 });

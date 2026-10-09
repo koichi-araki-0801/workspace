@@ -46,6 +46,7 @@ const filledDir = path.join(root, 'data', 'filled');
 const pendingDir = path.join(root, 'data', 'pending');
 const draftsDir = path.join(root, 'data', 'drafts');
 const reviewsDir = path.join(root, 'data', 'reviews');
+const cssDir = path.join(root, 'data', 'css');
 // メモの置き場は env を持たず `<DATA_ROOT>/notes` 固定(`files/notesFile.ts` の `notesDir`)。
 const notesDir = path.join(root, 'data', 'notes');
 const OUTSIDE = path.join(root, 'outside');
@@ -95,7 +96,15 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
   beforeEach(() => {
     templateCalls = 0;
-    for (const d of [templatesDir, filledDir, pendingDir, draftsDir, reviewsDir, notesDir]) {
+    for (const d of [
+      templatesDir,
+      filledDir,
+      pendingDir,
+      draftsDir,
+      reviewsDir,
+      notesDir,
+      cssDir,
+    ]) {
       fs.rmSync(d, { recursive: true, force: true });
       fs.mkdirSync(d, { recursive: true });
     }
@@ -117,7 +126,6 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       id,
       templateId: ID,
       attributes: ATTRS,
-      fundCode: '510037',
       origin,
       status,
       submittedBy: 'editor1',
@@ -172,15 +180,25 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(got.json().html).toBe('<p>確定版</p>');
   });
 
-  it('生成直後のテンプレは編集タブの一覧に status=draft で出る(id を見失わせない)', async () => {
-    // 一覧から外すと、作成タブの `/edit/:id` 遷移を閉じた時点でその id へ到達する手段が
-    // UI から消える(履歴タブは遷移経路を持たない)。到達不能は復旧手段が無いので退行扱い。
+  it('生成直後のテンプレート(基準日なし)は編集タブの一覧に出ず、作成タブの作業中として開ける', async () => {
+    // 編集タブは値入り HTML(基準日あり)だけを扱う。生成直後の id を見失わないよう、
+    // 作成タブの creatable が作業中(inProgressId)として返す。到達不能は復旧手段が無いので退行扱い。
     await generate(validBody);
     const list = await app.inject({ method: 'GET', url: '/templates?fundCode=510037' });
     expect(list.statusCode).toBe(200);
     const rows = list.json() as { id: string; status: string }[];
-    expect(rows.map((r) => r.id)).toContain(ID);
-    expect(rows.find((r) => r.id === ID)?.status).toBe('draft');
+    expect(rows.map((r) => r.id)).not.toContain(ID);
+    const info = await app.inject({
+      method: 'GET',
+      url: `/templates/creatable?${new URLSearchParams({
+        companyCode: 'AM01',
+        rep1CompanyCode: 'R-AM01',
+        fundCode: '510037',
+        editionType: '交付版',
+      })}`,
+    });
+    expect(info.statusCode).toBe(200);
+    expect(info.json()).toMatchObject({ created: false, inProgressId: ID });
   });
 
   it('値入り HTML と同じ id の pending が残っていても、一覧は published の 1 行だけ', async () => {
@@ -259,6 +277,10 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     generateMock.mockClear();
     const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '999999' });
     expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      kind: 'validation',
+      message: 'コピー元のテンプレートがありません: 999999',
+    });
     expect(generateMock).not.toHaveBeenCalled();
   });
 
@@ -369,6 +391,21 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(await history.listPartHistory(ID)).toHaveLength(1);
   });
 
+  it('綴り違い(会社コードの大文字小文字)の pending を作り直しても、新しい生成物は残り編集で開ける', async () => {
+    // 大文字小文字を区別しないファイルシステムでは、古い綴りの pending と新しい生成物は同じ
+    // ファイルになる。書いた後で古い綴りを消すと、新しい生成物ごと消えて成功応答のまま 404 になる。
+    const OLD = 'am01_510037_交付版';
+    fs.writeFileSync(path.join(pendingDir, `${OLD}.html`), '<p>古い綴りの生成物</p>', 'utf8');
+    const res = await generate({ ...validBody, replaceExisting: true });
+    expect(res.statusCode).toBe(200);
+    const got = await app.inject({ method: 'GET', url: `/templates/${encodeURIComponent(ID)}` });
+    expect(got.statusCode).toBe(200);
+    expect(got.json().html).toContain('生成物');
+    expect(got.json().html).not.toContain('古い綴り');
+    const left = fs.readdirSync(pendingDir).filter((f) => f.endsWith('.html'));
+    expect(left).toEqual([`${ID}.html`]);
+  });
+
   it('生成器が失敗したら、同意していても下書きも pending も消さない', async () => {
     fs.writeFileSync(path.join(draftsDir, `${ID}.html`), '<p>守る下書き</p>', 'utf8');
     fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>守る生成物</p>', 'utf8');
@@ -387,5 +424,36 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     );
     const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('CSS の初期値はコピー元テンプレの CSS(同名の既存 CSS より優先)', async () => {
+    fs.writeFileSync(path.join(templatesDir, 'AM01_510037_交付版.html'), '<p>元</p>', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.src{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), '.own{}', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().template.css).toBe('.src{}');
+    // css/ は承認の専権。生成では書き換えない。
+    expect(fs.readFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), 'utf8')).toBe('.own{}');
+  });
+
+  it('コピー元テンプレはあるが CSS ファイルが無ければ、同じ名前の既存 CSS があっても空', async () => {
+    fs.writeFileSync(path.join(templatesDir, 'AM01_510037_交付版.html'), '<p>元</p>', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), '.own{}', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().template.css).toBe('');
+  });
+
+  it('コピー元が無ければ同じ名前の既存 CSS を初期値にする', async () => {
+    fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.same{}', 'utf8');
+    const res = await generate(validBody);
+    expect(res.json().template.css).toBe('.same{}');
+  });
+
+  it('どちらも無ければ空', async () => {
+    fs.writeFileSync(path.join(cssDir, '510037.css'), '.old{}', 'utf8');
+    const res = await generate(validBody);
+    expect(res.json().template.css).toBe('');
   });
 });
