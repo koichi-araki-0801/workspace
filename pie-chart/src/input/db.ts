@@ -22,7 +22,7 @@ import { rowToItem } from './number.js';
 import { SPROC_PARAM_NAMES, type SprocArgs } from './sprocArgs.js';
 
 /** 既定の接続先サーバ(運用の DB)。`--db-server` か env `DB_SERVER` で上書きする。 */
-const DEFAULT_DB_SERVER =String.raw`sv29wdbp03\ipass`;
+const DEFAULT_DB_SERVER = String.raw`sv29wdbp03\ipass`;
 /** 既定のデータベース名(運用の DB)。`--db-name` か env `DB_NAME` で上書きする。 */
 const DEFAULT_DB_NAME = 'usrap';
 
