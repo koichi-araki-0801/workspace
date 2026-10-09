@@ -20,6 +20,7 @@ import { MAX_DB_ROWS } from '../limits.js';
 import { DbStageError, errorMessage } from './dbStage.js';
 import { rowToItem } from './number.js';
 import { SPROC_PARAM_NAMES, type SprocArgs } from './sprocArgs.js';
+import { isGarbledDriverText, sqlErrorHint } from './sqlErrorHint.js';
 
 /** 既定の接続先サーバ(運用の DB)。`--db-server` か env `DB_SERVER` で上書きする。 */
 const DEFAULT_DB_SERVER = String.raw`sv29wdbp03\ipass`;
@@ -261,24 +262,40 @@ export function classifySqlError(err: unknown): DbStageError {
   // msnodesqlv8 は接続失敗などで、エラーオブジェクトの配列をそのまま投げる(配列自体には
   // `sqlstate` も `message` も無い)。単体の場合と同じ扱いに揃えて要素から集める。
   const elements: unknown[] = Array.isArray(err) ? err : [err];
-  const sqlstates: string[] = [];
+  const states: Array<{ sqlstate: string; code?: number }> = [];
   const messages: string[] = [];
+  let garbled = false;
   for (const el of elements) {
     if (el == null) continue;
     const raw = (el as { sqlstate?: unknown } | null)?.sqlstate;
-    if (typeof raw === 'string' && raw) sqlstates.push(raw);
+    const code = (el as { code?: unknown } | null)?.code;
+    if (typeof raw === 'string' && raw) {
+      states.push({ sqlstate: raw, code: typeof code === 'number' && code > 0 ? code : undefined });
+    }
     const msg = (el as { message?: unknown } | null)?.message;
     const text =
       typeof msg === 'string' ? msg : typeof el === 'object' && el !== null ? '' : String(el);
-    if (text && !messages.includes(text)) messages.push(text);
+    // ドライバは日本語のエラー文を壊して返すので、化けた原文は出さない(sqlErrorHint.ts)。
+    if (text && isGarbledDriverText(text)) garbled = true;
+    else if (text && !messages.includes(text)) messages.push(text);
   }
   const isConnectState = (s: string) => s.startsWith('08') || s.startsWith('28') || s === 'IM002';
-  const connectState = sqlstates.find(isConnectState);
-  const sqlstate = connectState ?? sqlstates[0] ?? '';
-  const message = messages.join('; ') || 'database error';
+  const chosen = states.find((s) => isConnectState(s.sqlstate)) ?? states[0];
+  const hint =
+    states.map((s) => sqlErrorHint(undefined, s.code)).find(Boolean) ??
+    sqlErrorHint(chosen?.sqlstate, chosen?.code);
+  const body = [hint, ...messages].filter(Boolean).join('; ');
+  const message =
+    body ||
+    (garbled
+      ? 'データベースのエラー(ドライバの説明文は日本語が文字化けするため表示しない)'
+      : 'database error');
+  const tail = chosen
+    ? ` (SQLSTATE ${chosen.sqlstate}${chosen.code ? `, エラー番号 ${chosen.code}` : ''})`
+    : '';
   return new DbStageError(
-    connectState ? 'connect' : 'query',
-    sqlstate ? `${message} (SQLSTATE ${sqlstate})` : message,
+    chosen && isConnectState(chosen.sqlstate) ? 'connect' : 'query',
+    `${message}${tail}`,
   );
 }
 

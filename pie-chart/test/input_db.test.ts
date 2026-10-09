@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { sqlErrorHint } from '../src/input/sqlErrorHint.js';
 import {
   type MsSqlDriver,
   type MsSqlResults,
@@ -251,7 +252,35 @@ describe('classifySqlError', () => {
     ];
     const e = classifySqlError(arr);
     expect(e.stage).toBe('connect');
-    expect(e.message).toBe('cannot open (SQLSTATE 08001)');
+    expect(e.message).toBe(`${sqlErrorHint('08001')}; cannot open (SQLSTATE 08001, エラー番号 53)`);
+  });
+  it('ドライバの原文が化けていれば出さず、日本語の説明と SQLSTATE・エラー番号だけを出す', () => {
+    const garbled = '[Microsoft][ODBC Driver 17 for SQL Server]SQL Server xn��';
+    const e = classifySqlError([
+      { sqlstate: '08001', code: 2, message: garbled },
+      { sqlstate: 'HYT00', code: 0, message: 'Login timeout expired' },
+    ]);
+    expect(e.stage).toBe('connect');
+    expect(e.message).toBe(
+      `${sqlErrorHint('08001')}; Login timeout expired (SQLSTATE 08001, エラー番号 2)`,
+    );
+  });
+  it('説明の無いエラーで原文も化けていれば、化けたことを知らせる', () => {
+    const e = classifySqlError({ sqlstate: '42S22', code: 207, message: 'xn�' });
+    expect(e.message).toMatch(/文字化け/);
+    expect(e.message).toContain('(SQLSTATE 42S22, エラー番号 207)');
+    expect(e.message).not.toContain('�');
+  });
+  it('ストアドが見つからないときはエラー番号から説明を付ける', () => {
+    const e = classifySqlError({
+      sqlstate: '42000',
+      code: 2812,
+      message: "Could not find stored procedure 'p'.",
+    });
+    expect(e.stage).toBe('query');
+    expect(e.message).toBe(
+      `${sqlErrorHint('42000', 2812)}; Could not find stored procedure 'p'. (SQLSTATE 42000, エラー番号 2812)`,
+    );
   });
   it('配列でも 08 / 28 / IM002 が無ければ query', () => {
     const e = classifySqlError([{ sqlstate: '42000', message: 'a' }, { sqlstate: '42000' }]);
@@ -320,7 +349,7 @@ describe('checkConnection', () => {
     const arr = fakeDriver([{ sqlstate: '08001', message: 'down' }, { sqlstate: 'HYT00' }]);
     await expect(checkConnection(arr.driver, 'CS', 5000)).rejects.toMatchObject({
       stage: 'connect',
-      message: 'down (SQLSTATE 08001)',
+      message: `${sqlErrorHint('08001')}; down (SQLSTATE 08001)`,
     });
   });
 });
