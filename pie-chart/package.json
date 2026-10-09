@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "exceljs": "^4.4.0",
-    "subset-font": "^2.6.0"
+    "subset-font": "2.6.0"
   },
   "optionalDependencies": {
     "msnodesqlv8": "^4.5.0"

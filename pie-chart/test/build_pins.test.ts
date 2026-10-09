@@ -38,6 +38,22 @@ describe('exe 同梱物の固定値', () => {
     expect(sha).toBe(pins.hbSubsetWasmSha256);
   });
 
+  // 単独環境の exe ビルド(`build-exe.ps1`)は pnpm を使わず、コミット済みの package-lock.json で
+  // `npm ci` する。範囲指定や古い lock のままだと npm 側だけ別の版(subset-font 2.9 → harfbuzzjs 1.x
+  // は `hb-subset.wasm` を exports に出さない)を掴むので、宣言と lock の両方を pin に揃える。
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+  const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
+  it('package.json の subset-font は pin の版に完全固定されている', () => {
+    expect(pkg.dependencies['subset-font']).toBe(pins.subsetFont);
+  });
+
+  it('package-lock.json の subset-font と harfbuzzjs が pin と同じ版を指す', () => {
+    expect(lock.packages['node_modules/subset-font'].version).toBe(pins.subsetFont);
+    expect(lock.packages['node_modules/harfbuzzjs'].version).toBe(
+      require(join(dirname(hbWasmPath), 'package.json')).version,
+    );
+  });
+
   it('msnodesqlv8 の版が pin と一致する', () => {
     expect(require('msnodesqlv8/package.json').version).toBe(pins.msnodesqlv8);
   });

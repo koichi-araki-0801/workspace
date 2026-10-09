@@ -100,7 +100,8 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 非開発者へ配る実行ファイルを生成する。入口は 2 つで、依存の入れ方が異なる:
 
 - **`scripts/build-exe.bat`(ダブルクリック / 旧 Node20 系の単独環境向け)**: ビルド前に
-  `node_modules`/`package-lock.json` を消して **`npm install` をクリーン実行**してから exe を作る。
+  コミット済みの `package-lock.json` どおりに **`npm ci --ignore-scripts`** で依存を入れ直してから exe を作る
+  (lock を消して `npm install` すると範囲指定の新版を掴み、同梱物の固定値の照合で止まる)。
   事前の手動 install は不要で「このフォルダだけ」で完結する(npm 経路は overrides で vite@6 固定)。
 - **`npm run build:exe` / `pnpm run build:exe`(= `node scripts/build-exe.mjs`、開発機向け)**:
   install はせず、既存の `node_modules` でビルドのみ行う。pnpm ワークスペースの依存解決を保つ。
