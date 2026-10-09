@@ -119,7 +119,7 @@ if (-not $SkipRender -and (Test-Path -LiteralPath $exePath)) {
     if ($LASTEXITCODE -ne 0) { Fail "exe の描画が失敗しました (exit $LASTEXITCODE)" }
     Push-Location $root
     try {
-      npx tsx src/cli.ts one --sample $Sample --output-file $devSvg | Out-Null
+      pnpm exec tsx src/cli.ts one --sample $Sample --output-file $devSvg | Out-Null
       if ($LASTEXITCODE -ne 0) { Fail "開発版の描画が失敗しました (exit $LASTEXITCODE)" }
     } finally { Pop-Location }
     if ((Test-Path $exeSvg) -and (Test-Path $devSvg)) {

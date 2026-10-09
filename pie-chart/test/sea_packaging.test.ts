@@ -3,7 +3,7 @@
 // -----------------------------------------------------------------------------
 // 既定では **skip**(exe ビルドを伴い数分かかるため)。有効化は次の 2 手順:
 //   1. node scripts/build-exe.mjs   # dist-exe/pie-chart.exe を作る
-//   2. PIECHART_SEA_TEST=1 npx vitest run test/sea_packaging.test.ts
+//   2. PIECHART_SEA_TEST=1 pnpm exec vitest run test/sea_packaging.test.ts
 //
 // 主張するのは **迂回入力で失敗しないこと** ではなく、迂回入力が**何の影響も与えない**こと。
 // 具体的には、exe の隣・1 つ上・2 つ上に偽 `node_modules/subset-font` と偽 `fonts/` を置いて

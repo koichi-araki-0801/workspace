@@ -7,7 +7,7 @@
 // オーバーヘッドを含み、tsc ビルドを素の node で実行した場合の約 3 倍になる。絶対秒数を
 // 他経路 (vitest・本番ビルド) の実測と比べる材料にしない。段階間の比較には `seconds` より
 // `perfCounters` の呼出回数の方が適する (トランスパイラの影響を受けない)。
-//   実行: npm run profile:synthetic [ケース名]   (既定 gen_long_12_other)
+//   実行: pnpm run profile:synthetic [ケース名]   (既定 gen_long_12_other)
 // ケースは `test/helpers/syntheticCases.ts` の生成器から取る (render_hash 系テストと同一入力)。
 // =============================================================================
 

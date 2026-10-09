@@ -24,11 +24,13 @@
 //      = shim が受ける前提が依存の更新で崩れていない
 //   B. `scripts/sidecar-pins.json` の版・wasm ハッシュが実解決値と一致する
 //      = 依存を上げたら render_hash スナップショットの更新要否に気づける
-//   C. Node >= 20.12(sea-config の `assets` / `sea.getAsset` の要件)
+//   C. Node >= 24(同梱する DB ドライバの prebuild が Node 24 用。SEA の `assets` は 20.12 以降)
 //   D. DB ドライバの版・ハッシュが pin と一致し、この Node で dlopen できる(--no-db 以外)
 //   E. バンドル内のドライバ require が shim へ差し替わっている(--no-db 以外)
-// 依存: esbuild / postject(devDependencies)。ビルド時の `npm install` は無い
-// (完全オフラインで exe を作れる)。
+// 加えて、pie-chart の node_modules が pnpm で入ったものでなければ止める(npm で入れ直すと
+// pnpm-lock.yaml と別の版を掴む)。
+// 依存: esbuild / postject(devDependencies)。依存の install はしない(リポジトリ直下の
+// `pnpm install` で入れた node_modules を使うので、完全オフラインで exe を作れる)。
 // =============================================================================
 
 import { execFileSync } from 'node:child_process';
@@ -50,6 +52,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { installLayout } from './install-layout.mjs';
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -70,7 +73,7 @@ const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
 // 引数は 2 つだけ。綴り違い(旧 `--allow-unsigned` を含む)を黙って無視すると、意図と違う
 // 配布物ができるので止める。
-//   --no-db : DB 機能を外す(Node20 の build-exe.ps1 経路。Node20 用ドライバはネット無しで取れない)
+//   --no-db : DB 機能を外す(DB ドライバの .node が置かれていない端末でビルドするとき)
 //   --sign  : コード署名する(配布先に AppLocker / WDAC の発行者ルールがある場合に使う)
 const KNOWN_ARGS = new Set(['--no-db', '--sign']);
 const cliArgs = process.argv.slice(2);
@@ -137,14 +140,27 @@ function stripPeSignature(file) {
 }
 
 // 0. アサート C: Node 版 -------------------------------------------------------
-// sea-config の `assets` と `sea.getAsset` は Node 20.12 で入った。旧 Node20 系(build-exe.ps1
-// 経路)では `assets` が無視され、**アセットが空のまま exe ができてしまう**ので先に止める。
+// 同梱する DB ドライバの prebuild(sidecar-pins.json のハッシュ)は Node 24 の ABI 用。リポジトリの
+// engines も Node 24 なので、ほかの版では作らせない。
 {
-  const [maj, min] = process.versions.node.split('.').map(Number);
-  if (maj < 20 || (maj === 20 && min < 12)) {
+  const maj = Number(process.versions.node.split('.')[0]);
+  if (maj < 24) {
+    fail(`Node ${process.versions.node} is not supported (needs >= 24). Upgrade Node first.`);
+  }
+}
+
+// 0-a. 依存の入り方 ------------------------------------------------------------
+// pie-chart のフォルダで npm を実行すると、node_modules が npm の構成で入れ直され、
+// pnpm-lock.yaml と別の版を掴む(subset-font 2.9 は harfbuzzjs 1.x を引き、wasm を解決できない)。
+{
+  const layout = installLayout(root);
+  if (layout !== 'pnpm') {
     fail(
-      `Node ${process.versions.node} does not support SEA assets (needs >= 20.12). ` +
-        'Upgrade Node before building the exe.',
+      (layout === 'npm'
+        ? 'pie-chart\\node_modules was installed by npm, not pnpm. '
+        : 'pie-chart\\node_modules is missing. ') +
+        'Delete pie-chart\\node_modules, then run `pnpm install --offline` at the repository root ' +
+        '(online: `pnpm install`). Do not run npm in the pie-chart folder.',
     );
   }
 }
@@ -259,8 +275,7 @@ await build({
   format: 'cjs',
   // target は **このビルドを走らせている Node のメジャー版**に追従させる。SEA exe の実体は
   // `process.execPath`(= 実行中の node)をコピーしたものなので、bundle の syntax をその node に
-  // 必ず一致させる。24 系開発機なら node24、20 系の古い環境(npm 直叩き)なら node20 が選ばれ、
-  // exe 本体とバンドルの想定が常に揃う(従来の node22 ハードコードは node20 ビルドでズレた)。
+  // 必ず一致させる(固定値にすると、Node を上げたときに exe 本体とバンドルの想定がずれる)。
   target: `node${process.versions.node.split('.')[0]}`,
   // DB 機能つきでは msnodesqlv8 の JS もバンドルし、ネイティブドライバだけを shim 経由にする。
   // --no-db では msnodesqlv8 を external のまま残す(SEA では builtin 以外を解決できないので、

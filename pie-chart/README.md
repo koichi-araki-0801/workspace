@@ -6,42 +6,35 @@ TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON 
 
 ## セットアップ
 
+依存はリポジトリ直下の `pnpm install`(遮断端末では `pnpm install --offline`)で入れる。Node は 24 系。
+`pie-chart/` のフォルダで npm を実行しない(`node_modules` が npm の構成で入れ直され、
+`pnpm-lock.yaml` と別の版を掴む。`build:exe` はその状態を見つけると止まる)。
+
 ```bash
-npm install
-npm run check   # tsc --noEmit で型チェック
-npm run batch   # tsx src/test_batch.ts — 83 サンプル一括生成
-npm run verify  # tsx src/verify/svg.ts — 自動検証
+pnpm install     # リポジトリ直下で
+cd pie-chart
+pnpm run check   # tsc --noEmit で型チェック
+pnpm run batch   # tsx src/test_batch.ts — 83 サンプル一括生成
+pnpm run verify  # tsx src/verify/svg.ts — 自動検証
 ```
 
-実行系は環境で使い分ける(従来の `run.bat`/`run.ps1` が Node メジャー版で自動判定していたものを、
-ラッパ廃止に伴い手動運用へ移行):
-
-- **開発機(pnpm / Node 24 系)**: リポジトリ直下で `pnpm install`、各コマンドは
-  `pnpm --filter pie-chart run <script>`(または `pie-chart/` 内で `pnpm run <script>`)。
-- **pnpm の無い旧 Node 20 系の単独環境**: この `pie-chart/` フォルダ内で `npm` を直接叩く。
-
-後者向けに `package.json` の `overrides` で **vite を `^6` に固定**している。vite@8 とその bundler
-rolldown は Node `^20.19.0 || >=22.12.0` を要求し Node 20.16 で EBADENGINE になるため、rollup ベースで
-engines が `^20.0.0` を許容する vite@6 を引く。pnpm はワークスペース *ルート* の `overrides` しか見ず
-member(pie-chart)側の指定を無視するため、開発機は最新 vite@8 のまま。= npm 経路だけが vite@6 へ
-切り替わる。vite/vitest はテスト専用で、`cli`/`batch`/`verify`/`build:exe` は tsx・esbuild 経由のため
-SVG 出力(`out/_baseline` の byte-diff)には影響しない。
+リポジトリ直下からは `pnpm --filter pie-chart run <script>` でも実行できる。
 
 ## 使い方
 
 ### CLI
 
-CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)で実行する。
+CLI は `pnpm run cli <command>`(または直接 `tsx src/cli.ts <command>`)で実行する。
 
-- `npm run cli -- list`
-- `npm run cli -- one --sample asset_gbca_pdf_like --output-file out/test.svg`
-- `npm run cli -- one --data-file data/example.json --output-file out/test.svg`
-- `npm run cli -- one --data-json '[{"name":"A","value":60},{"name":"B","value":40}]' --output-file out/test.svg`
-- `npm run cli -- one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg`
-- `npm run cli -- one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file out/test.svg`
-- `npm run cli -- db-check --db-name usrap`(DB ドライバを読み込めるか、接続できるかの確認)
-- `npm run cli -- batch --output-dir out/svg`
-- `npm run cli -- batch --input-dir data --output-dir out/svg`
+- `pnpm run cli list`
+- `pnpm run cli one --sample asset_gbca_pdf_like --output-file out/test.svg`
+- `pnpm run cli one --data-file data/example.json --output-file out/test.svg`
+- `pnpm run cli one --data-json '[{"name":"A","value":60},{"name":"B","value":40}]' --output-file out/test.svg`
+- `pnpm run cli one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg`
+- `pnpm run cli one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file out/test.svg`
+- `pnpm run cli db-check --db-name usrap`(DB ドライバを読み込めるか、接続できるかの確認)
+- `pnpm run cli batch --output-dir out/svg`
+- `pnpm run cli batch --input-dir data --output-dir out/svg`
 
 `one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` / `--fund + --base-date + --chart-type`(ストアド)のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
 
@@ -97,14 +90,9 @@ CLI は `npm run cli -- <command>`(または直接 `tsx src/cli.ts <command>`)�
 
 ### exe 配布(Node SEA + 外部参照)
 
-非開発者へ配る実行ファイルを生成する。入口は 2 つで、依存の入れ方が異なる:
-
-- **`scripts/build-exe.bat`(ダブルクリック / 旧 Node20 系の単独環境向け)**: ビルド前に
-  コミット済みの `package-lock.json` どおりに **`npm ci --ignore-scripts`** で依存を入れ直してから exe を作る
-  (lock を消して `npm install` すると範囲指定の新版を掴み、同梱物の固定値の照合で止まる)。
-  事前の手動 install は不要で「このフォルダだけ」で完結する(npm 経路は overrides で vite@6 固定)。
-- **`npm run build:exe` / `pnpm run build:exe`(= `node scripts/build-exe.mjs`、開発機向け)**:
-  install はせず、既存の `node_modules` でビルドのみ行う。pnpm ワークスペースの依存解決を保つ。
+非開発者へ配る実行ファイルを生成する。入口は `pnpm run build:exe`(= `node scripts/build-exe.mjs`)と、
+それをダブルクリックで呼ぶ `scripts/build-exe.bat`(→ `build-exe.ps1`)の 2 つで、中身は同じ。どちらも
+install はせず、リポジトリ直下の `pnpm install` で入れた `node_modules` でビルドだけを行う。
 
 **配布物は 2 点だけ**(`--sign` で署名したときは `pie-chart-codesign.cer` と `SIGNING-INFO.txt` を加えた 4 点。フォルダをコピーせず、`pie-chart.exe` 単体でも動く):
 
@@ -135,7 +123,7 @@ dist-exe/
 - 使い方は CLI と同じ: `pie-chart.exe one --sample asset_gbca_pdf_like --output-file t.svg` など。
   `pie-chart.exe license` で埋込フォントの OFL 本文を表示できる。
   DB から作る例: `pie-chart.exe one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file t.svg`。
-- ビルド依存は `esbuild` / `postject`(devDependencies)のみ。ビルド中に `npm install` は
+- ビルド依存は `esbuild` / `postject`(devDependencies)のみ。ビルド中に依存の install は
   走らないので、**完全オフラインで exe を作れる**。
 - **DB ドライバだけは exe の外へ書き出して読む**(唯一の例外)。ネイティブモジュールは実ファイル
   からしか読めないため、ストアド入力と `db-check` のときだけ `%TEMP%\pie-chart-db\<pid>-xxxxxx` へ
@@ -143,13 +131,14 @@ dist-exe/
   フォルダは子の終了後に消し、強制終了で残ったものは次の起動時に消す。
 - DB 機能つきの exe は**開発機(pnpm / Node 24)でだけ**作る。ドライバは NAN 製で、ビルドに使った
   Node のメジャー版でしか読めないため、ビルドは実際に dlopen して確かめ、合わなければ止まる。
-  `build-exe.bat`(Node20 の単独環境)は DB 機能を外して作る(`--no-db`)。
-- ビルドは前提が崩れたら **落ちる**(黙って劣化させない): ①Node < 20.12(SEA アセット非対応)
+  ドライバの `.node` が置かれていない端末では `--no-db` で DB 機能を外して作れる。
+- ビルドは前提が崩れたら **落ちる**(黙って劣化させない): ①Node < 24、または `pie-chart/node_modules` が
+  pnpm で入ったものでない(npm で入れ直された・未インストール)
   ②`scripts/sidecar-pins.json` の `subset-font` 版・wasm SHA256 が実解決値と不一致
   ③バンドル内の `require.resolve('harfbuzzjs/hb-subset.wasm')` が 1 箇所でない
   ④`sidecar-pins.json` の `msnodesqlv8` 版・`sqlserverv8NodeSha256` が実解決値と不一致、または
   ドライバを dlopen できない(DB 機能つきのとき)。
-  ②が出たら依存を上げた合図なので、`npm run batch` → `npm run batch:diff` と
+  ②が出たら依存を上げた合図なので、`pnpm run batch` → `pnpm run batch:diff` と
   `test/render_hash.test.ts` で埋込フォントのバイトが変わっていないかを必ず確認する。
 
 #### コード署名
@@ -196,8 +185,8 @@ dist-exe/
 
 ### 全件生成 + ビューア
 
-- `npm run batch` — 全 83 サンプルを `out/svg_js/` に出力し、`out/compare.html`(A4 想定・1 ページ 12 件のページ送り)を更新
-- `npm run verify` — 生成済み SVG のラベル数・bbox オーバーラップ・円内侵入・引出線交差・viewBox はみ出し・引出線屈曲数を自動検証(引数で対象ディレクトリを指定可。既定は `out/svg_js`)
+- `pnpm run batch` — 全 83 サンプルを `out/svg_js/` に出力し、`out/compare.html`(A4 想定・1 ページ 12 件のページ送り)を更新
+- `pnpm run verify` — 生成済み SVG のラベル数・bbox オーバーラップ・円内侵入・引出線交差・viewBox はみ出し・引出線屈曲数を自動検証(引数で対象ディレクトリを指定可。既定は `out/svg_js`)
 
 ## ディレクトリ構成
 
@@ -217,7 +206,7 @@ pie-chart/
 │   │   ├── sprocArgs.ts        — ストアド入力の引数検査 (基準日・ストアド名)
 │   │   ├── savedJson.ts        — 取得結果の samples 形式 JSON の保存・読み込み
 │   │   └── dbStage.ts          — DB 取得の失敗を段階 (`[db:<段階>]`) 付きで表すエラー型
-│   ├── glyph_advance/          — 生成物 (npm run gen:widths)。ウェイト別実 glyph advance 表
+│   ├── glyph_advance/          — 生成物 (pnpm run gen:widths)。ウェイト別実 glyph advance 表
 │   │   ├── weight_400.ts
 │   │   └── weight_700.ts
 │   ├── layout/
@@ -343,7 +332,7 @@ RenderResult { svg, diagnostics, config }
 | 🔴 | `src/svg_export/pipeline.ts`・`mode_passes.ts` | orchestrator と fallback 群・モード特化パス |
 | 🔴 | `src/layout/diagnostics.ts` のモード判定 | フラグ間の相互作用が非自明（`mark_flags` ゴールデンが分布を固定） |
 
-`src/glyph_advance/*` は生成物（`npm run gen:widths`）なので手で編集しない。
+`src/glyph_advance/*` は生成物（`pnpm run gen:widths`）なので手で編集しない。
 
 ## コメント規約
 
@@ -352,34 +341,34 @@ RenderResult { svg, diagnostics, config }
 共通事項はそちらを参照すること。pie-chart もこの規約に準拠する。
 
 - **出力不変の検証（pie-chart 固有）**: コメントのみの変更でも `out/_baseline` に対し SVG の
-  byte-diff で出力が完全に不変であることを確認する（`npm run batch` → `npm run batch:diff`。
+  byte-diff で出力が完全に不変であることを確認する（`pnpm run batch` → `pnpm run batch:diff`。
   下記「検証」節参照）。これは SVG 出力の決定性に密な pie-chart 限定の鉄則。
 
 ## 検証
 
 SVG 出力は**完全に決定的**なので、リファクタ・コメント変更の挙動保証はバイト単位で行う。
 
-- **byte-diff**: `npm run batch` → `npm run batch:diff`。`scripts/batch_diff.mjs` が
+- **byte-diff**: `pnpm run batch` → `pnpm run batch:diff`。`scripts/batch_diff.mjs` が
   `out/svg_js` ⇔ `out/_baseline` を SHA256 で全件比較し、差分があれば非 0 exit +
   ファイル名を列挙する。列挙は 3 種で、内容の相違だけでなく **baseline に無い出力（追加）**と
   **出力に無い baseline（欠落）**も差分として扱う。
-- **`npm run batch` は毎回 `out/svg_js` の SVG を消してから生成し、1 件でも生成に失敗すると
+- **`pnpm run batch` は毎回 `out/svg_js` の SVG を消してから生成し、1 件でも生成に失敗すると
   非 0 で終わる**。前回の出力が残っていると、レンダーに失敗したサンプルの古い SVG が
   baseline と一致して byte-diff が OK を返してしまうため（「生成できなかった」が「差分が無い」
   と同じ結果に見える状態を作らない）。
 - **baseline の初回作成 / 更新**: `out/_baseline` はローカル生成物（git 管理外）で clone 直後は
-  存在しない。**必ずコミット済みのクリーンな状態で** `npm run batch` → `npm run baseline:accept`
+  存在しない。**必ずコミット済みのクリーンな状態で** `pnpm run batch` → `pnpm run baseline:accept`
   を 1 回実行して基準を作る。出力変更を意図した確定時も同じコマンドで更新する
   （未検証の変更を基準に凍結すると以後 byte-diff が退行を検出できなくなる）。
-- **`npm run verify` は `out/svg_js` の既存 SVG を読む（再レンダーしない）**。コード変更後は
-  必ず `npm run batch` を先行させてから verify / `npm run verify:consistency` を読む。
-- **特性テスト**（`npx vitest run`）: byte-diff はサンプル入力の分布しか守らないため、特性テストで
+- **`pnpm run verify` は `out/svg_js` の既存 SVG を読む（再レンダーしない）**。コード変更後は
+  必ず `pnpm run batch` を先行させてから verify / `pnpm run verify:consistency` を読む。
+- **特性テスト**（`pnpm exec vitest run`）: byte-diff はサンプル入力の分布しか守らないため、特性テストで
   穴埋めしている — mark_flags（mark*** 発火表）/ final_score（finalScore ゴールデン）/
   render_hash（サンプル外合成入力の SVG ハッシュ）/ seam_snapshot（revert 完全性 +
   `PLACEMENT_SEAM_POLICY` 網羅表）/ emit_passes（emit/scoring パス列固定）。
   スナップショット更新（`-u`）は挙動変更を意図した時のみ許される。
 - **配布 exe の閉包検査**（`test/sea_packaging.test.ts`）: 既定 **skip**。exe を作ってから
-  `PIECHART_SEA_TEST=1 npx vitest run test/sea_packaging.test.ts` で有効化する。exe の隣・
+  `PIECHART_SEA_TEST=1 pnpm exec vitest run test/sea_packaging.test.ts` で有効化する。exe の隣・
   上位ディレクトリに偽 `node_modules/subset-font` と偽 `fonts/` を置いてなお、出力が開発版と
   byte 一致し偽モジュールが実行されないことを見る。配布前は `scripts/verify-dist.bat` も通す。
 - **デバッグ**: `PIE_CHART_DEBUG_REPAIR=1` で emit 修復パス単位の RepairVec 差分ログ、
@@ -405,7 +394,7 @@ SVG 出力は**完全に決定的**なので、リファクタ・コメント変
 - 長体 (nameScaleX) は**ラベル単位**: はみ出すラベルだけ `applyFinalCondenseToFit` で縮め、`relaxNameCondense` がキャンバス・pie・隣接ラベルに当たらない範囲で原寸 (sx=1 上限) へ戻す。旧来の「1 つでも長体なら全ラベルを統一圧縮」は廃止 (収まるラベルは原寸のまま)。
 - **上部「その他」の右上逃がしは pie キャップ上へ持ち上げる** (`layout/placement.ts` `topRightLiftedRimDraft`): 箱下端を `pieRadius + クリアランス` に揃え (= 箱全体が円の上)、`pieClampXLimits` が横押し出しを起こさないようにして短い縦/斜め leader で結ぶ。`topBandSonohokaRight` 右パス / `topBandSmallRight` / `clusterTopBandBottomRight` が共有。旧実装は箱下端が円の y 域に入り pie クリアランスが textX を右へ押し出し、100〜180px の水平 leader がチャート上部を横断していた。
 - **下限長体でも見切れる長名は標準 2 行化で収める** (`svg_export/pipeline.ts` の `applyTwoLineNameFallback`, emit 最終段): 名前を語中で割らない標準 2 行 `[名前, %]` へ変換し、名前行だけになって箱幅が縮む分だけ見切れを減らす。語割れ (旧 `splitLongName` / `applySplitNameFallback`) は pie-chart 全体で廃止した。採否は対象自身の見切れ px 厳密減 + `countDefects` の他カテゴリ非悪化の do-no-harm ゲートで決め、満たさなければ revert する。採点 (`finalizeForScoring`) には入れず emit のみ (候補選択を乱さない / finalScore は emit 後の同 placements から数えるため scorer↔emit 整合は保たれる)。
-- **fontSize=40 での tight-pack warning(現況: 2026-07-21 再計測)**: 現行設定 (600×450px / 直径 70% / fontSize=40) では `npm run verify` が **5/83 サンプル**で警告する(計 8 件)。警告は全て WARN 級(ERROR 級の leader 交差/円内貫通は 0 を維持)。内訳:
+- **fontSize=40 での tight-pack warning(現況: 2026-07-21 再計測)**: 現行設定 (600×450px / 直径 70% / fontSize=40) では `pnpm run verify` が **5/83 サンプル**で警告する(計 8 件)。警告は全て WARN 級(ERROR 級の leader 交差/円内貫通は 0 を維持)。内訳:
   - label viewBox はみ出し: 8 件(**大半は condense-to-fit / 標準 2 行化で縮小済**。残るのは下記の構造的残件。対象: `asset_12_long_and_tiny` / `asset_gbca_pdf_like` / `asset_long_labels_9` / `currency_europe_heavy_8` / `ten_elements_long_upper_left`。`currency_many_small_10` は左列 overpack 時の右上逃がし (packing 枝) + 2 行化で解消済)
   - leader 交差: **0 件** / leader 円内侵入: **0 件** / leader through label: **0 件** / label inside pie: **0 件**(`test/leader_invariants.test.ts` が回帰 9 サンプル + 番兵 3 サンプルで不変条件をガード)
   - label overlap: **0 件** / label order inversion: **0 件**(いずれも過去の残件は解消済)

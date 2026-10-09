@@ -67,9 +67,9 @@ title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
 | 12 | `test/emit_passes.test.ts` / `seam_snapshot.test.ts` | emit/scoring パス列の固定・seam snapshot の revert 完全性 | パス列と snapshot が整合 | 未 |
 | 13 | `test/oracle_sync.test.ts` / `output_escaping.test.ts` | オラクル複製定数の drift・設定値の出力エスケープ | drift/素通しなし | 未 |
 | 14 | `test/sea_runtime.test.ts` / `subset_font_fs.test.ts` / `build_pins.test.ts` / `sea_packaging.test.ts` | SEA のアセット許可リスト・モジュール解決封鎖・同梱物の pin・exe 実機検査（既定 skip） | 迂回入力が失敗する | 未 |
-| 15 | `src/verify/svg.ts`（`npm run verify`） | 83サンプル全件: ラベル数・overlap・円内侵入・交差・はみ出し | ERROR ゼロ | 未 |
-| 16 | `src/verify/consistency.ts`（`npm run verify:consistency`） | 採点判断（scorer）↔ emit SVG の一致検証 | scorer↔emit が乖離なし | 未 |
-| 17 | `batch + out/_baseline`（`npm run batch:diff`） | 決定的出力の byte-diff | baseline と完全一致 | 未 |
+| 15 | `src/verify/svg.ts`（`pnpm run verify`） | 83サンプル全件: ラベル数・overlap・円内侵入・交差・はみ出し | ERROR ゼロ | 未 |
+| 16 | `src/verify/consistency.ts`（`pnpm run verify:consistency`） | 採点判断（scorer）↔ emit SVG の一致検証 | scorer↔emit が乖離なし | 未 |
+| 17 | `batch + out/_baseline`（`pnpm run batch:diff`） | 決定的出力の byte-diff | baseline と完全一致 | 未 |
 | 18 | `test/input_sproc_args.test.ts` | 基準日の正規化と実在検査・3 引数のそろい・`PIE_DB_PROC` の形・段階付きエラー型 | ストアド入力の引数が仕様どおり | 未 |
 | 19 | `test/input_saved_json.test.ts` | 保存 JSON の形・既定の保存先・`--data-file` での描き直しが byte 一致 | 取得結果の JSON が再利用できる | 未 |
 | 20 | `test/native_driver.test.ts` | 実行ごとのフォルダ・ドライバの書き出しと照合・古いフォルダの掃除・差し替え shim | ドライバの扱いが仕様どおり | 未 |

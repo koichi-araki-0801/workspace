@@ -9,8 +9,8 @@
 // で数えた値) と、emit された SVG から抽出した leader 点列を **同一述語** (pathsCross /
 // distPointToSegment, 本体から import) で数えた値を突き合わせる。leader crossings / 円内貫通(pie)
 // は selection が直接依存するメトリクスなので厳密一致をアサートする。clips は幅オラクル共有
-// (`oracle_sync.ts` の `assertOracleSync`) と npm run verify が emit SVG 上で担保するため情報出力のみ。
-//   実行: npm run verify:consistency
+// (`oracle_sync.ts` の `assertOracleSync`) と pnpm run verify が emit SVG 上で担保するため情報出力のみ。
+//   実行: pnpm run verify:consistency
 // =============================================================================
 
 import { resolveInputData, samples as jsSamples } from '../input/load.js';

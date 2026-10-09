@@ -11,12 +11,23 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
+// @ts-expect-error -- .mjs のビルド補助に型定義は無い
+import { installLayout } from '../scripts/install-layout.mjs';
 import { SEA_ASSET_KEYS } from '../src/runtime/seaRuntime.js';
 
 const require = createRequire(import.meta.url);
@@ -38,30 +49,12 @@ describe('exe 同梱物の固定値', () => {
     expect(sha).toBe(pins.hbSubsetWasmSha256);
   });
 
-  // 単独環境の exe ビルド(`build-exe.ps1`)は pnpm を使わず、コミット済みの package-lock.json で
-  // `npm ci` する。範囲指定や古い lock のままだと npm 側だけ別の版(subset-font 2.9 → harfbuzzjs 1.x
-  // は `hb-subset.wasm` を exports に出さない)を掴むので、宣言と lock の両方を pin に揃える。
+  // 依存は pnpm だけで入れる(pnpm-lock.yaml が正)。範囲指定のままだと lock を作り直したときに
+  // 新しい版(subset-font 2.9 → harfbuzzjs 1.x は `hb-subset.wasm` を exports に出さない)を掴むので、
+  // 宣言も pin の版に固定する。
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   it('package.json の subset-font は pin の版に完全固定されている', () => {
     expect(pkg.dependencies['subset-font']).toBe(pins.subsetFont);
-  });
-
-  // 開発機と CI は pnpm で入れるので、npm の lock が package.json から遅れても何も落ちない。
-  // `npm ci` は lock のルートに記録した宣言が package.json と食い違うと止まるので、同じ比較をここで行う。
-  it.each([
-    'dependencies',
-    'devDependencies',
-    'optionalDependencies',
-  ])('package-lock.json のルートの %s が package.json と一致する(npm ci が通る)', (field) => {
-    expect(lock.packages[''][field]).toEqual(pkg[field]);
-  });
-
-  it('package-lock.json の subset-font と harfbuzzjs が pin と同じ版を指す', () => {
-    expect(lock.packages['node_modules/subset-font'].version).toBe(pins.subsetFont);
-    expect(lock.packages['node_modules/harfbuzzjs'].version).toBe(
-      require(join(dirname(hbWasmPath), 'package.json')).version,
-    );
   });
 
   it('msnodesqlv8 の版が pin と一致する', () => {
@@ -160,7 +153,7 @@ describe('sidecar を復活させないこと', () => {
   it('ビルドが dist-exe へ fonts/ や node_modules/ を作らない', () => {
     // 配布物に sidecar が居ると、署名の外にある書き換え可能なファイルを実行時に読む経路が
     // 戻る。ビルドスクリプトに install / ディレクトリコピーを足させない。
-    expect(buildCode).not.toMatch(/npm install/);
+    expect(buildCode).not.toMatch(/\bnpm\s+install\b/);
     expect(buildCode).not.toMatch(/cpSync\s*\(/);
     expect(buildCode).not.toMatch(/execSync\s*\(/);
   });
@@ -173,16 +166,21 @@ describe('sidecar を復活させないこと', () => {
   });
 });
 
-describe('ビルド入口スクリプト(scripts/*.ps1 / *.bat)が lockfile 無視の install をしないこと', () => {
-  // README が「ダブルクリック入口」として案内する build-exe.bat → build-exe.ps1 は、
-  // コード署名鍵を持つ端末で走る。lockfile を消してから範囲指定のまま `npm` の install を
-  // すると、レジストリへ差し込まれた新版の lifecycle script がその端末で実行される
-  // (npm は pnpm の `allowBuilds` に相当する既定の抑止を持たない)。上の sidecar ガードは
-  // build-exe.mjs 本文しか読まないので、運用が実際に使う .ps1 経路が検査の外に残らないよう
-  // scripts/ 配下の全 .ps1 / .bat へ同じ禁止語を機械強制する(.bat は現状 .ps1 ランチャの
-  // 薄いラッパのみだが、直接 npm を書く変種が今後増えても同じ検査に自動で乗る)。
-  // 禁止語 denylist には限界がある(`npm i` のような変種は通る)。主防御はここではなく
-  // `verify-dist.ps1` の配布物閉包検査で、本検査はビルド端末側の入口を狭める補助。
+describe('依存を npm で入れる経路を持たないこと', () => {
+  // 依存は pnpm-lock.yaml どおりに pnpm で入れる。npm の lock や overrides、npm を呼ぶ入口が
+  // あると、pnpm の検査(開発機・CI)の外で別の版を掴む経路が残る(実際に別環境で subset-font 2.9 を
+  // 掴んで exe のビルドが止まった)。
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+
+  it('package-lock.json が無い', () => {
+    expect(existsSync(join(root, 'package-lock.json'))).toBe(false);
+  });
+
+  it('package.json に npm だけが読む overrides が無い', () => {
+    expect(pkg.overrides).toBeUndefined();
+    expect(pkg['//overrides']).toBeUndefined();
+  });
+
   const ps1Files = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.ps1'));
   const batFiles = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.bat'));
   // PowerShell のコメント(`<# ... #>` ブロックと行頭 `#`)を落として実コードだけを見る。
@@ -200,39 +198,55 @@ describe('ビルド入口スクリプト(scripts/*.ps1 / *.bat)が lockfile 無�
       .join('\n');
 
   it('走査対象の .ps1 / .bat が存在する(空なら検査自体が空振りしている)', () => {
-    expect(ps1Files.length).toBeGreaterThan(0);
     expect(ps1Files).toContain('build-exe.ps1');
-    expect(batFiles.length).toBeGreaterThan(0);
     expect(batFiles).toContain('build-exe.bat');
   });
 
-  const checkNoUnsafeInstall = (name: string, code: string): void => {
-    // `npm install` は「その時点のレジストリ最新で解決 + script 実行」の複合で、
-    // どちらの性質も署名端末では受け入れられない。
-    expect(code).not.toMatch(/npm\s+install\b/i);
-    // lockfile の削除(や再生成)は integrity 固定の無効化と等価。コミット済みを正とする。
-    expect(code).not.toMatch(/package-lock/i);
-    // npm ci を呼ぶなら lifecycle script の一律不実行までセットで。
-    for (const m of code.matchAll(/npm\s+ci\b[^\n]*/gi)) {
-      expect(m[0], `${name}: ${m[0]}`).toContain('--ignore-scripts');
-    }
-  };
-
   for (const name of ps1Files) {
-    it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
-      checkNoUnsafeInstall(
-        name,
-        stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8')),
-      );
+    it(`${name}: npm / npx を呼ばない`, () => {
+      const code = stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8'));
+      expect(code).not.toMatch(/\bnp[mx]\b/i);
     });
   }
 
   for (const name of batFiles) {
-    it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
-      checkNoUnsafeInstall(
-        name,
-        stripBatComments(readFileSync(join(root, 'scripts', name), 'utf8')),
-      );
+    it(`${name}: npm / npx を呼ばない`, () => {
+      const code = stripBatComments(readFileSync(join(root, 'scripts', name), 'utf8'));
+      expect(code).not.toMatch(/\bnp[mx]\b/i);
     });
   }
+
+  it('build-exe.ps1 は DB 機能を外さない(--no-db を固定で付けない)', () => {
+    const code = stripPsComments(readFileSync(join(root, 'scripts', 'build-exe.ps1'), 'utf8'));
+    expect(code).toMatch(/build-exe\.mjs/);
+    expect(code).not.toMatch(/--no-db/);
+  });
+});
+
+describe('npm で入れ直された node_modules を見分けること', () => {
+  // npm はリンクではなく実体のフォルダで入れる。pnpm は `node_modules/<名前>` をストアへのリンク
+  // (Windows ではジャンクション)にする。build-exe.mjs はこの差で npm の構成を見つけて止める。
+  const tmp = mkdtempSync(join(tmpdir(), 'pie-chart-layout-'));
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it('リンクなら pnpm、実体のフォルダなら npm、無ければ missing', () => {
+    const real = join(tmp, 'real');
+    mkdirSync(join(real, 'node_modules', 'subset-font'), { recursive: true });
+    expect(installLayout(real)).toBe('npm');
+
+    const linked = join(tmp, 'linked');
+    mkdirSync(join(linked, 'node_modules'), { recursive: true });
+    symlinkSync(
+      join(real, 'node_modules', 'subset-font'),
+      join(linked, 'node_modules', 'subset-font'),
+      'junction',
+    );
+    expect(installLayout(linked)).toBe('pnpm');
+
+    expect(installLayout(join(tmp, 'none'))).toBe('missing');
+  });
+
+  it('このリポジトリの pie-chart は pnpm の構成', () => {
+    expect(installLayout(root)).toBe('pnpm');
+  });
 });
