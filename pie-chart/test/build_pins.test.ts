@@ -49,12 +49,13 @@ describe('exe 同梱物の固定値', () => {
 
   // 開発機と CI は pnpm で入れるので、npm の lock が package.json から遅れても何も落ちない。
   // `npm ci` は lock のルートに記録した宣言が package.json と食い違うと止まるので、同じ比較をここで行う。
-  it.each(['dependencies', 'devDependencies', 'optionalDependencies'])(
-    'package-lock.json のルートの %s が package.json と一致する(npm ci が通る)',
-    (field) => {
-      expect(lock.packages[''][field]).toEqual(pkg[field]);
-    },
-  );
+  it.each([
+    'dependencies',
+    'devDependencies',
+    'optionalDependencies',
+  ])('package-lock.json のルートの %s が package.json と一致する(npm ci が通る)', (field) => {
+    expect(lock.packages[''][field]).toEqual(pkg[field]);
+  });
 
   it('package-lock.json の subset-font と harfbuzzjs が pin と同じ版を指す', () => {
     expect(lock.packages['node_modules/subset-font'].version).toBe(pins.subsetFont);
