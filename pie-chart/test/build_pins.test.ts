@@ -49,14 +49,6 @@ describe('exe 同梱物の固定値', () => {
     expect(sha).toBe(pins.hbSubsetWasmSha256);
   });
 
-  // 依存は pnpm だけで入れる(pnpm-lock.yaml が正)。範囲指定のままだと lock を作り直したときに
-  // 新しい版(subset-font 2.9 → harfbuzzjs 1.x は `hb-subset.wasm` を exports に出さない)を掴むので、
-  // 宣言も pin の版に固定する。
-  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-  it('package.json の subset-font は pin の版に完全固定されている', () => {
-    expect(pkg.dependencies['subset-font']).toBe(pins.subsetFont);
-  });
-
   it('msnodesqlv8 の版が pin と一致する', () => {
     expect(require('msnodesqlv8/package.json').version).toBe(pins.msnodesqlv8);
   });

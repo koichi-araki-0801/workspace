@@ -6,7 +6,10 @@ TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON 
 
 ## セットアップ
 
-依存はリポジトリ直下の `pnpm install`(遮断端末では `pnpm install --offline`)で入れる。Node は 24 系。
+依存はリポジトリ直下の `pnpm install` で入れる(遮断端末では `offline\setup-offline.bat` が入れる。
+入れ直すときも setup と同じ `corepack pnpm install --offline --frozen-lockfile --store-dir .pnpm-store` を使い、
+DB ドライバを置き直す。ストアを指定しない `pnpm install` は node_modules を消して既定のストアから
+入れ直そうとし、遮断端末では失敗する)。Node は 24 系。
 `pie-chart/` のフォルダで npm を実行しない(`node_modules` が npm の構成で入れ直され、
 `pnpm-lock.yaml` と別の版を掴む。`build:exe` はその状態を見つけると止まる)。
 

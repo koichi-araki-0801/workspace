@@ -159,8 +159,9 @@ function stripPeSignature(file) {
       (layout === 'npm'
         ? 'pie-chart\\node_modules was installed by npm, not pnpm. '
         : 'pie-chart\\node_modules is missing. ') +
-        'Delete pie-chart\\node_modules, then run `pnpm install --offline` at the repository root ' +
-        '(online: `pnpm install`). Do not run npm in the pie-chart folder.',
+        'Reinstall at the repository root with the same command as offline\\setup-offline: ' +
+        '`corepack pnpm install --offline --frozen-lockfile --store-dir .pnpm-store`, then place ' +
+        'the DB driver again (native-prebuilds). Do not run npm in the pie-chart folder.',
     );
   }
 }
