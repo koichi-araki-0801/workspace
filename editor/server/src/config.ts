@@ -83,6 +83,7 @@ const appConfigSchema = z
         script: z.string().optional(),
         scriptSha256: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
+        maxOutputFiles: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
@@ -416,7 +417,7 @@ export const config = {
 
   /**
    * テンプレート生成器(社内の共有フォルダなどにある既存ツール)。起動は
-   * `<bin> <args...> <script> <属性 JSON>`(`generate/pyTemplate.ts`)。
+   * `<bin> <args...> <script> <Rep1 会社コード> <ファンドコード> <基準日> […]`(`generate/pyTemplate.ts`)。
    */
   python: {
     ...resolvePythonCommand({
@@ -443,7 +444,7 @@ export const config = {
     timeoutMs: envPositiveNumber(
       'PY_TIMEOUT_MS',
       process.env.PY_TIMEOUT_MS,
-      file.python?.timeoutMs ?? 30000,
+      file.python?.timeoutMs ?? 300_000,
       { integer: true, max: 600_000 },
     ),
     /** 同時に起動する生成器の上限。 */
@@ -458,6 +459,13 @@ export const config = {
       integer: true,
       max: 256,
     }),
+    /** 1 回の生成で受け取る出力ファイルの本数の上限(作成画面のファンドの 2 版 + 組入先)。 */
+    maxOutputFiles: envPositiveNumber(
+      'GENERATE_MAX_OUTPUT_FILES',
+      process.env.GENERATE_MAX_OUTPUT_FILES,
+      file.python?.maxOutputFiles ?? 50,
+      { integer: true, max: 1000 },
+    ),
   },
 
   /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */

@@ -7,34 +7,55 @@
 // DB 接続の追加文字列を共有上のコードが読める。秘密値だけを削る拒否リストにしないのは、
 // 秘密値が増えたときに黙って漏れるため。
 //
-// 生成器はテンプレートを `PENDING_DIR/<会社_ファンド_版種>.html` に一時ファイル → 名前の変更で書き、
-// editor はこの呼び出しで書かれたことを確かめてから読む。標準出力の HTML は使わない(書きかけや
-// 前回の生成物を受け取らないため)。
+// 起動は位置引数 `<Rep1 会社コード> <ファンドコード> <基準日> [コピー元] [償還=1]` で、cwd は
+// スクリプトのあるフォルダ。生成器はスクリプトの 1 つ上の階層の `output/` へ
+// `<会社>_<ファンド>_<版種>.html` を書き、1 つ上の `log/` の実行ログへ書いたファイルを
+// `[OUTPUT] <名前>` の行で追記する。実行ログは実行をまたいで同じファイルへ足されるので、起動前の
+// 長さを控えて今回の追記分だけを読む。editor は標準出力を使わず、ログに載った名前を 1 つずつ
+// 検査し(この呼び出しで書かれた通常のファイルか・会社が合うか・空でないか)、通ったものだけを
+// 読む。ログに載っていないファイルや前回の生成物を、今回の出力と取り違えないため。
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readdir, readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   assertSkeletonFileName,
   assertTemplateAttributeToken,
+  parseSkeletonFileName,
+  type SkeletonAttributes,
   skeletonFileName,
 } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
+import { generatorLogPath, logSizeBefore, parseOutputNames, readRunLog } from './generatorLog.js';
+
+/** 生成器が 1 ファンドにつき書く版の順(作成画面のファンドの結果はこの順で返す)。 */
+export const GENERATED_EDITIONS = ['交付版', '全体版'] as const;
 
 /**
- * 生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値だけ。テンプレートは基準日を
- * 持たないので基準日は渡さない。
+ * 生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値だけ。版種は生成器が決めるので
+ * 持たない。
  */
 export interface GenerateAttributes {
+  /** 出力ファイル名の会社(略称)。生成物の会社の照合に使う。 */
   companyCode: string;
+  /** 生成器へ渡す Rep1 の委託会社コード(前後の空白は渡す前に除く)。 */
+  rep1CompanyCode: string;
   fundCode: string;
-  editionType: string;
-  /** シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)。 */
+  /** シリーズから作成するときのコピー元ファンドコード。 */
   sourceFundCode?: string;
   /** 償還ファンドとして作成するか。true のときだけ生成器へ渡す。 */
   isRedemption?: boolean;
+}
+
+/** 生成器が書いた 1 ファイル。 */
+export interface GeneratedFile {
+  fileName: string;
+  attributes: SkeletonAttributes;
+  html: string;
+  /** `output/` 内の実パス(取り込み後に `removeGeneratedFiles` で消す)。 */
+  path: string;
 }
 
 /**
@@ -118,7 +139,7 @@ const INHERITED_ENV_KEYS = ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP', 'PATHEXT', 'COM
 /**
  * 生成器(と起動時の版確認)の子プロセスへ渡す環境変数を組む。`TEMPLATES_DIR` はコピー元
  * (`sourceFundCode`)のテンプレートの読み先で、サーバの本当の置き場(`config.templatesDir`)を必ず渡す。
- * `PENDING_DIR` は生成器の書き先。サーバの本当の置き場(`config.pendingDir`)を渡す。
+ * 書き先は環境変数でなく、スクリプトの位置から決まる `output/` なので渡さない。
  */
 export function generatorEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -130,28 +151,45 @@ export function generatorEnv(): NodeJS.ProcessEnv {
   env.PYTHONUTF8 = '1';
   env.PYTHONIOENCODING = 'utf-8';
   env.TEMPLATES_DIR = config.templatesDir;
-  env.PENDING_DIR = config.pendingDir;
   return env;
 }
 
-/** 生成器へ渡す JSON を明示したキーだけで組む(呼び出し元のオブジェクトを素通ししない)。 */
-function toGeneratorPayload(attrs: GenerateAttributes): GenerateAttributes {
-  return {
-    companyCode: attrs.companyCode,
-    fundCode: attrs.fundCode,
-    editionType: attrs.editionType,
-    ...(attrs.sourceFundCode ? { sourceFundCode: attrs.sourceFundCode } : {}),
-    ...(attrs.isRedemption ? { isRedemption: true } : {}),
-  };
+/** 生成器の書き先。スクリプトの 1 つ上の階層の `output/`(生成器の約束で固定)。 */
+export function generatorOutputDir(): string {
+  return path.join(path.dirname(path.dirname(path.resolve(config.python.script))), 'output');
+}
+
+/**
+ * 生成器へ渡す位置引数(スクリプトより後ろ)。トークンはここで検査するので、呼び出し元とは
+ * 独立に区切り文字やパス要素を持ち込ませない。Rep1 コードは前後の空白を除いて渡す。
+ * コピー元が無く償還だけのときは、位置を保つため空文字を置く。
+ */
+export function generatorArgs(attrs: GenerateAttributes, baseDate: string): string[] {
+  const rep1 = assertTemplateAttributeToken('Rep1 委託会社コード', attrs.rep1CompanyCode.trim());
+  assertTemplateAttributeToken('会社コード', attrs.companyCode);
+  const fund = assertTemplateAttributeToken('ファンドコード', attrs.fundCode);
+  const date = assertTemplateAttributeToken('基準日', baseDate);
+  const source = attrs.sourceFundCode
+    ? assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode)
+    : undefined;
+  const args = [rep1, fund, date];
+  if (source !== undefined || attrs.isRedemption) args.push(source ?? '');
+  if (attrs.isRedemption) args.push('1');
+  return args;
+}
+
+interface OutputState {
+  mtimeMs: number;
+  ino: number;
+  isFile: boolean;
+  digest: string;
 }
 
 /**
  * 出力ファイルの状態(無ければ null)。シンボリックリンクは辿らない(`lstat`)。内容の指紋も持つのは、
  * 更新時刻の粒度が粗くファイル番号を返さない(`ino` が 0 の)ドライブでも書き直しを見分けるため。
  */
-async function outputState(
-  file: string,
-): Promise<{ mtimeMs: number; ino: number; isFile: boolean; digest: string } | null> {
+async function outputState(file: string): Promise<OutputState | null> {
   try {
     const s = await lstat(file);
     const digest = s.isFile()
@@ -165,17 +203,162 @@ async function outputState(
   }
 }
 
+/** `output/` の全 `.html` の起動前の状態。キーは小文字の名前(Windows は大文字小文字を区別しない)。 */
+async function snapshotOutputs(dir: string): Promise<Map<string, OutputState>> {
+  const states = new Map<string, OutputState>();
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return states;
+  }
+  for (const name of names) {
+    if (!name.toLowerCase().endsWith('.html')) continue;
+    const state = await outputState(path.join(dir, name));
+    if (state) states.set(name.toLowerCase(), state);
+  }
+  return states;
+}
+
+function rejected(message: string): Error {
+  return new Error(`Python生成器${message}`);
+}
+
 /**
- * 生成器を呼び出す。属性は JSON 引数で渡し、生成器は `PENDING_DIR/<会社_ファンド_版種>.html` を書く。
- * 読み先は検証済みの属性からここで組む(生成器に決めさせない)。終了コード 0 でも、そのファイルが
- * この呼び出しで書かれていなければ(呼び出し前からある古いファイルのまま・書かれていない・通常の
- * ファイルでない)失敗にする。前回の生成物を新しい出力と取り違えないため。
+ * ログに載った 1 件を検査して読む。名前がフォルダ区切りや `..` を含むと `output/` の外を読ませ
+ * られるので、まず名前だけで弾く。
  */
-export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
-  // `sourceFundCode` は生成器側でファイル名の照合に使われる。ルートでも検査するが、ここを別の
-  // 呼び出し元から使われても区切り文字を持ち込ませないよう、渡す前にもう一度検査する
-  // (Python 側にも区切り文字の検査がある)。会社・ファンド・版種も同じ理由でここで検査し、
-  // 読み先が pending/ の外へ出ないことを名前の検査(`assertSkeletonFileName`)でも保つ。
+async function readGeneratedFile(
+  dir: string,
+  name: string,
+  before: Map<string, OutputState>,
+  companyCode: string,
+): Promise<GeneratedFile> {
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+    throw rejected(`の出力名が不正です(フォルダ区切りや .. を含みます): ${name}`);
+  }
+  const attributes = parseSkeletonFileName(name);
+  if (!attributes) throw rejected(`の出力名が 会社_ファンド_版種.html の形ではありません: ${name}`);
+  if (attributes.companyCode.trimEnd().toLowerCase() !== companyCode.trimEnd().toLowerCase()) {
+    throw rejected(`の出力の会社が作成先と違います: ${name}`);
+  }
+  const file = path.join(dir, name);
+  const after = await outputState(file);
+  if (after && !after.isFile) throw rejected(`の出力が通常のファイルではありません: ${name}`);
+  const prev = before.get(name.toLowerCase());
+  const written =
+    after?.isFile === true &&
+    (prev === undefined ||
+      after.mtimeMs > prev.mtimeMs ||
+      after.ino !== prev.ino ||
+      after.digest !== prev.digest);
+  if (!written) throw rejected(`が ${name} を書き出していません`);
+  const html = await readFile(file, 'utf8');
+  if (!html.trim()) throw rejected(`が空の出力を返しました: ${name}`);
+  return { fileName: name, attributes, html, path: file };
+}
+
+/**
+ * 生成器を呼び出し、今回の実行ログに載ったファイルを検査して返す。作成画面のファンドの 2 版
+ * (交付版・全体版の順)が先頭で、組入先はファイル名順に続く。終了コード 0 でも、ログに載った
+ * ファイルがこの呼び出しで書かれていなければ失敗にする(前回の生成物を取り違えないため)。
+ */
+export function generateTemplates(
+  attrs: GenerateAttributes,
+  baseDate: string,
+): Promise<GeneratedFile[]> {
+  const args = generatorArgs(attrs, baseDate);
+  const [rep1, fund] = args;
+  const dir = generatorOutputDir();
+  const log = generatorLogPath(config.python.script, rep1, fund, baseDate);
+  // 指紋の照合は枠を取った後・起動の直前に行う(待ち行列にいる間の差し替えも拾う)。
+  return GENERATE_GATE.run(async () => {
+    await assertGeneratorFingerprint();
+    // 書かれたかの比較の基準は、起動の直前に取る(待ち行列の間に別の生成が書いた分を混ぜない)。
+    const before = await snapshotOutputs(dir);
+    const sizeBefore = await logSizeBefore(log);
+    await runGenerator(args);
+    const names = parseOutputNames(await readRunLog(log, sizeBefore));
+    if (names.length > config.python.maxOutputFiles) {
+      throw rejected(
+        `の出力が上限(${config.python.maxOutputFiles} 本)を超えています: ${names.length} 本`,
+      );
+    }
+    const files: GeneratedFile[] = [];
+    for (const name of names) {
+      files.push(await readGeneratedFile(dir, name, before, attrs.companyCode));
+    }
+    return orderGenerated(files, attrs.fundCode);
+  });
+}
+
+/** 作成画面のファンドの 2 版を先頭に、残り(組入先)をファイル名順に並べる。 */
+function orderGenerated(files: GeneratedFile[], fundCode: string): GeneratedFile[] {
+  const head: GeneratedFile[] = [];
+  for (const edition of GENERATED_EDITIONS) {
+    const hit = files.find(
+      (f) => f.attributes.fundCode === fundCode && f.attributes.editionType === edition,
+    );
+    if (!hit) throw rejected(`が ${fundCode} の ${edition} を書き出していません`);
+    head.push(hit);
+  }
+  const rest = files
+    .filter((f) => !head.includes(f))
+    .sort((a, b) => (a.fileName < b.fileName ? -1 : a.fileName > b.fileName ? 1 : 0));
+  return [...head, ...rest];
+}
+
+/** 取り込み済みの生成物を `output/` から消す。既に無いファイルは無視する。 */
+export async function removeGeneratedFiles(files: readonly GeneratedFile[]): Promise<void> {
+  for (const f of files) {
+    try {
+      await unlink(f.path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+  }
+}
+
+function runGenerator(args: string[], extraEnv: NodeJS.ProcessEnv = {}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      config.python.bin,
+      [...config.python.args, config.python.script, ...args],
+      {
+        cwd: path.dirname(config.python.script),
+        timeout: config.python.timeoutMs,
+        maxBuffer: 16 * 1024 * 1024,
+        encoding: 'utf8',
+        env: { ...generatorEnv(), ...extraEnv },
+      },
+      // 標準出力は使わない(出力は output/ のファイルと実行ログ)。失敗時の stderr だけを残す。
+      (err, _stdout, stderr) => {
+        if (err) {
+          reject(
+            new Error(`Python生成器の実行に失敗: ${err.message}${stderr ? `\n${stderr}` : ''}`),
+          );
+          return;
+        }
+        resolve();
+      },
+    );
+    child.on('error', reject);
+  });
+}
+
+// ── 旧契約(JSON 引数・PENDING_DIR)。生成ルートが新しい契約へ移るまでの橋渡し ──
+
+/** 旧契約で生成器へ渡す属性。 */
+export interface LegacyGenerateAttributes {
+  companyCode: string;
+  fundCode: string;
+  editionType: string;
+  sourceFundCode?: string;
+  isRedemption?: boolean;
+}
+
+/** 旧契約の呼び出し。書き先は `PENDING_DIR`。 */
+export function generateTemplate(attrs: LegacyGenerateAttributes): Promise<string> {
   if (attrs.sourceFundCode) {
     assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode);
   }
@@ -189,13 +372,17 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
       }),
     ),
   );
-  const payload = toGeneratorPayload(attrs);
-  // 指紋の照合は枠を取った後・起動の直前に行う(待ち行列にいる間の差し替えも拾う)。
+  const payload = {
+    companyCode: attrs.companyCode,
+    fundCode: attrs.fundCode,
+    editionType: attrs.editionType,
+    ...(attrs.sourceFundCode ? { sourceFundCode: attrs.sourceFundCode } : {}),
+    ...(attrs.isRedemption ? { isRedemption: true } : {}),
+  };
   return GENERATE_GATE.run(async () => {
     await assertGeneratorFingerprint();
-    // 書かれたかの比較の基準は、起動の直前に取る(待ち行列の間に別の生成が書いた分を混ぜない)。
     const before = await outputState(output);
-    await runGenerator(payload);
+    await runGenerator([JSON.stringify(payload)], { PENDING_DIR: config.pendingDir });
     const after = await outputState(output);
     const written =
       after?.isFile === true &&
@@ -209,31 +396,5 @@ export function generateTemplate(attrs: GenerateAttributes): Promise<string> {
     const html = await readFile(output, 'utf8');
     if (!html.trim()) throw new Error('Python生成器が空の出力を返しました');
     return html;
-  });
-}
-
-function runGenerator(payload: GenerateAttributes): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      config.python.bin,
-      [...config.python.args, config.python.script, JSON.stringify(payload)],
-      {
-        timeout: config.python.timeoutMs,
-        maxBuffer: 16 * 1024 * 1024,
-        encoding: 'utf8',
-        env: generatorEnv(),
-      },
-      // 標準出力は使わない(出力は PENDING_DIR のファイル)。失敗時の stderr だけを残す。
-      (err, _stdout, stderr) => {
-        if (err) {
-          reject(
-            new Error(`Python生成器の実行に失敗: ${err.message}${stderr ? `\n${stderr}` : ''}`),
-          );
-          return;
-        }
-        resolve();
-      },
-    );
-    child.on('error', reject);
   });
 }
