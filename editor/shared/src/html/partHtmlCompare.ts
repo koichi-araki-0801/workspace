@@ -133,12 +133,34 @@ interface OpenElement {
 }
 
 /**
+ * 読む入力の長さと、開いたままの要素の深さの上限。server は承認の排他の中で同期的に読むので、病的な
+ * 入力で止まる時間を抑える。どちらもパーツ 1 つとしては実運用で届かない大きさで、超えたら比べない
+ * (`null`。呼び出し側は一致しないものとして扱う)。
+ */
+const MAX_INPUT_CHARS = 10_000_000;
+const MAX_OPEN_ELEMENTS = 4096;
+
+/**
  * 比較用の正規形。2 つのパーツの正規形が一致すれば、GrapesJS で読み込んだときに同じ DOM になる。
  * 一致しないからといって DOM が違うとは限らない(寄せない書き方の違いは一致させない側に倒す)。
+ * 上限を超えた入力は `null`(比べられない)。`null` 同士も一致とは見なさないこと(`samePartHtml`)。
  */
-export function normalizePartHtml(html: string): string {
+export function normalizePartHtml(html: string): string | null {
+  if (html.length > MAX_INPUT_CHARS) return null;
   const out: string[] = [];
   const stack: OpenElement[] = [];
+  // 開いている要素の名前ごとの数。閉じる相手の無い終了タグを、スタックを辿らずに捨てるため
+  // (辿ると、閉じない開始タグと相手の無い終了タグの繰り返しで入力長の 2 乗になる)。
+  const openCount = new Map<string, number>();
+  const push = (e: OpenElement) => {
+    stack.push(e);
+    openCount.set(e.name, (openCount.get(e.name) ?? 0) + 1);
+  };
+  const pop = (): OpenElement | undefined => {
+    const e = stack.pop();
+    if (e) openCount.set(e.name, (openCount.get(e.name) ?? 1) - 1);
+    return e;
+  };
   const memo = newCommentEndMemo();
   let lower: string | null = null;
   let foreign = 0;
@@ -207,17 +229,17 @@ export function normalizePartHtml(html: string): string {
     if (endTag) {
       if (name === 'table' && stack[stack.length - 1]?.implicit) {
         out.push('</tbody>');
-        stack.pop();
+        pop();
       }
       if ((name === 'svg' || name === 'math') && foreign > 0) foreign--;
-      const at = stack.map((e) => e.name).lastIndexOf(name);
-      if (at >= 0) stack.length = at;
+      // 相手があるときだけ後ろから閉じる。pop の合計は push の合計を超えないので全体で線形。
+      if ((openCount.get(name) ?? 0) > 0) while (pop()?.name !== name);
       out.push(`</${name}>`);
       continue;
     }
     if (foreign === 0 && name === 'tr' && stack[stack.length - 1]?.name === 'table') {
       out.push('<tbody>');
-      stack.push({ name: 'tbody', implicit: true });
+      push({ name: 'tbody', implicit: true });
     }
     const kept = [...attrs]
       .filter(([a, v]) => !IGNORED_ATTRS.has(a) && !((a === 'class' || a === 'style') && v === ''))
@@ -240,8 +262,15 @@ export function normalizePartHtml(html: string): string {
       out.push(collapse(html.slice(i, end)));
       i = end;
     }
-    stack.push({ name, implicit: false });
+    push({ name, implicit: false });
+    if (stack.length > MAX_OPEN_ELEMENTS) return null;
   }
   flush();
   return out.join('').trim();
+}
+
+/** 2 つのパーツの HTML が比較用の正規形で一致するか。比べられない入力(上限超え)は一致しない。 */
+export function samePartHtml(a: string, b: string): boolean {
+  const na = normalizePartHtml(a);
+  return na !== null && na === normalizePartHtml(b);
 }

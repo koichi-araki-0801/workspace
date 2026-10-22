@@ -1,4 +1,4 @@
-import { normalizePartHtml, renderPlainFilled } from '@editor/shared';
+import { renderPlainFilled, samePartHtml } from '@editor/shared';
 import type { Component, Editor } from 'grapesjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_GEOM, geomToStyle } from '@/features/editor/geom';
@@ -369,7 +369,7 @@ describe('insertPart', () => {
   });
 
   // 承認後のペア同期(server の `jinjaPartRerender.ts`)は、承認された本文のパーツ(GrapesJS の書き出し)と
-  // カタログを写し元の値で描いた形(`renderPlainFilled`)を `normalizePartHtml` で比べて「直していない」
+  // カタログを写し元の値で描いた形(`renderPlainFilled`)を `samePartHtml` で比べて「直していない」
   // を決める。実物の GrapesJS の書き出しで、挿入しただけのパーツが一致することを固定する。
   it.each([
     [
@@ -392,9 +392,9 @@ describe('insertPart', () => {
     const start = saved.indexOf('<section');
     const part = saved.slice(start, saved.indexOf('</section>', start) + '</section>'.length);
     expect(part).toContain('data-part-id="NEW"');
-    expect(normalizePartHtml(part)).toBe(normalizePartHtml(html));
+    expect(samePartHtml(part, html)).toBe(true);
     // 中身を 1 文字でも変えれば一致しない(手直しを「直していない」と取り違えない)。
-    expect(normalizePartHtml(part.replace('a&lt;b', 'a&lt;c'))).not.toBe(normalizePartHtml(html));
+    expect(samePartHtml(part.replace('a&lt;b', 'a&lt;c'), html)).toBe(false);
   });
 
   it('描画器を通らずに生の HTML が来ても、canvas の入口で危険な属性・要素が落ちる', () => {

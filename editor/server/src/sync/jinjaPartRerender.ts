@@ -8,7 +8,7 @@
 //
 // 「直していない」の判定は、カタログの `内容HTML` を写し元の値で描いた形と、承認された本文の
 // パーツ(GrapesJS の直列化を通った形)が、DOM 上で同じになる形への正規化(shared の
-// `normalizePartHtml`)で一致すること。正規化が寄せるのは DOM と見た目が変わらない書き方の違いだけで、
+// `samePartHtml`)で一致すること。正規化が寄せるのは DOM と見た目が変わらない書き方の違いだけで、
 // テキストや属性値の中身が違えば必ず一致しない: 判定を誤って「直していない」に倒すと手直しを捨てて
 // 描き直すことになり、逆に「直した」に倒しても承認された HTML をそのまま写すだけ(警告を添える)で
 // 失うものが無いため。
@@ -19,10 +19,10 @@ import {
   isHtmlSpace,
   isTagNameEnd,
   JinjaBudget,
-  normalizePartHtml,
   readAttr,
   renderPlainFilled,
   type SampleData,
+  samePartHtml,
 } from '@editor/shared';
 import { collectExecutableUnits } from '../security/templateScripts.js';
 import { applyOps, extractSyncParts } from './partSync.js';
@@ -166,7 +166,7 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
       edited.push(part.key);
       continue;
     }
-    if (normalizePartHtml(asApproved.html) !== normalizePartHtml(part.html)) {
+    if (!samePartHtml(asApproved.html, part.html)) {
       edited.push(part.key);
       continue;
     }
@@ -177,7 +177,7 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
     }
     const current = targetParts.get(part.key);
     const next =
-      current !== undefined && normalizePartHtml(current) === normalizePartHtml(rendered.html)
+      current !== undefined && samePartHtml(current, rendered.html)
         ? current
         : withPartId(rendered.html.trim(), part.partId);
     const diagnostics = rendered.diagnostics;

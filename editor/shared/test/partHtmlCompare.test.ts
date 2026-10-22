@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePartHtml } from '../src/html/partHtmlCompare';
+import { normalizePartHtml, samePartHtml } from '../src/html/partHtmlCompare';
 
-const same = (a: string, b: string) => expect(normalizePartHtml(a)).toBe(normalizePartHtml(b));
+const same = (a: string, b: string) => expect(samePartHtml(a, b)).toBe(true);
 const differ = (a: string, b: string) =>
   expect(normalizePartHtml(a)).not.toBe(normalizePartHtml(b));
 
@@ -110,5 +110,30 @@ describe('normalizePartHtml — DOM 上で同じになる書き方を寄せる',
     );
     same('<p style="background:url(data:a;b)">x</p>', '<p style="background:url(data:a;b);">x</p>');
     same('<p style="color:red;;bogus">x</p>', '<p style="color:red;bogus;">x</p>');
+  });
+
+  describe('病的な入力でも線形の時間で終わり、比べられないものは一致させない', () => {
+    it('閉じない開始タグ 5 万個 + 相手の無い終了タグ 5 万個', () => {
+      const t0 = performance.now();
+      const deep = '<span>'.repeat(50_000) + '</nope>'.repeat(50_000);
+      expect(normalizePartHtml(deep)).toBeNull();
+      expect(samePartHtml(deep, deep)).toBe(false);
+      expect(performance.now() - t0).toBeLessThan(1000);
+    });
+
+    it('開いた要素が上限の内なら、相手の無い終了タグを何個読んでも結果は変わらず線形', () => {
+      const open = '<b>'.repeat(4000);
+      const html = open + '</x>'.repeat(50_000);
+      const t0 = performance.now();
+      const out = normalizePartHtml(html);
+      expect(performance.now() - t0).toBeLessThan(1000);
+      expect(out?.startsWith('<b><b>')).toBe(true);
+    });
+
+    it('長さの上限を超えた入力は比べない', () => {
+      const big = `<p>${'a'.repeat(10_000_001)}</p>`;
+      expect(normalizePartHtml(big)).toBeNull();
+      expect(samePartHtml(big, big)).toBe(false);
+    });
   });
 });
