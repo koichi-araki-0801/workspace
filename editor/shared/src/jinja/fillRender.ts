@@ -7,9 +7,9 @@
 // 解釈できない式・値の無い式を両方の描画で同じように数える。ファイルを分けるのは、`fillJinja.ts` が
 // 往復用の描画と公開関数を抱えて大きくなりすぎないため。
 
-import type { SampleData } from '@editor/shared';
-import { evaluateJinjaExpr, type JinjaCtx, stringifyJinjaValue } from './jinjaExpr';
-import { type JinjaNode, parseJinja } from './jinjaLex';
+import type { SampleData } from '../index.js';
+import { evaluateJinjaExpr, type JinjaCtx, stringifyJinjaValue } from './jinjaExpr.js';
+import { type JinjaNode, parseJinja } from './jinjaTree.js';
 
 // ── 1. 式の評価 ──
 

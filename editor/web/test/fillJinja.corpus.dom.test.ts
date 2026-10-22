@@ -1,11 +1,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseTemplateFileName } from '@editor/shared';
+import { lexJinja, parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { useGrapes } from '@/features/editor/useGrapes';
 import { toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { defaultHtmlParser, type HtmlParser } from '../src/lib/htmlParser';
-import { lexJinja } from '../src/lib/jinjaLex';
 import { normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
 import { linkedomParser } from '../src/workers/htmlWorkerImpl';

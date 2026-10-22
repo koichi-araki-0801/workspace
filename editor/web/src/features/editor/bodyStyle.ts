@@ -20,11 +20,11 @@
 // (`renderJinjaStyleCss`)。保存はチップの原文のままで、描画した規則はどこにも保存されない。
 
 import type { SampleData } from '@editor/shared';
+import { renderPlainFilled } from '@editor/shared';
 import type { Component, CustomParserHtml, Editor } from 'grapesjs';
 // 置き場の要素の目印 `BODY_STYLE_VIEW_ATTR` は、パーツとページの数え方(`@/lib/pageBreaks` の
 // `pageItems`)も読むので lib に置く。
 import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
-import { renderPlainFilled } from '@/lib/fillRender';
 import { b64decodeSafe, DATA_OPAQUE } from '@/lib/jinjaAttrs';
 
 /** 本文の `<style>` の部品の型。 */

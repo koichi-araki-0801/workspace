@@ -897,7 +897,7 @@ export function buildCspDirectives(
     // **アプリオリジンに eval 系の実行手段を残さない**(`'unsafe-eval'` を載せない)。
     // Jinja のコンパイルは opaque オリジンのレンダーホスト(`render/renderHost.ts`)の中
     // だけで行い、そこは別 CSP を持つ。`lib/fillJinja.ts` の `toFilled`(作成タブの値差込。
-    // Worker も同一オリジンでこの CSP を継承する)は `lib/jinjaExpr.ts` の許可リスト評価器で
+    // Worker も同一オリジンでこの CSP を継承する)は `shared/src/jinja/jinjaExpr.ts` の許可リスト評価器で
     // 実装し、`nunjucks.compile`(= `new Function`)への依存を持たない。
     //
     // ⚠ 戻さないこと。`fillJinja` へフィルタ等を足したくなっても `new Function` を呼ぶ

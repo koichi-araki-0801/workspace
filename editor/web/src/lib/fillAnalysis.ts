@@ -8,7 +8,14 @@
 // 判定は字句解析(`jinjaLex.ts`)と HTML 走査(`htmlScan.ts`)の結果だけで行い、原文を書き換えた
 // 文字列の上では位置を数えない。描画は呼び出し側(`fillJinja.ts`)が受け持つ。
 
-import { isHtmlSpace } from '@editor/shared';
+import {
+  isHtmlSpace,
+  type JinjaBranch,
+  type JinjaNode,
+  type JinjaToken,
+  type ParseResult,
+  parseJinja,
+} from '@editor/shared';
 import {
   type HtmlScan,
   maskJinja,
@@ -16,13 +23,6 @@ import {
   scanHtml,
   scanMaskedHtml,
 } from './htmlScan';
-import {
-  type JinjaBranch,
-  type JinjaNode,
-  type JinjaToken,
-  type ParseResult,
-  parseJinja,
-} from './jinjaLex';
 
 // ── 1. 型 ──
 

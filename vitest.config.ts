@@ -55,6 +55,12 @@ export default defineConfig({
         // 事後検査が共用するので、見落としは確定テンプレートへの印の焼き付きとして無言で出る。
         'editor/shared/src/security/editingMarkers.ts',
         'editor/shared/src/jinja/jinjaLex.ts',
+        // 値差込の許可リスト評価器・ブロック木・印なし描画。web と server が共用する。全域 CSP から
+        // `'unsafe-eval'` を落とせているのは評価器が `new Function` を使わないからで、退行は
+        // 「値が空になるだけ」という無言の形で出るため、被覆を切らさない。
+        'editor/shared/src/jinja/jinjaExpr.ts',
+        'editor/shared/src/jinja/jinjaTree.ts',
+        'editor/shared/src/jinja/fillRender.ts',
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/rawText.ts',
         'editor/shared/src/css/cssRules.ts',
@@ -138,17 +144,11 @@ export default defineConfig({
         'editor/web/src/workers/fallback.ts',
         'editor/web/src/workers/htmlApi.ts',
         'editor/web/src/lib/jinjaMask.ts',
-        // 値差込の許可リスト評価器と、その唯一の利用者。全域 CSP から `'unsafe-eval'` を
-        // 落とせているのはこの 2 つが `new Function` を使わないからで、退行は「値が空に
-        // なるだけ」という無言の形で出るため、被覆を切らさない。
-        'editor/web/src/lib/jinjaExpr.ts',
+        // 値差込の許可リスト評価器の web 側の利用者(評価器本体は shared)。
         'editor/web/src/lib/fillJinja.ts',
-        // 作成タブの往復の判断の土台(字句解析のブロック木・HTML 構造の走査・固める要素の決定・
-        // 表示用の描画)。
-        'editor/web/src/lib/jinjaLex.ts',
+        // 作成タブの往復の判断の土台(HTML 構造の走査・固める要素の決定)。
         'editor/web/src/lib/htmlScan.ts',
         'editor/web/src/lib/fillAnalysis.ts',
-        'editor/web/src/lib/fillRender.ts',
         'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/newId.ts',
         'editor/web/src/lib/dom.ts',

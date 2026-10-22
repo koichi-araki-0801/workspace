@@ -1,4 +1,3 @@
-import { findEditingMarkers } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   escapeHtmlFull,
@@ -8,8 +7,9 @@ import {
   renderDisplay,
   renderPlainFilled,
   takenBranchIndex,
-} from '../src/lib/fillRender';
-import { parseJinja } from '../src/lib/jinjaLex';
+} from '../src/jinja/fillRender';
+import { parseJinja } from '../src/jinja/jinjaTree';
+import { findEditingMarkers } from '../src/security/editingMarkers';
 
 const show = (src: string, ctx: Record<string, unknown>, f = new Filler()) => {
   const r = parseJinja(src);

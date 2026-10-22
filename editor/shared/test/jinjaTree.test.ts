@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countJinjaBlockOpens, type JinjaNode, parseJinja } from '../src/lib/jinjaLex';
+import { countJinjaBlockOpens, type JinjaNode, parseJinja } from '../src/jinja/jinjaTree';
 
 /** 木を短い文字列にして比べる。 */
 function shape(src: string, nodes: JinjaNode[]): string {

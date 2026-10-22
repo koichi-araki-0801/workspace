@@ -10,7 +10,16 @@
 //   serialization-safe な placeholder として出力し, 最後の文字列パスで decode する。
 //   これにより式中の `<`, `>`, `&` 等が serializer に HTML エスケープされない。
 
-import { findEditingMarkers, MARKER_ATTRS } from '@editor/shared';
+import {
+  findEditingMarkers,
+  isBlockTagKeyword,
+  type JinjaBranch,
+  type JinjaNode,
+  type JinjaToken,
+  lexJinja,
+  MARKER_ATTRS,
+  parseJinja,
+} from '@editor/shared';
 import { MATH_TEX_RE, OPAQUE_MATH_RE, OPAQUE_SCRIPT_RE } from './fillAnalysis';
 import { formatHtml } from './formatOutput';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
@@ -26,14 +35,6 @@ import {
   parseRtCommentData,
   type RtMarker,
 } from './jinjaAttrs';
-import {
-  isBlockTagKeyword,
-  type JinjaBranch,
-  type JinjaNode,
-  type JinjaToken,
-  lexJinja,
-  parseJinja,
-} from './jinjaLex';
 
 // Private-use 区切り文字: HTML serialization をエスケープされずに通過する。
 const PH_START = MARKER_ATTRS.placeholderStart;

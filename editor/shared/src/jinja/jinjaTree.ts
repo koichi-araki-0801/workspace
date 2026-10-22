@@ -1,20 +1,15 @@
 // =============================================================================
-// jinjaLex.ts — Jinja2 テンプレートの字句解析
+// jinjaTree.ts — Jinja2 テンプレートのブロック木
 // =============================================================================
-// 作成タブの往復(`fillJinja.ts` の `toFilled` ⇄ `jinjaMask.ts` の `toTemplate`)が、原文の
-// 位置で判断するための土台。正規表現の最短一致では入れ子・elif・空白制御を数えられないため、
-// 区切りを 1 文字ずつ読み、原文上の位置つきでトークンに切り出す。nunjucks の parser は使わない
-// (式の構文木は要らず、要るのは原文上の位置と開閉の対応だけ。parser はコンパイラの一部で、
-// アプリオリジンでのコンパイル経路を増やしたくない)。
+// 作成タブの往復(web の `fillJinja.ts` の `toFilled` ⇄ `jinjaMask.ts` の `toTemplate`)と、
+// 印なしの値入り描画(`fillRender.ts`)が、原文の位置で判断するための土台。web と server が同じ
+// 木で読むよう shared に置く。nunjucks の parser は使わない(式の構文木は要らず、要るのは
+// 原文上の位置と開閉の対応だけ。parser はコンパイラの一部で、コンパイル経路を増やしたくない)。
+// 字句解析は `jinjaLex.ts`。
 
-// ── 1. 字句解析 ──
-// 字句解析は申請の関所(印の検出)と共有するため shared に置く。ここでは再輸出だけする。
+import { type JinjaToken, lexJinja } from './jinjaLex.js';
 
-import { type JinjaToken, lexJinja } from '@editor/shared';
-
-export { type JinjaToken, lexJinja } from '@editor/shared';
-
-// ── 2. ブロック木 ──
+// ── 1. ブロック木 ──
 // 開閉の対応はスタックで取る。対応が取れない入力は推測で補わずエラーにする(往復の可否は
 // 呼び出し側がこの結果で決める)。位置はすべて原文上のもの。
 

@@ -21,12 +21,12 @@ import {
   applyTemplateAttributes,
   buildSampleData,
   parseTemplateFileName,
+  renderPlainFilled,
   type SampleData,
   type SampleTemplateAttributes,
   sampleCommon,
 } from '@editor/shared';
 import fundMaster from '../src/api/fixtures/funds.json';
-import { renderPlainFilled } from '../src/lib/fillRender';
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const templatesDir = resolve(web, 'src/api/fixtures/templates');

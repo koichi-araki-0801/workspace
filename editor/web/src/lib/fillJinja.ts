@@ -23,13 +23,23 @@
 //   が呼び出し側へ返す — 「例外を catch して黙って空文字」の形を残さない。
 import type { SampleData } from '@editor/shared';
 import {
+  Filler,
+  type JinjaCtx,
+  type JinjaNode,
+  type JinjaToken,
+  loopCtx,
+  parseForHeader,
+  parseJinja,
+  renderDisplay,
+  takenBranchIndex,
+} from '@editor/shared';
+import {
   analyzeFill,
   type FillAnalysis,
   type FreezeReason,
   type FrozenRegion,
   type OpaqueRegion,
 } from './fillAnalysis';
-import { Filler, loopCtx, parseForHeader, renderDisplay, takenBranchIndex } from './fillRender';
 import { defaultHtmlParser, type HtmlParser } from './htmlParser';
 import {
   b64encodeUtf8,
@@ -41,8 +51,6 @@ import {
   JINJA_CHIP_CLASS,
   rtComment,
 } from './jinjaAttrs';
-import type { JinjaCtx } from './jinjaExpr';
-import { type JinjaNode, type JinjaToken, parseJinja } from './jinjaLex';
 import { htmlEscape, normalizeForRoundTrip, toTemplate } from './jinjaMask';
 import { getBodyInner } from './templateDoc';
 

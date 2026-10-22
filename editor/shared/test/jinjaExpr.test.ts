@@ -9,7 +9,7 @@
 // 併せて、nunjucks と**意図的に異なる**点(own property のみを引く = prototype 経由の
 // `constructor` へ届かない)もここで固定する。緩めた瞬間に落ちる。
 import { describe, expect, it } from 'vitest';
-import { evaluateJinjaExpr, JinjaExprError, stringifyJinjaValue } from '../src/lib/jinjaExpr';
+import { evaluateJinjaExpr, JinjaExprError, stringifyJinjaValue } from '../src/jinja/jinjaExpr';
 
 const ctx = {
   fund: { name: '日本株式オープン', nav: '12,345', navChange: 58 },

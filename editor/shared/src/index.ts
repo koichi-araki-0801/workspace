@@ -274,7 +274,10 @@ export * from './errors.js';
 export * from './html/htmlLex.js';
 export * from './html/rawText.js';
 // Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
+export * from './jinja/fillRender.js';
+export * from './jinja/jinjaExpr.js';
 export * from './jinja/jinjaLex.js';
+export * from './jinja/jinjaTree.js';
 // プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。
 export * from './preview/hostProtocol.js';
 // Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。

@@ -5,6 +5,7 @@ import {
   apiPaths,
   applyTemplateAttributes,
   conflict,
+  countJinjaBlockOpens,
   err,
   type HistoryRepository,
   isErr,
@@ -20,7 +21,6 @@ import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { logError } from '@/lib/appError';
 import { type DraftOwner, draftOwner } from '@/lib/draftOwner';
 import { formatCss } from '@/lib/formatOutput';
-import { countJinjaBlockOpens } from '@/lib/jinjaLex';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_ERROR_MSG, postBuild, renderPdfDocument } from '@/lib/pdfDocument';
 import { renderJinjaIsolated } from '@/lib/renderHostClient';
