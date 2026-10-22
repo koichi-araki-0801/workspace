@@ -99,9 +99,24 @@ describe('normalizePartHtml — DOM 上で同じになる書き方を寄せる',
 
   it('壊れた数値参照(0・サロゲート・範囲外)は解かない', () => {
     differ('<p>&#0;</p>', '<p>\u0000</p>');
-    expect(normalizePartHtml('<p>&#xD800;&#1114112;</p>')).toBe(
-      '<p>&amp;#xD800;&amp;#1114112;</p>',
-    );
+    expect(normalizePartHtml('<p>&#xD800;&#1114112;</p>')).toBeNull();
+  });
+
+  // 解かない参照を残したまま `&` をエスケープすると、文字どおりの `&amp;…` と同じ形になる。
+  it.each([
+    ['知らない名前', '<p>&copy;</p>', '<p>&amp;copy;</p>'],
+    ['セミコロンの無い参照', '<p>&lt</p>', '<p>&amp;lt</p>'],
+    ['0 の数値参照', '<p>&#0;</p>', '<p>&amp;#0;</p>'],
+    ['属性値の中', '<p title="&copy;">x</p>', '<p title="&amp;copy;">x</p>'],
+  ])('解かない参照(%s)は文字どおりの書き方と一致しない', (_, a, b) => {
+    differ(a, b);
+    expect(normalizePartHtml(a)).toBeNull();
+    expect(normalizePartHtml(b)).not.toBeNull();
+  });
+
+  it('参照として読まれない `&` は比べられる', () => {
+    same('<p>a & b</p>', '<p>a &amp; b</p>');
+    same('<p>&amp;lt</p>', '<p>&amp;lt</p>');
   });
 
   it('引用符・コメントを含む style は区切らずに空白だけ寄せる', () => {

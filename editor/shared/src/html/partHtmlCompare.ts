@@ -59,17 +59,30 @@ const NAMED: Record<string, string> = {
   nbsp: '\u00a0',
 };
 
-/** 2 つの書き方の間を行き来する実体参照だけを解く。解けない参照は原文のまま残す。 */
-function decode(s: string): string {
+function decodeRef(body: string): string | null {
+  if (body[0] !== '#') return NAMED[body] ?? null;
+  const hex = body[1] === 'x' || body[1] === 'X';
+  const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
+  // 0・サロゲート・範囲外はブラウザが別の文字へ置き換えるので解かない。
+  if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return null;
+  return String.fromCodePoint(code);
+}
+
+/** 解いた後に残る `&` が実体参照として読まれうる形(`&copy;` `&lt` `&#0;` など)。 */
+const UNRESOLVED_REF_RE = /&[A-Za-z#]/;
+
+/**
+ * 2 つの書き方の間を行き来する実体参照だけを解く。解かない参照が残る値は `null`(比べられない)。
+ * 残したまま `&` をエスケープすると、`&copy;`(©)と文字どおりの `&amp;copy;` が同じ形になり、
+ * 手直しを「直していない」と取り違える。
+ */
+function decode(s: string): string | null {
   if (!s.includes('&')) return s;
-  return s.replace(ENTITY_RE, (whole, body: string) => {
-    if (body[0] !== '#') return NAMED[body] ?? whole;
-    const hex = body[1] === 'x' || body[1] === 'X';
-    const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
-    // 0・サロゲート・範囲外はブラウザが別の文字へ置き換えるので、解かずに残す(一致させない側)。
-    if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return whole;
-    return String.fromCodePoint(code);
-  });
+  const rest = s.replace(ENTITY_RE, (whole, body: string) =>
+    decodeRef(body) === null ? whole : '',
+  );
+  if (UNRESOLVED_REF_RE.test(rest)) return null;
+  return s.replace(ENTITY_RE, (_whole, body: string) => decodeRef(body) as string);
 }
 
 /** HTML の空白(NBSP は含めない)の連なりを 1 つにする。 */
@@ -109,8 +122,9 @@ function normalizeStyle(v: string): string {
   return out;
 }
 
-function normalizeAttrValue(name: string, raw: string | null): string {
+function normalizeAttrValue(name: string, raw: string | null): string | null {
   const v = decode(raw ?? '');
+  if (v === null) return null;
   if (name === 'class')
     return v
       .split(/[\t\n\f\r ]+/)
@@ -121,8 +135,10 @@ function normalizeAttrValue(name: string, raw: string | null): string {
 }
 
 /** テキストを寄せる。空白だけのテキスト(タグの間の改行・字下げ)は消す。 */
-function normalizeText(s: string): string {
-  const t = collapse(decode(s));
+function normalizeText(s: string): string | null {
+  const d = decode(s);
+  if (d === null) return null;
+  const t = collapse(d);
   return t === ' ' ? '' : escText(t);
 }
 
@@ -143,7 +159,7 @@ const MAX_OPEN_ELEMENTS = 4096;
 /**
  * 比較用の正規形。2 つのパーツの正規形が一致すれば、GrapesJS で読み込んだときに同じ DOM になる。
  * 一致しないからといって DOM が違うとは限らない(寄せない書き方の違いは一致させない側に倒す)。
- * 上限を超えた入力は `null`(比べられない)。`null` 同士も一致とは見なさないこと(`samePartHtml`)。
+ * 上限を超えた入力と、解かない実体参照を含む入力は `null`(比べられない)。`null` 同士も一致とは見なさないこと(`samePartHtml`)。
  */
 export function normalizePartHtml(html: string): string | null {
   if (html.length > MAX_INPUT_CHARS) return null;
@@ -165,9 +181,15 @@ export function normalizePartHtml(html: string): string | null {
   let lower: string | null = null;
   let foreign = 0;
   let text = '';
+  // 解かない実体参照に出会った(比べられない)。
+  let unresolved = false;
   const n = html.length;
   const flush = () => {
-    if (text !== '') out.push(normalizeText(text));
+    if (text !== '') {
+      const t = normalizeText(text);
+      if (t === null) unresolved = true;
+      else out.push(t);
+    }
     text = '';
   };
   let i = 0;
@@ -222,7 +244,11 @@ export function normalizePartHtml(html: string): string | null {
       }
       const a = readAttr(html, k, n);
       // 同じ名前の 2 つ目以降はブラウザが捨てる。
-      if (!attrs.has(a.name)) attrs.set(a.name, normalizeAttrValue(a.name, a.value));
+      if (!attrs.has(a.name)) {
+        const v = normalizeAttrValue(a.name, a.value);
+        if (v === null) return null;
+        attrs.set(a.name, v);
+      }
       k = a.next;
     }
     i = Math.min(n, k + 1);
@@ -263,10 +289,10 @@ export function normalizePartHtml(html: string): string | null {
       i = end;
     }
     push({ name, implicit: false });
-    if (stack.length > MAX_OPEN_ELEMENTS) return null;
+    if (unresolved || stack.length > MAX_OPEN_ELEMENTS) return null;
   }
   flush();
-  return out.join('').trim();
+  return unresolved ? null : out.join('').trim();
 }
 
 /** 2 つのパーツの HTML が比較用の正規形で一致するか。比べられない入力(上限超え)は一致しない。 */
