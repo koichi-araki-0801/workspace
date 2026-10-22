@@ -1,7 +1,22 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// open だけを差し替えられるようにする(未設定なら本物)。開けない理由と読み取りの失敗を、
+// OS に依らず決まった形で起こすため。
+const openOverride = vi.hoisted(() => ({
+  fn: undefined as undefined | ((...a: unknown[]) => Promise<unknown>),
+}));
+vi.mock('node:fs/promises', async (orig) => {
+  const real = await orig<typeof import('node:fs/promises')>();
+  return {
+    ...real,
+    open: (...a: Parameters<typeof real.open>) =>
+      openOverride.fn ? openOverride.fn(...a) : real.open(...a),
+  };
+});
+
 import {
   generatorLogPath,
   logSizeBefore,
@@ -78,11 +93,65 @@ describe('readRunLog', () => {
   it('終了後にログが無ければ失敗', async () => {
     await expect(readRunLog(newLog(), 0)).rejects.toThrow(/実行ログ.*run\d+\.log/);
   });
-  it('ENOENT 以外の開けない理由は見つかりませんと言わない', async () => {
-    const err = await readRunLog(dir, 0).catch((e: Error) => e);
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toContain('実行ログ');
-    expect((err as Error).message).not.toContain('見つかりません');
+  it('ENOENT 以外の開けない理由は見つかりませんと言わず、元の文言を含める', async () => {
+    openOverride.fn = () =>
+      Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }));
+    try {
+      const err = await readRunLog('/x/denied.log', 0).catch((e: Error) => e);
+      const msg = (err as Error).message;
+      expect(msg).toContain('実行ログ');
+      expect(msg).toContain('denied.log');
+      expect(msg).toContain('EACCES');
+      expect(msg).not.toContain('見つかりません');
+    } finally {
+      openOverride.fn = undefined;
+    }
+  });
+  it('読めたバイト数が足りなければ失敗', async () => {
+    const f = newLog();
+    fs.writeFileSync(f, 'abcdef');
+    openOverride.fn = async (...a) => {
+      const real = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
+      const h = await real.open(...(a as Parameters<typeof real.open>));
+      return new Proxy(h, {
+        get: (t, k) =>
+          k === 'read'
+            ? async () => ({ bytesRead: 1, buffer: Buffer.alloc(0) })
+            : (Reflect.get(t, k).bind?.(t) ?? Reflect.get(t, k)),
+      });
+    };
+    try {
+      await expect(readRunLog(f, 0)).rejects.toThrow(/実行ログ.*run\d+\.log/);
+    } finally {
+      openOverride.fn = undefined;
+    }
+  });
+  it('ハンドルの読み取りが投げても実行ログの失敗として返す', async () => {
+    const f = newLog();
+    fs.writeFileSync(f, 'abc');
+    openOverride.fn = async () => ({
+      stat: async () => ({ size: 3 }),
+      read: () => Promise.reject(new Error('EISDIR: illegal operation')),
+      close: async () => {},
+    });
+    try {
+      await expect(readRunLog(f, 0)).rejects.toThrow(/実行ログ.*EISDIR/);
+    } finally {
+      openOverride.fn = undefined;
+    }
+  });
+  it('ハンドルの stat が投げても実行ログの失敗として返す', async () => {
+    const f = newLog();
+    openOverride.fn = async () => ({
+      stat: () => Promise.reject(new Error('EIO: boom')),
+      read: async () => ({ bytesRead: 0 }),
+      close: async () => {},
+    });
+    try {
+      await expect(readRunLog(f, 0)).rejects.toThrow(/実行ログ.*EIO/);
+    } finally {
+      openOverride.fn = undefined;
+    }
   });
   it('増えていなければ失敗', async () => {
     const f = newLog();

@@ -64,13 +64,17 @@ export async function readRunLog(
     throw logError(file, `を開けませんでした: ${(e as Error).message}`);
   }
   try {
-    const { size } = await handle.stat();
+    const { size } = await handle.stat().catch((e: Error) => {
+      throw logError(file, `を確かめられませんでした: ${e.message}`);
+    });
     const start = size < sizeBefore ? 0 : sizeBefore;
     const length = size - start;
     if (length <= 0) throw logError(file, 'に今回の追記がありません');
     if (length > maxBytes) throw logError(file, `の追記分が上限(${maxBytes} バイト)を超えています`);
     const buf = Buffer.alloc(length);
-    const { bytesRead } = await handle.read(buf, 0, length, start);
+    const { bytesRead } = await handle.read(buf, 0, length, start).catch((e: Error) => {
+      throw logError(file, `を読めませんでした: ${e.message}`);
+    });
     if (bytesRead !== length) throw logError(file, 'を最後まで読めませんでした');
     let text: string;
     try {
