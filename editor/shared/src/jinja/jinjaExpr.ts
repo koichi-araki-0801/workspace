@@ -246,12 +246,22 @@ export class JinjaBudget {
 
 /**
  * 2 つの値の比較の費用を数える。文字列同士は短いほうの長さぶんの仕事になる(長い文字列を 1 度作れば、
- * 比べるたびにその長さを読ませられる)。
+ * 比べるたびにその長さを読ませられる)。片方だけが文字列なら、数への変換でその長さを読む。
  */
 function chargeCompare(a: unknown, b: unknown): void {
-  chargeActive(
-    typeof a === 'string' && typeof b === 'string' ? 1 + Math.min(a.length, b.length) : 1,
-  );
+  if (typeof a === 'string' && typeof b === 'string') {
+    chargeActive(1 + Math.min(a.length, b.length));
+  } else chargeActive(1 + textLength(a) + textLength(b));
+}
+
+/** 文字列なら長さ、そうでなければ 0(数への暗黙の変換で読む長さ)。 */
+const textLength = (v: unknown): number => (typeof v === 'string' ? v.length : 0);
+
+/** 算術の前に値を数として読める形へ直す。文字列の数への変換は長さぶんの仕事として数える。 */
+function toArithmetic(v: unknown): number {
+  const p = toPrimitive(v);
+  chargeActive(1 + textLength(p));
+  return p as number;
 }
 
 /**
@@ -354,6 +364,7 @@ function attrGetter(attribute: unknown): (item: unknown) => unknown {
 
 /** groupby の並べ替えの比較。Python の `sorted` と同じく、型の混ざった並びは比べない。 */
 function compareKeys(a: unknown, b: unknown): number {
+  chargeCompare(a, b);
   const num = (v: unknown) => typeof v === 'number' || typeof v === 'boolean';
   if (num(a) && num(b)) return Number(a) - Number(b);
   if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
@@ -496,7 +507,11 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
         const k = get(item);
         return k === undefined ? d : k;
       };
-      const norm = (k: unknown) => (!caseSensitive && typeof k === 'string' ? k.toLowerCase() : k);
+      const norm = (k: unknown) => {
+        if (caseSensitive || typeof k !== 'string') return k;
+        chargeActive(1 + k.length);
+        return k.toLowerCase();
+      };
       const sorted = toSeq(v)
         .map((item) => ({ item, key: norm(keyOf(item)) }))
         .sort((a, b) => compareKeys(a.key, b.key));
@@ -605,6 +620,7 @@ const STRING_METHODS: Readonly<Record<string, (s: string, call: CallArgs) => unk
     if (args.length !== 1 || kwargs.size > 0 || typeof args[0] !== 'string') {
       throw new JinjaExprError('startswith は文字列を 1 つだけ受けます');
     }
+    chargeActive(args[0].length);
     return s.startsWith(args[0]);
   },
 });
@@ -738,7 +754,7 @@ class Parser {
         left = addOp(left, this.parseMultiplicative());
         if (typeof left === 'string') this.budget.charge(left.length);
       } else if (this.eat('op', '-'))
-        left = (toPrimitive(left) as number) - (toPrimitive(this.parseMultiplicative()) as number);
+        left = toArithmetic(left) - toArithmetic(this.parseMultiplicative());
       else break;
     }
     return left;
@@ -759,8 +775,8 @@ class Parser {
   /** Jinja の `parse_unary` と同じく、単項の後にフィルタ・テストを重ねる(`-x|f` は `(-x)|f`)。 */
   private parseUnary(withFilter = true): unknown {
     let value: unknown;
-    if (this.eat('op', '-')) value = -(toPrimitive(this.parseUnary(false)) as number);
-    else if (this.eat('op', '+')) value = +(toPrimitive(this.parseUnary(false)) as number);
+    if (this.eat('op', '-')) value = -toArithmetic(this.parseUnary(false));
+    else if (this.eat('op', '+')) value = +toArithmetic(this.parseUnary(false));
     else value = this.parsePostfix();
     return withFilter ? this.parseFilterExpr(value) : value;
   }
@@ -843,6 +859,8 @@ class Parser {
         if (typeof key !== 'string' && typeof key !== 'number') {
           throw new JinjaExprError('添字は文字列か数値のみ受け付けます');
         }
+        // 添字の文字列はキーとして読むときに長さぶんの仕事になる。
+        this.budget.charge(1 + textLength(key));
         value = lookupMember(value, key);
         continue;
       }
@@ -970,8 +988,8 @@ function compareOp(op: string, x: unknown, y: unknown): boolean {
 
 /** nunjucks の `compileMul` 系が吐く JS と同じ結果にする。 */
 function arithmeticOp(op: string, a: unknown, b: unknown): number {
-  const x = toPrimitive(a) as number;
-  const y = toPrimitive(b) as number;
+  const x = toArithmetic(a);
+  const y = toArithmetic(b);
   switch (op) {
     case '*':
       return x * y;

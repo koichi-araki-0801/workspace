@@ -175,6 +175,8 @@ export class Filler {
       const v = evaluateJinjaExpr(expr, ctx, this.budget);
       if (!Array.isArray(v)) return [];
       this.loopItems += v.length;
+      // 繰り返しのたびに文脈を複製する(`loopCtx`)ので、回数 × 文脈のキーの数を評価の量に数える。
+      this.budget.charge(v.length * (1 + Object.keys(ctx).length));
       if (this.loopItems > MAX_LOOP_ITEMS) {
         this.fail(expr);
         return [];

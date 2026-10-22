@@ -279,6 +279,39 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
       else expect(f.unsupported.size).toBeGreaterThan(0);
       expect(f.exhausted).toBe(true);
     });
+    it.each([
+      ['添字のキー', '{% for j in range(99000) %}{{ d[t] }}{% endfor %}', 'd[t]'],
+      ['文字列の数への変換(算術)', '{% for j in range(99000) %}{{ t - 1 }}{% endfor %}', 't - 1'],
+      ['文字列の数への変換(単項)', '{% for j in range(99000) %}{{ -t }}{% endfor %}', '-t'],
+      [
+        '文字列と数の比較',
+        '{% for j in range(99000) %}{% if t < 1 %}{% endif %}{% endfor %}',
+        't < 1',
+      ],
+      [
+        'startswith の引数',
+        '{% for j in range(50) %}{{ "a".startswith(t) }}{% endfor %}',
+        '"a".startswith(t)',
+      ],
+      [
+        'groupby のキーの小文字化と比較',
+        '{% set xs = [namespace(k=t), namespace(k=u)] %}' +
+          '{% for j in range(9000) %}{{ xs|groupby("k")|length }}{% endfor %}',
+        'xs|groupby("k")|length',
+      ],
+    ])('長い文字列を読む経路(%s)も長さを数え、上限で unsupported になる', (_, body, expr) => {
+      const f = new Filler();
+      show(grow + body, { d: {} }, f);
+      expect([...f.unsupported]).toContain(expr);
+      expect(f.exhausted).toBe(true);
+    });
+    it('繰り返しごとの文脈の複製(キーの数 × 回数)も数える', () => {
+      const ctx: Record<string, unknown> = {};
+      for (let k = 0; k < 5000; k++) ctx[`k${k}`] = k;
+      const f = new Filler();
+      show('{% for j in range(1000) %}x{% endfor %}', ctx, f);
+      expect([...f.unsupported]).toEqual(['range(1000)']);
+    });
     it('何も出力しない式をループで何度も評価させても、評価の量の上限で止まる', () => {
       const f = new Filler();
       const body = '{% if 1 == 2 %}{% endif %}'.repeat(100);
