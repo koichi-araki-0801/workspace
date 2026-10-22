@@ -24,7 +24,7 @@ describe('json/ の読み取り層', () => {
     fs.mkdirSync(path.join(tmp, 'json'), { recursive: true });
     put(ID, JSON.stringify({ fund: { code: '510037' } }));
     put('AM01_510037_20240710_全体版', '{broken');
-    put('AM01_510037_20240710_大', `{"x":"${'a'.repeat(mod.MAX_VALUES_BYTES)}"}`);
+    put('AM01_510037_20240710_大', `{"x":"${'a'.repeat(5 * 1024 * 1024)}"}`);
     put('AM01_510037_20240710_配列', '[1,2]');
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));

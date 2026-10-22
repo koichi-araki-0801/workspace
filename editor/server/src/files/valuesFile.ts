@@ -15,7 +15,7 @@ import { config } from '../config.js';
  * 値ファイル 1 本の上限バイト数。読み側は `JSON.parse` で全体を 1 度に構造化するので、
  * サイズを見ずに読むと巨大ファイル 1 本で全 GET が止まる。`fs.stat` で先に見て、超えたら読まない。
  */
-export const MAX_VALUES_BYTES = 5 * 1024 * 1024;
+const MAX_VALUES_BYTES = 5 * 1024 * 1024;
 
 /** 4 区切りの ID を安全なファイル名に限定して解決する(パストラバーサル防止)。 */
 function fileFor(templateId: string): string {
