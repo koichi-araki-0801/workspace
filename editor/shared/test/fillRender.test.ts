@@ -248,6 +248,45 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     expect(diagnostics.unsupported).toEqual([expr]);
     expect(html).toBe('||||||');
   });
+  describe('比較と式の評価の回数も評価の量に数える', () => {
+    // 長さ 2^18 + 1 の別々の文字列 t と u(作る費用は 1 回だけ)。
+    const grow =
+      '{% set ns = namespace(s="a") %}' +
+      '{% for k in range(18) %}{% set ns.s = ns.s + ns.s %}{% endfor %}' +
+      '{% set t = "a" + ns.s %}{% set u = "a" + ns.s %}';
+    it.each([
+      [
+        'ループの中の ==',
+        '{% for j in range(99000) %}{% if t == u %}{% endif %}{% endfor %}',
+        't == u',
+      ],
+      ['and で並べた ==', `{% if ${Array(10).fill('t == u').join(' and ')} %}{% endif %}`, null],
+      ['<', '{% for j in range(99000) %}{% if t < u %}{% endif %}{% endfor %}', 't < u'],
+      [
+        'equalto',
+        '{% for j in range(9000) %}{{ [t]|select("equalto", u)|list|length }}{% endfor %}',
+        '[t]|select("equalto", u)|list|length',
+      ],
+      [
+        'in の並びの要素',
+        '{% for j in range(9000) %}{{ [t]|select("in", [u])|list|length }}{% endfor %}',
+        '[t]|select("in", [u])|list|length',
+      ],
+    ])('長い文字列同士の比較(%s)は長さを数え、上限で unsupported になる', (_, body, expr) => {
+      const f = new Filler();
+      show(grow + body, {}, f);
+      if (expr) expect([...f.unsupported]).toContain(expr);
+      else expect(f.unsupported.size).toBeGreaterThan(0);
+      expect(f.exhausted).toBe(true);
+    });
+    it('何も出力しない式をループで何度も評価させても、評価の量の上限で止まる', () => {
+      const f = new Filler();
+      const body = '{% if 1 == 2 %}{% endif %}'.repeat(100);
+      show(`{% for j in range(100000) %}${body}{% endfor %}`, {}, f);
+      expect([...f.unsupported]).toContain('1 == 2');
+      expect(f.exhausted).toBe(true);
+    });
+  });
   it('倍化の途中で上限に当たった set は unsupported に数え、以後の値は空になる', () => {
     const f = new Filler();
     let src = '{% set b0 = range(1000) %}';

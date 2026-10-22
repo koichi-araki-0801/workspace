@@ -120,15 +120,15 @@ function attrsAllowed(attrs: string): boolean {
 }
 
 /**
- * `html` を生で置いてよい形か: 許可したタグ・属性だけの、対応の取れた断片(上の冒頭の説明)。
- * 外れたら false(呼び出し側がエスケープする)。
- */
-/**
  * 地の文の引用符。テキストの位置に置く限り無害だが、位置の判定を誤ったときに属性値を抜ける文字なので、
  * 疑わしければエスケープする側に倒す。
  */
 const QUOTE_RE = /["'`]/;
 
+/**
+ * `html` を生で置いてよい形か: 許可したタグ・属性だけの、対応の取れた断片(上の冒頭の説明)。
+ * 外れたら false(呼び出し側がエスケープする)。
+ */
 export function isAllowedSafeMarkup(html: string): boolean {
   const stack: string[] = [];
   let i = 0;

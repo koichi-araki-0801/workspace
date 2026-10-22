@@ -237,6 +237,21 @@ export class JinjaBudget {
     this.used += units;
     if (this.used > MAX_WORK) throw new JinjaExprError('評価の量が上限を超えました');
   }
+
+  /** 使い切ったか。描画器はこれを見て以後の繰り返しを展開しない(式ごとに失敗させ続けない)。 */
+  get exhausted(): boolean {
+    return this.used > MAX_WORK;
+  }
+}
+
+/**
+ * 2 つの値の比較の費用を数える。文字列同士は短いほうの長さぶんの仕事になる(長い文字列を 1 度作れば、
+ * 比べるたびにその長さを読ませられる)。
+ */
+function chargeCompare(a: unknown, b: unknown): void {
+  chargeActive(
+    typeof a === 'string' && typeof b === 'string' ? 1 + Math.min(a.length, b.length) : 1,
+  );
 }
 
 /**
@@ -509,11 +524,18 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
 
 const TESTS: Readonly<Record<string, (value: unknown, ...args: unknown[]) => boolean>> = allowlist({
   defined: (v) => v !== undefined,
-  equalto: (v, other) => v === other,
-  // 1 回ごとに右辺の大きさを数える(`select("in", 長い並び)` は要素数の掛け算の仕事になる)。
+  equalto: (v, other) => {
+    chargeCompare(v, other);
+    return v === other;
+  },
+  // 1 回ごとに右辺の大きさを数える(`select("in", 長い並び)` は要素数の掛け算の仕事になる)。並びは
+  // 要素ごとの比較の費用(文字列同士は短いほうの長さ)を数える。
   in: (v, seq) => {
-    chargeActive(1 + sizeOf(seq));
-    if (Array.isArray(seq)) return seq.includes(v);
+    if (Array.isArray(seq)) {
+      for (const e of seq) chargeCompare(v, e);
+      return seq.includes(v);
+    }
+    chargeActive(1 + sizeOf(seq) + (typeof v === 'string' ? v.length : 0));
     if (typeof seq === 'string' || seq instanceof SafeHtml) {
       if (typeof v !== 'string') throw new JinjaExprError('文字列の in は文字列だけを探せます');
       return seq.toString().includes(v);
@@ -927,6 +949,7 @@ function compareOp(op: string, x: unknown, y: unknown): boolean {
   const identity = (op === '==' || op === '!=') && isObjectValue(x) && isObjectValue(y);
   const a = identity ? x : toPrimitive(x);
   const b = identity ? y : toPrimitive(y);
+  chargeCompare(a, b);
   switch (op) {
     case '==':
       // biome-ignore lint/suspicious/noDoubleEquals: Jinja の `==` は緩い比較で、nunjucks も `==` を吐く。厳密比較にすると `'0' == 0` の判定が変わる。
@@ -975,6 +998,9 @@ export function evaluateJinjaExpr(
   ctx: JinjaCtx,
   budget: JinjaBudget = new JinjaBudget(),
 ): unknown {
+  // 式 1 回ごとの基本の費用(字句解析と構文解析は式の長さに比例する)。何も出力しない式を
+  // ループで何度も評価させる書き方も、評価の量で止める。
+  budget.charge(1 + src.length);
   return withBudget(budget, () => new Parser(tokenize(src), ctx, budget).parseAll());
 }
 
@@ -990,6 +1016,7 @@ export function assignJinjaSet(
   ctx: JinjaCtx,
   budget: JinjaBudget = new JinjaBudget(),
 ): void {
+  budget.charge(1 + src.length);
   const tokens = tokenize(src);
   const target = tokens[0];
   if (target?.type !== 'name' || LITERAL_NAMES.has(target.value)) {

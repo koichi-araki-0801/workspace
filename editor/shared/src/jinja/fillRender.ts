@@ -75,7 +75,7 @@ export class Filler {
 
   /** 出力の上限に達したか。達したら繰り返しの展開をやめる。 */
   get exhausted(): boolean {
-    return this.emitted > MAX_OUTPUT_CHARS;
+    return this.emitted > MAX_OUTPUT_CHARS || this.budget.exhausted;
   }
 
   /** 出した文字数を数える。上限を超えた初回に unsupported へ載せる。 */
