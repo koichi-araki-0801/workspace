@@ -111,6 +111,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
         'editor/server/src/generate/generatorCheck.ts',
+        'editor/server/src/generate/baseDate.ts',
         'editor/server/src/files/legacyLayoutCheck.ts',
         'editor/server/src/sync/partSync.ts',
         'editor/server/src/sync/cssSync.ts',
