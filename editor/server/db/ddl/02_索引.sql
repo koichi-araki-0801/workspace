@@ -42,12 +42,15 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes
     ON [ug01].[Rep1_運報自動化_Editor_監査ログ] ([発生日時] DESC);
 GO
 
-/* --- サンプルデータ ------------------------------------------------------ */
+/* --- 共通サンプル -------------------------------------------------------- */
+/* 計算列への索引は QUOTED_IDENTIFIER ON が必要。 */
+SET QUOTED_IDENTIFIER ON;
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes
-  WHERE name = N'UQ_サンプル_ファンドコード'
-    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_サンプルデータ]'))
-  CREATE UNIQUE INDEX [UQ_サンプル_ファンドコード]
-    ON [ug01].[Rep1_運報自動化_Editor_サンプルデータ] ([ファンドコード]);
+  WHERE name = N'UX_共通サンプル_分類キー'
+    AND object_id = OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_共通サンプル]'))
+  CREATE UNIQUE INDEX [UX_共通サンプル_分類キー]
+    ON [ug01].[Rep1_運報自動化_Editor_共通サンプル] ([分類キー]);
 GO
 
 /* --- 注記マスタ(仮組) ---------------------------------------------------- */

@@ -15,6 +15,7 @@
 
 SET NOCOUNT ON;
 SET XACT_ABORT ON;
+SET QUOTED_IDENTIFIER ON;  -- 共通サンプルは計算列に索引があり、書き込みに必要(sqlcmd の既定は OFF)
 
 DECLARE @実行 BIT = 0;  -- 0 = プレビュー / 1 = 登録
 

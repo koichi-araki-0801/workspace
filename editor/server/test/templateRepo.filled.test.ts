@@ -7,7 +7,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { sampleCommon } from '@editor/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SprocClient } from '../src/db/sproc.js';
 
@@ -194,7 +193,7 @@ describe('templateRepo と filled/', () => {
   });
 });
 
-describe('getSampleData と parseFundMaster の分岐', () => {
+describe('getSampleData(共通一覧の合成 + ファンドコード)', () => {
   let createTemplateRepo: typeof import('../src/repositories/templateRepo.js').createTemplateRepo;
   let createSprocClient: typeof import('../src/db/sproc.js').createSprocClient;
 
@@ -203,35 +202,23 @@ describe('getSampleData と parseFundMaster の分岐', () => {
     ({ createSprocClient } = await import('../src/db/sproc.js'));
   });
 
-  /** サンプルデータ sproc の `データJSON` 列だけを差し替える最小 sproc。 */
-  const sprocWithSampleJson = (json: string | null): SprocClient =>
-    createSprocClient(async () => [{ データJSON: json }]);
+  /** 共通一覧の行を固定で返す最小 sproc。 */
+  const sprocWithRows = (rows: Record<string, unknown>[]): SprocClient =>
+    createSprocClient(async () => rows);
 
-  it('company が欠けたマスタは未収録ファンド扱い(placeholder のまま)', async () => {
-    const repo = createTemplateRepo(sprocWithSampleJson(JSON.stringify({ fund: { name: 'x' } })));
-    const sample = await repo.getSampleData('999999');
-    // if 条件が false になり `buildSampleData(undefined, ...)` へ落ちるので、
-    // 共通ダミー(`sampleCommon`)の placeholder がそのまま出る。
-    expect(sample.fund.name).toBe(sampleCommon.fund.name);
-  });
-
-  it('nickname が無ければ空文字で補う', async () => {
+  it('共通一覧を合成し、fund.code にファンドコードを被せる', async () => {
     const repo = createTemplateRepo(
-      sprocWithSampleJson(
-        JSON.stringify({
-          fund: { name: 'ニックネーム無し' },
-          company: { code: 'AM01', name: '会社' },
-        }),
-      ),
+      sprocWithRows([
+        { 共通サンプルID: 1, データJSON: JSON.stringify({ fund: { name: '共通名' }, a: 1 }) },
+        { 共通サンプルID: 2, データJSON: JSON.stringify({ b: 2 }) },
+      ]),
     );
     const sample = await repo.getSampleData('510037');
-    expect(sample.fund.name).toBe('ニックネーム無し');
-    expect(sample.fund.nickname).toBe('');
+    expect(sample).toEqual({ fund: { name: '共通名', code: '510037' }, a: 1, b: 2 });
   });
 
-  it('壊れた JSON は例外を投げずマスタ無し扱いにする', async () => {
-    const repo = createTemplateRepo(sprocWithSampleJson('{not valid json'));
-    const sample = await repo.getSampleData('999999');
-    expect(sample.fund.code).toBe('999999');
+  it('行が無ければ fund.code だけの sample', async () => {
+    const repo = createTemplateRepo(sprocWithRows([]));
+    expect(await repo.getSampleData('999999')).toEqual({ fund: { code: '999999' } });
   });
 });

@@ -5,13 +5,11 @@
 // throw し、ルートハンドラは中央の `errorHandler` に HTTP への変換を委ねる
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import {
-  buildSampleData,
   type CompanyOption,
   type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
-  type FundMaster,
   type FundOption,
   notFound,
   parseTemplateFileName,
@@ -22,7 +20,7 @@ import {
   type TemplateMeta,
   templateIdFromFileName,
 } from '@editor/shared';
-import { asString, asStringOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
+import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
 import { findInProgressIds } from '../files/inProgress.js';
@@ -38,6 +36,7 @@ import {
   templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
+import { mergeCommonSampleRows } from './commonSample.js';
 import { fileToMeta } from './templateMeta.js';
 
 const ATTR_KEYS = ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const;
@@ -106,27 +105,6 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
     )
   ).filter(isMeta);
   return [...confirmed, ...pending];
-}
-
-/** サンプルデータ台帳 JSON からファンド固有マスタ(名称/会社)を取り出す。 */
-function parseFundMaster(json: string | null): FundMaster | undefined {
-  if (!json) return undefined;
-  try {
-    const o = JSON.parse(json) as {
-      fund?: { name?: string; nickname?: string };
-      company?: { code?: string; name?: string };
-    };
-    if (o.fund?.name && o.company?.code && o.company?.name) {
-      return {
-        name: o.fund.name,
-        nickname: o.fund.nickname ?? '',
-        company: { code: o.company.code, name: o.company.name },
-      };
-    }
-  } catch {
-    /* 壊れた JSON は master 無し扱い */
-  }
-  return undefined;
 }
 
 export interface TemplateRepo {
@@ -298,16 +276,24 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     },
 
     /**
-     * プレビュー文脈のサンプルデータ。本体はパーツ別共通ダミー(`sampleCommon`)で、
-     * DB の台帳からはファンド固有の名称/会社だけを解決して被せる。版種(ファイル名由来)は
+     * プレビュー文脈のサンプルデータ。DB の共通サンプル(分類ごとの行)を合成し、ファンドコードだけを
+     * 被せる。ファンド名・会社名は Rep1 から引いて被せる形へ移す途中(`fundCode` のみ)。版種(ファイル名由来)は
      * テンプレを開く web 側(`applyTemplateAttributes`)で上書きする。
      */
     async getSampleData(fundCode) {
-      const row = firstRow(
-        await sproc.callSproc(SP.sample, '取得', [p('ファンドコード', fundCode)]),
+      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      const { sample } = mergeCommonSampleRows(
+        rows.map((r) => ({
+          id: Number(r.共通サンプルID),
+          category: asStringOrNull(r.カテゴリ),
+          major: asStringOrNull(r.大分類),
+          middle: asStringOrNull(r.中分類),
+          minor: asStringOrNull(r.小分類),
+          dataJson: asString(r.データJSON),
+        })),
       );
-      const master = parseFundMaster(row ? asStringOrNull(row.データJSON) : null);
-      return buildSampleData(master, fundCode);
+      const fund = (sample.fund ?? {}) as Record<string, unknown>;
+      return { ...sample, fund: { ...fund, code: fundCode } };
     },
   };
 }

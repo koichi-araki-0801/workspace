@@ -297,7 +297,8 @@ describe('templates.routes', () => {
       headers: as('editor'),
     });
     expect(s.statusCode).toBe(200);
-    expect(s.json().fund.name).toBe('高金利ソブリンオープン');
+    // ファンド名・会社名の Rep1 からの上書きは別タスク。ここでは共通値にファンドコードが被さる。
+    expect(s.json().fund).toMatchObject({ code: '110024', name: 'サンプルファンド' });
   });
 
   it('PUT /templates/:id/draft: body の templateId が URL と違えば 400、一致すれば 204 で drafts に書く。GET は保存内容、DELETE は 204 で消す', async () => {

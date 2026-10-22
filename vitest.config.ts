@@ -71,6 +71,7 @@ export default defineConfig({
         // テンプレート集約の中心。一覧/取得の探索順(filled→templates→pending)と
         // 下書き入出力が承認・編集画面の到達可能性を左右するため、被覆を切らさない。
         'editor/server/src/repositories/templateRepo.ts',
+        'editor/server/src/repositories/commonSample.ts',
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/files/syncFiles.ts',
         // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertTemplateAttributeToken` を

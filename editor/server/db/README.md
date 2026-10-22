@@ -1,4 +1,4 @@
-# DB スキーマ / 適用 (フェーズ2)
+﻿# DB スキーマ / 適用 (フェーズ2)
 
 SQL Server 2012 の `usrap.ug01`（既存 DB / 既存スキーマ）に、`Rep1_運報自動化_Editor_` 接頭辞でテーブルとストアドを作成する。本文(HTML/CSS)はファイル保存、DB はパーツ・認証・監査などのメタと、作成タブが読むファンド属性(同じサーバの `Rep1`。sproc から 3 部名で参照)のみ。テンプレートの台帳は持たない。版/スナップ/編集履歴は git(コミット履歴)、PDF出力/作成/パーツ変更はファイル監査ログ(logs/history/*.jsonl)が担う。
 
@@ -16,7 +16,7 @@ migrate/ 共通サンプル_分類登録.sql(パーツカタログの分類か�
           `@実行` を 1 にして登録する。冪等
 diag/    パーツ_Jinja構文調査.sql(内容HTML の Jinja 構文を数える。読み取りのみ。SSMS で usrap に対して実行)
          パーツ_Jinja引数調査.sql(テスト名・loop の属性・set の形を数える。読み取りのみ。SSMS で usrap に対して実行)
-seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / サンプルデータ.sql
+seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / 共通サンプル.sql
 apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用
 ```
 
@@ -24,7 +24,7 @@ apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用
 
 ## 適用手順
 ```powershell
-# 1) seed SQL を生成（管理ユーザー / パーツカタログ / サンプルデータ）
+# 1) seed SQL を生成（管理ユーザー / パーツカタログ / 共通サンプル）
 corepack pnpm --filter server exec tsx scripts/hash-password.ts admin "<パスワード>" 管理者 admin
 corepack pnpm --filter server exec tsx scripts/gen-seed.ts   # web フィクスチャ→seed SQL
 

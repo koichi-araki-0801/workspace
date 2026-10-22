@@ -34,11 +34,8 @@ const sid = (n: number) => String(n).repeat(64).slice(0, 64);
 describe('EXEC 文の解析', () => {
   it('names and positional values are paired back into arguments', async () => {
     const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '510037')]);
-    expect(JSON.parse(String(rows[0]?.データJSON))).toMatchObject({
-      fund: { name: 'コア投資戦略ファンド（切替型）' },
-      company: { code: 'AM01' },
-    });
+    const rows = await sproc.callSproc(SP.sample, '共通一覧');
+    expect(rows.length).toBeGreaterThan(0);
   });
 
   it('gives every fake its own state', async () => {
@@ -436,11 +433,31 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     });
   });
 
-  it('サンプルデータ 取得 yields nothing for a fund outside the master', async () => {
-    const sproc = await createFakeSproc();
-    await expect(
-      sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '999999')]),
-    ).resolves.toHaveLength(0);
+  describe('サンプルデータ', () => {
+    it('共通一覧 returns the seeded rows in ID order', async () => {
+      const sproc = await createFakeSproc();
+      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      expect(rows.map((r) => r.共通サンプルID)).toEqual(rows.map((_, i) => i + 1));
+      expect(rows.map((r) => r.データJSON).every((j) => typeof j === 'string')).toBe(true);
+      const keys = rows.flatMap((r) => Object.keys(JSON.parse(String(r.データJSON))));
+      expect(keys).toContain('holdings');
+    });
+
+    it('共通一覧 returns the rows given by the seed', async () => {
+      const sproc = await createFakeSproc({
+        commonSamples: [{ category: null, major: null, middle: null, minor: null, data: { x: 1 } }],
+      });
+      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.カテゴリ).toBeNull();
+    });
+
+    it('取得 is an unknown operation', async () => {
+      const sproc = await createFakeSproc();
+      await expect(
+        sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '510037')]),
+      ).rejects.toThrow();
+    });
   });
 
   it('監査ログ 登録 needs the event, the outcome and the actor', async () => {

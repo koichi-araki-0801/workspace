@@ -1,15 +1,16 @@
 /**
- * Generate seed SQL for the parts catalog and per-fund sample data from the
+ * Generate seed SQL for the parts catalog and common sample rows from the
  * existing web fixtures (the same data phase 1 ships). Output is idempotent
  * (INSERT guarded by IF NOT EXISTS) and written UTF-8 BOM for sqlcmd.
  *
  *   corepack pnpm --filter server exec tsx scripts/gen-seed.ts
  *
- * Writes: server/db/seed/パーツカタログ.sql, server/db/seed/サンプルデータ.sql
+ * Writes: server/db/seed/パーツカタログ.sql, server/db/seed/共通サンプル.sql
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { COMMON_SAMPLE_SEED_ROWS } from './commonSampleSeed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.resolve(__dirname, '..', '..', 'web', 'src', 'api', 'fixtures');
@@ -58,35 +59,22 @@ GO
 `;
 fs.writeFileSync(path.join(seedDir, 'パーツカタログ.sql'), partSql, 'utf8');
 
-// --- sample data (ファンド固有マスタ = 名称/会社のみ) -----------------------
-// サンプル本体はパーツ別共通ダミー(`sampleCommon`)に集約済み。DB が持つのは
-// REST の getSampleData が名称解決に使う fund(name/nickname) と company だけ。
-const T_SAMPLE = '[ug01].[Rep1_運報自動化_Editor_サンプルデータ]';
-interface FundMasterEntry {
-  name: string;
-  nickname?: string;
-  company: { code: string; name: string };
-}
-const funds = JSON.parse(fs.readFileSync(path.join(fixtures, 'funds.json'), 'utf8')) as Record<
-  string,
-  FundMasterEntry
->;
-const sampleRows = Object.entries(funds)
-  .map(([fundCode, m]) => {
-    const json = JSON.stringify({
-      fund: { name: m.name, nickname: m.nickname ?? '' },
-      company: m.company,
-    });
-    return `IF NOT EXISTS (SELECT 1 FROM ${T_SAMPLE} WHERE [ファンドコード] = ${q(fundCode)})
-  INSERT INTO ${T_SAMPLE} ([ファンドコード],[データJSON],[更新日時])
-  VALUES (${q(fundCode)}, ${q(json)}, SYSUTCDATETIME());`;
-  })
-  .join('\nGO\n');
-const sampleSql = `${BOM}/* seed: サンプルデータ (生成物 — gen-seed.ts from web fixtures) */
+// --- 共通サンプル (分類ごとの JSON 断片) --------------------------------------
+// 行の定義は commonSampleSeed.ts。再実行しても同じになるよう、全行を消してから入れ直す。
+const T_COMMON = '[ug01].[Rep1_運報自動化_Editor_共通サンプル]';
+const commonRows = COMMON_SAMPLE_SEED_ROWS.map(
+  (r) => `  INSERT INTO ${T_COMMON}
+    ([カテゴリ],[大分類],[中分類],[小分類],[データJSON],[更新日時],[更新者])
+  VALUES (${q(r.category)}, ${q(r.major)}, ${q(r.middle)}, ${q(r.minor)},
+    ${q(JSON.stringify(r.data))}, SYSUTCDATETIME(), N'seed');`,
+).join('\n');
+const commonSql = `${BOM}/* seed: 共通サンプル (生成物 — gen-seed.ts / commonSampleSeed.ts) */
 SET NOCOUNT ON;
-${sampleRows}
+SET QUOTED_IDENTIFIER ON; -- 計算列に索引がある表への書き込みに必要(sqlcmd の既定は OFF)
+DELETE FROM ${T_COMMON};
+${commonRows}
 GO
 `;
-fs.writeFileSync(path.join(seedDir, 'サンプルデータ.sql'), sampleSql, 'utf8');
+fs.writeFileSync(path.join(seedDir, '共通サンプル.sql'), commonSql, 'utf8');
 
-console.log(`[gen-seed] wrote パーツカタログ.sql (${parts.length} parts) and サンプルデータ.sql`);
+console.log(`[gen-seed] wrote パーツカタログ.sql (${parts.length} parts) and 共通サンプル.sql`);

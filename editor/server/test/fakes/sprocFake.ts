@@ -16,6 +16,10 @@
 // 状態はすべて `createFakeQuery` のクロージャに閉じるので、フェイクを 2 つ作れば 2 つの
 // 独立した DB になる(モジュール変数を持たない)。
 import type { UserRole } from '@editor/shared';
+import {
+  COMMON_SAMPLE_SEED_ROWS,
+  type CommonSampleSeedRow,
+} from '../../scripts/commonSampleSeed.js';
 import { hashPassword } from '../../src/auth/password.js';
 import { createSprocClient, type QueryFn, type Row, type SprocClient } from '../../src/db/sproc.js';
 import { SP } from '../../src/db/sprocNames.js';
@@ -62,6 +66,8 @@ export interface FakeSeed {
   users?: readonly FakeUserSeed[];
   funds?: readonly FakeFundSeed[];
   parts?: readonly FakePartSeed[];
+  /** 共通サンプルの行(ID は並び順の 1 始まり)。省略時は `COMMON_SAMPLE_SEED_ROWS`。 */
+  commonSamples?: readonly CommonSampleSeedRow[];
 }
 
 // 自己承認は職務分掌で拒否されるので、申請者と承認者は別人が要る。パスワードはユーザー名と
@@ -242,6 +248,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
   const notes = new Map<string, NoteRow>();
   const funds = new Map<string, FakeFundSeed>();
   const parts = [...(seed.parts ?? DEFAULT_PARTS)];
+  const commonSamples = [...(seed.commonSamples ?? COMMON_SAMPLE_SEED_ROWS)];
   // 台帳の IDENTITY 相当。一覧の並び(作成順・注記内部ID順)がここから出る。
   let order = 0;
 
@@ -523,22 +530,18 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     throw sqlError(50000, '未知の @操作 です(パーツ)');
   }
 
-  function sampleOp(op: string, a: Args): Row[] {
-    if (op === '取得') {
-      const code = text(a, 'ファンドコード');
-      if (!code) throw sqlError(50000, 'ファンドコード が必要です');
-      const f = funds.get(code);
-      // `parseFundMaster` が読む形。欠けるとファンド名が空になる。
-      return f
-        ? [
-            {
-              データJSON: JSON.stringify({
-                fund: { name: f.name, nickname: f.nickname },
-                company: { code: f.companyCode, name: f.companyName },
-              }),
-            },
-          ]
-        : [];
+  function sampleOp(op: string): Row[] {
+    if (op === '共通一覧') {
+      return commonSamples
+        .map((r, i) => ({
+          共通サンプルID: i + 1,
+          カテゴリ: r.category,
+          大分類: r.major,
+          中分類: r.middle,
+          小分類: r.minor,
+          データJSON: JSON.stringify(r.data),
+        }))
+        .sort((x, y) => x.共通サンプルID - y.共通サンプルID);
     }
     throw sqlError(50000, '未知の @操作 です(サンプルデータ)');
   }
@@ -611,7 +614,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
       case SP.part:
         return partOp(op, args);
       case SP.sample:
-        return sampleOp(op, args);
+        return sampleOp(op);
       case SP.noteMaster:
         return noteMasterOp(op, args);
       case SP.audit:
