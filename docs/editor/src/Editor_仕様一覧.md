@@ -57,35 +57,36 @@ rev:
 | 14 | `DELETE` | `/templates/:id/draft` | editor | id | 204（下書き破棄） |
 | 15 | `GET` | `/templates/:id/sync-status` | ○ | id | 交付版⇄全体版パーツ同期の状態（パーツの競合と、テンプレの CSS の競合 cssConflicts） |
 | 16 | `GET` | `/templates/:id/sample-data` | ○ | id（3 区切り・4 区切り） | SampleDataResult（共通サンプル + Rep1 の実名、合成の warnings） |
-| 17 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。生成される id は `会社_ファンド_版種`（基準日なし）。作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、同じ id の下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
-| 18 | `GET` | `/parts` | ○ | 分類フィルタ、editionType（任意。編集中テンプレートの版種） | PartCatalogItem[]（対象版種 `targetEdition` を含む） |
-| 19 | `GET` | `/parts/classification-options` | ○ | editionType（任意。分類ドロップダウン候補の絞り込み） | 分類ドロップダウン候補 |
-| 20 | `GET` | `/templates/:templateId/part-history` | ○ | templateId | パーツ変更履歴 |
-| 21 | `POST` | `/templates/:templateId/part-history` | editor | RecordPartChangeRequest | 204（パーツ変更の記録） |
-| 22 | `GET` | `/templates/:templateId/notes` | ○ | templateId | パーツ単位メモ一覧 |
-| 23 | `PUT` | `/templates/:templateId/notes` | editor | SaveNoteRequest（pathKey, content。空文字＝削除） | 204 |
-| 24 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc（受け付けるが無視する）） | PDF（vivliostyle） |
-| 25 | `POST` | `/build/project` | editor | プロジェクト zip | PDF |
-| 26 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents = html/css の配列, size?） | PDF（複数文書を結合・通しページ番号） |
-| 27 | `GET` | `/preview` | ○ | — | 稼働中プレビューセッション一覧（自分の分のみ） |
-| 28 | `POST` | `/preview` | editor | inline JSON（html, css）またはプロジェクト zip | プレビューセッション開始 |
-| 29 | `GET` | `/preview/:id`（`/*` 配下を含む） | ○ | id | プレビュー（reverse proxy） |
-| 30 | `DELETE` | `/preview/:id` | editor | id | 204（セッション終了） |
-| 31 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
-| 32 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
-| 33 | `POST` | `/history/pdf` | ○ | RecordPdfExportRequest | 204（PDF 出力の記録） |
-| 34 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
-| 35 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用）。テンプレート（3 つ区切り）は空の配列 |
-| 36 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
-| 37 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
-| 38 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
-| 39 | `GET` | `/review-requests/:reqId` | ○ | reqId | ReviewRequest（本体込み） |
-| 40 | `POST` | `/review-requests/:reqId/approve` | approver | ReviewDecisionRequest（comment） | ApproveReviewResult（実ファイル反映 + git コミット。自己承認は拒否） |
-| 41 | `POST` | `/review-requests/:reqId/reject` | approver | ReviewDecisionRequest（comment 必須） | ReviewRequestMeta（rejected） |
-| 42 | `GET` | `/users` | admin | — | User[] |
-| 43 | `POST` | `/users` | admin | CreateUserRequest（username, displayName, role, disabled, mustChangePassword） | 作成結果（一時パスワードは応答 1 回のみ） |
-| 44 | `PATCH` | `/users/:id` | admin | UpdateUserRequest（username, displayName, role, disabled, mustChangePassword） | 更新後 User |
-| 45 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（一時パスワード。要PW変更） |
+| 17 | `GET` | `/templates/:id/values` | ○ | id（4 区切り。編集タブのテンプレート） | TemplateValues（found = `<dataRoot>/json/<ID>.json` があったか、values = その中身。無ければ found: false と空。挿入する Jinja パーツの描画に使う） |
+| 18 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。生成される id は `会社_ファンド_版種`（基準日なし）。作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、同じ id の下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
+| 19 | `GET` | `/parts` | ○ | 分類フィルタ、editionType（任意。編集中テンプレートの版種）、companyCode（任意。編集中テンプレートの Rep1 の委託会社コード。指定時は一致するパーツだけ） | PartCatalogItem[]（対象版種 `targetEdition`・委託会社コード `companyCode` を含む） |
+| 20 | `GET` | `/parts/classification-options` | ○ | editionType・companyCode（任意。分類ドロップダウン候補の絞り込み。扱いは `/parts` と同じ） | 分類ドロップダウン候補 |
+| 21 | `GET` | `/templates/:templateId/part-history` | ○ | templateId | パーツ変更履歴 |
+| 22 | `POST` | `/templates/:templateId/part-history` | editor | RecordPartChangeRequest | 204（パーツ変更の記録） |
+| 23 | `GET` | `/templates/:templateId/notes` | ○ | templateId | パーツ単位メモ一覧 |
+| 24 | `PUT` | `/templates/:templateId/notes` | editor | SaveNoteRequest（pathKey, content。空文字＝削除） | 204 |
+| 25 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc（受け付けるが無視する）） | PDF（vivliostyle） |
+| 26 | `POST` | `/build/project` | editor | プロジェクト zip | PDF |
+| 27 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents = html/css の配列, size?） | PDF（複数文書を結合・通しページ番号） |
+| 28 | `GET` | `/preview` | ○ | — | 稼働中プレビューセッション一覧（自分の分のみ） |
+| 29 | `POST` | `/preview` | editor | inline JSON（html, css）またはプロジェクト zip | プレビューセッション開始 |
+| 30 | `GET` | `/preview/:id`（`/*` 配下を含む） | ○ | id | プレビュー（reverse proxy） |
+| 31 | `DELETE` | `/preview/:id` | editor | id | 204（セッション終了） |
+| 32 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
+| 33 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
+| 34 | `POST` | `/history/pdf` | ○ | RecordPdfExportRequest | 204（PDF 出力の記録） |
+| 35 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
+| 36 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用）。テンプレート（3 つ区切り）は空の配列 |
+| 37 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
+| 38 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
+| 39 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
+| 40 | `GET` | `/review-requests/:reqId` | ○ | reqId | ReviewRequest（本体込み） |
+| 41 | `POST` | `/review-requests/:reqId/approve` | approver | ReviewDecisionRequest（comment） | ApproveReviewResult（実ファイル反映 + git コミット。自己承認は拒否） |
+| 42 | `POST` | `/review-requests/:reqId/reject` | approver | ReviewDecisionRequest（comment 必須） | ReviewRequestMeta（rejected） |
+| 43 | `GET` | `/users` | admin | — | User[] |
+| 44 | `POST` | `/users` | admin | CreateUserRequest（username, displayName, role, disabled, mustChangePassword） | 作成結果（一時パスワードは応答 1 回のみ） |
+| 45 | `PATCH` | `/users/:id` | admin | UpdateUserRequest（username, displayName, role, disabled, mustChangePassword） | 更新後 User |
+| 46 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（一時パスワード。要PW変更） |
 
 認証欄の凡例: 空欄 = 認証不要 ／ Cookie = ログイン済みセッション ／ ○ = ログイン済みなら全ロール ／ editor・approver・admin = そのロール以上（admin は全権）。パスは `/api` プレフィックスを省いて示す。ルートと必要ロールの正典は `server/src/routes/routeGuards.ts` の `ROUTE_POLICY`。
 
@@ -124,6 +125,7 @@ rev:
 | パーツカタログ | 大分類英名 | `NVARCHAR(128)` |  | ○ |  | 同上 |
 | パーツカタログ | 中分類英名 | `NVARCHAR(128)` |  | ○ |  | 同上 |
 | パーツカタログ | 小分類英名 | `NVARCHAR(128)` |  | ○ |  | 同上 |
+| パーツカタログ | 委託会社コード | `CHAR(5)` |  | ○ |  | パーツ一覧を編集中のテンプレートの委託会社（Rep1 の委託会社コード）で絞る。NULL は未設定で、どの会社の一覧にも出ない |
 | 監査ログ | 監査ID | `BIGINT IDENTITY` | ○ |  |  | Rep1_運報自動化_Editor_監査ログ |
 | 監査ログ | イベント | `NVARCHAR(64)` |  |  |  |  |
 | 監査ログ | 結果 | `NVARCHAR(8)` |  |  |  | success / failure |
@@ -133,10 +135,15 @@ rev:
 | 監査ログ | 詳細JSON | `NVARCHAR(MAX)` |  | ○ |  |  |
 | 監査ログ | エラー | `NVARCHAR(MAX)` |  | ○ |  |  |
 | 監査ログ | 発生日時 | `DATETIME2(3)` |  |  | `SYSUTCDATETIME()` |  |
-| サンプルデータ | サンプルID | `BIGINT IDENTITY` | ○ |  |  | Rep1_運報自動化_Editor_サンプルデータ |
-| サンプルデータ | ファンドコード | `NVARCHAR(32)` |  |  |  |  |
-| サンプルデータ | データJSON | `NVARCHAR(MAX)` |  |  |  | プレビュー context |
-| サンプルデータ | 更新日時 | `DATETIME2(3)` |  | ○ |  |  |
+| 共通サンプル | 共通サンプルID | `BIGINT IDENTITY` | ○ |  |  | Rep1_運報自動化_Editor_共通サンプル。作成タブ系の表示値。合成は ID 昇順 |
+| 共通サンプル | カテゴリ | `NVARCHAR(64)` |  | ○ |  | パーツカタログの同名列と同じ文字列。下位を空にすると上位の分類全体の行、4 段とも空は全体共通の行 |
+| 共通サンプル | 大分類 | `NVARCHAR(64)` |  | ○ |  | 同上 |
+| 共通サンプル | 中分類 | `NVARCHAR(64)` |  | ○ |  | 同上 |
+| 共通サンプル | 小分類 | `NVARCHAR(64)` |  | ○ |  | 同上 |
+| 共通サンプル | データJSON | `NVARCHAR(MAX)` |  |  |  | トップレベルが object の JSON 断片。キーは行をまたいで重ねない（重なれば ID の小さい行を採る） |
+| 共通サンプル | 更新日時 | `DATETIME2(3)` |  | ○ |  |  |
+| 共通サンプル | 更新者 | `NVARCHAR(64)` |  | ○ |  |  |
+| 共通サンプル | 分類キー | 計算列（PERSISTED） |  |  |  | 分類 4 段を空文字列へ寄せてつないだもの。一意索引で分類の組を一意にする（書き込みには `QUOTED_IDENTIFIER ON` が要る） |
 | セッション | セッションID | `NVARCHAR(64)` | ○ |  |  | cookie editor.sid |
 | セッション | ログインID | `NVARCHAR(64)` |  |  |  |  |
 | セッション | 作成日時 | `DATETIME2(3)` |  |  | `SYSUTCDATETIME()` |  |
@@ -164,9 +171,9 @@ rev:
 | 7 | `user` | PWリセット | 管理者によるPWリセット（要PW変更） |
 | 8 | `user` | 認証情報取得 | ログイン認証用のハッシュ取得 |
 | 9 | `user` | PW初期化 | 初回PW設定（旧セッションの失効と同一トランザクション） |
-| 10 | `part` | 分類候補 | 分類ドロップダウン候補（カテゴリ/大/中/小）。`@版種` を渡すと、その版種のパーツと両版共通のパーツ（対象版種が NULL）の分類だけを返す。空なら全件 |
-| 11 | `part` | 一覧 | 分類フィルタでパーツカタログ一覧（`対象版種` を含む）。`@版種` の扱いは分類候補と同じ |
-| 12 | `sample` | 取得 | ファンド別サンプルデータ取得 |
+| 10 | `part` | 分類候補 | 分類ドロップダウン候補（カテゴリ/大/中/小）。`@版種` を渡すと、その版種のパーツと両版共通のパーツ（対象版種が NULL）の分類だけを返す。空なら全件。`@委託会社コード` を渡すと、`RTRIM` した委託会社コードが一致するパーツの分類だけを返す |
+| 11 | `part` | 一覧 | 分類フィルタでパーツカタログ一覧（`対象版種`・`委託会社コード` を含む）。`@版種` と `@委託会社コード` の扱いは分類候補と同じ |
+| 12 | `sample` | 共通一覧 | 共通サンプルの全行を ID 昇順で返す（引数なし。合成は server） |
 | 13 | `session` | 作成 | セッション発行 |
 | 14 | `session` | 取得 | セッション検証（期限/失効）＋ユーザー結合 |
 | 15 | `session` | 失効 | ログアウトで失効 |
