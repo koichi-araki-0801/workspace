@@ -39,8 +39,13 @@ interface EditorLoad {
    */
   sample: SampleData;
   /**
+   * 共通サンプルの合成の警告(`SampleDataResult.warnings`)。作成経路(4 区切りでない ID)だけ入れ、
+   * 編集経路では空。作成タブの読み込みで 1 回だけ通知する。
+   */
+  sampleWarnings: string[];
+  /**
    * 編集タブの値ファイル(`json/<ID>.json`)の中身。編集経路(4 区切りの ID)で取得したもの。
-   * 作成経路・取得失敗・ファイル無しのときは null(ファイル無しと失敗は `valuesFound` が false)。
+   * 作成経路では null。編集経路でファイルが無い・取得に失敗したときは `{}` で、`valuesFound` が false。
    */
   values: SampleData | null;
   /** 値ファイルが見つかったか。挿入時に「見つからない」警告を出すかの判断に使う。 */
@@ -118,12 +123,17 @@ export function createTemplateEditorService(
 
       // sample data は値の差込を駆動する。ここでの失敗が load をブロックしてはならない
       // (差込は空値になるだけ)。
+      const isEditId = parseTemplateFileName(`${id}.html`) !== null;
       let sample: SampleData = {};
+      let sampleWarnings: string[] = [];
       try {
         const sampleRes = await templates.getSampleData(id);
         // 版種・基準日(ファイル名由来)を被せる。getSampleData は版種・基準日を持たない。
-        if (!isErr(sampleRes))
+        if (!isErr(sampleRes)) {
           sample = applyTemplateAttributes(sampleRes.value.sample, tpl.meta.attributes);
+          // 共通サンプルは作成タブの値なので、合成の警告も作成経路でだけ返す。
+          if (!isEditId) sampleWarnings = sampleRes.value.warnings;
+        }
       } catch {
         /* sample は空のままにする */
       }
@@ -132,7 +142,7 @@ export function createTemplateEditorService(
       // 取得の失敗はテンプレートの読み込みを止めない(values は空、valuesFound は false)。
       let values: SampleData | null = null;
       let valuesFound = false;
-      if (parseTemplateFileName(`${id}.html`)) {
+      if (isEditId) {
         values = {};
         try {
           const valuesRes = await templates.getTemplateValues(id);
@@ -181,6 +191,7 @@ export function createTemplateEditorService(
         confirmedBody,
         css,
         sample,
+        sampleWarnings,
         values,
         valuesFound,
         parts: partsRes.value,

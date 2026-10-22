@@ -42,6 +42,7 @@ import {
   partLabelMap,
   partPathKeyFor,
 } from './partKey';
+import { type PartRenderContext, renderPartForInsert } from './partRender';
 import { useRedline } from './redline/useRedline';
 import { LEGACY_DRAFT_MESSAGE } from './services/legacyDraft';
 import { useTemplateEditorService } from './services/templateEditorService';
@@ -75,6 +76,13 @@ export function useTemplateEditor(
   const sessionStore = useEditorSessionStore();
   const fundAssets = useFundAssetRepo();
   const g = useGrapes({ inspectFundImages: (refs) => fundAssets.inspect(refs) });
+  /**
+   * 作成経路(`?created=1`)か。2 系統の見分けはこれだけで行う(設計正典「中核原則」)。読み込み時の
+   * 出し分けとパーツの挿入の描画が同じ判定を読む。
+   */
+  const isCreateRoute = computed(() => route.query.created === '1');
+  /** パーツの挿入に使う経路と値。読み込みが終わるまでは null で、挿入しない。 */
+  let partRenderCtx: PartRenderContext | null = null;
 
   // 編集セッション(履歴 + Undo/Redo)。プレビュー往復で EditorView が再マウントされても
   // ストア側に生存し、ここで `ensure` すると同一セッションが返って履歴が継続する。
@@ -384,15 +392,30 @@ export function useTemplateEditor(
     previewPart.value = p;
   }
 
-  /** 挿入したときだけ Undo・修正履歴・プレビュー選択を積む(`partInsert.ts`)。 */
+  /**
+   * カタログのパーツ(Jinja)を経路ごとの値で描いてから挿入する(`partRender.ts`)。描けなければ挿入
+   * せず、描けたが値の欠け等があれば挿入した後に警告を出す。挿入したときだけ Undo・修正履歴・
+   * プレビュー選択を積む(`partInsert.ts`)。
+   */
   function onPartInsert(p: PartCatalogItem) {
+    const ctx = partRenderCtx;
+    if (!ctx) return;
     insertPartUndoable(
       {
         canInsert: () => g.canInsertPart.value,
         beginUndo,
         commitUndo,
         cancelUndo,
-        insertPart: (content, partId) => g.insertPart(content, partId),
+        insertPart: (content, partId) => {
+          const r = renderPartForInsert(content, ctx);
+          if (!r.ok) {
+            toastError(r.error);
+            return false;
+          }
+          const inserted = g.insertPart(r.html, partId);
+          if (inserted) for (const w of r.warnings) toast(w);
+          return inserted;
+        },
         // 挿入直後の part も現在の lock state に従わせる。
         setEditable: () => g.setEditable(allowEdit.value),
         setPreview: (part) => {
@@ -504,21 +527,26 @@ export function useTemplateEditor(
     // ある — `setInitialZoom` は次の `applyInitialZoom` 呼び出しの基準値を差し替えるだけ)。
     g.setInitialZoom(sess.ui.zoom ?? 1);
     g.setSinglePageMode(sess.ui.singlePageMode);
-    const isCreateRoute = route.query.created === '1';
     // Jinja を含む本文の `<style>` は、作成経路だけ `toFilled` と同じサンプルで描画して canvas で
     // 効かせる。編集経路の本文は値入りで、`<style>` は描画済みの素の要素なので渡さない。
-    g.setStyleSample(isCreateRoute ? res.value.sample : null);
+    g.setStyleSample(isCreateRoute.value ? res.value.sample : null);
+    // 挿入するパーツは、作成経路では本文と同じ共通サンプルで、編集経路では値ファイルの値で描く。
+    partRenderCtx = isCreateRoute.value
+      ? { route: 'create', sample: res.value.sample }
+      : { route: 'edit', values: res.value.values ?? {}, valuesFound: res.value.valuesFound };
+    // 共通サンプルの合成の警告(キーの重複・壊れた行)は作成経路の読み込みで 1 回だけ知らせる。
+    if (isCreateRoute.value) for (const w of res.value.sampleWarnings) toast(w);
     const tplUpdatedAt = res.value.template.meta.updatedAt;
     // 本文の読み込みと、確定版の正規形・CSS の baseline の測定(下書きから開くときは確定版を
     // 先に quiet load する)。順序と測る時点の理由は `openCanvas.ts` を見よ。
     const opened = openCanvas(g, {
-      isCreateRoute,
+      isCreateRoute: isCreateRoute.value,
       hasDraft: res.value.hasDraft,
       confirmedBody: res.value.confirmedBody,
       confirmedCss: res.value.template.css,
       editableBody: res.value.editableBody,
       css: res.value.css,
-      cachedCanonical: isCreateRoute ? null : readConfirmedCanonical(id, tplUpdatedAt),
+      cachedCanonical: isCreateRoute.value ? null : readConfirmedCanonical(id, tplUpdatedAt),
     });
     // service の入口ガードを通っていれば false にはならないが、拒否された場合は空の
     // エディタ枠を残さず一覧へ戻す(不正 id と同じ後始末)。トーストは load が出している。
@@ -540,14 +568,14 @@ export function useTemplateEditor(
     });
     // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
     // なので出さない。設計正典.md「編集 2 系統」を参照。
-    g.setVarsHighlight(isCreateRoute);
+    g.setVarsHighlight(isCreateRoute.value);
     // locked 状態で開始する(allowEdit の既定は false)。
     g.setEditable(allowEdit.value);
     // 赤入れの基準は確定版の値埋め込み本文(`loadForEdit` が `filled` または `toFilled` で
     // 解決する)。`template.filled` を直に読まないのは、作成経路の未確定テンプレ(`pending/`)では
     // `filled` が空になり、基準が無いまま機能が黙って死ぬため。作成経路(`?created=1`)は確定版
     // そのものが無いので機能を出さない。
-    redline.setBaseline(isCreateRoute ? undefined : res.value.confirmedBody);
+    redline.setBaseline(isCreateRoute.value ? undefined : res.value.confirmedBody);
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
     void note.reload();

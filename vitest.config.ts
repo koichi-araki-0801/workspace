@@ -218,6 +218,8 @@ export default defineConfig({
         'editor/web/src/features/editor/insertTarget.ts',
         // パーツの追加で Undo・修正履歴・プレビュー選択を積むかの分岐。
         'editor/web/src/features/editor/partInsert.ts',
+        // 挿入するパーツを経路ごとの値で描く(編集タブは地の HTML、作成タブはチップ付き)。
+        'editor/web/src/features/editor/partRender.ts',
         // 保留した Undo を、変化の有無で確定か破棄かに分ける 1 手の包み。
         'editor/web/src/features/editor/undoStep.ts',
         // 同じ処理の連続予約を次の描画フレーム 1 回へ集約する。

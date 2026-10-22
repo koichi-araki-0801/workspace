@@ -173,13 +173,15 @@ export function renderDisplay(
 }
 
 /**
- * 往復用の印を出さずに Jinja を値入りの HTML へ描く。用途は 2 つ。
+ * 往復用の印を出さずに Jinja を値入りの HTML へ描く。用途は 3 つ。
  *   1. 編集タブ用の値入り HTML(local の fixture)の生成。本番の `filled/` は別ツールが置く値埋め込み
  *      済みのファイルで往復用の印を持たないので、fixture も印を出さない描画器だけで作る(`toFilled` は
  *      作成タブ用)。
  *   2. 作成タブの canvas(本番の経路でも)で、Jinja を含む本文の `<style>` をサンプルで描いて canvas
  *      専用の複製に入れる(`bodyStyle.ts` の `renderJinjaStyleCss`)。複製は保存内容に載らない。
- * 壊れたテンプレートは黙って通さず例外で止める。2 の呼び出し側はそれを受けて複製を作らない。
+ *   3. 編集タブへ挿入するカタログのパーツを、値ファイルの値で地の HTML にする(web の `partRender.ts`)。
+ * 壊れたテンプレートは黙って通さず例外で止める。2 の呼び出し側はそれを受けて複製を作らず、3 の
+ * 呼び出し側は挿入を止める。
  */
 export function renderPlainFilled(
   raw: string,

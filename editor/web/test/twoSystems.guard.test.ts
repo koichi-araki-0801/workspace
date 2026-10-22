@@ -9,14 +9,17 @@
 //     退行。→ ファンド間で主要値(`fund.nav`)が異なる、を検証。
 //   - 点灯ずれ型: タブ点灯の写像が `created` query 以外の根拠を見て、作成経路の編集画面が
 //     「編集」タブに点灯する退行。→ 写像は query のみで決まる、を検証。
+//   - 挿入の混線型: カタログのパーツを経路と違う値・形で描き、編集タブへチップや印が入る退行。
+//     → 編集タブの挿入は地の HTML、作成タブの挿入は共通サンプルで描く、を検証。
 import fs from 'node:fs';
 import path from 'node:path';
-import { findEditingMarkers } from '@editor/shared';
+import { findEditingMarkers, type SampleData, sampleCommon } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import sample110024 from '@/api/fixtures/sample/110024.json';
 import sample510037 from '@/api/fixtures/sample/510037.json';
 import { jinjaChipCanvasCss } from '@/features/editor/jinjaComponents';
 import { pagebreakCanvasCss } from '@/features/editor/pagebreakCanvas';
+import { renderPartForInsert } from '@/features/editor/partRender';
 import { tabOf } from '@/features/layout/tabOf';
 
 /** CSS を `セレクタ → 宣言ブロック本文` の素朴な対に分解する(コメント除去・ネスト無し前提)。 */
@@ -98,6 +101,36 @@ describe('editor 2系統の原則: タブ点灯の写像', () => {
     expect(tabOf({ name: 'editor', query: { created: '1' } })).toBe('create');
     expect(tabOf({ name: 'preview', query: {} })).toBe('edit');
     expect(tabOf({ name: 'preview', query: { created: '1' } })).toBe('create');
+  });
+});
+
+describe('editor 2系統の原則: カタログのパーツの挿入', () => {
+  const part = '<div class="part"><p>{{ fund.name }}</p></div>';
+  const editorSrc = () =>
+    fs.readFileSync(path.resolve(__dirname, '../src/features/editor/useTemplateEditor.ts'), 'utf8');
+
+  it('編集タブで挿入したパーツはハイライトの対象にならない', () => {
+    const r = renderPartForInsert(part, {
+      route: 'edit',
+      values: sample510037 as SampleData,
+      valuesFound: true,
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.html).toContain(String((sample510037 as { fund: { name: string } }).fund.name));
+    expect(r.html).not.toMatch(/jinja-chip|jinja-var|data-jinja|data-opaque/);
+    expect(findEditingMarkers(r.html)).toEqual([]);
+    // 経路の見分けは `route.query.created === '1'` だけ。挿入の描画も同じ判定から経路を選ぶ。
+    expect(editorSrc()).toMatch(/isCreateRoute\.value\s*\?\s*\{ route: 'create'/);
+  });
+
+  it('作成タブで挿入したパーツは共通サンプルの値で描かれる', () => {
+    const r = renderPartForInsert(part, { route: 'create', sample: sampleCommon });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.html).toContain(String((sampleCommon as { fund: { name: string } }).fund.name));
+    // 作成経路の値は読み込み時の共通サンプル(`EditorLoad.sample`)で、値ファイルではない。
+    expect(editorSrc()).toMatch(/\{ route: 'create', sample: res\.value\.sample \}/);
   });
 });
 

@@ -488,6 +488,37 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     if (isOk(res)) expect(res.value.fundName).toBe('t1'); // sample が空なのでファイル名フォールバック
   });
 
+  describe('共通サンプルの合成の警告', () => {
+    const withWarnings = () => {
+      const { templates, parts } = repos({ draft: null });
+      (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>
+        ok({ sample: {}, warnings: ['キー holdings が重複しています'] }),
+      );
+      (templates as unknown as { getTemplateValues: unknown }).getTemplateValues = vi.fn(async () =>
+        ok({ found: true, values: {} }),
+      );
+      return createTemplateEditorService(templates, parts);
+    };
+
+    it('作成経路(3 区切りの ID)では EditorLoad.sampleWarnings に入れる', async () => {
+      const res = await withWarnings().loadForEdit('AM01_510037_交付版');
+      expect(isOk(res) && res.value.sampleWarnings).toEqual(['キー holdings が重複しています']);
+    });
+
+    it('編集経路(4 区切りの ID)では空にする', async () => {
+      const res = await withWarnings().loadForEdit('AM01_510037_20240710_交付版');
+      expect(isOk(res) && res.value.sampleWarnings).toEqual([]);
+    });
+
+    it('サンプルの取得に失敗したら空', async () => {
+      const res = await createTemplateEditorService(
+        repos({ draft: null }).templates,
+        repos({ draft: null }).parts,
+      ).loadForEdit('AM01_510037_交付版');
+      expect(isOk(res) && res.value.sampleWarnings).toEqual([]);
+    });
+  });
+
   describe('値ファイル', () => {
     const FILLED_ID = 'AM01_510037_20240710_交付版';
     const withValues = (getTemplateValues: unknown) => {
