@@ -279,6 +279,8 @@ export * from './jinja/fillRender.js';
 export * from './jinja/jinjaExpr.js';
 export * from './jinja/jinjaLex.js';
 export * from './jinja/jinjaTree.js';
+// `safe` の値を生で置く許可リスト。web の canvas の刈り取りと server の関所が部分集合かを検査する。
+export { SAFE_MARKUP_ATTRS, SAFE_MARKUP_TAGS } from './jinja/safeMarkup.js';
 // プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。
 export * from './preview/hostProtocol.js';
 // Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。

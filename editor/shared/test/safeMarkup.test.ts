@@ -69,7 +69,8 @@ describe('isAllowedSafeMarkup — 生で置いてよい形か(疑わしければ
     '<p>段落</p><ul><li>1</li></ul>',
     '<table><tr><td colspan=2>1</td></tr></table>',
     '<span style="color: red; font-weight: bold">x</span>',
-    '<FONT COLOR="red">x</FONT>',
+    '<SPAN CLASS="red">x</SPAN>',
+    '<span style="font-weight: bold; text-align: center">x</span>',
     'a -- b > c & f',
     '',
   ])('%s は通す', (html) => {
@@ -113,6 +114,11 @@ describe('isAllowedSafeMarkup — 生で置いてよい形か(疑わしければ
     ['大文字の script', '<SCRIPT>1</SCRIPT>'],
     ['外来要素', '<svg><script>1</script></svg>'],
     ['文書の骨組み', '<body onload="x"></body>'],
+    ['canvas の刈り取りに無い要素(font)', '<font>x</font>'],
+    ['古い見た目用の属性(color)', '<span color="red">x</span>'],
+    ['古い見た目用の属性(align)', '<p align="center">x</p>'],
+    ['style の position', '<div style="position:fixed;top:0;width:100%">x</div>'],
+    ['style の position(大文字・空白)', '<div style="color:red; POSITION : absolute">x</div>'],
     ['往復用のチップ', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
     ['固めた要素の印', '<div data-opaque="eA==" data-opaque-kind="body">x</div>'],
   ])('%s: %s は通さない', (_, html) => {

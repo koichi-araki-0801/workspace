@@ -20,8 +20,13 @@ import { findEditingMarkers } from '../security/editingMarkers.js';
 
 // ── 1. 値の形 ──
 
-/** 帳票の注記で使う書式の要素。URL・実行・フォームに関わる要素は入れない。 */
-const ALLOWED_TAGS: ReadonlySet<string> = new Set([
+/**
+ * 帳票の注記で使う書式の要素。URL・実行・フォームに関わる要素は入れない。生で置いた値は web の
+ * canvas の入口の刈り取り(`sanitizeHtml.ts` の `pruneCanvasActiveContent`)を通るので、その許可リストに
+ * 無い要素(`font` など)を足すと、値が中身ごと消える。足すときは刈り取りの許可リストにあることを
+ * 確かめる(`safeMarkupGates` のテストが web と server の両方で検査する)。
+ */
+export const SAFE_MARKUP_TAGS: ReadonlySet<string> = new Set([
   'b',
   'i',
   'u',
@@ -52,7 +57,6 @@ const ALLOWED_TAGS: ReadonlySet<string> = new Set([
   'caption',
   'colgroup',
   'col',
-  'font',
   'mark',
   'ruby',
   'rt',
@@ -70,8 +74,13 @@ const ALLOWED_TAGS: ReadonlySet<string> = new Set([
 
 const VOID_TAGS: ReadonlySet<string> = new Set(['br', 'hr', 'col']);
 
-/** 見た目だけに効く属性。URL・実行・id(canvas の要素の取り違え)に関わる属性は入れない。 */
-const ALLOWED_ATTRS: ReadonlySet<string> = new Set([
+/**
+ * 見た目だけに効く属性。URL・実行・id(canvas の要素の取り違え)に関わる属性は入れない。canvas の
+ * 刈り取りの許可リストと、server の描き直しの関所(`templateScripts.ts` の `INERT_ATTRS`)の両方に
+ * ある属性だけにする。刈り取りに無ければ canvas で落ち、関所に無ければ能動コンテンツの並びが変わった
+ * として描き直しを見送るので、古い見た目用の属性(`align` `color` `size` など)は入れない。
+ */
+export const SAFE_MARKUP_ATTRS: ReadonlySet<string> = new Set([
   'class',
   'style',
   'title',
@@ -80,17 +89,8 @@ const ALLOWED_ATTRS: ReadonlySet<string> = new Set([
   'colspan',
   'rowspan',
   'span',
-  'align',
-  'valign',
   'width',
   'height',
-  'color',
-  'size',
-  'face',
-  'border',
-  'cellpadding',
-  'cellspacing',
-  'nowrap',
 ]);
 
 // 空白は HTML の 5 文字だけ(ブラウザが属性の区切りに使う文字と揃える)。区切りの `/` は受けない。
@@ -107,14 +107,30 @@ const ATTR_RE = new RegExp(ATTR, 'g');
  */
 const SAFE_STYLE_RE = /^[\p{L}\p{N}\t\n\f\r #%.,:;!'-]*$/u;
 
+/**
+ * 文字は通っても置かせない宣言の名前。`position`(`fixed` / `absolute`)は値の要素を本文の外へ出して、
+ * ページ全体に重ねて見せられる(`position:fixed;top:0;width:100%`)。
+ */
+const DENIED_STYLE_PROPS: ReadonlySet<string> = new Set(['position']);
+
+function styleAllowed(style: string): boolean {
+  if (!SAFE_STYLE_RE.test(style)) return false;
+  for (const decl of style.split(';')) {
+    const colon = decl.indexOf(':');
+    const prop = (colon < 0 ? decl : decl.slice(0, colon)).trim().toLowerCase();
+    if (DENIED_STYLE_PROPS.has(prop)) return false;
+  }
+  return true;
+}
+
 /** 属性値の引用符を外す(`ATTR` の値は引用符つきか英数字だけ)。 */
 const unquote = (v: string) => (/^["']/.test(v) ? v.slice(1, -1) : v);
 
 function attrsAllowed(attrs: string): boolean {
   for (const m of attrs.matchAll(ATTR_RE)) {
     const name = m[1].toLowerCase();
-    if (!ALLOWED_ATTRS.has(name)) return false;
-    if (name === 'style' && !SAFE_STYLE_RE.test(unquote(m[2] ?? ''))) return false;
+    if (!SAFE_MARKUP_ATTRS.has(name)) return false;
+    if (name === 'style' && !styleAllowed(unquote(m[2] ?? ''))) return false;
   }
   return true;
 }
@@ -148,7 +164,7 @@ export function isAllowedSafeMarkup(html: string): boolean {
     const start = START_TAG_RE.exec(html);
     if (!start) return false;
     const name = start[1].toLowerCase();
-    if (!ALLOWED_TAGS.has(name) || !attrsAllowed(start[2])) return false;
+    if (!SAFE_MARKUP_TAGS.has(name) || !attrsAllowed(start[2])) return false;
     // `<b/>` も HTML では開くので、空要素でなければ閉じを求める。
     if (!VOID_TAGS.has(name)) stack.push(name);
     i = START_TAG_RE.lastIndex;
