@@ -177,6 +177,36 @@ describe('reflectNoteMasterAfterConfirm', () => {
     expect(paramMap(callSprocMock.mock.calls[0]?.[2] ?? []).注記HTML).toContain('値入り注記');
   });
 
+  it('値入り HTML の承認では、カタログの内容HTML が Jinja を含むパーツを書き戻さない', async () => {
+    // 編集タブで挿入した Jinja パーツは承認したファンドの値で描かれており、マスタへ載せると
+    // 次回作成のテンプレへその基準日の値が固定文として入る。
+    listPartsMock.mockResolvedValue([
+      { ...catalogItem('note-j', '反映'), content: '<p>{{ fund.name }}</p>' },
+      { ...catalogItem('note-plain', '反映'), content: '<p>固定</p>' },
+    ]);
+    readFilledHtmlMock.mockResolvedValue(
+      doc(part('note-j', 'ファンドA'), part('note-plain', '固定')),
+    );
+    callSprocMock.mockResolvedValue([]);
+
+    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'u', 'filled');
+
+    expect(res).toEqual({ updated: ['note-plain'], error: null });
+    expect(callSprocMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('テンプレートの承認では今までどおり書き戻す', async () => {
+    listPartsMock.mockResolvedValue([
+      { ...catalogItem('note-j', '反映'), content: '<p>{{ fund.name }}</p>' },
+    ]);
+    readTemplateHtmlMock.mockResolvedValue(doc(part('note-j', '{{ fund.name }}')));
+    callSprocMock.mockResolvedValue([]);
+
+    const res = await reflectNoteMasterAfterConfirm('AM01_510037_交付版', 'u', 'template');
+
+    expect(res).toEqual({ updated: ['note-j'], error: null });
+  });
+
   it('Error でない失敗値も文字列化して error へ載せる', async () => {
     readTemplateHtmlMock.mockResolvedValue(doc(part('note-a', 'A')));
     listPartsMock.mockRejectedValue('文字列 reject');

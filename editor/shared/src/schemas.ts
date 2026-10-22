@@ -483,6 +483,14 @@ export const PairSyncSummary = z
     skipped: z
       .array(z.object({ partKey: z.string(), reason: z.string() }))
       .meta({ description: '転写しなかったパーツと理由(競合・初期差分・未判断など)' }),
+    // 保存済みの承認結果(この欄が無い)も読めるよう既定を空にする。
+    valueWarnings: z
+      .array(z.object({ partKey: z.string(), reason: z.string() }))
+      .default([])
+      .meta({
+        description:
+          '写したが値を確かめてほしいパーツと理由(写し元の値のまま写した・写し先の値が欠けた)',
+      }),
     css: z
       .object({
         applied: z.array(z.string()).meta({ description: 'ペアの CSS へ写した規則のキー' }),

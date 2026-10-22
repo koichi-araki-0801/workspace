@@ -274,6 +274,7 @@ export * from './errors.js';
 export * from './html/htmlLex.js';
 export * from './html/rawText.js';
 // Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
+export * from './jinja/containsJinja.js';
 export * from './jinja/fillRender.js';
 export * from './jinja/jinjaExpr.js';
 export * from './jinja/jinjaLex.js';

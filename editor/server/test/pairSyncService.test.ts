@@ -68,13 +68,15 @@ const syncCommits = () =>
 
 d('pairSyncService', () => {
   let svc: import('../src/sync/pairSyncService.js').PairSyncService;
-  const listParts = async () => [{ id: 'a', syncDefault: '同期' }];
+  const listParts = async () => [{ id: 'a', syncDefault: '同期', content: '' }];
+  /** 値ファイルを持たない読み手(Jinja パーツの無い既存のテストは描き直しを通らない)。 */
+  const noValues = { read: async () => ({ found: false, values: {} }) };
 
   beforeAll(async () => {
     const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
     // カタログは 1 パーツだけ。同期既定=同期 のパーツが転写の対象になる。
     const parts = { listParts: () => listParts(), getPartClassificationOptions: async () => ({}) };
-    svc = createPairSyncService(parts as never);
+    svc = createPairSyncService(parts as never, noValues);
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -104,12 +106,12 @@ d('pairSyncService', () => {
   }, async () => {
     const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
     const spy = vi.fn(async (_q: unknown) => [
-      { id: 'a', syncDefault: '同期', targetEdition: '全体版' },
+      { id: 'a', syncDefault: '同期', targetEdition: '全体版', content: '' },
     ]);
-    const only = createPairSyncService({
-      listParts: spy,
-      getPartClassificationOptions: async () => ({}),
-    } as never);
+    const only = createPairSyncService(
+      { listParts: spy, getPartClassificationOptions: async () => ({}) } as never,
+      noValues,
+    );
     put('templates', 'AM01_510124_交付版', doc(part('a', '旧')));
     put('templates', 'AM01_510124_全体版', doc(part('a', '旧')));
     const opts = { css: { before: '', baseline: '' } };
@@ -158,7 +160,7 @@ d('pairSyncService', () => {
         },
         getPartClassificationOptions: async () => ({}),
       };
-      return createPairSyncService(broken as never).syncPairAfterConfirm(
+      return createPairSyncService(broken as never, noValues).syncPairAfterConfirm(
         'AM01_510003_交付版',
         'approver1',
         'template',
@@ -506,5 +508,121 @@ d('pairSyncService', () => {
     const state = JSON.parse(fs.readFileSync(syncFile('AM01_591000'), 'utf8'));
     expect(state.css.conflicts).toHaveLength(1);
     expect(Object.keys(state.parts)).not.toHaveLength(0);
+  });
+
+  describe('編集タブで挿入した Jinja パーツ', () => {
+    // カタログの `内容HTML` が Jinja を含むパーツ `j`。編集タブでは写し元の値で描いた地の HTML が
+    // 本文に入っている(根に `data-part-id`)。
+    const J_CONTENT = '<section class="note"><p>{{ fund.name }}の注記</p></section>';
+    const jPart = (text: string) =>
+      `<section class="note" data-part-id="j"><p>${text}の注記</p></section>`;
+    const valueFiles = new Map<string, Record<string, unknown>>();
+    const readValues = vi.fn(async (id: string) => {
+      const v = valueFiles.get(id);
+      return v ? { found: true, values: v } : { found: false, values: {} };
+    });
+    let jsvc: import('../src/sync/pairSyncService.js').PairSyncService;
+
+    beforeAll(async () => {
+      const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
+      const catalog = [
+        { id: 'a', syncDefault: '同期', content: '<section><p>固定</p></section>' },
+        { id: 'j', syncDefault: '同期', content: J_CONTENT },
+      ];
+      jsvc = createPairSyncService(
+        { listParts: async () => catalog, getPartClassificationOptions: async () => ({}) } as never,
+        { read: readValues },
+      );
+    });
+
+    it('4 区切りの承認では、写し先の値ファイルで描き直してから転写する', {
+      timeout: 60_000,
+    }, async () => {
+      valueFiles.set('AM01_600000_20240710_交付版', { fund: { name: '交付ファンド' } });
+      valueFiles.set('AM01_600000_20240710_全体版', { fund: { name: '全体ファンド' } });
+      put('filled', 'AM01_600000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド')));
+      put('filled', 'AM01_600000_20240710_全体版', doc(part('a', 'x')));
+      const r = await jsvc.syncPairAfterConfirm('AM01_600000_20240710_交付版', 'u', 'filled', {
+        css: null,
+      });
+      expect(r?.error).toBeNull();
+      expect(r?.applied).toEqual(['j#1']);
+      expect(r?.valueWarnings).toEqual([]);
+      const pair = read('filled', 'AM01_600000_20240710_全体版');
+      expect(pair).toContain('全体ファンドの注記');
+      expect(pair).not.toContain('交付ファンド');
+      expect(pair).toContain('data-part-id="j"');
+      // 承認された写し元の本文は書き換えない。
+      expect(read('filled', 'AM01_600000_20240710_交付版')).toContain('交付ファンドの注記');
+    });
+
+    it('直したパーツはそのまま写し、valueWarnings に「<版種>の値のまま写したので、値を確かめてください」を積む', {
+      timeout: 60_000,
+    }, async () => {
+      valueFiles.set('AM01_610000_20240710_交付版', { fund: { name: '交付ファンド' } });
+      valueFiles.set('AM01_610000_20240710_全体版', { fund: { name: '全体ファンド' } });
+      put('filled', 'AM01_610000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド(改)')));
+      put('filled', 'AM01_610000_20240710_全体版', doc(part('a', 'x')));
+      const r = await jsvc.syncPairAfterConfirm('AM01_610000_20240710_交付版', 'u', 'filled', {
+        css: null,
+      });
+      expect(r?.applied).toEqual(['j#1']);
+      expect(r?.valueWarnings).toEqual([
+        { partKey: 'j#1', reason: '交付版の値のまま写したので、値を確かめてください' },
+      ]);
+      expect(read('filled', 'AM01_610000_20240710_全体版')).toContain('交付ファンド(改)の注記');
+    });
+
+    it('写し先の値ファイルが無ければ空欄で描き、valueWarnings に積む', {
+      timeout: 60_000,
+    }, async () => {
+      valueFiles.set('AM01_620000_20240710_交付版', { fund: { name: '交付ファンド' } });
+      put('filled', 'AM01_620000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド')));
+      put('filled', 'AM01_620000_20240710_全体版', doc(part('a', 'x')));
+      const r = await jsvc.syncPairAfterConfirm('AM01_620000_20240710_交付版', 'u', 'filled', {
+        css: null,
+      });
+      expect(r?.applied).toEqual(['j#1']);
+      expect(r?.valueWarnings).toEqual([
+        {
+          partKey: 'j#1',
+          reason: '全体版の値ファイル（json）が見つからないため、値を空欄で写しました',
+        },
+      ]);
+      const pair = read('filled', 'AM01_620000_20240710_全体版');
+      expect(pair).toContain('<p>の注記</p>');
+      expect(pair).not.toContain('交付ファンド');
+    });
+
+    it('写し先の値ファイルに値が欠ければ、欠けた名前を valueWarnings に積む', {
+      timeout: 60_000,
+    }, async () => {
+      valueFiles.set('AM01_621000_20240710_交付版', { fund: { name: '交付ファンド' } });
+      valueFiles.set('AM01_621000_20240710_全体版', { other: 1 });
+      put('filled', 'AM01_621000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド')));
+      put('filled', 'AM01_621000_20240710_全体版', doc(part('a', 'x')));
+      const r = await jsvc.syncPairAfterConfirm('AM01_621000_20240710_交付版', 'u', 'filled', {
+        css: null,
+      });
+      expect(r?.valueWarnings).toEqual([
+        { partKey: 'j#1', reason: '次の値が見つからないため空欄で写しました: fund.name' },
+      ]);
+    });
+
+    it('3 区切り(テンプレート)の承認では描き直さない', {
+      timeout: 60_000,
+    }, async () => {
+      readValues.mockClear();
+      const raw = J_CONTENT.replace('<section', '<section data-part-id="j"');
+      put('templates', 'AM01_630000_交付版', doc(part('a', 'x'), raw));
+      put('templates', 'AM01_630000_全体版', doc(part('a', 'x')));
+      const r = await jsvc.syncPairAfterConfirm('AM01_630000_交付版', 'u', 'template', {
+        css: null,
+      });
+      expect(r?.applied).toEqual(['j#1']);
+      expect(r?.valueWarnings).toEqual([]);
+      expect(readValues).not.toHaveBeenCalled();
+      expect(read('templates', 'AM01_630000_全体版')).toContain('{{ fund.name }}の注記');
+    });
   });
 });

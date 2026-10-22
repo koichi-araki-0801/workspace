@@ -4515,6 +4515,27 @@
             },
             "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
           },
+          "valueWarnings": {
+            "default": [],
+            "description": "写したが値を確かめてほしいパーツと理由(写し元の値のまま写した・写し先の値が欠けた)",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "partKey",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
           "css": {
             "anyOf": [
               {
@@ -4563,6 +4584,7 @@
           "pairTemplateId",
           "applied",
           "skipped",
+          "valueWarnings",
           "css",
           "error"
         ],

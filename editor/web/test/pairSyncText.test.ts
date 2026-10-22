@@ -18,6 +18,7 @@ const summary = (over: Partial<PairSyncSummary>): PairSyncSummary => ({
   pairTemplateId: 'AM01_510037_20240710_全体版',
   applied: [],
   skipped: [],
+  valueWarnings: [],
   css: null,
   error: null,
   ...over,
@@ -157,6 +158,24 @@ describe('pairSyncResultText', () => {
       )?.text,
     ).toBe(
       'ペア AM01_510037_20240710_全体版 へ 1 パーツ・書式 2 規則を自動同期しました・スキップ 1 件(要確認)',
+    );
+  });
+
+  it('値を確かめてほしいパーツは、キーと理由を並べて添える', () => {
+    expect(
+      pairSyncResultText(
+        summary({
+          applied: ['j#1', 'k#1'],
+          valueWarnings: [
+            { partKey: 'j#1', reason: '交付版の値のまま写したので、値を確かめてください' },
+            { partKey: 'k#1', reason: '次の値が見つからないため空欄で写しました: fund.name' },
+          ],
+        }),
+      )?.text,
+    ).toBe(
+      'ペア AM01_510037_20240710_全体版 へ 2 パーツを自動同期しました。値の確認: ' +
+        'j#1〔交付版の値のまま写したので、値を確かめてください〕、' +
+        'k#1〔次の値が見つからないため空欄で写しました: fund.name〕',
     );
   });
 });

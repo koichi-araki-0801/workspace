@@ -58,7 +58,9 @@ d('承認とペアの CSS 転写', () => {
     const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
     const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
     const parts = { listParts: async () => [], getPartClassificationOptions: async () => ({}) };
-    pairSync = createPairSyncService(parts as never);
+    pairSync = createPairSyncService(parts as never, {
+      read: async () => ({ found: false, values: {} }),
+    });
     reviews = createReviewRepo({
       pairSync,
       noteMaster: { reflectNoteMasterAfterConfirm: async () => null } as never,

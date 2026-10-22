@@ -88,8 +88,14 @@ export function pairSyncResultText(
   if (sync.applied.length === 0 && cssApplied === 0 && skipped === 0) return null;
   const cssNote = cssApplied > 0 ? `・書式 ${cssApplied} 規則` : '';
   const skippedNote = skipped > 0 ? `・スキップ ${skipped} 件(要確認)` : '';
+  // 写したパーツのうち値を確かめてほしいもの(写し元の値のまま・写し先の値が欠けた)。理由は
+  // server が利用者向けの文で返すので、パーツのキーに添えてそのまま出す。
+  const valueNote =
+    sync.valueWarnings.length > 0
+      ? `。値の確認: ${sync.valueWarnings.map((w) => `${w.partKey}〔${w.reason}〕`).join('、')}`
+      : '';
   return {
-    text: `ペア ${sync.pairTemplateId} へ ${sync.applied.length} パーツ${cssNote}を自動同期しました${skippedNote}`,
+    text: `ペア ${sync.pairTemplateId} へ ${sync.applied.length} パーツ${cssNote}を自動同期しました${skippedNote}${valueNote}`,
     variant: 'default',
   };
 }

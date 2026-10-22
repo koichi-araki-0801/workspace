@@ -16,12 +16,19 @@
 // (承認)は承認の直前の CSS(書く前に読む原文)と、申請に載った baseline(確定版の CSS を
 // 編集画面が読み込んだ直後の形)を渡す(状態の記録は増やさない)。CSS の競合は基準日をまたぐ
 // ので、値入り HTML の承認でもテンプレのペアキー(`cssSyncPairKey`)の状態ファイルへ書く。
+//
+// 値入り HTML の承認では、編集タブで挿入した Jinja パーツを転写の計算の前に写し先の値で描き直す
+// (`jinjaPartRerender.ts`)。手で直したパーツと、写し先の値が欠けたパーツは、写したうえで
+// `PairSyncSummary.valueWarnings` に理由を返す。
 
 import {
+  containsJinja,
   type PairSyncStatus,
   type PairSyncSummary,
+  type PartCatalogItem,
   pairedTemplateId,
   parseAnyTemplateFileName,
+  type TemplateValues,
   templatePairKey,
 } from '@editor/shared';
 import { readConfirmedHtml } from '../files/confirmedHtml.js';
@@ -32,7 +39,13 @@ import { logger } from '../logger.js';
 import { applyConfirmedWrite, type ConfirmedTarget } from '../repositories/confirmedWrite.js';
 import type { PartRepo } from '../repositories/partRepo.js';
 import { computeCssSync, cssSyncPairKey } from './cssSync.js';
+import { rerenderUneditedJinjaParts } from './jinjaPartRerender.js';
 import { computePairSync, type PairSyncState } from './partSync.js';
+
+/** 値入り HTML の ID の値ファイル(`files/valuesFile.ts` の `readTemplateValues`)の読み手。 */
+interface TemplateValuesReader {
+  read(templateId: string): Promise<TemplateValues>;
+}
 
 /** CSS の転写の入力(`computeCssSync` の `base` / `baseline`)。 */
 export interface PairCssSource {
@@ -56,7 +69,63 @@ export interface PairSyncService {
   ): Promise<PairSyncSummary | null>;
 }
 
-export function createPairSyncService(parts: PartRepo): PairSyncService {
+const editedWarning = (sourceEdition: string): string =>
+  `${sourceEdition}の値のまま写したので、値を確かめてください`;
+const valuesNotFoundWarning = (targetEdition: string): string =>
+  `${targetEdition}の値ファイル（json）が見つからないため、値を空欄で写しました`;
+
+/**
+ * 値入り HTML の承認で、編集タブで挿入した Jinja パーツを写し先の値で描き直す
+ * (`jinjaPartRerender.ts`)。返す警告は、写したパーツについて値を確かめてほしい理由。
+ * カタログに Jinja を含むパーツが無ければ値ファイルを読まない。
+ */
+async function rerenderForPair(
+  values: TemplateValuesReader,
+  input: {
+    sourceHtml: string;
+    catalog: readonly PartCatalogItem[];
+    sourceTemplateId: string;
+    pairId: string;
+    sourceEdition: string;
+    targetEdition: string;
+  },
+): Promise<{ html: string; warnings: Map<string, string[]> }> {
+  const jinjaCatalog = new Map(
+    input.catalog.filter((p) => containsJinja(p.content)).map((p) => [p.id, p.content]),
+  );
+  const warnings = new Map<string, string[]>();
+  if (jinjaCatalog.size === 0) return { html: input.sourceHtml, warnings };
+  const [source, target] = await Promise.all([
+    values.read(input.sourceTemplateId),
+    values.read(input.pairId),
+  ]);
+  const r = rerenderUneditedJinjaParts({
+    sourceHtml: input.sourceHtml,
+    catalog: jinjaCatalog,
+    sourceValues: source.values,
+    targetValues: target.values,
+  });
+  for (const key of r.edited) warnings.set(key, [editedWarning(input.sourceEdition)]);
+  if (!target.found) {
+    // 値ファイルが無いと欠けた値は全部になるだけなので、無いことだけを知らせる(挿入時と同じ)。
+    for (const key of r.rerendered) warnings.set(key, [valuesNotFoundWarning(input.targetEdition)]);
+  } else {
+    for (const b of r.blanks) {
+      const list: string[] = [];
+      if (b.missing.length > 0)
+        list.push(`次の値が見つからないため空欄で写しました: ${b.missing.join('、')}`);
+      if (b.unsupported.length > 0)
+        list.push(`次の書き方は描画できないため空欄で写しました: ${b.unsupported.join('、')}`);
+      warnings.set(b.partKey, list);
+    }
+  }
+  return { html: r.html, warnings };
+}
+
+export function createPairSyncService(
+  parts: PartRepo,
+  values: TemplateValuesReader,
+): PairSyncService {
   return {
     /**
      * ペア同期の現況(編集画面バナー用)。状態ファイルから未解決競合だけを軽量ビューへ写す。
@@ -145,8 +214,22 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
         const state = await readSyncState(bodyKey);
         const cssIn = await readCssInputs(bodyKey, state);
         const now = new Date().toISOString();
+        // 編集タブで挿入した Jinja パーツは値入り HTML にしか無い(テンプレートは Jinja の原文の
+        // まま写せばよい)。描き直した本文は転写の計算にだけ使い、承認した source のファイルは
+        // 書き換えない。
+        const rerender =
+          target === 'filled'
+            ? await rerenderForPair(values, {
+                sourceHtml,
+                catalog,
+                sourceTemplateId,
+                pairId,
+                sourceEdition: attrs.editionType,
+                targetEdition: pairAttrs.editionType,
+              })
+            : { html: sourceHtml, warnings: new Map<string, string[]>() };
         const result = computePairSync({
-          sourceHtml,
+          sourceHtml: rerender.html,
           targetHtml,
           syncDefaults: new Map(catalog.map((p) => [p.id, p.syncDefault ?? null])),
           sourceEdition: attrs.editionType,
@@ -236,6 +319,10 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           pairTemplateId: pairId,
           applied: result.applied,
           skipped: result.skipped,
+          // 写さなかったパーツの値は写し先に入っていないので、写したものだけを知らせる。
+          valueWarnings: result.applied.flatMap((partKey) =>
+            (rerender.warnings.get(partKey) ?? []).map((reason) => ({ partKey, reason })),
+          ),
           css: cssSync?.ran ? { applied: cssSync.applied, conflicts: cssSync.skipped } : null,
           error: null,
         };
@@ -245,6 +332,7 @@ export function createPairSyncService(parts: PartRepo): PairSyncService {
           pairTemplateId: pairId,
           applied: [],
           skipped: [],
+          valueWarnings: [],
           css: null,
           error: e instanceof Error ? e.message : String(e),
         };
