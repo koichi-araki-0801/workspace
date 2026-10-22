@@ -31,6 +31,17 @@ function resolveDefaultBrowser(): string | undefined {
   return candidates.find((p) => fs.existsSync(p));
 }
 
+/** `sampleOverlay` のパス。空セグメントと原型汚染になる語を持つパスは設定エラーにする。 */
+const overlayPath = z
+  .string()
+  .refine(
+    (v) =>
+      v.split('.').every((s) => s !== '' && !['__proto__', 'constructor', 'prototype'].includes(s)),
+    {
+      message: 'ドット区切りのパスで、空の区間や __proto__ / constructor / prototype は使えません',
+    },
+  );
+
 /**
  * `appconfig.json` のスキーマ。全フィールドを optional とし、部分的なファイル
  * (やファイルが無い場合)も妥当とする。欠けたキーは組み込みの既定値に
@@ -89,10 +100,10 @@ const appConfigSchema = z
       .optional(),
     sampleOverlay: z
       .object({
-        fundCode: z.string().min(1).optional(),
-        fundName: z.string().min(1).optional(),
-        companyCode: z.string().min(1).optional(),
-        companyName: z.string().min(1).optional(),
+        fundCode: overlayPath.optional(),
+        fundName: overlayPath.optional(),
+        companyCode: overlayPath.optional(),
+        companyName: overlayPath.optional(),
       })
       .strict()
       .optional(),

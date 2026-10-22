@@ -83,6 +83,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
     const res = await svc.loadForPreview('t1');
+    expect(templates.getSampleData).toHaveBeenCalledWith('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.renderError).toBeNull();

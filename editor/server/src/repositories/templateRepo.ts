@@ -41,6 +41,7 @@ import {
   templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
+import { logger } from '../logger.js';
 import { mergeCommonSampleRows } from './commonSample.js';
 import { fileToMeta } from './templateMeta.js';
 
@@ -154,17 +155,22 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       const rows = await sproc.callSproc(SP.template, '委託会社一覧');
       const want = companyAbbr.trim().toLowerCase();
       const company = rows.find((r) => asString(r.委託会社略称).trimEnd().toLowerCase() === want);
-      if (!company) return undefined;
+      // 会社が見つからなくても company.code にはファイル名の会社コードを被せる。
+      if (!company) return { companyCode: companyAbbr };
       const fund = (await listFunds(asString(company.委託会社コード))).find(
         (f) => f.fundCode.trim() === fundCode,
       );
       return {
-        companyCode: asString(company.委託会社略称).trimEnd(),
+        companyCode: companyAbbr,
         companyName: asString(company.委託会社名),
         ...(fund ? { fundName: fund.fundName } : {}),
       };
-    } catch {
-      return undefined;
+    } catch (err) {
+      logger.warn(
+        { err, companyAbbr, fundCode },
+        'Rep1 の委託会社・ファンド名を引けなかったため、共通サンプルの値のまま返します',
+      );
+      return { companyCode: companyAbbr };
     }
   }
 

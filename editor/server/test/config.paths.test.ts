@@ -198,4 +198,23 @@ describe('assertImagesDirOutsideCommittedAreas', () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    'a..b',
+    '',
+    '__proto__.x',
+    'fund.constructor',
+    'prototype',
+  ])('sampleOverlay のパス %j は設定エラーにする', async (bad) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-overlay-bad-'));
+    const file = path.join(dir, 'appconfig.json');
+    try {
+      fs.writeFileSync(file, JSON.stringify({ sampleOverlay: { fundName: bad } }), 'utf8');
+      await expect(importConfigWithEnv({ DATA_ROOT, APP_CONFIG: file })).rejects.toThrow(
+        /appconfig\.json の内容が不正です[\s\S]*sampleOverlay/,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

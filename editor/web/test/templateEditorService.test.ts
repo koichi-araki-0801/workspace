@@ -83,6 +83,7 @@ describe('TemplateEditorService.loadForEdit', () => {
     );
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
+    expect(templates.getSampleData).toHaveBeenCalledWith('t1');
     expect(isOk(res) && res.value.sample.x).toBe('v');
   });
 

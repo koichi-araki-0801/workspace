@@ -193,7 +193,14 @@ export function createCompareService(
  */
 export async function renderReviewPair(
   render: Pick<CompareService, 'renderTemplateBody' | 'renderVersionHtml'>,
-  input: { templateId: string; html: string; css: string; fundCode: string; origin: ReviewOrigin },
+  input: {
+    templateId: string;
+    html: string;
+    css: string;
+    /** @deprecated 描画はテンプレート ID から引くため使わない。 */
+    fundCode?: string;
+    origin: ReviewOrigin;
+  },
 ): Promise<Result<{ before: RenderedVersion; after: RenderedVersion }>> {
   const afterRes = await render.renderTemplateBody(
     input.html,

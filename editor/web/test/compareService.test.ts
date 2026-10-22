@@ -53,7 +53,7 @@ describe('CompareService.renderVersionHtml', () => {
     const templates = {
       getTemplate: vi.fn(async () =>
         ok({
-          meta: { attributes: { fundCode: '510037' } },
+          meta: { id: 'AM01_510037_20240710_kr', attributes: { fundCode: '510037' } },
           html: '<p>{{ fund.name }}</p>',
           css: '.base{}',
           filled: '',
@@ -68,6 +68,7 @@ describe('CompareService.renderVersionHtml', () => {
     const svc = createCompareService(templates, history);
     const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
 
+    expect(templates.getSampleData).toHaveBeenCalledWith('AM01_510037_20240710_kr');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.html).toContain('原本ファンド');

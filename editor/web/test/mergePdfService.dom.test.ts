@@ -82,11 +82,14 @@ describe('MergePdfService.renderMergedPdf', () => {
     const fetchSpy = vi.fn(async () => new Response('%PDF-1.4', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
     const { repo, recordPdfExport } = historyOf();
-    const svc = createMergePdfService(templatesOf(), repo);
+    const templates = templatesOf();
+    const svc = createMergePdfService(templates, repo);
 
     const res = await svc.renderMergedPdf(['t2', 't1']);
     vi.unstubAllGlobals();
 
+    expect(templates.getSampleData).toHaveBeenCalledWith('t2');
+    expect(templates.getSampleData).toHaveBeenCalledWith('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value).toBeInstanceOf(Blob);
     const init = fetchSpy.mock.calls[0][1] as RequestInit;

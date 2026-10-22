@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { SprocClient } from '../src/db/sproc.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-template-repo-filled-'));
@@ -235,10 +235,10 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
     const repo = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: FUNDS }));
     const { sample, warnings } = await repo.getSampleData(ID);
     expect(warnings).toEqual([]);
-    // 略称は末尾空白・大小を無視して引く。company.code はファイル名の会社コード(Rep1 の略称)。
+    // 略称は末尾空白・大小を無視して引く。company.code は Rep1 の綴りでなくファイル名の会社コード。
     expect(sample).toEqual({
       fund: { name: '実ファンド', nav: 1, code: '510037' },
-      company: { code: 'am01', name: '実委託会社' },
+      company: { code: 'AM01', name: '実委託会社' },
       a: 1,
       b: 2,
     });
@@ -254,6 +254,7 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
     const repo = createTemplateRepo(sprocOf({ companies: [] }));
     expect((await repo.getSampleData(ID)).sample).toEqual({
       fund: { name: '共通名', nav: 1, code: '510037' },
+      company: { code: 'AM01' },
       a: 1,
       b: 2,
     });
@@ -265,10 +266,22 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
   });
 
   it('Rep1 の取得が失敗しても共通値を返す', async () => {
-    const repo = createTemplateRepo(sprocOf({ rep1Throws: true }));
-    const { sample, warnings } = await repo.getSampleData(ID);
-    expect(warnings).toEqual([]);
-    expect(sample.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+    const { logger } = await import('../src/logger.js');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      const repo = createTemplateRepo(sprocOf({ rep1Throws: true }));
+      const { sample, warnings } = await repo.getSampleData(ID);
+      expect(warnings).toEqual([]);
+      expect(sample.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+      expect(sample.company).toEqual({ code: 'AM01' });
+      // 握りつぶさず、Rep1 障害として気づけるようログに残す。
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ companyAbbr: 'AM01', fundCode: '510037' }),
+        expect.any(String),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('合成の warnings をそのまま返す', async () => {
@@ -286,9 +299,12 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
     expect(warnings).toHaveLength(2);
   });
 
-  it('行が無ければ fund.code だけの sample', async () => {
+  it('行が無ければ fund.code と company.code だけの sample', async () => {
     const repo = createTemplateRepo(sprocOf({ common: [] }));
-    expect((await repo.getSampleData(ID)).sample).toEqual({ fund: { code: '510037' } });
+    expect((await repo.getSampleData(ID)).sample).toEqual({
+      fund: { code: '510037' },
+      company: { code: 'AM01' },
+    });
   });
 
   it('ID が不正なら validation', async () => {
