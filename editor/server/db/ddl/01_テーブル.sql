@@ -86,6 +86,14 @@ IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'�
     ADD [対象版種] NVARCHAR(32) COLLATE Japanese_CI_AS NULL;
 GO
 
+/* 一覧の委託会社による絞り込み(後付け列のため COL_LENGTH で冪等追加)。値は Rep1 の
+ * `委託会社コード` と同じ CHAR(5)。本番には既にある。NULL は後付けのため未設定というだけで、
+ * 全社共通の意味は持たない(指定した会社には出ない)。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'委託会社コード') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD [委託会社コード] CHAR(5) COLLATE Japanese_CI_AS NULL;
+GO
+
 /* 分類の英名(別ツール用。editor は読まない)。後付け列のため COL_LENGTH で冪等追加。 */
 IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'カテゴリ英名') IS NULL
   ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [カテゴリ英名] NVARCHAR(128) NULL;

@@ -22,6 +22,8 @@ function classParams(q: PartClassificationQuery): Param[] {
     p('小分類', q.minorClass),
     // 版種が空なら引数ごと省く。全件取得の呼び出し元が `@版種` の無い旧 sproc でも動くようにする。
     ...(q.editionType ? [p('版種', q.editionType)] : []),
+    // 委託会社コードも同じ理由で、空なら引数ごと省く。
+    ...(q.companyCode ? [p('委託会社コード', q.companyCode)] : []),
   ];
 }
 
@@ -64,6 +66,8 @@ export function createPartRepo(sproc: SprocClient): PartRepo {
         syncDefault: asStringOrNull(r.同期既定) as PartSyncDefault | null,
         masterReflectDefault: asStringOrNull(r.次回反映既定) as PartMasterReflectDefault | null,
         targetEdition: asStringOrNull(r.対象版種),
+        // CHAR(5) の末尾空白は値でないので落とす。
+        companyCode: asStringOrNull(r.委託会社コード)?.trimEnd() ?? null,
       }));
     },
   };

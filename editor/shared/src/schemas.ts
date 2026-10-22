@@ -659,6 +659,10 @@ export const PartCatalogItem = z
       description:
         '対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める',
     }),
+    companyCode: z.string().nullable().optional().meta({
+      description:
+        '対象の委託会社コード(Rep1 と同じ値)。null/欠落 = 未設定。一覧の絞り込みだけに使い、全社共通の意味は持たない',
+    }),
   })
   .meta({ id: 'PartCatalogItem' });
 
@@ -672,6 +676,11 @@ export const PartClassificationQuery = z.object({
     .string()
     .optional()
     .meta({ description: 'テンプレートの版種。指定時は対象版種が空か一致するパーツだけ' }),
+  companyCode: z
+    .string()
+    .max(32)
+    .optional()
+    .meta({ description: '委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)' }),
 });
 
 /** コメントの状態。返信は親と同じ値を持ち、切り替えは親投稿にだけ許す。 */

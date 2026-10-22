@@ -18,6 +18,7 @@ function toClassQuery(q: Record<string, unknown>): PartClassificationQuery {
     'middleClass',
     'minorClass',
     'editionType',
+    'companyCode',
   ] as const);
 }
 

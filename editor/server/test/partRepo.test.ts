@@ -16,7 +16,7 @@ function stub(rows: Row[]): { sproc: SprocClient; calls: Array<{ op: string; par
   return { sproc, calls };
 }
 
-const row = (対象版種: string | null): Row => ({
+const row = (対象版種: string | null, 委託会社コード: string | null = null): Row => ({
   パーツID: 'x',
   カテゴリ: 'c',
   大分類: 'a',
@@ -31,6 +31,7 @@ const row = (対象版種: string | null): Row => ({
   同期既定: null,
   次回反映既定: null,
   対象版種,
+  委託会社コード,
 });
 
 describe('partRepo', () => {
@@ -60,5 +61,33 @@ describe('partRepo', () => {
     const { sproc } = stub([row(null), row('全体版')]);
     const items = await createPartRepo(sproc).listParts({});
     expect(items.map((i) => i.targetEdition)).toEqual([null, '全体版']);
+  });
+
+  it('companyCode を 委託会社コード として分類候補と一覧の両方へ渡す', async () => {
+    const { sproc, calls } = stub([]);
+    const repo = createPartRepo(sproc);
+    await repo.getPartClassificationOptions({ companyCode: '00001' });
+    await repo.listParts({ companyCode: '00001' });
+    expect(calls.map((c) => c.op)).toEqual(['分類候補', '一覧']);
+    for (const c of calls) {
+      expect(c.params.find((x) => x.name === '委託会社コード')?.value).toBe('00001');
+    }
+  });
+
+  it('companyCode が空・未指定なら 委託会社コード 引数を送らない', async () => {
+    const { sproc, calls } = stub([]);
+    const repo = createPartRepo(sproc);
+    for (const q of [{}, { companyCode: '' }]) {
+      await repo.getPartClassificationOptions(q);
+      await repo.listParts(q);
+    }
+    expect(calls).toHaveLength(4);
+    for (const c of calls) expect(c.params.some((x) => x.name === '委託会社コード')).toBe(false);
+  });
+
+  it('委託会社コード を RTRIM して companyCode に写し、NULL は null にする', async () => {
+    const { sproc } = stub([row(null, '00001 '), row(null, null)]);
+    const items = await createPartRepo(sproc).listParts({});
+    expect(items.map((i) => i.companyCode)).toEqual(['00001', null]);
   });
 });

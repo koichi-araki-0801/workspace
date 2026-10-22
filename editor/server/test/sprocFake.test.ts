@@ -385,6 +385,57 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     });
   });
 
+  describe('パーツ の委託会社による絞り込み', () => {
+    const part = (id: string, companyCode: string | null, targetEdition: string | null = null) => ({
+      id,
+      category: 'c',
+      majorClass: '大',
+      middleClass: '中',
+      minorClass: '小',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition,
+      companyCode,
+    });
+    const seed = {
+      parts: [
+        part('a1', '00001'),
+        part('a2', '00001', '交付版'),
+        part('b1', '00002'),
+        part('none', null),
+      ],
+    };
+    const cls = [
+      p('カテゴリ', undefined),
+      p('大分類', undefined),
+      p('中分類', undefined),
+      p('小分類', undefined),
+    ];
+    const ids = async (extra: ReturnType<typeof p>[]) => {
+      const sproc = await createFakeSproc(seed);
+      return (await sproc.callSproc(SP.part, '一覧', [...cls, ...extra])).map((r) => r.パーツID);
+    };
+
+    it('委託会社コード を指定すると、別の会社と未設定のパーツは出ない', async () => {
+      expect(await ids([p('委託会社コード', '00001')])).toEqual(['a1', 'a2']);
+      expect(await ids([p('委託会社コード', '00002')])).toEqual(['b1']);
+    });
+
+    it('引数なしなら全件を返し、列に委託会社コードを載せる', async () => {
+      expect(await ids([])).toEqual(['a1', 'a2', 'b1', 'none']);
+      const sproc = await createFakeSproc(seed);
+      const rows = await sproc.callSproc(SP.part, '一覧', cls);
+      expect(rows.map((r) => r.委託会社コード)).toEqual(['00001', '00001', '00002', null]);
+    });
+
+    it('版種と AND で絞る', async () => {
+      expect(await ids([p('委託会社コード', '00001'), p('版種', '交付版')])).toEqual(['a1', 'a2']);
+      expect(await ids([p('委託会社コード', '00001'), p('版種', '全体版')])).toEqual(['a1']);
+    });
+  });
+
   it('サンプルデータ 取得 yields nothing for a fund outside the master', async () => {
     const sproc = await createFakeSproc();
     await expect(

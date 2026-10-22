@@ -144,6 +144,36 @@ describe('parts.routes', () => {
     }
   });
 
+  it('GET /parts は companyCode を sproc の委託会社コードへ渡し、戻りに companyCode を載せる', async () => {
+    const seed = (id: string, companyCode: string | null) => ({
+      id,
+      category: '表紙',
+      majorClass: '見出し',
+      middleClass: 'タイトル',
+      minorClass: '標準',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition: null,
+      companyCode,
+    });
+    const scoped = await buildApp([seed('c1', '00001'), seed('c2', '00002'), seed('none', null)]);
+    try {
+      const filtered = await scoped.inject({
+        method: 'GET',
+        url: '/parts?companyCode=00001',
+        headers: as('editor'),
+      });
+      const items = filtered.json() as Array<{ id: string; companyCode: string | null }>;
+      expect(items.map((i) => [i.id, i.companyCode])).toEqual([['c1', '00001']]);
+      const all = await scoped.inject({ method: 'GET', url: '/parts', headers: as('editor') });
+      expect((all.json() as unknown[]).length).toBe(3);
+    } finally {
+      await scoped.close();
+    }
+  });
+
   it('POST /templates/:templateId/part-history は 204 で追記し、GET に user 付きで現れる(partKey 欠落は 400)', async () => {
     const url = `/templates/${encodeURIComponent(ID)}/part-history`;
     expect(

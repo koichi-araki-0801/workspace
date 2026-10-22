@@ -55,6 +55,8 @@ export interface FakePartSeed {
   masterReflectDefault: string | null;
   /** null = 両版共通。 */
   targetEdition: string | null;
+  /** 省略・null = 未設定(委託会社を指定した一覧には出ない)。 */
+  companyCode?: string | null;
 }
 export interface FakeSeed {
   users?: readonly FakeUserSeed[];
@@ -455,9 +457,13 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     const middle = optText(a, '中分類');
     const minor = optText(a, '小分類');
     const edition = optText(a, '版種');
+    const company = optText(a, '委託会社コード');
     // sproc と同じ条件: 版種の指定が無いか、対象版種が NULL・空文字列(両版共通)か一致する行だけ。
+    // 委託会社は全社共通の扱いが無く、指定時は一致する行だけ。
     const visible = parts.filter(
-      (q) => !edition || !q.targetEdition || q.targetEdition === edition,
+      (q) =>
+        (!edition || !q.targetEdition || q.targetEdition === edition) &&
+        (!company || q.companyCode === company),
     );
     if (op === '分類候補') {
       const out: Row[] = [];
@@ -504,6 +510,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
           同期既定: q.syncDefault,
           次回反映既定: q.masterReflectDefault,
           対象版種: q.targetEdition,
+          委託会社コード: q.companyCode ?? null,
         }));
     }
 

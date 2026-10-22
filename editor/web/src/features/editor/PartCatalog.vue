@@ -28,7 +28,7 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] 
 
 const repo = usePartRepo();
 
-type LevelKey = Exclude<keyof PartClassificationQuery, 'editionType'>;
+type LevelKey = Exclude<keyof PartClassificationQuery, 'editionType' | 'companyCode'>;
 
 const levels: Array<{ key: LevelKey; label: string }> = [
   { key: 'category', label: 'カテゴリ' },
