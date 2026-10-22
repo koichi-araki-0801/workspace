@@ -11,6 +11,7 @@ const status = (over: Partial<PairSyncStatus>): PairSyncStatus => ({
   pairTemplateId: 'AM01_510037_20240710_全体版',
   pairExists: true,
   conflicts: [],
+  valueChecks: [],
   cssConflicts: [],
   ...over,
 });
@@ -28,6 +29,29 @@ describe('pairSyncConflictText', () => {
   it('競合が無ければ null', () => {
     expect(pairSyncConflictText(null)).toBeNull();
     expect(pairSyncConflictText(status({}))).toBeNull();
+  });
+
+  it('値を確かめる印だけなら、パーツと理由を出す', () => {
+    const reason = '交付版の値のまま写したので、値を確かめてください';
+    expect(
+      pairSyncConflictText(
+        status({ valueChecks: [{ partKey: 'j#1', reasons: [reason], detectedAt: 't' }] }),
+      ),
+    ).toBe(
+      `ペア（AM01_510037_20240710_全体版）から写した 1 件のパーツの値を確かめてください: j#1〔${reason}〕`,
+    );
+  });
+
+  it('競合と値を確かめる印が両方あれば、続けて出す', () => {
+    const text = pairSyncConflictText(
+      status({
+        conflicts: [{ partKey: 'p#1', kind: '両側変更', detectedAt: 't' }],
+        valueChecks: [{ partKey: 'j#1', reasons: ['a', 'b'], detectedAt: 't' }],
+      }),
+    );
+    expect(text).toContain('p#1〔両側変更〕');
+    expect(text).toContain('。ペア（AM01_510037_20240710_全体版）から写した 1 件のパーツの値を');
+    expect(text).toContain('j#1〔a。b〕');
   });
 
   it('パーツだけの競合は今の文言のまま', () => {

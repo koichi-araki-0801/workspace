@@ -405,6 +405,7 @@ describe('templates.routes', () => {
       pairTemplateId: 'AM01_510037_全体版',
       pairExists: false,
       conflicts: [],
+      valueChecks: [],
       cssConflicts: [],
     });
   });

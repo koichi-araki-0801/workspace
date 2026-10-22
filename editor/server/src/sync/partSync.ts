@@ -287,6 +287,13 @@ export interface PairPartState {
     /** ペア側削除系の競合で、パーツを消した側の版種。 */
     deletedIn?: string;
   };
+  /**
+   * ペアから写したパーツの値を確かめてほしいという印(編集タブで挿入した Jinja パーツの転写)。
+   * `edition` は印を出す側(写し先)の版種、`hash` は写した時点のその側のパーツの内容 SHA-1。
+   * その側のパーツが変われば(描き直された・直して承認された)消す(`pairSyncService.ts`)。
+   * 無い = 確かめることは無い(この印より前の状態ファイルも同じ)。
+   */
+  valueCheck?: { edition: string; reasons: string[]; hash: string; detectedAt: string };
 }
 
 /** ペア 1 組の同期状態(`sync/<pairKey>.json` の中身。I/O は `syncFiles.ts`)。 */
@@ -304,6 +311,11 @@ export function emptySyncState(pairKey: string): PairSyncState {
 
 function contentHash(html: string): string {
   return createHash('sha1').update(html).digest('hex');
+}
+
+/** パーツのキー → 内容 SHA-1(同期の判定と同じ物差し)。 */
+export function partHashes(html: string): Map<string, string> {
+  return new Map(extractSyncParts(html).map((p) => [p.key, contentHash(p.html)]));
 }
 
 // ── 3. 同期計算(転写・競合判定・状態更新) ──

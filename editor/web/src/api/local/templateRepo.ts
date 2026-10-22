@@ -473,6 +473,7 @@ export const localTemplateRepo: TemplateRepository = {
         pairTemplateId: pairId,
         pairExists: pairId !== null && allMetas().some((m) => m.id === pairId),
         conflicts: [],
+        valueChecks: [],
         cssConflicts: [],
       });
     }),

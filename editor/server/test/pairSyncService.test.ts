@@ -179,12 +179,14 @@ d('pairSyncService', () => {
       pairTemplateId: 'AM01_510037_全体版',
       pairExists: false,
       conflicts: [],
+      valueChecks: [],
       cssConflicts: [],
     });
     expect(await svc.getPairSyncStatus('規約外')).toEqual({
       pairTemplateId: null,
       pairExists: false,
       conflicts: [],
+      valueChecks: [],
       cssConflicts: [],
     });
   });
@@ -573,6 +575,57 @@ d('pairSyncService', () => {
         { partKey: 'j#1', reason: '交付版の値のまま写したので、値を確かめてください' },
       ]);
       expect(read('filled', 'AM01_610000_20240710_全体版')).toContain('交付ファンド(改)の注記');
+    });
+
+    it('値を確かめる印を写し先の画面に残し、写し先のパーツが変わるまで消さない', {
+      timeout: 60_000,
+    }, async () => {
+      const src = 'AM01_611000_20240710_交付版';
+      const dst = 'AM01_611000_20240710_全体版';
+      const reason = '交付版の値のまま写したので、値を確かめてください';
+      valueFiles.set(src, { fund: { name: '交付ファンド' }, q: "it's" });
+      valueFiles.set(dst, { fund: { name: '全体ファンド' }, q: "it's" });
+      put('filled', src, doc(part('a', 'x'), jPart('交付ファンド(改)')));
+      put('filled', dst, doc(part('a', 'x')));
+      const opts = { css: null };
+      await jsvc.syncPairAfterConfirm(src, 'u', 'filled', opts);
+      const marks = async (id: string) =>
+        (await jsvc.getPairSyncStatus(id)).valueChecks.map((v) => [v.partKey, v.reasons]);
+      // 写し先(全体版)の画面にだけ出す。
+      expect(await marks(dst)).toEqual([['j#1', [reason]]]);
+      expect(await marks(src)).toEqual([]);
+
+      // 写し先をパーツを変えずに承認しても消さない。
+      await jsvc.syncPairAfterConfirm(dst, 'u', 'filled', opts);
+      expect(await marks(dst)).toEqual([['j#1', [reason]]]);
+
+      // 写し元のパーツを直していない形へ戻して承認すると、写し先は描き直されて印が消える。
+      put('filled', src, doc(part('a', 'x'), jPart('交付ファンド')));
+      const back = await jsvc.syncPairAfterConfirm(src, 'u', 'filled', opts);
+      expect(back?.applied).toEqual(['j#1']);
+      expect(read('filled', dst)).toContain('全体ファンドの注記');
+      expect(await marks(dst)).toEqual([]);
+    });
+
+    it('写し先で利用者がパーツを直して承認すると、その版の印は消える', {
+      timeout: 60_000,
+    }, async () => {
+      const src = 'AM01_612000_20240710_交付版';
+      const dst = 'AM01_612000_20240710_全体版';
+      valueFiles.set(src, { fund: { name: '交付ファンド' }, q: "it's" });
+      valueFiles.set(dst, { fund: { name: '全体ファンド' }, q: "it's" });
+      put('filled', src, doc(part('a', 'x'), jPart('交付ファンド(改)')));
+      put('filled', dst, doc(part('a', 'x')));
+      const opts = { css: null };
+      await jsvc.syncPairAfterConfirm(src, 'u', 'filled', opts);
+      expect((await jsvc.getPairSyncStatus(dst)).valueChecks).toHaveLength(1);
+      put('filled', dst, doc(part('a', 'x'), jPart('全体ファンド(確認済み)')));
+      await jsvc.syncPairAfterConfirm(dst, 'u', 'filled', opts);
+      expect((await jsvc.getPairSyncStatus(dst)).valueChecks).toEqual([]);
+      // 直したパーツは交付版へ写り、こんどは交付版の画面に印が出る。
+      expect((await jsvc.getPairSyncStatus(src)).valueChecks.map((v) => v.reasons)).toEqual([
+        ['全体版の値のまま写したので、値を確かめてください'],
+      ]);
     });
 
     it('写し先の値ファイルが無ければ空欄で描き、valueWarnings に積む', {

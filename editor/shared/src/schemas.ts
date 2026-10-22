@@ -550,6 +550,21 @@ export const PairSyncStatus = z
         }),
       )
       .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
+    valueChecks: z
+      .array(
+        z.object({
+          partKey: z.string(),
+          reasons: z
+            .array(z.string())
+            .meta({ description: '値を確かめてほしい理由(利用者向けの文)' }),
+          detectedAt: z.string(),
+        }),
+      )
+      .meta({
+        description:
+          'ペアから写したパーツのうち、この版で値を確かめてほしいもの(写し元の値のまま写した・' +
+          '値が欠けて空欄で写した)。そのパーツが次に描き直されるか、この版で直して承認されると消える',
+      }),
     cssConflicts: z
       .array(
         z.object({

@@ -49,9 +49,26 @@ export function cssRuleLabel(key: string): string {
   return nth === null ? short : `${short}（${nth} 番目）`;
 }
 
-/** 編集画面のバナー。競合が無ければ null。 */
+/**
+ * ペアから写したパーツのうち、この版で値を確かめてほしいもの。理由は server が利用者向けの文で
+ * 返すので、パーツのキーに添えてそのまま出す。
+ */
+function valueCheckText(s: PairSyncStatus): string | null {
+  if (s.valueChecks.length === 0) return null;
+  const items = s.valueChecks.map((v) => `${v.partKey}〔${v.reasons.join('。')}〕`);
+  return `ペア（${s.pairTemplateId}）から写した ${s.valueChecks.length} 件のパーツの値を確かめてください: ${items.join('、')}`;
+}
+
+/** 編集画面のバナー。競合も値の確認も無ければ null。 */
 export function pairSyncConflictText(s: PairSyncStatus | null): string | null {
   if (!s) return null;
+  const conflicts = conflictText(s);
+  const values = valueCheckText(s);
+  if (conflicts === null) return values;
+  return values === null ? conflicts : `${conflicts}。${values}`;
+}
+
+function conflictText(s: PairSyncStatus): string | null {
   const n = s.conflicts.length;
   const m = s.cssConflicts.length;
   if (n === 0 && m === 0) return null;

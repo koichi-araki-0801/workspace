@@ -32,6 +32,14 @@ const PairPartStateSchema = z.object({
       deletedIn: z.string().optional(),
     })
     .optional(),
+  valueCheck: z
+    .object({
+      edition: z.string(),
+      reasons: z.array(z.string()),
+      hash: z.string(),
+      detectedAt: z.string(),
+    })
+    .optional(),
 });
 const PairSyncStateSchema = z.object({
   pairKey: z.string(),

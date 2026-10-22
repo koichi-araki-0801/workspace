@@ -19,7 +19,9 @@
 //
 // 値入り HTML の承認では、編集タブで挿入した Jinja パーツを転写の計算の前に写し先の値で描き直す
 // (`jinjaPartRerender.ts`)。手で直したパーツと、写し先の値が欠けたパーツは、写したうえで
-// `PairSyncSummary.valueWarnings` に理由を返す。
+// `PairSyncSummary.valueWarnings` に理由を返し、写し先の同期状態にも「値を確かめる」印
+// (`PairPartState.valueCheck`)を残す。印は写し先の編集画面のバナー(`getPairSyncStatus`)に出し、
+// 写し先のそのパーツが変わったとき(次の転写で描き直された・利用者が直して承認した)に消す。
 
 import {
   containsJinja,
@@ -40,7 +42,7 @@ import { applyConfirmedWrite, type ConfirmedTarget } from '../repositories/confi
 import type { PartRepo } from '../repositories/partRepo.js';
 import { computeCssSync, cssSyncPairKey } from './cssSync.js';
 import { rerenderUneditedJinjaParts } from './jinjaPartRerender.js';
-import { computePairSync, type PairSyncState } from './partSync.js';
+import { computePairSync, type PairPartState, type PairSyncState, partHashes } from './partSync.js';
 
 /** 値入り HTML の ID の値ファイル(`files/valuesFile.ts` の `readTemplateValues`)の読み手。 */
 interface TemplateValuesReader {
@@ -126,6 +128,64 @@ async function rerenderForPair(
   return { html: r.html, warnings };
 }
 
+/**
+ * 転写後の状態に「値を確かめる」印を付け直す。写したパーツに理由があれば写し先の側へ新しく付け、
+ * 前からある印は、印を出す側のパーツが写した時点の内容のままのときだけ残す。印を出す側がこの承認の
+ * source なら承認した本文、target なら転写後の本文で見る(同じ版の承認でパーツを変えずに通しても
+ * 消さない)。
+ */
+function withValueChecks(input: {
+  prev: Record<string, PairPartState>;
+  parts: Record<string, PairPartState>;
+  sourceEdition: string;
+  targetEdition: string;
+  sourceHtml: string;
+  targetHtml: string;
+  applied: readonly string[];
+  warnings: ReadonlyMap<string, string[]>;
+  now: string;
+}): Record<string, PairPartState> {
+  const hasMarks =
+    input.warnings.size > 0 || Object.values(input.prev).some((p) => p.valueCheck !== undefined);
+  if (!hasMarks) return input.parts;
+  const srcHashes = partHashes(input.sourceHtml);
+  const tgtHashes = partHashes(input.targetHtml);
+  const applied = new Set(input.applied);
+  const out: Record<string, PairPartState> = {};
+  for (const [key, part] of Object.entries(input.parts)) {
+    const { valueCheck: _drop, ...rest } = part;
+    const reasons = applied.has(key) ? (input.warnings.get(key) ?? []) : [];
+    const hash = tgtHashes.get(key);
+    let mark: PairPartState['valueCheck'];
+    if (reasons.length > 0 && hash !== undefined) {
+      mark = { edition: input.targetEdition, reasons, hash, detectedAt: input.now };
+    } else {
+      const prev = input.prev[key]?.valueCheck;
+      const side =
+        prev?.edition === input.sourceEdition
+          ? srcHashes
+          : prev?.edition === input.targetEdition
+            ? tgtHashes
+            : null;
+      if (prev && side?.get(key) === prev.hash) mark = prev;
+    }
+    out[key] = mark ? { ...rest, valueCheck: mark } : rest;
+  }
+  return out;
+}
+
+/** 印の比較用の正規形(キー順に依存しない)。 */
+function canonicalValueChecks(parts: Record<string, PairPartState>): string {
+  return JSON.stringify(
+    Object.keys(parts)
+      .sort()
+      .flatMap((k) => {
+        const v = parts[k].valueCheck;
+        return v ? [[k, v.edition, v.reasons, v.hash, v.detectedAt]] : [];
+      }),
+  );
+}
+
 export function createPairSyncService(
   parts: PartRepo,
   values: TemplateValuesReader,
@@ -140,7 +200,13 @@ export function createPairSyncService(
       const pairId = pairedTemplateId(templateId);
       const attrs = parseAnyTemplateFileName(`${templateId}.html`);
       if (pairId === null || !attrs)
-        return { pairTemplateId: null, pairExists: false, conflicts: [], cssConflicts: [] };
+        return {
+          pairTemplateId: null,
+          pairExists: false,
+          conflicts: [],
+          valueChecks: [],
+          cssConflicts: [],
+        };
       // バナーが問うのは編集タブで開けるペアの有無なので、値入り HTML の側を見る。
       const pairExists = await filledExists(`${pairId}.html`);
       const state = pairExists
@@ -161,11 +227,19 @@ export function createPairSyncService(
               : [],
           )
         : [];
+      // 値を確かめる印は、印を出す側(写し先)の版の画面にだけ出す。
+      const valueChecks = state
+        ? Object.entries(state.parts).flatMap(([partKey, p]) =>
+            p.valueCheck && p.valueCheck.edition === attrs.editionType
+              ? [{ partKey, reasons: p.valueCheck.reasons, detectedAt: p.valueCheck.detectedAt }]
+              : [],
+          )
+        : [];
       // CSS の競合はテンプレ単位の記録先から読む(どの基準日の画面でも、作成タブでも同じものが見える)。
       const cssKey = cssSyncPairKey(templateId);
       const cssState = cssKey ? await readSyncState(cssKey).catch(() => null) : null;
       const cssConflicts = cssState?.css?.conflicts ?? [];
-      return { pairTemplateId: pairId, pairExists, conflicts, cssConflicts };
+      return { pairTemplateId: pairId, pairExists, conflicts, valueChecks, cssConflicts };
     },
 
     /**
@@ -256,8 +330,23 @@ export function createPairSyncService(
               });
         // `computePairSync` の返す状態は本文のパーツだけを持つ。同じファイルに CSS の競合が
         // あれば(テンプレのペア)持ち越す — CSS を飛ばした承認で記録を消さないため。
+        const nextParts = withValueChecks({
+          prev: state.parts,
+          parts: result.state.parts,
+          sourceEdition: attrs.editionType,
+          targetEdition: pairAttrs.editionType,
+          sourceHtml,
+          targetHtml: result.targetHtml,
+          applied: result.applied,
+          warnings: rerender.warnings,
+          now,
+        });
+        const valueChecksChanged =
+          canonicalValueChecks(state.parts) !== canonicalValueChecks(nextParts);
+        const bodyChanged = result.stateChanged || valueChecksChanged;
         const bodyStateNext: PairSyncState = {
           ...result.state,
+          parts: nextParts,
           ...(state.css !== undefined ? { css: state.css } : {}),
         };
         // CSS の競合はテンプレのペアキーの状態にだけ載せる(テンプレのペアの承認なら同じファイルを
@@ -272,7 +361,7 @@ export function createPairSyncService(
               }
             : null;
         const cssConflictsChanged = cssSync?.conflictsChanged ?? false;
-        const statesChanged = result.stateChanged || cssConflictsChanged;
+        const statesChanged = bodyChanged || cssConflictsChanged;
         const writeStates = async (): Promise<void> => {
           // CSS 側を先に書く。後の本文側が失敗して本体と CSS が元へ戻っても、残る CSS の競合は
           // 「写さなかった規則」だけで、次の承認で両版の一致を見て持ち越すか消すかが決まる
@@ -282,7 +371,7 @@ export function createPairSyncService(
             return;
           }
           if (cssConflictsChanged && cssStateNext !== null) await writeSyncState(cssStateNext);
-          if (result.stateChanged) await writeSyncState(bodyStateNext);
+          if (bodyChanged) await writeSyncState(bodyStateNext);
         };
         const cssToWrite = cssSync?.css ?? null;
 

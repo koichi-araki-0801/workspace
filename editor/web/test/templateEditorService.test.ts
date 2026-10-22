@@ -444,7 +444,13 @@ describe('TemplateEditorService.saveDraft / listPartHistory', () => {
 
   it('delegates getSyncStatus to the template repository', async () => {
     const getSyncStatus = vi.fn(async () =>
-      ok({ pairTemplateId: null, pairExists: false, conflicts: [], cssConflicts: [] }),
+      ok({
+        pairTemplateId: null,
+        pairExists: false,
+        conflicts: [],
+        valueChecks: [],
+        cssConflicts: [],
+      }),
     );
     const templates = { getSyncStatus } as unknown as TemplateRepository;
     const parts = {} as unknown as PartRepository;
