@@ -28,6 +28,19 @@ describe('generatorLogPath', () => {
   });
 });
 
+describe('generatorLogPath の名前の頭', () => {
+  it('スクリプト名に依らず build_ で始まる', () => {
+    expect(
+      generatorLogPath(
+        '/r/template/src/fake_generate_template.py',
+        'R-AM01',
+        '510037',
+        '2026-10-23',
+      ),
+    ).toBe(path.resolve('/r/template/log/build_R-AM01_510037_2026-10-23.log'));
+  });
+});
+
 describe('logSizeBefore', () => {
   it('ログが無ければ起動前の長さは 0', async () => {
     expect(await logSizeBefore(newLog())).toBe(0);
@@ -64,6 +77,12 @@ describe('readRunLog', () => {
   });
   it('終了後にログが無ければ失敗', async () => {
     await expect(readRunLog(newLog(), 0)).rejects.toThrow(/実行ログ.*run\d+\.log/);
+  });
+  it('ENOENT 以外の開けない理由は見つかりませんと言わない', async () => {
+    const err = await readRunLog(dir, 0).catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain('実行ログ');
+    expect((err as Error).message).not.toContain('見つかりません');
   });
   it('増えていなければ失敗', async () => {
     const f = newLog();

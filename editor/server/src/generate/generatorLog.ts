@@ -14,8 +14,8 @@ export const OUTPUT_MARKER = '[OUTPUT] ';
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 
 /**
- * 実行ログのパス。スクリプトの 1 つ上の階層の `log/` に、`<スクリプト名>_<会社>_<ファンド>_<基準日>.log`
- * で置かれる。
+ * 実行ログのパス。スクリプトの 1 つ上の階層の `log/` に、`build_<会社>_<ファンド>_<基準日>.log` で
+ * 置かれる。名前の頭はスクリプトのファイル名ではなく生成器が決めた固定の `build_`。
  */
 export function generatorLogPath(
   script: string,
@@ -23,9 +23,8 @@ export function generatorLogPath(
   fundCode: string,
   baseDate: string,
 ): string {
-  const stem = path.basename(script, path.extname(script));
   const dir = path.join(path.dirname(path.dirname(path.resolve(script))), 'log');
-  return path.resolve(dir, `${stem}_${rep1CompanyCode}_${fundCode}_${baseDate}.log`);
+  return path.resolve(dir, `build_${rep1CompanyCode}_${fundCode}_${baseDate}.log`);
 }
 
 function logError(file: string, reason: string): Error {
@@ -60,8 +59,9 @@ export async function readRunLog(
   let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(file, 'r');
-  } catch {
-    throw logError(file, 'が見つかりません');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw logError(file, 'が見つかりません');
+    throw logError(file, `を開けませんでした: ${(e as Error).message}`);
   }
   try {
     const { size } = await handle.stat();
@@ -71,9 +71,10 @@ export async function readRunLog(
     if (length > maxBytes) throw logError(file, `の追記分が上限(${maxBytes} バイト)を超えています`);
     const buf = Buffer.alloc(length);
     const { bytesRead } = await handle.read(buf, 0, length, start);
+    if (bytesRead !== length) throw logError(file, 'を最後まで読めませんでした');
     let text: string;
     try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(buf.subarray(0, bytesRead));
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
     } catch {
       throw logError(file, 'を UTF-8 として読めません');
     }
