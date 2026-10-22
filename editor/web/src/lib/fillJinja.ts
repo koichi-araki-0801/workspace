@@ -29,7 +29,6 @@ import {
   type JinjaNode,
   type JinjaToken,
   loopCtx,
-  parseForHeader,
   parseJinja,
   renderDisplay,
   takenBranchIndex,
@@ -263,9 +262,9 @@ function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: Jinj
     case 'for': {
       const id = e.nextId();
       const { body, elseBranch } = n;
-      const h = parseForHeader(n.open.body);
+      const h = f.forHeader(n.open.body);
       if (!h) f.unsupported.add(n.open.body);
-      const items = h ? f.array(h.iter, ctx) : [];
+      const items = h ? f.array(h.iter, ctx, h.vars.length) : [];
       if (items.length === 0 && elseBranch) {
         return (
           rtComment({ kind: 'o', id, payload: src.slice(n.start, elseBranch.bodyStart) }) +
@@ -292,7 +291,11 @@ function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: Jinj
         out += rtComment({ kind: 'x', id });
         // 2 回目以降は保存で捨てる表示専用の行なので、出力の上限に達したらそこで描くのをやめる
         // (テンプレートの行と印は残るので往復は崩れない)。
-        for (let i = 1; i < items.length && !f.exhausted; i++) {
+        for (let i = 1; i < items.length; i++) {
+          if (f.exhausted) {
+            f.noteLimit();
+            break;
+          }
           const piece = draw(loopCtx(ctx, h.vars, items, i), NO_ROWS);
           f.charge(piece.length);
           out += piece;

@@ -73,6 +73,20 @@ export class Filler {
     this.unsupported.add(expr);
   }
 
+  /** for の見出しの解析結果(外側の繰り返しのたびに同じ見出しを読み直さない)。 */
+  private readonly forHeaders = new Map<string, ReturnType<typeof parseForHeader>>();
+
+  /** `parseForHeader` を見出しの文字列ごとに 1 回だけ行う。 */
+  forHeader(body: string): ReturnType<typeof parseForHeader> {
+    if (!this.forHeaders.has(body)) this.forHeaders.set(body, parseForHeader(body));
+    return this.forHeaders.get(body) ?? null;
+  }
+
+  /** 上限に達して描くのをやめたことを unsupported に 1 回だけ載せる(出力・評価の量のどちらでも)。 */
+  noteLimit(): void {
+    this.fail(OUTPUT_LIMIT_NOTE);
+  }
+
   /** 出力の上限に達したか。達したら繰り返しの展開をやめる。 */
   get exhausted(): boolean {
     return this.emitted > MAX_OUTPUT_CHARS || this.budget.exhausted;
@@ -107,7 +121,10 @@ export class Filler {
    * 外れた `safe` の値はここでエスケープし、見た目が変わるときは unsupported に数える。
    */
   html(expr: string, ctx: JinjaCtx, escapeText: (s: string) => string = escapeHtmlFull): string {
-    if (this.exhausted) return '';
+    if (this.exhausted) {
+      this.noteLimit();
+      return '';
+    }
     const { v, s } = this.output(expr, ctx);
     let out: string;
     if (!isJinjaSafe(v)) out = escapeText(s);
@@ -169,14 +186,18 @@ export class Filler {
    * `{% for v in iter %}` の反復対象。配列でなければ空(ループは展開しない)。繰り返しの総数が上限を
    * 超えたら、以後は式を評価せずに空を返す(上限を超えた式を unsupported に数える)。
    */
-  array(expr: string, ctx: JinjaCtx): unknown[] {
-    if (this.loopItems > MAX_LOOP_ITEMS || this.exhausted) return [];
+  array(expr: string, ctx: JinjaCtx, varCount = 1): unknown[] {
+    if (this.exhausted) {
+      this.noteLimit();
+      return [];
+    }
+    if (this.loopItems > MAX_LOOP_ITEMS) return [];
     try {
       const v = evaluateJinjaExpr(expr, ctx, this.budget);
       if (!Array.isArray(v)) return [];
       this.loopItems += v.length;
       // 繰り返しのたびに文脈を複製する(`loopCtx`)ので、回数 × 文脈のキーの数を評価の量に数える。
-      this.budget.charge(v.length * (1 + Object.keys(ctx).length));
+      this.budget.charge(v.length * (1 + Object.keys(ctx).length + varCount));
       if (this.loopItems > MAX_LOOP_ITEMS) {
         this.fail(expr);
         return [];
@@ -198,11 +219,22 @@ export function isSetStatement(tok: JinjaToken): boolean {
 
 const FOR_HEADER_RE = /^for\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s+in\s+([\s\S]+)$/;
 
-/** `for a, b in xs` の変数名と反復対象の式。読めない形は null(呼び出し側が unsupported に数える)。 */
+/**
+ * for の変数の数の上限。本番パーツの書き方(`for a, b in …` の 2 つ)より十分に大きく、繰り返しの
+ * たびに束ねる変数の数で仕事を増やす書き方を形で止める。
+ */
+const MAX_FOR_VARS = 16;
+
+/**
+ * `for a, b in xs` の変数名と反復対象の式。読めない形・変数が多すぎる形は null(呼び出し側が
+ * unsupported に数える)。同じ見出しを繰り返し読むときは `Filler.forHeader` を通す(1 回だけ解析する)。
+ */
 export function parseForHeader(body: string): { vars: string[]; iter: string } | null {
   const m = FOR_HEADER_RE.exec(body);
   if (!m) return null;
-  return { vars: m[1].split(',').map((v) => v.trim()), iter: m[2].trim() };
+  const vars = m[1].split(',').map((v) => v.trim());
+  if (vars.length > MAX_FOR_VARS) return null;
+  return { vars, iter: m[2].trim() };
 }
 
 /**
@@ -298,15 +330,20 @@ export function renderDisplay(
         break;
       }
       case 'for': {
-        const header = parseForHeader(n.open.body);
+        const header = f.forHeader(n.open.body);
         if (!header) {
           f.unsupported.add(n.open.body);
           out += renderDisplay(src, n.body.children, ctx, f);
           break;
         }
-        const items = f.array(header.iter, ctx);
-        for (let i = 0; i < items.length && !f.exhausted; i++)
+        const items = f.array(header.iter, ctx, header.vars.length);
+        for (let i = 0; i < items.length; i++) {
+          if (f.exhausted) {
+            f.noteLimit();
+            break;
+          }
           out += renderDisplay(src, n.body.children, loopCtx(ctx, header.vars, items, i), f);
+        }
         if (items.length === 0 && n.elseBranch)
           out += renderDisplay(src, n.elseBranch.children, ctx, f);
         break;

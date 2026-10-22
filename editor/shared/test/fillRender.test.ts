@@ -212,7 +212,10 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   it('ループの中で大きな range やフィルタを何度も呼ぶと、評価の量の上限で止まり unsupported になる', () => {
     const f = new Filler();
     show('{% for i in range(1000) %}{{ range(100000)|length }}{% endfor %}', {}, f);
-    expect([...f.unsupported]).toEqual(['range(100000)|length']);
+    expect([...f.unsupported]).toEqual([
+      'range(100000)|length',
+      '描画の量が上限を超えたため、以降を省きました',
+    ]);
   });
   it('育てた文字列をループで出し続けると、出力の量の上限で以降を省く(例外にしない)', () => {
     const f = new Filler();
@@ -245,7 +248,7 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   it('select("in", 長い並び)は要素ごとに右辺を数え、評価の量の上限で止まる', () => {
     const expr = 'range(100000)|select("in", range(100000))|list|length';
     const { html, diagnostics } = renderPlainFilled(`{{ ${expr} }}|`.repeat(6), {});
-    expect(diagnostics.unsupported).toEqual([expr]);
+    expect(diagnostics.unsupported).toEqual([expr, '描画の量が上限を超えたため、以降を省きました']);
     expect(html).toBe('||||||');
   });
   describe('比較と式の評価の回数も評価の量に数える', () => {
@@ -289,11 +292,6 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
         't < 1',
       ],
       [
-        'startswith の引数',
-        '{% for j in range(50) %}{{ "a".startswith(t) }}{% endfor %}',
-        '"a".startswith(t)',
-      ],
-      [
         'groupby のキーの小文字化と比較',
         '{% set xs = [namespace(k=t), namespace(k=u)] %}' +
           '{% for j in range(9000) %}{{ xs|groupby("k")|length }}{% endfor %}',
@@ -311,6 +309,67 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
       const f = new Filler();
       show('{% for j in range(1000) %}x{% endfor %}', ctx, f);
       expect([...f.unsupported]).toEqual(['range(1000)']);
+    });
+    it.each([
+      ['trim の chars', '{{ "x"|trim(t) }}', '"x"|trim(t)'],
+      ['selectattr の属性名', '{{ [1]|selectattr(t)|length }}', '[1]|selectattr(t)|length'],
+      ['groupby の属性名', '{{ [1]|groupby(t)|length }}', '[1]|groupby(t)|length'],
+      ['select のテスト名', '{{ [1]|select(t)|length }}', '[1]|select(t)|length'],
+      ['startswith の引数', '{{ "a".startswith(t) }}', '"a".startswith(t)'],
+      ['添字のキー', '{{ d[t] }}', 'd[t]'],
+    ])('文字列の引数が長すぎる形(%s)は、課金より先に形で止めて unsupported にする', (_, body, expr) => {
+      const f = new Filler();
+      show(`${grow}${body}`, { d: {} }, f);
+      expect([...f.unsupported]).toEqual([expr]);
+      expect(f.exhausted).toBe(false);
+    });
+    it('属性名の段が多すぎる形は unsupported にする(段 16 までは読む)', () => {
+      const f = new Filler();
+      const deep16 = Array(16).fill('a').join('.');
+      const deep17 = Array(17).fill('a').join('.');
+      show(
+        `{{ xs|selectattr("${deep16}")|length }}{{ xs|selectattr("${deep17}")|length }}`,
+        { xs: [] },
+        f,
+      );
+      expect([...f.unsupported]).toEqual([`xs|selectattr("${deep17}")|length`]);
+    });
+    it('for の変数が多すぎる見出しは unsupported にし、見出しは 1 回だけ解析する', () => {
+      const vars = Array.from({ length: 20000 }, (_, i) => `v${i}`).join(',');
+      const f = new Filler();
+      show(`{% for j in range(1000) %}{% for ${vars} in [0] %}x{% endfor %}{% endfor %}`, {}, f);
+      expect([...f.unsupported]).toEqual([`for ${vars} in [0]`]);
+      const ok = Array.from({ length: 16 }, (_, i) => `v${i}`).join(', ');
+      expect(show(`{% for ${ok} in [[1]] %}{{ v0 }}{% endfor %}`, {})).toBe('1');
+    });
+    it('namespace の倍化を何度も数えさせても、たどった量を払って上限で止まる', () => {
+      let src = '{% set n0 = namespace(a=1) %}';
+      for (let i = 1; i <= 17; i++) src += `{% set n${i} = namespace(a=n${i - 1}, b=n${i - 1}) %}`;
+      src += '{% for j in range(600) %}{{ [n17,n17,n17,n17,n17,n17,n17,n17]|length }}{% endfor %}';
+      const f = new Filler();
+      show(src, {}, f);
+      expect([...f.unsupported]).toContain('[n17,n17,n17,n17,n17,n17,n17,n17]|length');
+      expect(f.exhausted).toBe(true);
+    });
+    it('ctx の深い dict を並びに入れ続けても、たどった量を払って上限で止まる', () => {
+      let o: unknown = 1;
+      for (let i = 0; i < 21; i++) o = { a: o, b: o };
+      const f = new Filler();
+      show('{% for j in range(100) %}{{ [o]|length }}{% endfor %}', { o }, f);
+      expect([...f.unsupported]).toContain('[o]|length');
+      expect(f.exhausted).toBe(true);
+    });
+    it('評価の量を使い切った後の出力とループは、省いた旨を unsupported に 1 回載せる', () => {
+      const { html, diagnostics } = renderPlainFilled(
+        '{% set x = range(100000)|select("in", range(100000))|list %}' +
+          '<p>A{{ v }}</p>{% for r in rows %}<td>{{ r }}</td>{% endfor %}',
+        { v: 'VAL', rows: [1, 2, 3] },
+      );
+      expect(html).toBe('<p>A</p>');
+      expect(diagnostics.unsupported).toEqual([
+        'set x = range(100000)|select("in", range(100000))|list',
+        '描画の量が上限を超えたため、以降を省きました',
+      ]);
     });
     it('何も出力しない式をループで何度も評価させても、評価の量の上限で止まる', () => {
       const f = new Filler();

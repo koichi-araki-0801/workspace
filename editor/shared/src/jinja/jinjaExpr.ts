@@ -238,6 +238,11 @@ export class JinjaBudget {
     if (this.used > MAX_WORK) throw new JinjaExprError('評価の量が上限を超えました');
   }
 
+  /** 残りの量。入れ子をたどる処理は、これを超えてたどらない。 */
+  get remaining(): number {
+    return Math.max(0, MAX_WORK - this.used);
+  }
+
   /** 使い切ったか。描画器はこれを見て以後の繰り返しを展開しない(式ごとに失敗させ続けない)。 */
   get exhausted(): boolean {
     return this.used > MAX_WORK;
@@ -294,7 +299,8 @@ const DEEP_SIZE = new WeakMap<object, number>();
  * 入れ子を含めた要素の数。`[a, a]` を重ねると参照の数は倍々に増え、文字列化・ループの展開で
  * そのぶんの仕事になるので、並びを作るたびにこれを評価の量に数える。上限を超えたら throw。
  */
-function deepSize(v: unknown, cap: number = MAX_WORK, depth = 0): number {
+function deepSize(v: unknown, cap: number, walk: { visited: number }, depth = 0): number {
+  walk.visited += 1;
   if (typeof v !== 'object' || v === null || v instanceof SafeHtml) return 1;
   if (depth > MAX_DEPTH) throw new JinjaExprError('値の入れ子が深すぎます');
   if (Array.isArray(v)) {
@@ -303,11 +309,44 @@ function deepSize(v: unknown, cap: number = MAX_WORK, depth = 0): number {
   }
   let n = 1;
   for (const e of Array.isArray(v) ? v : Object.values(v)) {
-    n += deepSize(e, cap - n, depth + 1);
-    if (n > cap) throw new JinjaExprError('値が大きすぎます');
+    n += deepSize(e, cap - n, walk, depth + 1);
+    if (n > cap || walk.visited > cap) throw new JinjaExprError('値が大きすぎます');
   }
   if (Array.isArray(v)) DEEP_SIZE.set(v, n);
   return n;
+}
+
+/**
+ * `v` の入れ子の大きさを評価の量に数える。たどるのは残りの量までで、超えて投げるときも、たどった
+ * 量を数えてから投げる(dict は覚え書きできないので、投げる経路で費用を払わないと毎回たどり直せる)。
+ */
+function chargeDeepSize(budget: JinjaBudget, v: unknown): void {
+  const walk = { visited: 0 };
+  let n: number;
+  try {
+    n = deepSize(v, budget.remaining, walk);
+  } catch (e) {
+    budget.charge(walk.visited);
+    throw e;
+  }
+  budget.charge(Math.max(n, walk.visited));
+}
+
+/**
+ * フィルタ・テスト・メソッドの文字列の引数(trim の chars・属性名・startswith の引数・テスト名)と
+ * 添字のキーの長さの上限。本番パーツの書き方(短い名前と記号)より十分に大きく、引数 1 つで
+ * 長さぶんの仕事をさせる書き方を、課金より先に形で止める。
+ */
+const MAX_ARG_LENGTH = 256;
+
+/** 属性名の段の数の上限(`a.b.c` の段)。 */
+const MAX_ATTR_PARTS = 16;
+
+/** 文字列の引数が上限の内か確かめる。超えたら throw。 */
+function shortArg(v: unknown, what: string): void {
+  if (typeof v === 'string' && v.length > MAX_ARG_LENGTH) {
+    throw new JinjaExprError(`${what} が長すぎます(上限 ${MAX_ARG_LENGTH} 文字)`);
+  }
 }
 
 const isObjectValue = (v: unknown): v is object => typeof v === 'object' && v !== null;
@@ -358,7 +397,11 @@ function sizeOf(v: unknown): number {
 function attrGetter(attribute: unknown): (item: unknown) => unknown {
   if (typeof attribute === 'number') return (item) => lookupMember(item, attribute);
   if (typeof attribute !== 'string') throw new JinjaExprError('属性名は文字列が必要です');
+  shortArg(attribute, '属性名');
   const parts = attribute.split('.').map((p) => (/^\d+$/.test(p) ? Number(p) : p));
+  if (parts.length > MAX_ATTR_PARTS) {
+    throw new JinjaExprError(`属性名の段が多すぎます(上限 ${MAX_ATTR_PARTS})`);
+  }
   return (item) => parts.reduce<unknown>((v, p) => lookupMember(v, p), item);
 }
 
@@ -451,6 +494,7 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
       let out: string;
       if (chars === undefined || chars === null) out = s.trim();
       else {
+        shortArg(chars, 'trim の chars');
         const set = new Set(asText(chars));
         let a = 0;
         let b = s.length;
@@ -561,6 +605,7 @@ const TESTS: Readonly<Record<string, (value: unknown, ...args: unknown[]) => boo
 });
 
 function lookupTest(name: unknown): (value: unknown, ...args: unknown[]) => boolean {
+  shortArg(name, 'テスト名');
   if (typeof name !== 'string' || !Object.hasOwn(TESTS, name)) {
     throw new JinjaExprError(
       `許可していないテスト: ${typeof name === 'string' ? name : typeof name}`,
@@ -620,6 +665,7 @@ const STRING_METHODS: Readonly<Record<string, (s: string, call: CallArgs) => unk
     if (args.length !== 1 || kwargs.size > 0 || typeof args[0] !== 'string') {
       throw new JinjaExprError('startswith は文字列を 1 つだけ受けます');
     }
+    shortArg(args[0], 'startswith の引数');
     chargeActive(args[0].length);
     return s.startsWith(args[0]);
   },
@@ -800,7 +846,7 @@ class Parser {
     this.budget.charge(1 + sizeOf(value));
     const result = spec.apply(value, ...args);
     // batch / slice の fill_with などで同じ値への参照を並べられるので、作った並びは入れ子ごと数える。
-    if (Array.isArray(result)) this.budget.charge(deepSize(result));
+    if (Array.isArray(result)) chargeDeepSize(this.budget, result);
     return result;
   }
 
@@ -860,6 +906,7 @@ class Parser {
           throw new JinjaExprError('添字は文字列か数値のみ受け付けます');
         }
         // 添字の文字列はキーとして読むときに長さぶんの仕事になる。
+        shortArg(key, '添字');
         this.budget.charge(1 + textLength(key));
         value = lookupMember(value, key);
         continue;
@@ -897,7 +944,7 @@ class Parser {
       for (;;) {
         items.push(this.parseOr());
         if (this.eat('op', ']')) {
-          if (this.dead === 0) this.budget.charge(deepSize(items));
+          if (this.dead === 0) chargeDeepSize(this.budget, items);
           return items;
         }
         this.expect('op', ',');
@@ -1053,7 +1100,7 @@ export function assignJinjaSet(
   const value = withBudget(budget, () => {
     const v = new Parser(tokens.slice(at + 1), ctx, budget).parseAll();
     // 代入した値はループと文字列化で何度も使われるので、入れ子ごとの大きさを数える。
-    budget.charge(deepSize(v));
+    chargeDeepSize(budget, v);
     return v;
   });
   if (attr === null) {
