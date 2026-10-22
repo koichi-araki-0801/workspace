@@ -18,7 +18,7 @@ import {
 } from './jinjaExpr.js';
 import type { JinjaToken } from './jinjaLex.js';
 import { type JinjaNode, parseJinja } from './jinjaTree.js';
-import { isSelfContainedMarkup, jinjaTextTokenStarts } from './safeMarkup.js';
+import { isAllowedSafeMarkup, textPositions } from './safeMarkup.js';
 
 // ── 1. 式の評価 ──
 
@@ -38,12 +38,19 @@ const MAX_OUTPUT_CHARS = 10_000_000;
 /** 上限で描くのをやめたことを unsupported に載せるときの文言。 */
 const OUTPUT_LIMIT_NOTE = '描画の量が上限を超えたため、以降を省きました';
 
-/** `Filler.html` の置き方。 */
-interface HtmlPlacement {
-  /** 値をエスケープする関数(既定は 5 文字を置き換える `escapeHtmlFull`)。 */
-  escapeText?: (s: string) => string;
-  /** 出力が HTML の要素の中身(テキスト)の位置にあるか。`safe` の値を生で置けるのはこのときだけ。 */
-  inText: boolean;
+/**
+ * `safe` の値の仮置きの囲み(私用領域の文字)。エスケープで変わらず、正規表現の特殊文字でもない。
+ */
+const PH_OPEN = '\u{e000}';
+const PH_CLOSE = '\u{e001}';
+
+/** 描画ごとの推測できない印(値に同じ並びを書いて仮置きを偽造させないため)。 */
+function newNonce(): string {
+  const c = (globalThis as { crypto?: { getRandomValues(a: Uint32Array): Uint32Array } }).crypto;
+  const a = new Uint32Array(2);
+  if (c) c.getRandomValues(a);
+  else for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 2 ** 32);
+  return Array.from(a, (x) => x.toString(16).padStart(8, '0')).join('');
 }
 
 /**
@@ -58,7 +65,9 @@ export class Filler {
   private emitted = 0;
   /** 1 回の描画のすべての式で共有する評価の量(range やフィルタの掛け算を描画の単位で止める)。 */
   private readonly budget = new JinjaBudget();
-  private readonly textStarts = new Map<string, ReadonlySet<number>>();
+  /** `safe` の値の仮置き(`finalize` で位置を見て生かエスケープかを決める)。 */
+  private readonly pending: { expr: string; html: string }[] = [];
+  private readonly nonce = newNonce();
 
   private fail(expr: string): void {
     this.unsupported.add(expr);
@@ -76,16 +85,6 @@ export class Filler {
     if (!was && this.exhausted) this.fail(OUTPUT_LIMIT_NOTE);
   }
 
-  /** `src` の Jinja トークンのうちテキストの位置にあるもの(同じ原文は 1 度だけ走査する)。 */
-  textTokenStarts(src: string): ReadonlySet<number> {
-    let hit = this.textStarts.get(src);
-    if (!hit) {
-      hit = jinjaTextTokenStarts(src);
-      this.textStarts.set(src, hit);
-    }
-    return hit;
-  }
-
   private output(expr: string, ctx: JinjaCtx): unknown {
     try {
       const v = evaluateJinjaExpr(expr, ctx, this.budget);
@@ -98,25 +97,47 @@ export class Filler {
   }
 
   /**
-   * `{{ expr }}` を HTML に置くときの文字列。値はエスケープし、`safe` の付いた値だけは、テキストの位置で
-   * かつそれだけで閉じた断片(`safeMarkup.ts`)のときにそのまま出す(本番の出力と同じ見た目にするため。
-   * 危険な要素・属性は canvas の入口の刈り取りと、server の描き直しの検査が落とす)。条件に外れた
-   * `safe` の値はエスケープし、見た目が変わるときは unsupported に数える。
+   * `{{ expr }}` を HTML に置くときの文字列。値は `escapeText` でエスケープする。`safe` の付いた値は、
+   * 許可した形の断片(`safeMarkup.ts` の `isAllowedSafeMarkup`)なら仮置きの印を返し、描き終えた HTML
+   * の上で `finalize` が位置を見て、テキストの位置なら生で、そうでなければエスケープして置く。形に
+   * 外れた `safe` の値はここでエスケープし、見た目が変わるときは unsupported に数える。
    */
-  html(expr: string, ctx: JinjaCtx, placement: HtmlPlacement): string {
+  html(expr: string, ctx: JinjaCtx, escapeText: (s: string) => string = escapeHtmlFull): string {
     if (this.exhausted) return '';
-    const escapeText = placement.escapeText ?? escapeHtmlFull;
     const v = this.output(expr, ctx);
     const s = stringifyJinjaValue(v);
     let out: string;
     if (!isJinjaSafe(v)) out = escapeText(s);
-    else if (placement.inText && isSelfContainedMarkup(s)) out = s;
-    else {
+    else if (isAllowedSafeMarkup(s)) {
+      out = `${PH_OPEN}${this.nonce}${this.pending.length}${PH_CLOSE}`;
+      this.pending.push({ expr, html: s });
+    } else {
       out = escapeText(s);
       if (out !== s) this.fail(expr);
     }
-    this.charge(out.length);
+    this.charge(Math.max(out.length, s.length));
     return out;
+  }
+
+  /**
+   * 描き終えた HTML の `safe` の仮置きを本物の値へ置き換える。テキストの位置(`textPositions`)で、
+   * 直前が `<` でない(値の先頭の文字がタグ名として読まれない)ものだけを生で置き、他はエスケープする。
+   * 描画の入口(`renderPlainFilled` と web の `toFilledWithDiagnostics`)が出力全体に 1 度だけ掛ける。
+   * 掛け忘れても仮置きの印が残るだけで、生の HTML は入らない。
+   */
+  finalize(html: string): string {
+    if (this.pending.length === 0) return html;
+    const re = new RegExp(`${PH_OPEN}${this.nonce}(\\d+)${PH_CLOSE}`, 'g');
+    const at = [...html.matchAll(re)].map((m) => m.index ?? -1);
+    const text = textPositions(html, at);
+    return html.replace(re, (whole, idx: string, offset: number) => {
+      const p = this.pending[Number(idx)];
+      if (!p) return whole;
+      if (text.has(offset) && html[offset - 1] !== '<') return p.html;
+      const escaped = escapeHtmlFull(p.html);
+      if (escaped !== p.html) this.fail(p.expr);
+      return escaped;
+    });
   }
 
   /**
@@ -257,10 +278,8 @@ export function renderDisplay(
         f.charge(n.end - n.start);
         break;
       case 'token':
-        if (n.token.kind === 'output') {
-          const inText = f.textTokenStarts(src).has(n.token.start);
-          out += f.html(n.token.body, ctx, { inText });
-        } else if (isSetStatement(n.token)) f.assign(n.token, ctx);
+        if (n.token.kind === 'output') out += f.html(n.token.body, ctx);
+        else if (isSetStatement(n.token)) f.assign(n.token, ctx);
         break;
       case 'raw':
         out += src.slice(n.open.end, n.close.start);
@@ -310,6 +329,6 @@ export function renderPlainFilled(
   const r = parseJinja(raw);
   if (!r.ok) throw new Error(`renderPlainFilled: ${r.error.message} (位置 ${r.error.at})`);
   const f = new Filler();
-  const html = renderDisplay(raw, r.nodes, { ...sample } as JinjaCtx, f);
+  const html = f.finalize(renderDisplay(raw, r.nodes, { ...sample } as JinjaCtx, f));
   return { html, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
 }

@@ -223,25 +223,12 @@ describe('rerenderUneditedJinjaParts', () => {
 
     it.each([
       ['イベント属性', '<img src="x" onerror="alert(1)">'],
+      ['`/` で区切ったイベント属性', '<img/src=x/onerror=alert(1)>'],
       ['javascript: の URL', '<a href="javascript:alert(1)">x</a>'],
-    ])('写し先の値が%sを持てば、承認で書く本文の検査に通らないので描き直さない', (_, bad) => {
-      const src = approved('交付<br>注記');
-      const r = rerenderUneditedJinjaParts({
-        sourceHtml: src,
-        catalog: safeCatalog,
-        sourceValues: { note: '交付<br>注記' },
-        targetValues: { note: `全体${bad}` },
-        targetHtml: '',
-      });
-      expect(r.html).toBe(src);
-      expect(r.edited).toEqual(['s#1']);
-      expect(r.rerendered).toEqual([]);
-    });
-
-    it.each([
       ['script 要素', '<script>alert(1)</script>'],
+      ['svg の中の script', '<svg><script>alert(1)</script></svg>'],
       ['往復用の印', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
-    ])('写し先の値が%sを持てば、それだけで閉じた断片ではないのでエスケープして描き、警告に残す', (_, bad) => {
+    ])('写し先の値が%sを持てば、許可した形ではないのでエスケープして描き、警告に残す', (_, bad) => {
       const r = rerenderUneditedJinjaParts({
         sourceHtml: approved('交付<br>注記'),
         catalog: safeCatalog,
@@ -254,6 +241,21 @@ describe('rerenderUneditedJinjaParts', () => {
       expect(r.html).toContain('全体&lt;');
       expect(r.blanks).toEqual([{ partKey: 's#1', missing: [], unsupported: ['note|safe'] }]);
     });
+  });
+
+  it('パーツ自身が持つ能動コンテンツは、値を描き直しても並びが変わらないので描き直す', () => {
+    const tpl = '<section class="j"><script>var a = 1;</script><p>{{ fund.name }}</p></section>';
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: doc(
+        '<section class="j" data-part-id="j"><script>var a = 1;</script><p>交付ファンド</p></section>',
+      ),
+      catalog: new Map([['j', tpl]]),
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
+    expect(r.rerendered).toEqual(['j#1']);
+    expect(r.html).toContain('<p>全体ファンド</p>');
   });
 
   it('根が複数のパーツ(editor は先頭の根だけに data-part-id を付ける)は edited になる', () => {

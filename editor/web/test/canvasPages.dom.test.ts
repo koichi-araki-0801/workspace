@@ -354,30 +354,27 @@ describe('insertPart', () => {
     expect(g.insertPart('<section>new</section>', 'NEW')).toBe(false);
   });
 
-  it('safe で値の HTML をそのまま描いた断片も、canvas の入口で危険な属性・要素が落ちる', () => {
+  it('safe の許可した形の値は要素として入り、許可していない形の値は文字として入る', () => {
     // 編集タブの挿入と同じく、カタログの断片を値ファイルの値で描いてから入れる(`partRender.ts`)。
-    const { html } = renderPlainFilled('<section class="p">{{ note|safe }}</section>', {
-      note: '注<br>記<img src="x" onerror="globalThis.__pwnedPart = 1"><b>太</b>',
+    const tpl = '<section class="p">{{ ok|safe }}{{ bad|safe }}</section>';
+    const { html } = renderPlainFilled(tpl, {
+      ok: '注<br>記<b>太</b>',
+      bad: '<img src="x" onerror="globalThis.__pwnedPart = 1"><script>1</script>',
     });
-    expect(html).toContain('onerror'); // 描画器はエスケープしない(本番の出力と同じ)
     load(DOC);
     expect(g.insertPart(html, 'NEW')).toBe(true);
     const saved = g.getBodyHtml();
-    expect(saved).toContain(
-      '<section data-part-id="NEW" class="p">注<br/>記<img src="x"/><b>太</b></section>',
-    );
-    expect(saved).not.toContain('onerror');
+    expect(saved).toContain('<section data-part-id="NEW" class="p">注<br/>記<b>太</b>&lt;img');
+    expect(saved).not.toMatch(/<img|<script/);
   });
 
-  it('script を持つ safe の値は、描画器がエスケープして文字として入れる', () => {
-    const { html } = renderPlainFilled('<section class="p">{{ note|safe }}</section>', {
-      note: '注<script>globalThis.__pwnedPart = 1</script>',
-    });
+  it('描画器を通らずに生の HTML が来ても、canvas の入口で危険な属性・要素が落ちる', () => {
     load(DOC);
-    expect(g.insertPart(html, 'NEW')).toBe(true);
+    const raw = '<section class="p">注<img src="x" onerror="globalThis.__pwnedPart = 1"></section>';
+    expect(g.insertPart(raw, 'NEW')).toBe(true);
     const saved = g.getBodyHtml();
-    expect(saved).not.toContain('<script');
-    expect(saved).toContain('注&lt;script&gt;');
+    expect(saved).toContain('<section data-part-id="NEW" class="p">注<img src="x"/></section>');
+    expect(saved).not.toContain('onerror');
   });
 
   it('挿入する HTML から部品ができなければ(append が root を返さない)false で、本文を変えない', () => {

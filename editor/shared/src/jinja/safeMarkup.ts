@@ -1,139 +1,181 @@
 // =============================================================================
 // safeMarkup.ts — `safe` の値をエスケープせずに置いてよいかの判定
 // =============================================================================
-// `safe` の付いた値は本番と同じ見た目にするため HTML のまま描くが、置く位置と値の形を両方確かめる。
-// 位置は「要素の中身(テキスト)」だけ: 属性値・タグの中・HTML コメント・raw text の中に置くと、値の
-// `"` `>` `-->` `</title` でその文脈を抜け、周りのマークアップ(作成タブの往復用の印や固めた要素の
-// 属性を含む)を書き換えられる。値の形は「それだけで閉じた断片」だけ: 閉じタグの余り・コメント・
-// パーサの読み方を切り替える要素があると、テキストの位置からでも外側の要素を閉じたり印を作ったり
-// できる。どちらかに外れた値はエスケープして描く(呼び出し側が unsupported に数える)。
-//
-// 判定は安全側に倒す: 読み方に迷う形(`<` の直後に Jinja が続く等)はテキストの位置と見なさない。
+// `safe` の付いた値は本番と同じ見た目にするため HTML のまま描くが、値の形と置く位置を両方確かめ、
+// 疑わしければエスケープする。値を生で置けるかを自前の字句解析で「安全」と判定する限り、ブラウザの
+// パーサとの解釈のずれがそのまま穴になるので、判定は狭く倒す。
+//   - 値の形: 許可したタグと属性だけを、ブラウザと解釈が分かれない単純な書き方(属性名は英字と `-`、
+//     値は引用符で囲むか英数字だけ、区切りは空白)で書いた、対応の取れた断片だけ。コメント・`<!`・
+//     名前で始まらない `<`・往復用の印は持たせない。能動コンテンツ(イベント属性・script・URL を取る
+//     属性)は許可リストに無いので、そもそも生で置かない。
+//   - 置く位置: 描き終えた HTML そのものを読み、要素の中身(テキスト)の位置にある値だけ。原文で
+//     判定すると、if の枝で引用符や開始タグが消えたときに描いた結果と文脈がずれる。属性値・タグの
+//     中・コメント・raw text・表の行の間・外来要素(svg / math)の中は、値の `"` `>` `-->` `</…` で
+//     その文脈を抜け、周りのマークアップ(作成タブの往復用の印や固めた要素の属性を含む)を
+//     書き換えられるので生で置かない。
+// 生で置いた値も、web では canvas の入口の刈り取り(DOM で読む)、server では承認で書く本文の検査を
+// 通るので、ここは最後の守りではなく、値で文脈を抜けさせないための層である。
 
-import { isHtmlSpace, isTagNameEnd } from '../html/htmlLex.js';
-import { asciiLower, RAW_TEXT_ELEMENTS } from '../html/rawText.js';
 import { findEditingMarkers } from '../security/editingMarkers.js';
-import { lexJinja } from './jinjaLex.js';
 
-// ── 1. 置く位置 ──
+// ── 1. 値の形 ──
 
-const TAG_NAME_RE = /^[A-Za-z][^\s/>{]*/;
+/** 帳票の注記で使う書式の要素。URL・実行・フォームに関わる要素は入れない。 */
+const ALLOWED_TAGS: ReadonlySet<string> = new Set([
+  'b',
+  'i',
+  'u',
+  's',
+  'em',
+  'strong',
+  'small',
+  'sup',
+  'sub',
+  'span',
+  'div',
+  'p',
+  'br',
+  'hr',
+  'ul',
+  'ol',
+  'li',
+  'dl',
+  'dt',
+  'dd',
+  'table',
+  'thead',
+  'tbody',
+  'tfoot',
+  'tr',
+  'th',
+  'td',
+  'caption',
+  'colgroup',
+  'col',
+  'font',
+  'mark',
+  'ruby',
+  'rt',
+  'rp',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'blockquote',
+  'pre',
+  'code',
+]);
+
+const VOID_TAGS: ReadonlySet<string> = new Set(['br', 'hr', 'col']);
+
+/** 見た目だけに効く属性。URL・実行・id(canvas の要素の取り違え)に関わる属性は入れない。 */
+const ALLOWED_ATTRS: ReadonlySet<string> = new Set([
+  'class',
+  'style',
+  'title',
+  'lang',
+  'dir',
+  'colspan',
+  'rowspan',
+  'span',
+  'align',
+  'valign',
+  'width',
+  'height',
+  'color',
+  'size',
+  'face',
+  'border',
+  'cellpadding',
+  'cellspacing',
+  'nowrap',
+]);
+
+// 空白は HTML の 5 文字だけ(ブラウザが属性の区切りに使う文字と揃える)。区切りの `/` は受けない。
+const WS = '[\\t\\n\\f\\r ]';
+const ATTR = `${WS}+([A-Za-z][A-Za-z-]*)(?:${WS}*=${WS}*("[^"]*"|'[^']*'|[A-Za-z0-9_.%#-]+))?`;
+const START_TAG_RE = new RegExp(`<([A-Za-z][A-Za-z0-9]*)((?:${ATTR})*)${WS}*(/?)>`, 'y');
+const END_TAG_RE = new RegExp(`</([A-Za-z][A-Za-z0-9]*)${WS}*>`, 'y');
+const ATTR_RE = new RegExp(ATTR, 'g');
 
 /**
- * `src` の Jinja トークンのうち、HTML のテキストの位置にあるものの開始位置。字句として読めなければ
- * 空(どこにも生の HTML を置かない)。
+ * style の値は CSS の外部参照・エスケープ・実体参照(`&#117;rl(` で `url(` を隠す)を持たないものだけ。
+ * 持てば判定をやめてエスケープする側に倒す。
  */
-export function jinjaTextTokenStarts(src: string): ReadonlySet<number> {
-  const out = new Set<number>();
-  const lexed = lexJinja(src);
-  if (!lexed.ok) return out;
-  const toks = lexed.tokens;
-  let k = 0;
-  let state: 'text' | 'tag' | 'comment' | 'bogus' | 'raw' = 'text';
-  let tagName = '';
-  let endTag = false;
-  let rawName = '';
-  let quote: string | null = null;
-  let afterEq = false;
-  let i = 0;
-  while (i < src.length) {
-    while (k < toks.length && toks[k].start < i) k++;
-    const tok = toks[k];
-    if (tok && tok.start === i) {
-      if (state === 'text') out.add(i);
-      else if (state === 'tag') afterEq = false;
-      i = tok.end;
-      k++;
-      continue;
-    }
-    const c = src[i];
-    switch (state) {
-      case 'text': {
-        if (src.startsWith('<!--', i)) {
-          state = 'comment';
-          i += 4;
-          continue;
-        }
-        if (c !== '<') break;
-        const next = src[i + 1];
-        if (next === '!' || next === '?') {
-          state = 'bogus';
-          i += 2;
-          continue;
-        }
-        const m = TAG_NAME_RE.exec(src.slice(i + (next === '/' ? 2 : 1), i + 66));
-        if (m) {
-          endTag = next === '/';
-          tagName = asciiLower(m[0]);
-          state = 'tag';
-          quote = null;
-          afterEq = false;
-          i += (endTag ? 2 : 1) + m[0].length;
-          continue;
-        }
-        // `<{{ x }}` / `</{{ x }}` は値しだいでタグになるので、`>` まで名前の無いタグとして読む。
-        if (next === '{' || (next === '/' && src[i + 2] === '{')) {
-          tagName = '';
-          endTag = false;
-          state = 'tag';
-          quote = null;
-          afterEq = false;
-        }
-        break;
-      }
-      case 'tag':
-        if (quote !== null) {
-          if (c === quote) quote = null;
-        } else if (c === '>') {
-          state = !endTag && RAW_TEXT_ELEMENTS.has(tagName) ? 'raw' : 'text';
-          rawName = tagName;
-        } else if (c === '=') afterEq = true;
-        else if (afterEq && (c === '"' || c === "'")) {
-          quote = c;
-          afterEq = false;
-        } else if (!isHtmlSpace(c)) afterEq = false;
-        break;
-      case 'comment':
-        if (src.startsWith('-->', i)) {
-          state = 'text';
-          i += 3;
-          continue;
-        }
-        if (src.startsWith('--!>', i)) {
-          state = 'text';
-          i += 4;
-          continue;
-        }
-        break;
-      case 'bogus':
-        if (c === '>') state = 'text';
-        break;
-      case 'raw': {
-        const at = i + 2 + rawName.length;
-        if (
-          c === '<' &&
-          src[i + 1] === '/' &&
-          asciiLower(src.slice(i + 2, at)) === rawName &&
-          (at >= src.length || isTagNameEnd(src[at]))
-        ) {
-          state = 'tag';
-          endTag = true;
-          tagName = rawName;
-          quote = null;
-          i = at;
-          continue;
-        }
-        break;
-      }
-    }
-    i++;
+const UNSAFE_STYLE_RE = /url\s*\(|image-set|expression|@import|[\\&<>]/i;
+
+function attrsAllowed(attrs: string): boolean {
+  for (const m of attrs.matchAll(ATTR_RE)) {
+    const name = m[1].toLowerCase();
+    if (!ALLOWED_ATTRS.has(name)) return false;
+    if (name === 'style' && UNSAFE_STYLE_RE.test(m[2] ?? '')) return false;
   }
-  return out;
+  return true;
 }
 
-// ── 2. 値の形 ──
+/**
+ * `html` を生で置いてよい形か: 許可したタグ・属性だけの、対応の取れた断片(上の冒頭の説明)。
+ * 外れたら false(呼び出し側がエスケープする)。
+ */
+export function isAllowedSafeMarkup(html: string): boolean {
+  const stack: string[] = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) break;
+    END_TAG_RE.lastIndex = lt;
+    const end = END_TAG_RE.exec(html);
+    if (end) {
+      const name = end[1].toLowerCase();
+      if (VOID_TAGS.has(name) || stack.pop() !== name) return false;
+      i = END_TAG_RE.lastIndex;
+      continue;
+    }
+    START_TAG_RE.lastIndex = lt;
+    const start = START_TAG_RE.exec(html);
+    if (!start) return false;
+    const name = start[1].toLowerCase();
+    if (!ALLOWED_TAGS.has(name) || !attrsAllowed(start[2])) return false;
+    // `<b/>` も HTML では開くので、空要素でなければ閉じを求める。
+    if (!VOID_TAGS.has(name)) stack.push(name);
+    i = START_TAG_RE.lastIndex;
+  }
+  return stack.length === 0 && findEditingMarkers(html).length === 0;
+}
 
-const VOID_ELEMENTS: ReadonlySet<string> = new Set([
+// ── 2. 置く位置 ──
+
+/** 中身を文字データとして読む要素(ブラウザが RAWTEXT / RCDATA として読むもの全部)。 */
+const RAW_TEXT_TAGS: ReadonlySet<string> = new Set([
+  'script',
+  'style',
+  'textarea',
+  'title',
+  'xmp',
+  'iframe',
+  'noembed',
+  'noframes',
+  'noscript',
+]);
+
+/** 直下のテキストをパーサが別の場所へ移す(表)か捨てる要素。ここでは値を生で置かない。 */
+const NON_TEXT_PARENTS: ReadonlySet<string> = new Set([
+  'html',
+  'head',
+  'table',
+  'tbody',
+  'thead',
+  'tfoot',
+  'tr',
+  'colgroup',
+  'select',
+  'optgroup',
+  'frameset',
+]);
+
+const HTML_VOID: ReadonlySet<string> = new Set([
   'area',
   'base',
   'br',
@@ -149,61 +191,151 @@ const VOID_ELEMENTS: ReadonlySet<string> = new Set([
   'wbr',
 ]);
 
-/** 中身の読み方(raw text・外来要素・文書の骨組み)を切り替える要素。値の中には置かせない。 */
-const PARSER_SWITCHING: ReadonlySet<string> = new Set([
-  ...RAW_TEXT_ELEMENTS,
-  'html',
-  'head',
-  'body',
-  'frameset',
-  'frame',
-  'template',
-  'svg',
-  'math',
-  'plaintext',
-  'xmp',
-  'iframe',
-  'noembed',
-  'noframes',
-  'noscript',
-]);
+const isWs = (c: string | undefined) =>
+  c === ' ' || c === '\t' || c === '\n' || c === '\f' || c === '\r';
+const isAlpha = (c: string | undefined) => c !== undefined && /[A-Za-z]/.test(c);
+const lower = (s: string) => s.replace(/[A-Z]+/g, (m) => m.toLowerCase());
 
 /**
- * `html` がそれだけで閉じた断片か: タグはすべて対応が取れ(空要素を除く)、コメント・`<!` `<?`・
- * 名前で始まらない `<`・往復用の印・読み方を切り替える要素を持たない。テキストの位置に置いても、
- * 外側の要素を閉じず、印やコメントを作らない。
+ * 描き終えた `html` の上で、`at` の各位置が要素の中身(テキスト)の位置か。字句の規則はブラウザの
+ * tokenizer に揃え(属性名・値の状態、`<!-->`、`</` の後が英字でないときの bogus コメント、CDATA)、
+ * 揃えきれない所(外来要素の中・表の行の間・暗黙に閉じる要素の扱い)はテキストでないと見なす。
  */
-export function isSelfContainedMarkup(html: string): boolean {
+export function textPositions(html: string, at: readonly number[]): ReadonlySet<number> {
+  const want = new Set(at);
+  const out = new Set<number>();
   const stack: string[] = [];
+  let foreign = 0;
+  let low: string | null = null;
   let i = 0;
-  while (i < html.length) {
-    const lt = html.indexOf('<', i);
-    if (lt < 0) break;
-    const end = html[lt + 1] === '/';
-    const name = TAG_NAME_RE.exec(html.slice(lt + (end ? 2 : 1), lt + 66))?.[0];
-    if (name === undefined) return false;
-    const lower = asciiLower(name);
-    if (PARSER_SWITCHING.has(lower)) return false;
-    // タグの閉じ `>` を、`=` の後の引用符の中を飛ばして探す。
-    let j = lt + (end ? 2 : 1) + name.length;
-    let quote: string | null = null;
-    let afterEq = false;
-    for (; j < html.length; j++) {
-      const c = html[j];
-      if (quote !== null) {
-        if (c === quote) quote = null;
-      } else if (c === '>') break;
-      else if (c === '=') afterEq = true;
-      else if (afterEq && (c === '"' || c === "'")) {
-        quote = c;
-        afterEq = false;
-      } else if (!isHtmlSpace(c)) afterEq = false;
+  const n = html.length;
+  const inText = () => foreign === 0 && !NON_TEXT_PARENTS.has(stack[stack.length - 1] ?? '');
+  /** `from` から `needle` の後ろまで飛ばす(無ければ末尾)。 */
+  const skipPast = (from: number, needle: string) => {
+    const k = html.indexOf(needle, from);
+    return k < 0 ? n : k + needle.length;
+  };
+  while (i < n) {
+    if (html[i] !== '<') {
+      if (want.has(i) && inText()) out.add(i);
+      i++;
+      continue;
     }
-    if (j >= html.length) return false;
-    if (end) {
-      if (VOID_ELEMENTS.has(lower) || stack.pop() !== lower) return false;
-    } else if (!VOID_ELEMENTS.has(lower)) stack.push(lower); // `<span/>` も HTML では開く
-    i = j + 1;
+    const c1 = html[i + 1];
+    if (html.startsWith('<!--', i)) {
+      // `<!-->` と `<!--->` はそこで閉じる(ブラウザの abrupt-closing-of-empty-comment)。
+      if (html[i + 4] === '>') i += 5;
+      else if (html.startsWith('->', i + 4)) i += 6;
+      else {
+        let k = i + 4;
+        for (;;) {
+          const a = html.indexOf('--', k);
+          if (a < 0) {
+            k = n;
+            break;
+          }
+          if (html[a + 2] === '>') {
+            k = a + 3;
+            break;
+          }
+          if (html.startsWith('!>', a + 2)) {
+            k = a + 4;
+            break;
+          }
+          k = a + 1;
+        }
+        i = k;
+      }
+      continue;
+    }
+    if (c1 === '!' && foreign > 0 && html.startsWith('<![CDATA[', i)) {
+      i = skipPast(i + 9, ']]>');
+      continue;
+    }
+    if (c1 === '!' || c1 === '?' || (c1 === '/' && !isAlpha(html[i + 2]) && html[i + 2] !== '>')) {
+      i = skipPast(i + 2, '>'); // bogus コメント
+      continue;
+    }
+    if (c1 === '/' && html[i + 2] === '>') {
+      i += 3; // `</>` はブラウザが読み捨てる
+      continue;
+    }
+    if (!isAlpha(c1) && c1 !== '/') {
+      if (want.has(i) && inText()) out.add(i);
+      i++; // 名前で始まらない `<` は文字
+      continue;
+    }
+    // ── タグ ──
+    const endTag = c1 === '/';
+    let k = i + (endTag ? 2 : 1);
+    const nameStart = k;
+    while (k < n && !isWs(html[k]) && html[k] !== '/' && html[k] !== '>') k++;
+    const name = lower(html.slice(nameStart, k));
+    let selfClosing = false;
+    // 属性(ブラウザの before/after attribute name・attribute value の状態に揃える)。
+    while (k < n && html[k] !== '>') {
+      const c = html[k];
+      if (isWs(c)) {
+        k++;
+        continue;
+      }
+      if (c === '/') {
+        selfClosing = html[k + 1] === '>';
+        k++;
+        continue;
+      }
+      // 属性名。先頭の `=` は名前の一部になる。
+      k++;
+      while (k < n && !isWs(html[k]) && html[k] !== '/' && html[k] !== '>' && html[k] !== '=') k++;
+      while (k < n && isWs(html[k])) k++;
+      if (html[k] !== '=') continue;
+      k++;
+      while (k < n && isWs(html[k])) k++;
+      const q = html[k];
+      if (q === '"' || q === "'") {
+        const close = html.indexOf(q, k + 1);
+        k = close < 0 ? n : close + 1;
+      } else {
+        while (k < n && !isWs(html[k]) && html[k] !== '>') k++;
+      }
+    }
+    i = Math.min(n, k + 1);
+    if (endTag) {
+      if ((name === 'svg' || name === 'math') && foreign > 0) foreign--;
+      const at = stack.lastIndexOf(name);
+      if (at >= 0) stack.length = at;
+      continue;
+    }
+    if (foreign > 0) {
+      if ((name === 'svg' || name === 'math') && !selfClosing) foreign++;
+      continue;
+    }
+    if (name === 'svg' || name === 'math') {
+      if (!selfClosing) foreign++;
+      continue;
+    }
+    if (name === 'plaintext') break; // 以後はすべて文字データ
+    if (RAW_TEXT_TAGS.has(name)) {
+      // 閉じタグ `</name` の後ろが空白・`/`・`>` のものまで飛ばす(大文字小文字を区別しない)。
+      low ??= lower(html);
+      let k2 = i;
+      for (;;) {
+        const a = low.indexOf(`</${name}`, k2);
+        if (a < 0) {
+          k2 = n;
+          break;
+        }
+        const after = low[a + 2 + name.length];
+        if (after === undefined || isWs(after) || after === '/' || after === '>') {
+          k2 = a;
+          break;
+        }
+        k2 = a + 1;
+      }
+      i = k2;
+      continue;
+    }
+    if (!HTML_VOID.has(name)) stack.push(name);
   }
-  return stack.length === 0 && findEditingMarkers(html).length === 0;
+  return out;
 }

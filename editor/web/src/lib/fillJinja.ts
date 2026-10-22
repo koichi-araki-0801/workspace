@@ -79,17 +79,15 @@ const RAW_LABEL_CHARS = 20;
 
 /**
  * 単独のトークンのチップ。出力は評価した値を、文・Jinja コメントは原文を見せる。`safe` の付いた値は
- * HTML のままチップの中に描く(本番の見た目に揃える)。チップはテキストの位置にだけ出すので
- * `inText` は常に真で、値がそれだけで閉じた断片でなければ(閉じタグの余り・コメント・往復用の印を
- * 持てば)`Filler.html` がエスケープする。保存では `data-jinja` の原文へ戻るので中身は載らず、中身で
- * 表の構造が崩れたときは自己検査が本文全体を固める側へ倒す。
+ * HTML のままチップの中に描く(本番の見た目に揃える)。生で置くかは、許可した形の断片かを
+ * `Filler.html` が、描き終えた出力の上でテキストの位置かを `toFilledWithDiagnostics` の
+ * `Filler.finalize` が決め、外れればエスケープする。保存では `data-jinja` の原文へ戻るので中身は
+ * 載らず、中身で表の構造が崩れたときは自己検査が本文全体を固める側へ倒す。
  */
 function tokenChip(tok: JinjaToken, ctx: JinjaCtx, f: Filler): string {
   const kind = tok.kind === 'output' ? 'var' : tok.kind;
   const visible =
-    tok.kind === 'output'
-      ? f.html(tok.body, ctx, { escapeText: htmlEscape, inText: true })
-      : htmlEscape(tok.source);
+    tok.kind === 'output' ? f.html(tok.body, ctx, htmlEscape) : htmlEscape(tok.source);
   return `<span data-gjs-type="jinja-${kind}" class="${JINJA_CHIP_CLASS} jinja-${kind}" ${DATA_JINJA}="${b64encodeUtf8(tok.source)}">${visible}</span>`;
 }
 
@@ -371,7 +369,7 @@ export function toFilledWithDiagnostics(
   let html: string;
   let selfCheckFailed = false;
   if (!a.parse.ok || a.frozen.some((r) => r.form === 'body')) {
-    html = emitWholeBody(raw, a, freshCtx(), f);
+    html = f.finalize(emitWholeBody(raw, a, freshCtx(), f));
   } else {
     let id = 0;
     const e: EmitCtx = {
@@ -382,9 +380,9 @@ export function toFilledWithDiagnostics(
       frozen: a.frozen,
       opaque: a.opaque,
     };
-    html = emitRange(e, a.parse.nodes, 0, raw.length, freshCtx(), NO_ROWS);
+    html = f.finalize(emitRange(e, a.parse.nodes, 0, raw.length, freshCtx(), NO_ROWS));
     if (!roundTripsToOriginal(raw, emitHook ? emitHook(html) : html, parse)) {
-      html = emitWholeBody(raw, a, freshCtx(), f);
+      html = f.finalize(emitWholeBody(raw, a, freshCtx(), f));
       selfCheckFailed = true;
     }
   }

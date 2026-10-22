@@ -1,88 +1,114 @@
 import { describe, expect, it } from 'vitest';
-import { lexJinja } from '../src/jinja/jinjaLex';
-import { isSelfContainedMarkup, jinjaTextTokenStarts } from '../src/jinja/safeMarkup';
+import { isAllowedSafeMarkup, textPositions } from '../src/jinja/safeMarkup';
 
-/** テキストの位置にあるトークンの本体を、原文の順に返す。 */
-const inText = (src: string) => {
-  const lexed = lexJinja(src);
-  if (!lexed.ok) throw new Error('lex');
-  const starts = jinjaTextTokenStarts(src);
-  return lexed.tokens.filter((t) => starts.has(t.start)).map((t) => t.body);
+/** `html` の中の `@` の位置のうち、テキストの位置と判定されたものの番号(0 始まり)。 */
+const marks = (html: string) => {
+  const at: number[] = [];
+  for (let i = 0; i < html.length; i++) if (html[i] === '@') at.push(i);
+  const text = textPositions(html, at);
+  return at.flatMap((p, k) => (text.has(p) ? [k] : []));
 };
 
-describe('jinjaTextTokenStarts — safe の値を生で置ける位置', () => {
+describe('textPositions — 描き終えた HTML の上でテキストの位置か', () => {
   it('要素の中身はテキストの位置', () => {
-    expect(inText('<p>{{ a }}<b>{{ b }}</b></p>{{ c }}')).toEqual(['a', 'b', 'c']);
+    expect(marks('<p>@<b>@</b></p>@<div><span>@</span></div>')).toEqual([0, 1, 2, 3]);
   });
   it.each([
-    ['属性値(二重引用符)', '<p title="{{ x }}">t</p>'],
-    ['属性値(一重引用符)', "<p title='{{ x }}'>t</p>"],
-    ['属性値(引用符なし)', '<p title={{ x }}>t</p>'],
-    ['タグの中', '<p {{ x }}>t</p>'],
-    ['閉じタグの中', '<p>t</p {{ x }}>'],
-    ['HTML コメント', '<!-- {{ x }} -->'],
-    ['bogus コメント', '<!doctype {{ x }}>'],
-    ['raw text(title)', '<title>{{ x }}</title>'],
-    ['raw text(style)', '<style>p{color:{{ x }}}</style>'],
-    ['raw text(script)', '<script>var a = "{{ x }}";</script>'],
-    ['textarea', '<textarea>{{ x }}</textarea>'],
-    ['`<` の直後(値しだいでタグになる)', '<{{ x }} class="a">'],
-    ['`</` の直後', '</{{ x }}>'],
-  ])('%s はテキストの位置ではない', (_, src) => {
-    expect(inText(src)).toEqual([]);
+    ['属性値(二重引用符)', '<p title="@">t</p>'],
+    ['属性値(一重引用符)', "<p title='@'>t</p>"],
+    ['属性値(引用符なし)', '<p title=@>t</p>'],
+    ['属性値の前に空白', '<p title =\n"@">t</p>'],
+    ['タグの中', '<p @>t</p>'],
+    ['`/` で区切った属性', '<img/src=x/@>'],
+    ['閉じタグの中', '<p>t</p @>'],
+    ['HTML コメント', '<!-- @ -->'],
+    ['bogus コメント', '<!doctype @>'],
+    ['`</` の後が英字でない(bogus コメント)', '</ @>'],
+    ['処理命令', '<?x @>'],
+    ['raw text(title)', '<title>@</title>'],
+    ['raw text(大文字の閉じを待つ)', '<STYLE>@</style>'],
+    ['textarea', '<textarea>@</textarea>'],
+    ['xmp', '<xmp>@</xmp>'],
+    ['iframe', '<iframe>@</iframe>'],
+    ['noscript', '<noscript>@</noscript>'],
+    ['plaintext の後ろ全部', '<plaintext><p>@</p>'],
+    ['svg の中', '<svg><text>@</text></svg>'],
+    ['math の中', '<math><mi>@</mi></math>'],
+    ['svg の中の CDATA', '<svg><![CDATA[ > @ ]]></svg>'],
+    ['表の行の間(パーサが表の外へ移す)', '<table><tr>@<td>x</td></tr></table>'],
+    ['tbody の直下', '<table><tbody>@</tbody></table>'],
+    ['select の中', '<select>@</select>'],
+    ['head の中', '<html><head>@</head></html>'],
+  ])('%s はテキストの位置ではない', (_, html) => {
+    expect(marks(html)).toEqual([]);
   });
-  it('属性値の中の `>` や Jinja で閉じたと読まない', () => {
-    expect(inText('<p title="a>{{ x }}" data-a="{{ y }}">{{ z }}</p>')).toEqual(['z']);
+  it('属性値の中の `>` や引用符の食い違いで閉じたと読まない', () => {
+    expect(marks('<p title="a>@" data-a=\'"\' b=x"y>@</p>')).toEqual([1]);
   });
-  it('コメント・raw text の後ろはテキストに戻る', () => {
-    expect(inText('<!-- c -->{{ a }}<title>t</title>{{ b }}<style>x</STYLE >{{ c }}')).toEqual([
-      'a',
-      'b',
-      'c',
-    ]);
+  it('コメント・raw text・svg・表の後ろはテキストに戻る', () => {
+    expect(
+      marks(
+        '<!-- c -->@<title>t</title>@<style>x</STYLE >@<svg><g></g></svg>@' +
+          '<table><tr><td>@</td></tr></table>@<!-->@<!--->@</>@',
+      ),
+    ).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   });
-  it('raw text の中の別の閉じタグでは戻らない', () => {
-    expect(inText('<title></b>{{ x }}</titlex>{{ y }}</title>{{ z }}')).toEqual(['z']);
+  it('raw text の中の別の閉じタグ・コメントの `--!>` 以外の途中では戻らない', () => {
+    expect(marks('<title></b>@</titlex>@</title>@<!-- -- > @ --!>@')).toEqual([2, 4]);
   });
-  it('字句として読めなければどこもテキストの位置と見なさない', () => {
-    expect(jinjaTextTokenStarts('<p>{{ a </p>').size).toBe(0);
+  it('名前で始まらない `<` は文字として読み、その後もテキスト', () => {
+    expect(marks('a < b @ <1 @')).toEqual([0, 1]);
   });
 });
 
-describe('isSelfContainedMarkup — それだけで閉じた断片か', () => {
+describe('isAllowedSafeMarkup — 生で置いてよい形か(疑わしければ false)', () => {
   it.each([
     'a<br>b',
     'a<br/>b<br />',
     '<b>x</b><span class="r" title="a>b">y</span>',
     '<p>段落</p><ul><li>1</li></ul>',
-    '<table><tr><td>1</td></tr></table>',
-    '<img src="x" onerror="alert(1)">', // 危険な属性は canvas の刈り取りと server の関所が落とす
-    'a -- b > c " d \' e',
+    '<table><tr><td colspan=2>1</td></tr></table>',
+    '<span style="color: red; font-weight: bold">x</span>',
+    '<FONT COLOR="red">x</FONT>',
+    'a -- b > c " d \' e & f',
     '',
-  ])('%s は閉じている', (html) => {
-    expect(isSelfContainedMarkup(html)).toBe(true);
+  ])('%s は通す', (html) => {
+    expect(isAllowedSafeMarkup(html)).toBe(true);
   });
   it.each([
+    ['イベント属性', '<b onclick="alert(1)">x</b>'],
+    ['`/` で区切ったイベント属性', '<img/src=x/onerror=alert(1)>'],
+    ['許可していない要素', '<img src="x">'],
+    ['URL を取る属性', '<a href="javascript:alert(1)">x</a>'],
+    ['実体参照で隠した URL', '<a href="&#x6a;avascript:alert(1)">x</a>'],
+    ['id', '<span id="x">x</span>'],
+    ['style の外部参照', '<span style="background:url(x)">x</span>'],
+    ['style のエスケープ', '<span style="background:u\\72l(x)">x</span>'],
+    ['style の実体参照', '<span style="background:&#117;rl(x)">x</span>'],
+    ['空白を挟まない属性', '<span class="a"title="b">x</span>'],
+    ['引用符の食い違い', '<span class="a>x</span>'],
+    ['引用符なしの値に記号', '<span class=a"b>x</span>'],
+    ['属性名の改行・タブ以外の区切り', '<span\u000bclass="a">x</span>'],
     ['閉じタグの余り', 'x</span>'],
     ['外側を閉じる', '</p><p>'],
     ['閉じていない', '<b>x'],
     ['入れ子の食い違い', '<b><i>x</b></i>'],
     ['`<span/>` も HTML では開く', '<span/>'],
     ['空要素の閉じタグ', '<br></br>'],
-    ['コメントの開き', 'a<!--b'],
-    ['コメントの閉じ(往復用の印を作る)', '--><!--jinja-rt:c:1:-->'],
+    ['コメント', 'a<!--b-->'],
+    ['空のコメント', '<!-->'],
+    ['CDATA', '<![CDATA[x]]>'],
     ['bogus コメント', '<!doctype html>'],
     ['処理命令', '<?x?>'],
     ['名前で始まらない `<`', 'a < b'],
-    ['閉じない開始タグ', '<b title="x'],
-    ['raw text の要素', '<style>p{}</style>'],
+    ['raw text の要素', '<textarea></textarea>'],
     ['script', '<script>1</script>'],
-    ['外来要素', '<svg><text>1</text></svg>'],
+    ['大文字の script', '<SCRIPT>1</SCRIPT>'],
+    ['外来要素', '<svg><script>1</script></svg>'],
     ['文書の骨組み', '<body onload="x"></body>'],
-    ['template', '<template>x</template>'],
     ['往復用のチップ', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
     ['固めた要素の印', '<div data-opaque="eA==" data-opaque-kind="body">x</div>'],
-  ])('%s: %s は閉じていない', (_, html) => {
-    expect(isSelfContainedMarkup(html)).toBe(false);
+  ])('%s: %s は通さない', (_, html) => {
+    expect(isAllowedSafeMarkup(html)).toBe(false);
   });
 });

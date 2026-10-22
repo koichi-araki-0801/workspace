@@ -14,7 +14,7 @@ import { findEditingMarkers } from '../src/security/editingMarkers';
 const show = (src: string, ctx: Record<string, unknown>, f = new Filler()) => {
   const r = parseJinja(src);
   if (!r.ok) throw new Error(r.error.message);
-  return renderDisplay(src, r.nodes, ctx, f);
+  return f.finalize(renderDisplay(src, r.nodes, ctx, f));
 };
 
 describe('takenBranchIndex — elif を正しく選ぶ', () => {
@@ -152,7 +152,7 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     ).toBe('01|<i>※1</i><i>※2</i>');
   });
   it('safe の値も、テキストの位置でなければエスケープし、見た目が変われば unsupported に数える', () => {
-    const v = '"><img src=x onerror=alert(1)>--><!--';
+    const v = '" x="1"> <b>y</b> -->';
     const f = new Filler();
     const out = show(
       `<p title="{{ v|safe }}">t</p><!-- {{ v|safe }} --><title>{{ v|safe }}</title>` +
@@ -165,7 +165,25 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     // エスケープしても変わらない値(`w`)は数えない(エスケープ済みの普通の値と同じ扱い)。
     expect([...f.unsupported]).toEqual(['v|safe']);
   });
+  it('置く位置は描き終えた出力で決める(if の枝で引用符が消えても属性値の中ならエスケープする)', () => {
+    const src = '<p title="{% if c %}"{% endif %}>{{ v|safe }}</p>';
+    const v = '" onmouseover="alert(1)';
+    expect(show(src, { c: false, v })).toBe(`<p title=">${escapeHtmlFull(v)}</p>`);
+    expect(show(src, { c: true, v })).toBe(`<p title="">${v}</p>`);
+  });
+  it('仮置きの印は描画ごとに推測できず、値に書いても本物の値に化けない', () => {
+    const forged = '\u{e000}00000000000000000\u{e001}';
+    const out = show('<p>{{ a|safe }}{{ b }}</p>', { a: '<b>x</b>', b: forged });
+    expect(out).toBe(`<p><b>x</b>${forged}</p>`);
+  });
+  it('finalize を掛けなければ safe の値は生では入らない', () => {
+    const src = '<p>{{ a|safe }}</p>';
+    const r = parseJinja(src);
+    if (!r.ok) throw new Error();
+    expect(renderDisplay(src, r.nodes, { a: '<b>x</b>' }, new Filler())).not.toContain('<b>');
+  });
   it.each([
+    ['許可していない要素', '<img src=x onerror=alert(1)>'],
     ['閉じタグの余り', 'x</section><p>外'],
     ['コメントで印を作る', '--><!--jinja-rt:c:1:--><!--'],
     ['往復用のチップ', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
