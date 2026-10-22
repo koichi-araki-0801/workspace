@@ -26,7 +26,6 @@ interface SummaryInput {
   templateId: string;
   html: string;
   css: string;
-  fundCode: string;
   origin: ReviewOrigin;
 }
 

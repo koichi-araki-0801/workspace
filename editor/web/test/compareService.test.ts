@@ -365,7 +365,7 @@ describe('CompareService delegation', () => {
 });
 
 describe('renderReviewPair', () => {
-  const input = { templateId: 't', html: '<p>a</p>', css: '.a{}', fundCode: 'f' };
+  const input = { templateId: 't', html: '<p>a</p>', css: '.a{}' };
   const mk = (before: ReturnType<typeof vi.fn>) => ({
     renderTemplateBody: vi.fn(async () => ok({ html: '<p>A</p>', css: '.A{}' })),
     renderVersionHtml: before,

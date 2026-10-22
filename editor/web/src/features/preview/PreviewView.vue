@@ -97,7 +97,6 @@ function onState(s: typeof nav) {
   Object.assign(nav, s);
 }
 
-const fundCode = computed(() => template.value?.meta.attributes.fundCode ?? '');
 // CSS の不在・配信されない画像参照の警告。開くことは止めず、帯で知らせる(編集画面と同じ判定)。
 // 下書きがあるのに CSS の baseline が無い(別タブ・ブックマークから開いた等)ときの知らせ。
 // 申請は止めない — 本文の確定は通り、承認がペアへの CSS の転写だけを飛ばす。
@@ -180,7 +179,6 @@ async function submitForReview() {
       templateId: props.id,
       html: restoredHtml.value,
       css: css.value,
-      fundCode: fundCode.value,
       origin: origin.value,
     });
     submitted = await runSubmit(() =>

@@ -40,7 +40,7 @@ const deps = {
 describe('computeChangedSummaryWith', () => {
   it('変更ブロックの件数と業務名(重複除去)を返す', async () => {
     const s = await computeChangedSummaryWith(
-      { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
+      { templateId: 't', html: '<p>a</p>', css: '', origin: 'edit' },
       deps,
     );
     expect(s).toEqual({ count: 2, names: ['運用実績の表', 'ページ2・パーツ1'] });
@@ -50,7 +50,7 @@ describe('computeChangedSummaryWith', () => {
     vi.useFakeTimers();
     try {
       const pending = computeChangedSummaryWith(
-        { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
+        { templateId: 't', html: '<p>a</p>', css: '', origin: 'edit' },
         { ...deps, buildHtmlDiff: vi.fn(() => new Promise(() => {})) },
         { timeoutMs: 1_000 },
       );
@@ -63,7 +63,7 @@ describe('computeChangedSummaryWith', () => {
 
   it('内部で例外が出ても null(申請を止めない)', async () => {
     const s = await computeChangedSummaryWith(
-      { templateId: 't', html: '', css: '', fundCode: 'f', origin: 'edit' },
+      { templateId: 't', html: '', css: '', origin: 'edit' },
       {
         ...deps,
         buildHtmlDiff: vi.fn(async () => {
@@ -76,7 +76,7 @@ describe('computeChangedSummaryWith', () => {
 
   it('renderPair の失敗は null', async () => {
     const s = await computeChangedSummaryWith(
-      { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
+      { templateId: 't', html: '<p>a</p>', css: '', origin: 'edit' },
       { ...deps, renderPair: vi.fn(async () => err(notFound('x'))) },
     );
     expect(s).toBeNull();
@@ -88,7 +88,7 @@ describe('computeChangedSummaryWith', () => {
       pages: [{ blocks: [{ key: 'table#1', label: 'ページ1・パーツ3', status: 'changed' }] }],
     };
     const s = await computeChangedSummaryWith(
-      { templateId: 't', html: '<p>a</p>', css: '', fundCode: 'f', origin: 'edit' },
+      { templateId: 't', html: '<p>a</p>', css: '', origin: 'edit' },
       { ...deps, buildHtmlDiff: vi.fn(async () => diffNoId) },
     );
     expect(s).toEqual({ count: 1, names: ['ページ1・パーツ3'] });
@@ -109,7 +109,7 @@ describe('createChangedSummaryService', () => {
       templateId: 't',
       html: '<p>a</p>',
       css: '',
-      fundCode: 'f',
+
       origin: 'edit',
     });
     expect(compare.renderVersionHtml).toHaveBeenCalledWith('baseline:t');

@@ -176,7 +176,6 @@ export function createReviewDiffService(
         templateId: review.templateId,
         html: review.html,
         css: review.css,
-        fundCode: review.attributes.fundCode,
         origin: review.origin,
       });
       if (isErr(pairRes)) return pairRes;

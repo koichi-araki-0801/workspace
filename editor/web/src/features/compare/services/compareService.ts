@@ -197,8 +197,6 @@ export async function renderReviewPair(
     templateId: string;
     html: string;
     css: string;
-    /** @deprecated 描画はテンプレート ID から引くため使わない。 */
-    fundCode?: string;
     origin: ReviewOrigin;
   },
 ): Promise<Result<{ before: RenderedVersion; after: RenderedVersion }>> {
