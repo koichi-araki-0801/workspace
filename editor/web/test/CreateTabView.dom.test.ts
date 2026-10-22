@@ -12,20 +12,24 @@ import { REPOS_KEY } from '@/api/repositories';
 import CreateTabView from '@/features/templates/CreateTabView.vue';
 import CreateFundSelect from '@/features/templates/components/CreateFundSelect.vue';
 
-const { routeQuery, router, confirmMock } = vi.hoisted(() => {
+const { routeQuery, router, confirmMock, toastMock } = vi.hoisted(() => {
   const routeQuery: Record<string, unknown> = {};
   const router = {
     currentRoute: { value: { query: {} as Record<string, unknown> } },
     replace: vi.fn(() => Promise.resolve()),
     push: vi.fn(() => Promise.resolve()),
   };
-  return { routeQuery, router, confirmMock: vi.fn(async () => true) };
+  return { routeQuery, router, confirmMock: vi.fn(async () => true), toastMock: vi.fn() };
 });
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeQuery }),
   useRouter: () => router,
 }));
-vi.mock('@/components/ui/toast', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+vi.mock('@/components/ui/toast', () => ({
+  toast: toastMock,
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
 vi.mock('@/components/ui/confirm', () => ({ confirm: confirmMock }));
 
 const COMPANIES: CompanyOption[] = [
@@ -56,6 +60,8 @@ function mountWith(info: CreatableInfo) {
           css: '',
           filled: '',
         },
+        importedIds: [ID],
+        skipped: [],
       }),
     ),
   };
@@ -78,6 +84,7 @@ beforeEach(() => {
   for (const k of Object.keys(routeQuery)) delete routeQuery[k];
   router.push.mockClear();
   confirmMock.mockReset();
+  toastMock.mockClear();
   confirmMock.mockResolvedValue(true);
   localStorage.clear();
   setActivePinia(createPinia());
@@ -138,6 +145,57 @@ describe('CreateTabView', () => {
       params: { id: ID },
       query: { created: '1' },
     });
+  });
+
+  it('作り直しの確認文は交付版・全体版の両方を捨てることを伝える', async () => {
+    const { w } = mountWith({ created: false, inProgressId: ID, seriesFunds: [] });
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description:
+          '交付版・全体版の両方について、作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
+      }),
+    );
+  });
+
+  it('生成の要求に Rep1 の会社コードを載せる', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(templates.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ rep1CompanyCode: 'R-AM01' }),
+    );
+  });
+
+  it('取り込まなかった組入先があれば、飛ばした id を並べて知らせる', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    const first = await templates.generate();
+    templates.generate.mockResolvedValueOnce(
+      ok({
+        ...(first as { value: object }).value,
+        skipped: [
+          { templateId: 'AM01_510003_交付版', reason: 'created' },
+          { templateId: 'AM01_510155_全体版', reason: 'pendingReview' },
+        ],
+      }) as never,
+    );
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(toastMock).toHaveBeenCalledWith(
+      '組入先の次のテンプレートは既にあるため取り込みませんでした: AM01_510003_交付版、AM01_510155_全体版',
+    );
+  });
+
+  it('飛ばした組入先が無ければ、その通知は出さない', async () => {
+    const { w } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(toastMock).not.toHaveBeenCalled();
   });
 
   it('作成済みでも作成中でもなければ、確認せずに生成し「開く」ボタンは出ない', async () => {

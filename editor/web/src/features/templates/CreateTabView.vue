@@ -10,7 +10,7 @@ import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { confirm } from '@/components/ui/confirm';
 import Step from '@/components/ui/Step.vue';
-import { toastError, toastSuccess } from '@/components/ui/toast';
+import { toast, toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
 import { cn } from '@/lib/utils';
@@ -106,8 +106,15 @@ async function create(req: GenerateRequest, successMsg: string) {
   const res = await run(() => templates.create(req));
   if (isErr(res)) return;
   toastSuccess(successMsg);
+  // 組入先のうち既にあるものは取り込まれない。何が飛んだかを知らせる(警告色のトーストは無いので既定色)。
+  const { skipped } = res.value;
+  if (skipped.length > 0) {
+    toast(
+      `組入先の次のテンプレートは既にあるため取り込みませんでした: ${skipped.map((s) => s.templateId).join('、')}`,
+    );
+  }
   // 作成タブの産物は必ず作成経路で開く(`created` query の生成は `editorRoute` に集約する)。
-  router.push(editorRoute(res.value.id, { created: true }));
+  router.push(editorRoute(res.value.meta.id, { created: true }));
 }
 
 /**
@@ -119,7 +126,7 @@ async function recreateConsent(): Promise<{ replaceExisting?: true } | null> {
   const ok = await confirm({
     title: '作業中の内容を捨てて作り直しますか',
     description:
-      '作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
+      '交付版・全体版の両方について、作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
     confirmLabel: '作り直す',
     variant: 'destructive',
   });

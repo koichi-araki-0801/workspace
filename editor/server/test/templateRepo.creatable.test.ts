@@ -43,6 +43,7 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     const { writeDraft } = await import('../src/files/draftFiles.js');
     await writeDraft('AM01_510003_交付版', '<p>下書きだけ</p>', '');
     await writeDraft('am01_510037_交付版', '<p>既存を直している下書き</p>', '');
+    await writeDraft('AM01_110024_全体版', '<p>全体版だけの下書き</p>', '');
     const { createFakeSproc } = await import('./fakes/sprocFake.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     repo = createTemplateRepo(await createFakeSproc());
@@ -81,7 +82,7 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     expect(await created('510037')).toBe(true); // templates/
     expect(await created('110024')).toBe(false); // filled/ にしか無い
     expect(await created('510124')).toBe(false); // pending/ にしか無い
-    expect(await created('510003')).toBe(false); // templates/ は全体版だけ
+    expect(await created('510003')).toBe(true); // 交付版は無いが全体版が作成済み(両版で判定する)
     expect(await created('510155')).toBe(false); // 旧形式だけ
   });
 
@@ -90,7 +91,19 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
       created: true,
       templateId: 'am01_510037_交付版',
     });
-    expect(await repo.getCreatableInfo(q('510003'))).not.toHaveProperty('templateId');
+    expect(await repo.getCreatableInfo(q('510124'))).not.toHaveProperty('templateId');
+  });
+
+  it('押した版が未作成でも、もう片方の版が作成済みなら created で、templateId はその版', async () => {
+    expect(await repo.getCreatableInfo(q('510003'))).toMatchObject({
+      created: true,
+      templateId: 'AM01_510003_全体版',
+    });
+    // 両方あれば押した版を優先する。
+    expect(await repo.getCreatableInfo({ ...q('510037'), editionType: '全体版' })).toMatchObject({
+      created: true,
+      templateId: 'am01_510037_交付版',
+    });
   });
 
   it('作業中(同じ id の pending か下書き)なら inProgressId を返す。作成済みなら返さない', async () => {
@@ -98,15 +111,17 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
       created: false,
       inProgressId: 'AM01_510124_交付版', // pending
     });
-    expect(await repo.getCreatableInfo(q('510003'))).toMatchObject({
-      inProgressId: 'AM01_510003_交付版', // 下書きだけ
+    // 全体版の下書きだけでも、交付版を押した画面の作成中になる(両版で判定する)。
+    expect(await repo.getCreatableInfo(q('110024'))).toMatchObject({
+      created: false,
+      inProgressId: 'AM01_110024_全体版',
     });
     // 会社コードの綴りが違っても見つけ、id はファイルの綴りのまま返す(そのまま開ける)。
     expect(await repo.getCreatableInfo({ ...q('510124'), companyCode: 'am01' })).toMatchObject({
       inProgressId: 'AM01_510124_交付版',
     });
     expect(await repo.getCreatableInfo(q('510037'))).not.toHaveProperty('inProgressId');
-    expect(await repo.getCreatableInfo(q('110024'))).not.toHaveProperty('inProgressId');
+    expect(await repo.getCreatableInfo(q('510155'))).not.toHaveProperty('inProgressId');
   });
 
   it('シリーズの他ファンドをコピー元候補にし、自分は含めず、テンプレの有無を付ける', async () => {

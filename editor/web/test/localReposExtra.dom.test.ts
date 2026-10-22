@@ -19,20 +19,16 @@ async function loginAdmin(): Promise<void> {
   expect(isOk(r)).toBe(true);
 }
 
-/** 作成タブで生成して承認した(= local の templates/ 相当)テンプレートを置く。 */
+/** 作成タブで生成して承認した(= local の templates/ 相当)テンプレートを置く。生成は両版を取り込むので両版を承認する。 */
 async function approveSkeleton(fundCode: string, editionType: string, html: string) {
   await localAuthRepo.login({ username: 'admin', password: 'admin' });
   const gen = await localTemplateRepo.generate({ companyCode: 'AM01', fundCode, editionType });
   if (!isOk(gen)) throw new Error('generate に失敗');
-  const id = gen.value.template.meta.id;
-  const saved = await confirmSaveLocal({
-    templateId: id,
-    html,
-    css: '',
-    origin: 'create',
-  });
-  if (!isOk(saved)) throw new Error('confirmSaveLocal に失敗');
-  return id;
+  for (const templateId of gen.value.importedIds) {
+    const saved = await confirmSaveLocal({ templateId, html, css: '', origin: 'create' });
+    if (!isOk(saved)) throw new Error('confirmSaveLocal に失敗');
+  }
+  return gen.value.template.meta.id;
 }
 
 async function firstMeta() {
@@ -516,7 +512,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(isOk(reread)).toBe(true);
 
     const hist = await localHistoryRepo.getCreateHistory();
-    if (isOk(hist)) expect(hist.value.length).toBe(1);
+    if (isOk(hist)) expect(hist.value.length).toBe(2); // 両版の分
   });
 
   it('saveDraft then getDraft round-trips; missing draft is null', async () => {
@@ -555,6 +551,57 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
         expect(r.value.sample.company).toMatchObject({ code: 'AM01' });
       }
     }
+  });
+
+  it('generate は両版を取り込み、押した版を返して importedIds に両版を並べる', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const r = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510124',
+      editionType: '全体版',
+    });
+    if (!isOk(r)) throw new Error('generate に失敗');
+    expect(r.value.template.meta.id).toBe('AM01_510124_全体版');
+    expect(r.value.importedIds).toEqual(['AM01_510124_全体版', 'AM01_510124_交付版']);
+    expect(r.value.skipped).toEqual([]);
+    const other = await localTemplateRepo.getTemplate('AM01_510124_交付版');
+    expect(isOk(other)).toBe(true);
+  });
+
+  it('getCreatableInfo は押した版が未作成でも、もう片方の版で作成済み・作成中を決める', async () => {
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const q = {
+      companyCode: 'AM01',
+      rep1CompanyCode: '00001',
+      fundCode: '510124',
+      editionType: '交付版',
+    };
+    await localTemplateRepo.generate({ ...q, editionType: '全体版' });
+    const wip = await localTemplateRepo.getCreatableInfo(q);
+    expect(isOk(wip) && wip.value).toMatchObject({
+      created: false,
+      inProgressId: 'AM01_510124_交付版', // 押した版の作業中を優先
+    });
+    // 全体版だけが承認済みなら、交付版を押しても作成済みで、templateId は全体版。
+    const gen = await localTemplateRepo.generate({
+      ...q,
+      fundCode: '510155',
+      editionType: '全体版',
+    });
+    if (!isOk(gen)) throw new Error('generate に失敗');
+    const saved = await confirmSaveLocal({
+      templateId: 'AM01_510155_全体版',
+      html: '<p>x</p>',
+      css: '',
+      origin: 'create',
+    });
+    expect(isOk(saved)).toBe(true);
+    const done = await localTemplateRepo.getCreatableInfo({ ...q, fundCode: '510155' });
+    expect(isOk(done) && done.value).toMatchObject({
+      created: true,
+      templateId: 'AM01_510155_全体版',
+    });
+    expect(isOk(done) && done.value).not.toHaveProperty('inProgressId');
   });
 
   it('generate は作成済みなら conflict「作成済み」', async () => {

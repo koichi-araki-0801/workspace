@@ -10,6 +10,7 @@ import {
   cssFileNameOf,
   type DropdownQuery,
   type DropdownScope,
+  EDITION_SYNC_PAIRS,
   type EditHistoryEntry,
   editHistoryRowId,
   editingMarkerMessage,
@@ -186,6 +187,12 @@ function confirmedSkeleton(
   );
 }
 
+/** 押した版を先頭に、作成で一緒に取り込むもう片方の版を並べる(ペアが無い版種は 1 つだけ)。 */
+function editionsOf(editionType: string): string[] {
+  const other = EDITION_SYNC_PAIRS[editionType];
+  return other === undefined ? [editionType] : [editionType, other];
+}
+
 /** local の Rep1 委託会社コード(略称 → コード)。検証用 DB(`Rep1_検証用.sql`)と同じ対応。 */
 const LOCAL_REP1_COMPANY_CODES: Readonly<Record<string, string>> = { AM01: '00001', AM02: '00002' };
 const rep1CodeOf = (abbr: string) => LOCAL_REP1_COMPANY_CODES[abbr] ?? abbr;
@@ -279,8 +286,19 @@ export const localTemplateRepo: TemplateRepository = {
 
   getCreatableInfo: ({ companyCode, fundCode, editionType }) =>
     attempt(() => {
-      const created = confirmedSkeleton(companyCode, fundCode, editionType);
-      const id = templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType }));
+      // 作成は両版を 1 組で取り込むので、作成済み・作業中は両版のどちらかで決める(server と同じ。
+      // 押した版を優先し、無ければもう片方の版)。
+      const editions = editionsOf(editionType);
+      const created = editions
+        .map((e) => confirmedSkeleton(companyCode, fundCode, e))
+        .find((m) => m !== undefined);
+      const inProgressId = created
+        ? undefined
+        : editions
+            .map((e) =>
+              templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType: e })),
+            )
+            .find((id) => inProgress(id));
       // シリーズはモック(`SERIES_FUND_CODES`)。コピー元は承認済みのテンプレートだけ(server と同じ)。
       const seriesFunds = SERIES_FUND_CODES.has(fundCode)
         ? [...SERIES_FUND_CODES]
@@ -295,7 +313,7 @@ export const localTemplateRepo: TemplateRepository = {
       return delay({
         created: created !== undefined,
         ...(created ? { templateId: created.id } : {}),
-        ...(!created && inProgress(id) ? { inProgressId: id } : {}),
+        ...(inProgressId === undefined ? {} : { inProgressId }),
         seriesFunds,
       });
     }),
@@ -351,70 +369,85 @@ export const localTemplateRepo: TemplateRepository = {
   generate: (req: GenerateRequest) =>
     attempt(async () => {
       const user = currentUser();
-      // テンプレートは会社・ファンド・版種に 1 つで、基準日を持たない(server の生成と同じ規則)。
-      const attrs: SkeletonAttributes = {
-        companyCode: req.companyCode,
-        fundCode: req.fundCode,
-        editionType: req.editionType,
-      };
-      const fileName = skeletonFileName(attrs);
-      const id = templateIdFromFileName(fileName);
-      if (confirmedSkeleton(req.companyCode, req.fundCode, req.editionType)) {
-        throw conflict('作成済みです。既存のテンプレートを開いてください');
+      // テンプレートは会社・ファンド・版種に 1 つで、基準日を持たない。作成は交付版と全体版を
+      // 1 組で取り込む(server の生成と同じ規則)。全部の版を調べてから書き、途中で失敗したら何も捨てない。
+      const plans: {
+        attrs: SkeletonAttributes;
+        fileName: string;
+        id: string;
+        baseHtml: string;
+        css: string;
+      }[] = [];
+      for (const editionType of editionsOf(req.editionType)) {
+        const attrs: SkeletonAttributes = {
+          companyCode: req.companyCode,
+          fundCode: req.fundCode,
+          editionType,
+        };
+        const fileName = skeletonFileName(attrs);
+        const id = templateIdFromFileName(fileName);
+        if (confirmedSkeleton(req.companyCode, req.fundCode, editionType)) {
+          throw conflict('作成済みです。既存のテンプレートを開いてください');
+        }
+        if (hasPendingCreateReview(id)) {
+          throw conflict('申請中です。承認か却下を待ってください');
+        }
+        if (req.replaceExisting !== true && inProgress(id)) {
+          throw conflict('作成中のテンプレートがあります');
+        }
+        let baseHtml: string;
+        let css: string;
+        if (req.sourceFundCode) {
+          const source = confirmedSkeleton(req.companyCode, req.sourceFundCode, editionType);
+          if (!source)
+            throw validation(`コピー元のテンプレートがありません: ${req.sourceFundCode}`);
+          const baseRes = await localTemplateRepo.getTemplate(source.id);
+          if (isErr(baseRes)) throw baseRes.error;
+          baseHtml = baseRes.value.html;
+          css = baseRes.value.css; // コピー元テンプレの CSS
+        } else {
+          baseHtml =
+            fixtureTemplates[
+              Object.keys(fixtureTemplates).find((f) =>
+                f.startsWith(`${req.companyCode}_${req.fundCode}_`),
+              ) ?? ''
+            ] ?? defaultSkeleton();
+          css = localCssOf(id) ?? ''; // 同じ名前の既存 CSS、無ければ空
+        }
+        // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
+        if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
+        plans.push({ attrs, fileName, id, baseHtml, css });
       }
-      if (hasPendingCreateReview(id)) {
-        throw conflict('申請中です。承認か却下を待ってください');
-      }
-      if (req.replaceExisting !== true && inProgress(id)) {
-        throw conflict('作成中のテンプレートがあります');
-      }
-      let baseHtml: string;
-      let css: string;
-      if (req.sourceFundCode) {
-        const source = confirmedSkeleton(req.companyCode, req.sourceFundCode, req.editionType);
-        if (!source) throw validation(`コピー元のテンプレートがありません: ${req.sourceFundCode}`);
-        const baseRes = await localTemplateRepo.getTemplate(source.id);
-        if (isErr(baseRes)) throw baseRes.error;
-        baseHtml = baseRes.value.html;
-        css = baseRes.value.css; // コピー元テンプレの CSS
-      } else {
-        baseHtml =
-          fixtureTemplates[
-            Object.keys(fixtureTemplates).find((f) =>
-              f.startsWith(`${req.companyCode}_${req.fundCode}_`),
-            ) ?? ''
-          ] ?? defaultSkeleton();
-        css = localCssOf(id) ?? ''; // 同じ名前の既存 CSS、無ければ空
-      }
-      // 償還ファンド指定時は特定パーツを償還用パーツへ置換(モック)。
-      if (req.isRedemption) baseHtml = applyRedemptionMock(baseHtml);
       // 生成できたので、前回の下書きを捨ててから置く(server と同じく失敗時は何も捨てない)。
-      clearDraft(id);
+      const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
+      const createHist = read<CreateHistoryEntry[]>(K.createHist, []);
+      for (const { attrs, id, baseHtml } of plans) {
+        clearDraft(id);
+        // editor で開けるよう draft override として永続化する。
+        htmlOverride[id] = baseHtml;
+        createHist.unshift({
+          id: uid('ch'),
+          attributes: attrs,
+          user: user?.displayName ?? '不明',
+          timestamp: now(),
+          ...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {}),
+        });
+      }
+      write(K.htmlOverride, htmlOverride);
+      write(K.createHist, createHist);
+      // 返すのは押した版(先頭)。新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
+      const [pressed] = plans;
       const meta: TemplateMeta = {
-        id,
-        attributes: attrs,
-        fileName,
+        id: pressed.id,
+        attributes: pressed.attrs,
+        fileName: pressed.fileName,
         status: 'draft',
         updatedAt: null,
         updatedBy: null,
       };
-      // editor で開けるよう draft override として永続化する。
-      const htmlOverride = read<Record<string, string>>(K.htmlOverride, {});
-      htmlOverride[id] = baseHtml;
-      write(K.htmlOverride, htmlOverride);
-      const createHist = read<CreateHistoryEntry[]>(K.createHist, []);
-      createHist.unshift({
-        id: uid('ch'),
-        attributes: attrs,
-        user: user?.displayName ?? '不明',
-        timestamp: now(),
-        ...(req.sourceFundCode ? { sourceFundCode: req.sourceFundCode } : {}),
-      });
-      write(K.createHist, createHist);
-      // 新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
       return delay({
-        template: { meta, html: baseHtml, css, filled: '' },
-        importedIds: [id],
+        template: { meta, html: pressed.baseHtml, css: pressed.css, filled: '' },
+        importedIds: plans.map((x) => x.id),
         skipped: [],
       });
     }),

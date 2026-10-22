@@ -7,6 +7,7 @@ import {
   err,
   type FundOption,
   type GenerateRequest,
+  type GenerateSkipped,
   isOk,
   map,
   type Result,
@@ -30,8 +31,11 @@ interface TemplateCreationService {
   getCreatableInfo(
     q: Parameters<TemplateRepository['getCreatableInfo']>[0],
   ): Promise<Result<CreatableInfo>>;
-  /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
-  create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
+  /**
+   * 属性を検証してから生成する(交付版と全体版を 1 組で取り込む)。成功時は押した版の meta と、
+   * 既にあるため取り込まなかった組入先を返す。
+   */
+  create(req: GenerateRequest): Promise<Result<{ meta: TemplateMeta; skipped: GenerateSkipped[] }>>;
 }
 
 /**
@@ -55,7 +59,7 @@ export function createTemplateCreationService(
       }
       const res = await repo.generate(req);
       if (isOk(res)) forgetEditState(res.value.template.meta.id);
-      return map(res, (r) => r.template.meta);
+      return map(res, (r) => ({ meta: r.template.meta, skipped: r.skipped }));
     },
     listCompanies: () => repo.listCompanies(),
     listFunds: (rep1CompanyCode) => repo.listFunds(rep1CompanyCode),

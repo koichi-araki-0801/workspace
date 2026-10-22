@@ -23,7 +23,9 @@ const meta: TemplateMeta = {
 };
 
 function repoWithGenerate() {
-  const generate = vi.fn(async () => ok({ template: { meta, html: '', css: '' } }));
+  const generate = vi.fn(async () =>
+    ok({ template: { meta, html: '', css: '' }, importedIds: [meta.id], skipped: [] }),
+  );
   return { generate } as unknown as TemplateRepository & { generate: typeof generate };
 }
 
@@ -45,8 +47,22 @@ describe('TemplateCreationService.create', () => {
     const svc = createTemplateCreationService(repo);
     const res = await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.id).toBe(meta.id);
+    if (isOk(res)) expect(res.value).toEqual({ meta, skipped: [] });
     expect(repo.generate).toHaveBeenCalledOnce();
+  });
+
+  it('取り込まなかった組入先(skipped)をそのまま返す', async () => {
+    const repo = repoWithGenerate();
+    const skipped = [{ templateId: 'AM01_510003_交付版', reason: 'created' as const }];
+    repo.generate.mockResolvedValueOnce(
+      ok({ template: { meta, html: '', css: '' }, importedIds: [meta.id], skipped }) as never,
+    );
+    const res = await createTemplateCreationService(repo).create({
+      companyCode: 'AM01',
+      fundCode: '510037',
+      editionType: 'kr',
+    });
+    expect(isOk(res) && res.value.skipped).toEqual(skipped);
   });
 
   it('生成に成功したら、その id の同じタブの編集状態を捨てる(失敗したら捨てない)', async () => {
