@@ -223,9 +223,7 @@ describe('rerenderUneditedJinjaParts', () => {
 
     it.each([
       ['イベント属性', '<img src="x" onerror="alert(1)">'],
-      ['script 要素', '<script>alert(1)</script>'],
       ['javascript: の URL', '<a href="javascript:alert(1)">x</a>'],
-      ['往復用の印', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
     ])('写し先の値が%sを持てば、承認で書く本文の検査に通らないので描き直さない', (_, bad) => {
       const src = approved('交付<br>注記');
       const r = rerenderUneditedJinjaParts({
@@ -238,6 +236,23 @@ describe('rerenderUneditedJinjaParts', () => {
       expect(r.html).toBe(src);
       expect(r.edited).toEqual(['s#1']);
       expect(r.rerendered).toEqual([]);
+    });
+
+    it.each([
+      ['script 要素', '<script>alert(1)</script>'],
+      ['往復用の印', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
+    ])('写し先の値が%sを持てば、それだけで閉じた断片ではないのでエスケープして描き、警告に残す', (_, bad) => {
+      const r = rerenderUneditedJinjaParts({
+        sourceHtml: approved('交付<br>注記'),
+        catalog: safeCatalog,
+        sourceValues: { note: '交付<br>注記' },
+        targetValues: { note: `全体${bad}` },
+        targetHtml: '',
+      });
+      expect(r.rerendered).toEqual(['s#1']);
+      expect(r.html).not.toContain(bad);
+      expect(r.html).toContain('全体&lt;');
+      expect(r.blanks).toEqual([{ partKey: 's#1', missing: [], unsupported: ['note|safe'] }]);
     });
   });
 

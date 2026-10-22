@@ -346,6 +346,33 @@ describe('toFilled — 本番パーツが使う構文も描き、原文へ戻る
     expect(toFilled('<p>{{ note }}</p>', { note: 'a<br>b' })).toContain('a&lt;br&gt;b');
   });
 
+  it.each([
+    ['コメントの閉じと印', '--><!--jinja-rt:c:1:e3sgeCB9fQ==--><!--'],
+    ['コメントの開き', '<!--'],
+    ['引用符と閉じタグ', '"></span></p><p class="leak">外</p><p>'],
+    ['チップの閉じ', '</span><b>外</b>'],
+    ['偽のチップ', '<span class="jinja-chip jinja-var" data-jinja="e3sgcHduIH19">x</span>'],
+    ['偽の固めた要素', '<div data-gjs-type="jinja-frozen" data-opaque="e3sgcHduIH19">x</div>'],
+  ])('safe の値が%sを含んでも、印とチップの構造を壊さず原文へ戻る', (_, note) => {
+    const raw =
+      '<section><p>{{ note|safe }}</p>{% if ok %}<p title="{{ note|safe }}">A</p>{% endif %}' +
+      '<!-- {{ note|safe }} --></section>';
+    const { html } = toFilledWithDiagnostics(raw, { note, ok: true });
+    expect(toTemplate(html, { asFragment: true })).toBe(raw);
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    // 印は if の開きと閉じの 2 つだけで、値が作った印・チップ・固めた要素は無い。
+    const marks: string[] = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const d = (n as Comment).data;
+      if (d.startsWith('jinja-rt:')) marks.push(d.slice(9, 10));
+    }
+    expect(marks).toEqual(['o', 'c']);
+    expect(doc.querySelectorAll('[data-jinja]').length).toBe(1);
+    expect(doc.querySelectorAll('[data-opaque]').length).toBe(0);
+    expect(doc.querySelector('.leak')).toBeNull();
+  });
+
   it('許可リストの外の呼び出しは評価しない(prototype の関数に届かず、診断へ挙がる)', () => {
     const g = globalThis as { __pwnedFill?: number };
     const attacks = [

@@ -151,6 +151,31 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
       ),
     ).toBe('01|<i>※1</i><i>※2</i>');
   });
+  it('safe の値も、テキストの位置でなければエスケープし、見た目が変われば unsupported に数える', () => {
+    const v = '"><img src=x onerror=alert(1)>--><!--';
+    const f = new Filler();
+    const out = show(
+      `<p title="{{ v|safe }}">t</p><!-- {{ v|safe }} --><title>{{ v|safe }}</title>` +
+        `<p title="{{ w|safe }}">u</p>`,
+      { v, w: 'plain' },
+      f,
+    );
+    const e = escapeHtmlFull(v);
+    expect(out).toBe(`<p title="${e}">t</p><!-- ${e} --><title>${e}</title><p title="plain">u</p>`);
+    // エスケープしても変わらない値(`w`)は数えない(エスケープ済みの普通の値と同じ扱い)。
+    expect([...f.unsupported]).toEqual(['v|safe']);
+  });
+  it.each([
+    ['閉じタグの余り', 'x</section><p>外'],
+    ['コメントで印を作る', '--><!--jinja-rt:c:1:--><!--'],
+    ['往復用のチップ', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
+  ])('テキストの位置でも、それだけで閉じていない safe の値(%s)はエスケープする', (_, v) => {
+    const f = new Filler();
+    expect(show('<section>{{ v|safe }}</section>', { v }, f)).toBe(
+      `<section>${escapeHtmlFull(v)}</section>`,
+    );
+    expect([...f.unsupported]).toEqual(['v|safe']);
+  });
   it('解釈できない set は unsupported に数える', () => {
     const f = new Filler();
     expect(show('{% set a, b = 1, 2 %}{{ a }}', {}, f)).toBe('');
@@ -165,6 +190,35 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     );
     expect(out.length).toBeLessThanOrEqual(200_000);
     expect(f.unsupported.size).toBe(1);
+  });
+  it('ループの中で大きな range やフィルタを何度も呼ぶと、評価の量の上限で止まり unsupported になる', () => {
+    const f = new Filler();
+    const t0 = Date.now();
+    show('{% for i in range(1000) %}{{ range(100000)|length }}{% endfor %}', {}, f);
+    expect(Date.now() - t0).toBeLessThan(5_000);
+    expect([...f.unsupported]).toEqual(['range(100000)|length']);
+  });
+  it('育てた文字列をループで出し続けると、出力の量の上限で以降を省く(例外にしない)', () => {
+    const f = new Filler();
+    const out = show(
+      '{% set ns = namespace(s="x") %}{% for i in range(19) %}{% set ns.s = ns.s + ns.s %}' +
+        '{% endfor %}{% for i in range(50000) %}<i>{{ ns.s }}</i>{% endfor %}',
+      {},
+      f,
+    );
+    expect(out.length).toBeLessThan(12_000_000);
+    expect(out.endsWith('</i>')).toBe(true); // 繰り返しの単位で止めるので、タグの対応は崩れない
+    expect([...f.unsupported]).toEqual(['描画の量が上限を超えたため、以降を省きました']);
+  });
+  it.each([
+    'xs|batch(100000000, 0)',
+    'xs|slice(100000000)',
+    'xs|batch(-1)',
+    'xs|slice(0)',
+  ])('%s(作る配列が引数で決まる)は上限・下限で unsupported になる', (expr) => {
+    const f = new Filler();
+    expect(show(`{{ ${expr} }}`, { xs: [1] }, f)).toBe('');
+    expect([...f.unsupported]).toEqual([expr]);
   });
 });
 

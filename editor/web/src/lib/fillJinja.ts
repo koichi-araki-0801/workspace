@@ -79,13 +79,17 @@ const RAW_LABEL_CHARS = 20;
 
 /**
  * 単独のトークンのチップ。出力は評価した値を、文・Jinja コメントは原文を見せる。`safe` の付いた値は
- * HTML のままチップの中に描く(本番の見た目に揃える)。保存では `data-jinja` の原文へ戻るので中身は
- * 載らず、中身で表の構造が崩れたときは自己検査が本文全体を固める側へ倒す。
+ * HTML のままチップの中に描く(本番の見た目に揃える)。チップはテキストの位置にだけ出すので
+ * `inText` は常に真で、値がそれだけで閉じた断片でなければ(閉じタグの余り・コメント・往復用の印を
+ * 持てば)`Filler.html` がエスケープする。保存では `data-jinja` の原文へ戻るので中身は載らず、中身で
+ * 表の構造が崩れたときは自己検査が本文全体を固める側へ倒す。
  */
 function tokenChip(tok: JinjaToken, ctx: JinjaCtx, f: Filler): string {
   const kind = tok.kind === 'output' ? 'var' : tok.kind;
   const visible =
-    tok.kind === 'output' ? f.html(tok.body, ctx, htmlEscape) : htmlEscape(tok.source);
+    tok.kind === 'output'
+      ? f.html(tok.body, ctx, { escapeText: htmlEscape, inText: true })
+      : htmlEscape(tok.source);
   return `<span data-gjs-type="jinja-${kind}" class="${JINJA_CHIP_CLASS} jinja-${kind}" ${DATA_JINJA}="${b64encodeUtf8(tok.source)}">${visible}</span>`;
 }
 
@@ -288,7 +292,13 @@ function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: Jinj
       } else {
         out += draw(loopCtx(ctx, h.vars, items, 0), row);
         out += rtComment({ kind: 'x', id });
-        for (let i = 1; i < items.length; i++) out += draw(loopCtx(ctx, h.vars, items, i), NO_ROWS);
+        // 2 回目以降は保存で捨てる表示専用の行なので、出力の上限に達したらそこで描くのをやめる
+        // (テンプレートの行と印は残るので往復は崩れない)。
+        for (let i = 1; i < items.length && !f.exhausted; i++) {
+          const piece = draw(loopCtx(ctx, h.vars, items, i), NO_ROWS);
+          f.charge(piece.length);
+          out += piece;
+        }
       }
       return out + rtComment({ kind: 'c', id, payload: src.slice(body.bodyEnd, n.end) });
     }

@@ -12,11 +12,13 @@ import {
   assignJinjaSet,
   evaluateJinjaExpr,
   isJinjaSafe,
+  JinjaBudget,
   type JinjaCtx,
   stringifyJinjaValue,
 } from './jinjaExpr.js';
 import type { JinjaToken } from './jinjaLex.js';
 import { type JinjaNode, parseJinja } from './jinjaTree.js';
+import { isSelfContainedMarkup, jinjaTextTokenStarts } from './safeMarkup.js';
 
 // ── 1. 式の評価 ──
 
@@ -27,6 +29,24 @@ import { type JinjaNode, parseJinja } from './jinjaTree.js';
 const MAX_LOOP_ITEMS = 100_000;
 
 /**
+ * 1 回の描画で出す文字数の上限。`set` で育てた長い文字列をループで何度も出す書き方は、繰り返しの
+ * 回数と式の評価の量が上限の内でも出力だけが掛け算で伸びるので、出した量でも止める。超えたら以後の
+ * 繰り返しを展開せず、値を空にする(テキストを途中で切らないので、出力のタグの対応は崩れない)。
+ */
+const MAX_OUTPUT_CHARS = 10_000_000;
+
+/** 上限で描くのをやめたことを unsupported に載せるときの文言。 */
+const OUTPUT_LIMIT_NOTE = '描画の量が上限を超えたため、以降を省きました';
+
+/** `Filler.html` の置き方。 */
+interface HtmlPlacement {
+  /** 値をエスケープする関数(既定は 5 文字を置き換える `escapeHtmlFull`)。 */
+  escapeText?: (s: string) => string;
+  /** 出力が HTML の要素の中身(テキスト)の位置にあるか。`safe` の値を生で置けるのはこのときだけ。 */
+  inText: boolean;
+}
+
+/**
  * 1 回の描画に紐づく評価器。解釈できない式を空値へ落とすのは画面を落とさないためだが、落としたことを
  * 必ず記録する。
  */
@@ -35,14 +55,40 @@ export class Filler {
   readonly unsupported = new Set<string>();
   readonly missing = new Set<string>();
   private loopItems = 0;
+  private emitted = 0;
+  /** 1 回の描画のすべての式で共有する評価の量(range やフィルタの掛け算を描画の単位で止める)。 */
+  private readonly budget = new JinjaBudget();
+  private readonly textStarts = new Map<string, ReadonlySet<number>>();
 
   private fail(expr: string): void {
     this.unsupported.add(expr);
   }
 
+  /** 出力の上限に達したか。達したら繰り返しの展開をやめる。 */
+  get exhausted(): boolean {
+    return this.emitted > MAX_OUTPUT_CHARS;
+  }
+
+  /** 出した文字数を数える。上限を超えた初回に unsupported へ載せる。 */
+  charge(chars: number): void {
+    const was = this.exhausted;
+    this.emitted += chars;
+    if (!was && this.exhausted) this.fail(OUTPUT_LIMIT_NOTE);
+  }
+
+  /** `src` の Jinja トークンのうちテキストの位置にあるもの(同じ原文は 1 度だけ走査する)。 */
+  textTokenStarts(src: string): ReadonlySet<number> {
+    let hit = this.textStarts.get(src);
+    if (!hit) {
+      hit = jinjaTextTokenStarts(src);
+      this.textStarts.set(src, hit);
+    }
+    return hit;
+  }
+
   private output(expr: string, ctx: JinjaCtx): unknown {
     try {
-      const v = evaluateJinjaExpr(expr, ctx);
+      const v = evaluateJinjaExpr(expr, ctx, this.budget);
       if (v === undefined || v === null) this.missing.add(expr);
       return v;
     } catch {
@@ -52,14 +98,25 @@ export class Filler {
   }
 
   /**
-   * `{{ expr }}` を HTML に置くときの文字列。値は `escapeText` でエスケープし、`safe` の付いた値だけは
-   * そのまま出す(本番の出力と同じ見た目にするため。危険な要素・属性は canvas の入口の刈り取りと、
-   * server の描き直しの検査が落とす)。
+   * `{{ expr }}` を HTML に置くときの文字列。値はエスケープし、`safe` の付いた値だけは、テキストの位置で
+   * かつそれだけで閉じた断片(`safeMarkup.ts`)のときにそのまま出す(本番の出力と同じ見た目にするため。
+   * 危険な要素・属性は canvas の入口の刈り取りと、server の描き直しの検査が落とす)。条件に外れた
+   * `safe` の値はエスケープし、見た目が変わるときは unsupported に数える。
    */
-  html(expr: string, ctx: JinjaCtx, escapeText: (s: string) => string = escapeHtmlFull): string {
+  html(expr: string, ctx: JinjaCtx, placement: HtmlPlacement): string {
+    if (this.exhausted) return '';
+    const escapeText = placement.escapeText ?? escapeHtmlFull;
     const v = this.output(expr, ctx);
     const s = stringifyJinjaValue(v);
-    return isJinjaSafe(v) ? s : escapeText(s);
+    let out: string;
+    if (!isJinjaSafe(v)) out = escapeText(s);
+    else if (placement.inText && isSelfContainedMarkup(s)) out = s;
+    else {
+      out = escapeText(s);
+      if (out !== s) this.fail(expr);
+    }
+    this.charge(out.length);
+    return out;
   }
 
   /**
@@ -68,7 +125,7 @@ export class Filler {
    */
   assign(tok: JinjaToken, ctx: JinjaCtx): void {
     try {
-      assignJinjaSet(tok.body.slice('set'.length), ctx);
+      assignJinjaSet(tok.body.slice('set'.length), ctx, this.budget);
     } catch {
       this.fail(tok.body);
     }
@@ -77,7 +134,7 @@ export class Filler {
   /** `{% if cond %}` の分岐判定。nunjucks も JS の真偽値化をそのまま使う。 */
   cond(cond: string, ctx: JinjaCtx): boolean {
     try {
-      return Boolean(evaluateJinjaExpr(cond, ctx));
+      return Boolean(evaluateJinjaExpr(cond, ctx, this.budget));
     } catch {
       this.fail(cond);
       return false;
@@ -89,9 +146,9 @@ export class Filler {
    * 超えたら、以後は式を評価せずに空を返す(上限を超えた式を unsupported に数える)。
    */
   array(expr: string, ctx: JinjaCtx): unknown[] {
-    if (this.loopItems > MAX_LOOP_ITEMS) return [];
+    if (this.loopItems > MAX_LOOP_ITEMS || this.exhausted) return [];
     try {
-      const v = evaluateJinjaExpr(expr, ctx);
+      const v = evaluateJinjaExpr(expr, ctx, this.budget);
       if (!Array.isArray(v)) return [];
       this.loopItems += v.length;
       if (this.loopItems > MAX_LOOP_ITEMS) {
@@ -197,13 +254,17 @@ export function renderDisplay(
     switch (n.type) {
       case 'text':
         out += src.slice(n.start, n.end);
+        f.charge(n.end - n.start);
         break;
       case 'token':
-        if (n.token.kind === 'output') out += f.html(n.token.body, ctx);
-        else if (isSetStatement(n.token)) f.assign(n.token, ctx);
+        if (n.token.kind === 'output') {
+          const inText = f.textTokenStarts(src).has(n.token.start);
+          out += f.html(n.token.body, ctx, { inText });
+        } else if (isSetStatement(n.token)) f.assign(n.token, ctx);
         break;
       case 'raw':
         out += src.slice(n.open.end, n.close.start);
+        f.charge(n.close.start - n.open.end);
         break;
       case 'opaqueBlock':
         break;
@@ -220,7 +281,7 @@ export function renderDisplay(
           break;
         }
         const items = f.array(header.iter, ctx);
-        for (let i = 0; i < items.length; i++)
+        for (let i = 0; i < items.length && !f.exhausted; i++)
           out += renderDisplay(src, n.body.children, loopCtx(ctx, header.vars, items, i), f);
         if (items.length === 0 && n.elseBranch)
           out += renderDisplay(src, n.elseBranch.children, ctx, f);

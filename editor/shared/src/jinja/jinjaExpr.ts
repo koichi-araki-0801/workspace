@@ -30,8 +30,9 @@
 //     `{{ "".constructor }}` が関数へ届く(SSTI の入口そのもの)。ここでは届かない。
 //     属性名で引くフィルタ(`selectattr` / `groupby`)も同じ規則で引く。
 //   - 解決結果が function なら `undefined` として扱う。
-//   - 繰り返しと文字列の長さに上限を持つ(`range` の長さ・`+` の結果)。他人が書いた断片を
-//     server でも描くので、`set` と `namespace` で値を育てる書き方で止まらなくしない。
+//   - 量に上限を持つ(`range` の長さ・batch / slice の引数・`+` の結果の長さ・描画の単位で共有する
+//     評価の量 `JinjaBudget`)。他人が書いた断片を server でも描くので、ループと `set` / `namespace`
+//     の掛け算で止まらなくしない。
 
 /** 許可リストの外にある式に当たったことを表す。呼び出し側が数えて報告する。 */
 export class JinjaExprError extends Error {
@@ -207,11 +208,43 @@ function toSeq(v: unknown): unknown[] {
   throw new JinjaExprError('並びとして読めない値です');
 }
 
+/**
+ * batch の個数・slice の列数。上限を `MAX_RANGE` に揃えるのは、`fill_with` で埋める数・作る列の数が
+ * そのまま引数で決まり、並びが短くても大きな配列を作れてしまうため。
+ */
 function positiveInt(v: unknown, what: string): number {
-  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
-    throw new JinjaExprError(`${what} は 1 以上の整数が必要です`);
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > MAX_RANGE) {
+    throw new JinjaExprError(`${what} は 1 以上 ${MAX_RANGE} 以下の整数が必要です`);
   }
   return v;
+}
+
+/** Jinja の sandbox の `MAX_RANGE` と同じ値。 */
+const MAX_RANGE = 100_000;
+
+/**
+ * 1 回の描画で評価器にさせる仕事の量の上限(並び・文字列の要素数で数える)。range やフィルタを
+ * ループの中で何度も呼ぶ書き方は、1 つずつは上限の内でも掛け算で止まらなくなるので、描画の単位で
+ * 合計を数える。実在のパーツ(数百行の表を数回選り分ける程度)に対して十分に大きい値にする。
+ */
+const MAX_WORK = 2_000_000;
+
+/** 評価の仕事の量を数える。描画器は 1 回の描画につき 1 つを作り、すべての式で共有する。 */
+export class JinjaBudget {
+  private used = 0;
+
+  charge(units: number): void {
+    this.used += units;
+    if (this.used > MAX_WORK) throw new JinjaExprError('評価の量が上限を超えました');
+  }
+}
+
+/** 仕事の量として数える値の大きさ(並び・文字列は要素数、dict はキーの数)。 */
+function sizeOf(v: unknown): number {
+  if (Array.isArray(v) || typeof v === 'string') return v.length;
+  if (v instanceof SafeHtml) return v.toString().length;
+  if (isPlainObject(v)) return Object.keys(v).length;
+  return 0;
 }
 
 /** `selectattr` / `groupby` の属性名。`a.b` は段ごとに、数字の段は添字として引く。 */
@@ -413,37 +446,36 @@ function lookupTest(name: unknown): (value: unknown, ...args: unknown[]) => bool
   return TESTS[name];
 }
 
-/** Jinja の sandbox の `MAX_RANGE` と同じ値。 */
-const MAX_RANGE = 100_000;
-
 interface CallArgs {
   readonly args: unknown[];
   /** キーワード引数。キーが `__proto__` でも prototype にならないよう Map で持つ。 */
   readonly kwargs: Map<string, unknown>;
 }
 
-const FUNCTIONS: Readonly<Record<string, (call: CallArgs) => unknown>> = allowlist({
-  range: ({ args, kwargs }) => {
-    if (kwargs.size > 0 || args.length < 1 || args.length > 3) {
-      throw new JinjaExprError('range の引数が合いません');
-    }
-    if (!args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
-      throw new JinjaExprError('range の引数は整数が必要です');
-    }
-    const [start, stop, step] = (args.length === 1 ? [0, args[0], 1] : [...args, 1]) as number[];
-    if (step === 0) throw new JinjaExprError('range の step は 0 にできません');
-    const len = Math.max(0, Math.ceil((stop - start) / step));
-    if (len > MAX_RANGE) throw new JinjaExprError(`range が長すぎます(上限 ${MAX_RANGE})`);
-    return Array.from({ length: len }, (_, i) => start + i * step);
-  },
-  namespace: ({ args, kwargs }) => {
-    if (args.length > 0) throw new JinjaExprError('namespace はキーワード引数だけを受けます');
-    const ns = {};
-    for (const [k, v] of kwargs) defineOwn(ns, k, v);
-    NAMESPACES.add(ns);
-    return ns;
-  },
-});
+const FUNCTIONS: Readonly<Record<string, (call: CallArgs, budget: JinjaBudget) => unknown>> =
+  allowlist({
+    range: ({ args, kwargs }, budget) => {
+      if (kwargs.size > 0 || args.length < 1 || args.length > 3) {
+        throw new JinjaExprError('range の引数が合いません');
+      }
+      if (!args.every((a) => typeof a === 'number' && Number.isInteger(a))) {
+        throw new JinjaExprError('range の引数は整数が必要です');
+      }
+      const [start, stop, step] = (args.length === 1 ? [0, args[0], 1] : [...args, 1]) as number[];
+      if (step === 0) throw new JinjaExprError('range の step は 0 にできません');
+      const len = Math.max(0, Math.ceil((stop - start) / step));
+      if (len > MAX_RANGE) throw new JinjaExprError(`range が長すぎます(上限 ${MAX_RANGE})`);
+      budget.charge(len);
+      return Array.from({ length: len }, (_, i) => start + i * step);
+    },
+    namespace: ({ args, kwargs }) => {
+      if (args.length > 0) throw new JinjaExprError('namespace はキーワード引数だけを受けます');
+      const ns = {};
+      for (const [k, v] of kwargs) defineOwn(ns, k, v);
+      NAMESPACES.add(ns);
+      return ns;
+    },
+  });
 
 /**
  * Python の `str.splitlines()`(行末の改行で空の要素を作らない)。区切りは帳票の本文に現れうる
@@ -501,6 +533,7 @@ class Parser {
   constructor(
     private readonly tokens: readonly Token[],
     private readonly ctx: JinjaCtx,
+    private readonly budget: JinjaBudget,
   ) {}
 
   /** 式を 1 つ読み切り、末尾に余りが無いことを確かめる。 */
@@ -595,8 +628,9 @@ class Parser {
     for (;;) {
       if (this.eat('op', '+')) {
         left = (left as number) + (this.parseMultiplicative() as number);
-        if (typeof left === 'string' && left.length > MAX_STRING_LENGTH) {
-          throw new JinjaExprError('文字列が長すぎます');
+        if (typeof left === 'string') {
+          if (left.length > MAX_STRING_LENGTH) throw new JinjaExprError('文字列が長すぎます');
+          this.budget.charge(left.length);
         }
       } else if (this.eat('op', '-'))
         left = (left as number) - (this.parseMultiplicative() as number);
@@ -642,6 +676,7 @@ class Parser {
     const call = this.isOp('(') ? this.parseCallArgs() : NO_ARGS;
     const args = bindFilterArgs(name, spec, call);
     if (this.dead > 0) return undefined;
+    this.budget.charge(1 + sizeOf(value));
     return spec.apply(value, ...args);
   }
 
@@ -716,6 +751,7 @@ class Parser {
     const call = this.parseCallArgs();
     if (this.dead > 0) return undefined;
     if (typeof value !== 'string') throw new JinjaExprError(`${name} は文字列にだけ呼べます`);
+    this.budget.charge(1 + value.length);
     return STRING_METHODS[name](value, call);
   }
 
@@ -751,7 +787,7 @@ class Parser {
       // 関数は一覧の名前を呼び出しの形で書いたときだけ呼ぶ(値としては引けない)。
       if (this.isOp('(') && Object.hasOwn(FUNCTIONS, t.value)) {
         const call = this.parseCallArgs();
-        return this.dead > 0 ? undefined : FUNCTIONS[t.value](call);
+        return this.dead > 0 ? undefined : FUNCTIONS[t.value](call, this.budget);
       }
       switch (t.value) {
         // Jinja の綴りと nunjucks が足す JS 綴りの両方を受ける。
@@ -821,11 +857,16 @@ function arithmeticOp(op: string, a: unknown, b: unknown): number {
 // ── 5. 公開 API ──
 
 /**
- * Jinja 式 `src` を `ctx` に対して評価する。許可リストの外なら `JinjaExprError`。
+ * Jinja 式 `src` を `ctx` に対して評価する。許可リストの外なら `JinjaExprError`。`budget` は描画の
+ * 単位で共有する仕事の量(省くとこの式 1 つぶん)で、使い切ったときも `JinjaExprError`。
  * 例外を握り潰さないのが本関数の契約で、握るかどうかは呼び出し側が決める。
  */
-export function evaluateJinjaExpr(src: string, ctx: JinjaCtx): unknown {
-  return new Parser(tokenize(src), ctx).parseAll();
+export function evaluateJinjaExpr(
+  src: string,
+  ctx: JinjaCtx,
+  budget: JinjaBudget = new JinjaBudget(),
+): unknown {
+  return new Parser(tokenize(src), ctx, budget).parseAll();
 }
 
 const LITERAL_NAMES = new Set(['true', 'True', 'false', 'False', 'none', 'None', 'null']);
@@ -835,7 +876,11 @@ const LITERAL_NAMES = new Set(['true', 'True', 'false', 'False', 'none', 'None',
  * 代入は `namespace()` で作った object にだけ許す(値データの object を書き換えさせない)。
  * 複数の代入(`a, b = …`)は受けない。`ctx` は呼び出し側が複製して渡す(外へ漏らさないため)。
  */
-export function assignJinjaSet(src: string, ctx: JinjaCtx): void {
+export function assignJinjaSet(
+  src: string,
+  ctx: JinjaCtx,
+  budget: JinjaBudget = new JinjaBudget(),
+): void {
   const tokens = tokenize(src);
   const target = tokens[0];
   if (target?.type !== 'name' || LITERAL_NAMES.has(target.value)) {
@@ -851,7 +896,7 @@ export function assignJinjaSet(src: string, ctx: JinjaCtx): void {
   if (tokens[at]?.type !== 'op' || tokens[at].value !== '=') {
     throw new JinjaExprError('代入の = が必要です');
   }
-  const value = new Parser(tokens.slice(at + 1), ctx).parseAll();
+  const value = new Parser(tokens.slice(at + 1), ctx, budget).parseAll();
   if (attr === null) {
     defineOwn(ctx, target.value, value);
     return;

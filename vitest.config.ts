@@ -61,6 +61,7 @@ export default defineConfig({
         'editor/shared/src/jinja/jinjaExpr.ts',
         'editor/shared/src/jinja/jinjaTree.ts',
         'editor/shared/src/jinja/fillRender.ts',
+        'editor/shared/src/jinja/safeMarkup.ts',
         'editor/shared/src/jinja/containsJinja.ts',
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/rawText.ts',
