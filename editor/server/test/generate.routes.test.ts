@@ -54,7 +54,11 @@ vi.mock('../src/generate/pyTemplate.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/generate/pyTemplate.js')>()),
   generateTemplates: generateMock,
 }));
-vi.mock('../src/generate/baseDate.js', () => ({ latestBaseDate: () => '2026-10-23' }));
+// 検査は本物を使い、基準日の既定(最新基準日)だけ固定する。
+vi.mock('../src/generate/baseDate.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/generate/baseDate.js')>()),
+  latestBaseDate: () => '2026-10-23',
+}));
 vi.mock('../src/repositories/historyRepo.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/repositories/historyRepo.js')>();
   return {
@@ -378,6 +382,24 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       fundCode: '510037',
     });
     expect(generateMock.mock.calls[0][1]).toBe('2026-10-23');
+  });
+
+  it('基準日の指定があれば、土日でも過去日でもそのまま生成器の第 2 引数へ渡す', async () => {
+    const res = await generate({ ...validBody, baseDate: '2026-10-17' });
+    expect(res.statusCode).toBe(200);
+    expect(generateMock.mock.calls[0][1]).toBe('2026-10-17');
+  });
+
+  it.each([
+    ['今日より後', '2999-01-01'],
+    ['存在しない日', '2026-02-30'],
+    ['形式違い', '2026-1-5'],
+  ])('基準日が不正(%s)なら、Rep1 も生成器も呼ばずに 400', async (_l, baseDate) => {
+    const res = await generate({ ...validBody, baseDate });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().kind).toBe('validation');
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(fs.readdirSync(pendingDir)).toEqual([]);
   });
 
   it.each([
