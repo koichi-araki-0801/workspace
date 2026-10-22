@@ -266,11 +266,20 @@ describe('localPartRepo', () => {
   });
 
   describe('委託会社での絞り込み', () => {
-    const other = { ...partCatalog[0], id: 'other-company', companyCode: '00002' };
+    // fixture に無い委託会社コードで足し、fixture 側の会社の並びに左右されないようにする。
+    const other = { ...partCatalog[0], id: 'other-company', companyCode: '00009' };
     const idsOf = async (companyCode?: string) => {
       const r = await localPartRepo.listParts(companyCode === undefined ? {} : { companyCode });
       return isOk(r) ? r.value.map((i) => i.id) : [];
     };
+
+    it('fixture は 2 社分のパーツを持ち、互いの一覧に出ない', async () => {
+      const am01 = await idsOf('00001');
+      const am02 = await idsOf('00002');
+      expect(am02).toEqual(partCatalog.filter((i) => i.companyCode === '00002').map((i) => i.id));
+      expect(am02.length).toBeGreaterThanOrEqual(2);
+      expect(am01.some((id) => am02.includes(id))).toBe(false);
+    });
 
     it('companyCode を指定すると他社のパーツが出ない', async () => {
       partCatalog.push(other);
@@ -278,8 +287,8 @@ describe('localPartRepo', () => {
         const ids = await idsOf('00001');
         expect(ids).not.toContain('other-company');
         expect(ids.length).toBeGreaterThan(0);
-        expect(await idsOf('00002')).toEqual(['other-company']);
-        const opts = await localPartRepo.getPartClassificationOptions({ companyCode: '00002' });
+        expect(await idsOf('00009')).toEqual(['other-company']);
+        const opts = await localPartRepo.getPartClassificationOptions({ companyCode: '00009' });
         expect(isOk(opts) && opts.value.categories).toEqual([other.classification.category]);
       } finally {
         partCatalog.pop();

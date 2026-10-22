@@ -5,7 +5,7 @@ IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_共通サンプ
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_共通サンプル]
     ([カテゴリ],[大分類],[中分類],[小分類],[データJSON],[更新日時],[更新者])
   VALUES (NULL, NULL, NULL, NULL,
-    N'{"company":{"code":"AM01","name":"サンプル委託会社"},"fund":{"code":"000000","name":"サンプルファンド","nickname":"サンプル愛称","category":"追加型投信／内外／資産複合","nav":"12,345","navChange":58,"netAssets":"123,456","returnRate":"12.3","distribution":"100","redemptionNav":"12,345.67"},"report":{"editionType":"交付版","baseDate":"2025年12月31日","term":"第1期","settlementDate":"2025年12月31日","period":"2025年1月1日～2025年12月31日","termStartNav":"12,000","termEndNav":"12,345","redemptionDate":"2026年3月31日"},"commentary":"当期の基準価額は、各資産の値動きを反映してサンプルの水準で推移しました。本文はパーツ別共通のダミーテキストです。実データはファンドごとに差し替えてご利用ください。"}', SYSUTCDATETIME(), N'seed');
+    N'{"company":{"code":"AM01","name":"サンプル委託会社","address":"〒000-0000　東京都千代田区サンプル一丁目1番1号","url":"https://www.example.com/"},"fund":{"code":"000000","name":"サンプルファンド","nickname":"サンプル愛称","category":"追加型投信／内外／資産複合","nav":"12,345","navChange":58,"netAssets":"123,456","returnRate":"12.3","distribution":"100","redemptionNav":"12,345.67"},"report":{"editionType":"交付版","baseDate":"2025年12月31日","term":"第1期","settlementDate":"2025年12月31日","period":"2025年1月1日～2025年12月31日","termStartNav":"12,000","termEndNav":"12,345","redemptionDate":"2026年3月31日"},"commentary":"当期の基準価額は、各資産の値動きを反映してサンプルの水準で推移しました。本文はパーツ別共通のダミーテキストです。実データはファンドごとに差し替えてご利用ください。"}', SYSUTCDATETIME(), N'seed');
 GO
 IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_共通サンプル] WHERE [分類キー] = N'ファンドの仕組み' + NCHAR(31) + N'商品概要' + NCHAR(31) + N'商品概要の表' + NCHAR(31) + N'標準')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_共通サンプル]

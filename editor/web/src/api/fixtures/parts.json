@@ -8,7 +8,7 @@
     "usageNotes": "表紙の先頭に1つだけ置きます。ファンド名は自動入力（{{ fund.name }}）で差し替わります。",
     "updatedAt": "2026-05-01T09:00:00.000Z",
     "updatedBy": "山田 太郎",
-    "content": "<p class=\"cover-category\">追加型投信／内外／資産複合</p><h1 class=\"cover-title\">サンプルファンド</h1><p class=\"cover-alias\">（愛称：サンプル愛称）</p>"
+    "content": "<p class=\"cover-category\">{{ fund.category }}</p><h1 class=\"cover-title\">{{ fund.name }}</h1><p class=\"cover-alias\">（愛称：{{ fund.nickname }}）</p>"
   },
   {
     "id": "part-cover-report-band",
@@ -66,7 +66,7 @@
     "usageNotes": "会社名は自動入力（{{ company.name }}）で差し替わります。住所行とセットで使います。",
     "updatedAt": "2026-04-20T09:00:00.000Z",
     "updatedBy": "佐藤 花子",
-    "content": "<p class=\"sign\">サンプル委託会社</p>"
+    "content": "<p class=\"sign\">{{ company.name }}</p>"
   },
   {
     "id": "part-cover-address",
@@ -74,10 +74,10 @@
     "classification": { "category": "表紙", "majorClass": "表紙右側", "middleClass": "会社名・住所", "minorClass": "住所" },
     "name": "委託会社の住所",
     "description": "委託会社の郵便番号・住所・ホームページの1行です。",
-    "usageNotes": "会社名の直下に置きます。住所・URLは委託会社に合わせて差し替えてください。",
+    "usageNotes": "会社名の直下に置きます。住所・URLは自動入力（{{ company.address }}・{{ company.url }}）で差し替わります。",
     "updatedAt": "2026-04-20T09:00:00.000Z",
     "updatedBy": "佐藤 花子",
-    "content": "<p>〒105-0011　東京都港区芝公園一丁目1番1号　ホームページ　https://www.smtam.jp/</p>"
+    "content": "<p>{{ company.address }}　ホームページ　{{ company.url }}</p>"
   },
   {
     "id": "part-scheme-band",
@@ -278,7 +278,7 @@
     "usageNotes": "合計行（太字）は1つだけにしてください。数値は自動入力で差し替わります。",
     "updatedAt": "2026-05-17T09:00:00.000Z",
     "updatedBy": "佐藤 花子",
-    "content": "<div class=\"sub\"><span class=\"no\">5</span><h3>1万口当たりの費用明細</h3></div><table class=\"data\"><thead><tr><th>項目</th><th>金額（円）</th><th>比率（％）</th></tr></thead><tbody><tr><td>(a) 信託報酬</td><td class=\"num\">123</td><td class=\"num\">1.234</td></tr><tr><td>(b) 売買委託手数料</td><td class=\"num\">12</td><td class=\"num\">0.123</td></tr><tr><td>(c) その他費用</td><td class=\"num\">1</td><td class=\"num\">0.012</td></tr><tr class=\"total\"><td>合計</td><td class=\"num\">136</td><td class=\"num\">1.369</td></tr></tbody></table>"
+    "content": "<div class=\"sub\"><span class=\"no\">5</span><h3>1万口当たりの費用明細</h3></div><table class=\"data\"><thead><tr><th>項目</th><th>金額（円）</th><th>比率（％）</th></tr></thead><tbody>{% for c in costs %}<tr><td>{{ c.item }}</td><td class=\"num\">{{ c.amount }}</td><td class=\"num\">{{ c.rate }}</td></tr>{% endfor %}<tr class=\"total\"><td>合計</td><td class=\"num\">{{ costTotal.amount }}</td><td class=\"num\">{{ costTotal.rate }}</td></tr></tbody></table>"
   },
   {
     "id": "part-cost-commentary",
@@ -300,6 +300,28 @@
     "usageNotes": "ページの末尾に置きます。会社名・コードは自動入力で差し替わります。",
     "updatedAt": "2026-05-17T09:00:00.000Z",
     "updatedBy": "山田 太郎",
-    "content": "<footer class=\"report-footer\"><p>委託会社: サンプル委託会社（AM01）　〈000000〉</p></footer>"
+    "content": "<footer class=\"report-footer\"><p>委託会社: {{ company.name }}（{{ company.code }}）　〈{{ fund.code }}〉</p></footer>"
+  },
+  {
+    "id": "part-am02-cover-company",
+    "companyCode": "00002",
+    "classification": { "category": "表紙", "majorClass": "表紙右側", "middleClass": "会社名・住所", "minorClass": "会社名" },
+    "name": "委託会社名（AM02 様式）",
+    "description": "AM02 の表紙右側の署名にあたる委託会社名です。",
+    "usageNotes": "AM02 のテンプレートでだけ一覧に出ます。会社名は自動入力（{{ company.name }}）で差し替わります。",
+    "updatedAt": "2026-05-20T09:00:00.000Z",
+    "updatedBy": "佐藤 花子",
+    "content": "<p class=\"sign\">{{ company.name }}　代表取締役</p>"
+  },
+  {
+    "id": "part-am02-cost-footer",
+    "companyCode": "00002",
+    "classification": { "category": "費用および運用コメント", "majorClass": "フッター", "middleClass": "委託会社情報", "minorClass": "標準" },
+    "name": "フッター（AM02 様式）",
+    "description": "AM02 のページ下部の委託会社名・ファンドコードのフッター行です。",
+    "usageNotes": "AM02 のテンプレートでだけ一覧に出ます。会社名・コードは自動入力で差し替わります。",
+    "updatedAt": "2026-05-20T09:00:00.000Z",
+    "updatedBy": "山田 太郎",
+    "content": "<footer class=\"report-footer\"><p>{{ company.name }}　ファンドコード {{ fund.code }}</p></footer>"
   }
 ]

@@ -14,7 +14,13 @@ import type { SampleData } from '../index.js';
 
 export const sampleCommon: SampleData = {
   // 委託会社。code/name は buildSampleData がマスタで上書きする(placeholder)。
-  company: { code: 'AM01', name: 'サンプル委託会社' },
+  // address/url は Rep1 に無いので上書きされず、作成タブでは常にこのダミーが出る。
+  company: {
+    code: 'AM01',
+    name: 'サンプル委託会社',
+    address: '〒000-0000　東京都千代田区サンプル一丁目1番1号',
+    url: 'https://www.example.com/',
+  },
   // ファンド。code/name/nickname は buildSampleData が上書きする(placeholder)。
   // それ以外(category や数値)はパーツ別共通のダミー。
   fund: {

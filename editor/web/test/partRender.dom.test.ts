@@ -1,4 +1,7 @@
-import { findEditingMarkers } from '@editor/shared';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { findEditingMarkers, sampleCommon } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { renderPartForInsert } from '@/features/editor/partRender';
 import { toFilled } from '@/lib/fillJinja';
@@ -75,6 +78,44 @@ describe('renderPartForInsert: 編集経路', () => {
     const r = renderPartForInsert('<p>{% if fund.name %}{{ fund.name }}</p>', edit(sample));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/^パーツの Jinja を読めないため挿入できません: /);
+  });
+});
+
+describe('renderPartForInsert: fixture のパーツ', () => {
+  const FIXTURES = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../src/api/fixtures',
+  );
+  const parts = JSON.parse(readFileSync(path.join(FIXTURES, 'parts.json'), 'utf8')) as Array<{
+    id: string;
+    content: string;
+  }>;
+  const jinjaParts = parts.filter((p) => /\{\{|\{%/.test(p.content));
+  const values = JSON.parse(
+    readFileSync(path.join(FIXTURES, 'json', 'AM01_510037_20240710_交付版.json'), 'utf8'),
+  ) as Record<string, unknown>;
+
+  it('Jinja のパーツを含み、{% for %} を持つ表もある(セルフテスト)', () => {
+    expect(jinjaParts.length).toBeGreaterThanOrEqual(4);
+    expect(jinjaParts.some((p) => /<table[\s\S]*\{% for /.test(p.content))).toBe(true);
+  });
+
+  // fixture の変数名が local の値の源(値ファイルと `sampleCommon`)のキーと揃っていること。
+  it.each(
+    jinjaParts.map((p) => [p.id, p.content]),
+  )('%s は編集経路で値ファイルの値だけで描け、警告が無い', (_id, content) => {
+    const r = rendered(renderPartForInsert(content, { route: 'edit', values, valuesFound: true }));
+    expect(r.warnings).toEqual([]);
+    expect(r.html).not.toMatch(/\{\{|\{%/);
+  });
+
+  it.each(
+    jinjaParts.map((p) => [p.id, p.content]),
+  )('%s は作成経路で共通サンプルの値がチップで入り、原文に戻る', (_id, content) => {
+    const r = rendered(renderPartForInsert(content, { route: 'create', sample: sampleCommon }));
+    expect(r.warnings).toEqual([]);
+    expect(r.html).toContain('jinja-chip');
+    expect(norm(toTemplate(r.html, { asFragment: true }))).toBe(norm(content));
   });
 });
 

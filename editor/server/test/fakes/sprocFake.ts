@@ -183,6 +183,37 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     targetEdition: '全体版',
     companyCode: 'R-AM01',
   },
+  // Jinja を含むパーツ。名前と内容は local の `fixtures/parts.json` の同じパーツに揃え、
+  // 挿入時の描画を確かめる e2e が local / rest のどちらでも同じ名前で選べるようにする。
+  {
+    id: 'part-cover-title',
+    category: '表紙',
+    majorClass: '表紙ヘッダー',
+    middleClass: 'ファンド名',
+    minorClass: '標準',
+    name: 'ファンド名タイトル',
+    content:
+      '<p class="cover-category">{{ fund.category }}</p><h1 class="cover-title">{{ fund.name }}</h1>' +
+      '<p class="cover-alias">（愛称：{{ fund.nickname }}）</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: null,
+    companyCode: 'R-AM01',
+  },
+  // 他社のパーツ。AM01 のテンプレートの一覧には出ない。
+  {
+    id: 'part-am02-cover-company',
+    category: '表紙',
+    majorClass: '表紙右側',
+    middleClass: '会社名・住所',
+    minorClass: '会社名',
+    name: '委託会社名（AM02 様式）',
+    content: '<p class="sign">{{ company.name }}　代表取締役</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: null,
+    companyCode: 'R-AM02',
+  },
 ];
 
 // ── 2. 行の形と補助 ──

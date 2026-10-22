@@ -104,7 +104,8 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 起動するサーバ（sproc は `server/test/fakes/sprocFake.ts` の in-memory フェイク、dataRoot は
 `<repo>/.tmp/e2e-rest-dataroot`（リポジトリルート直下。`editor/` の下ではない）を毎回作り直し）
 を相手に走る。SQL Server は不要。
-`filled/` には `web/src/api/fixtures/filled/*.html` を seed する。worker 数は 1（ログイン試行の
+`filled/` には `web/src/api/fixtures/filled/*.html`、`json/` には `web/src/api/fixtures/json/*.json`
+（編集タブでパーツを挿入するときの値）を seed する。worker 数は 1（ログイン試行の
 集中回避）。
 
 Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常終了時は
@@ -175,6 +176,7 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `TEMPLATES_DIR` | `<DATA_ROOT>/templates` | テンプレ .html 置き場（作成タブ経由の Jinja スケルトン） |
 | `FILLED_DIR` | `<DATA_ROOT>/filled` | 値入り HTML 置き場（編集タブが読み書きする本文） |
 | `CSS_DIR` | `<DATA_ROOT>/css` | ファンド毎 CSS 置き場 |
+| `JSON_DIR` | `<DATA_ROOT>/json` | 編集タブの値ファイル置き場（`<会社_ファンド_基準日_版種>.json`。別ツールが置き、editor は読むだけ） |
 | `DRAFTS_DIR` | `<DATA_ROOT>/drafts` | オートセーブ下書きの作業コピー |
 | `WEB_DIR` | `web/dist` | 本番配信する build 済み SPA |
 | `PYTHON_BIN` | `python`（PATH から探す。引数なし） | 生成器を起動する Python。3.13 でなければ起動ログに警告が出る |

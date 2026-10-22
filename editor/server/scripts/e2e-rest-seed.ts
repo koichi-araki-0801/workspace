@@ -42,4 +42,12 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   for (const name of await fs.readdir(fixturesFilledDir)) {
     await fs.copyFile(path.join(fixturesFilledDir, name), path.join(filledDir, name));
   }
+  // 編集タブで Jinja のパーツを挿入するときの値(`json/<ID>.json`)。local と同じ fixture を置き、
+  // 挿入した断片に入る値を local / rest で揃える。
+  const jsonDir = path.join(E2E_REST_DATA_ROOT, 'json');
+  const fixturesJsonDir = path.join(repoRoot, 'editor/web/src/api/fixtures/json');
+  await fs.mkdir(jsonDir, { recursive: true });
+  for (const name of await fs.readdir(fixturesJsonDir)) {
+    await fs.copyFile(path.join(fixturesJsonDir, name), path.join(jsonDir, name));
+  }
 }
