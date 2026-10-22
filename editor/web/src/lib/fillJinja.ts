@@ -24,6 +24,7 @@
 import type { SampleData } from '@editor/shared';
 import {
   Filler,
+  isSetStatement,
   type JinjaCtx,
   type JinjaNode,
   type JinjaToken,
@@ -76,11 +77,16 @@ interface FillDiagnostics {
 const RAWTEXT_LABEL: Record<string, string> = { style: 'CSS', textarea: '入力欄', title: '題名' };
 const RAW_LABEL_CHARS = 20;
 
-/** 単独のトークンのチップ。出力は評価した値を、文・Jinja コメントは原文を見せる。 */
+/**
+ * 単独のトークンのチップ。出力は評価した値を、文・Jinja コメントは原文を見せる。`safe` の付いた値は
+ * HTML のままチップの中に描く(本番の見た目に揃える)。保存では `data-jinja` の原文へ戻るので中身は
+ * 載らず、中身で表の構造が崩れたときは自己検査が本文全体を固める側へ倒す。
+ */
 function tokenChip(tok: JinjaToken, ctx: JinjaCtx, f: Filler): string {
   const kind = tok.kind === 'output' ? 'var' : tok.kind;
-  const visible = tok.kind === 'output' ? f.expr(tok.body, ctx) : tok.source;
-  return `<span data-gjs-type="jinja-${kind}" class="${JINJA_CHIP_CLASS} jinja-${kind}" ${DATA_JINJA}="${b64encodeUtf8(tok.source)}">${htmlEscape(visible)}</span>`;
+  const visible =
+    tok.kind === 'output' ? f.html(tok.body, ctx, htmlEscape) : htmlEscape(tok.source);
+  return `<span data-gjs-type="jinja-${kind}" class="${JINJA_CHIP_CLASS} jinja-${kind}" ${DATA_JINJA}="${b64encodeUtf8(tok.source)}">${visible}</span>`;
 }
 
 /**
@@ -224,6 +230,8 @@ function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: Jinj
   const { src, f } = e;
   if (n.type === 'token') {
     const tok = n.token;
+    // 代入は見せ方(チップ・印・原文のまま)に関係なく実行し、以後の値に効かせる。
+    if (isSetStatement(tok)) f.assign(tok, ctx);
     if (isVerbatim(e, tok.start)) return tok.source;
     if (e.a.commentOnlyTokens.has(tok.start)) return rtComment({ kind: 't', payload: tok.source });
     return tokenChip(tok, ctx, f);
@@ -347,11 +355,13 @@ export function toFilledWithDiagnostics(
 ): { html: string; diagnostics: FillDiagnostics } {
   const f = new Filler();
   const a = analyzeFill(raw);
-  const ctx = sample as JinjaCtx;
+  // `set` は文脈へ代入するので、描くたびに複製から始める(渡されたサンプルを書き換えず、自己検査の
+  // 後の描き直しにも 1 回目の代入を持ち込まない)。
+  const freshCtx = (): JinjaCtx => ({ ...sample }) as JinjaCtx;
   let html: string;
   let selfCheckFailed = false;
   if (!a.parse.ok || a.frozen.some((r) => r.form === 'body')) {
-    html = emitWholeBody(raw, a, ctx, f);
+    html = emitWholeBody(raw, a, freshCtx(), f);
   } else {
     let id = 0;
     const e: EmitCtx = {
@@ -362,9 +372,9 @@ export function toFilledWithDiagnostics(
       frozen: a.frozen,
       opaque: a.opaque,
     };
-    html = emitRange(e, a.parse.nodes, 0, raw.length, ctx, NO_ROWS);
+    html = emitRange(e, a.parse.nodes, 0, raw.length, freshCtx(), NO_ROWS);
     if (!roundTripsToOriginal(raw, emitHook ? emitHook(html) : html, parse)) {
-      html = emitWholeBody(raw, a, ctx, f);
+      html = emitWholeBody(raw, a, freshCtx(), f);
       selfCheckFailed = true;
     }
   }

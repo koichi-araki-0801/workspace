@@ -98,6 +98,76 @@ describe('renderDisplay', () => {
   });
 });
 
+describe('renderDisplay — 本番パーツが使う構文', () => {
+  it('safe の付いた値だけはエスケープしない', () => {
+    expect(show('<p>{{ h|safe }}|{{ h }}</p>', { h: 'a<br>b' })).toBe('<p>a<br>b|a&lt;br&gt;b</p>');
+  });
+  it('フィルタ付きの出力・for の対象・if の条件', () => {
+    expect(
+      show(
+        '{% for r in rows|selectattr("on")|list %}{{ r.n|default("-") }};{% endfor %}' +
+          '{% if rows|length > 2 %}多{% endif %}',
+        { rows: [{ on: 1, n: 'a' }, { on: 0 }, { on: 1 }] },
+      ),
+    ).toBe('a;-;多');
+  });
+  it('set は以後の式から引け、if の中の set は if の外へ届く(Jinja と同じ)', () => {
+    expect(
+      show('{% set y = n * 2 %}{{ y }}{% if t %}{% set y = 1 %}{% endif %}/{{ y }}', {
+        n: 7,
+        t: true,
+      }),
+    ).toBe('14/1');
+  });
+  it('for の中の set は外へ漏れず、namespace の属性への代入はループを越えて残る', () => {
+    expect(
+      show(
+        '{% set ns = namespace(total=0) %}{% for i in xs %}{% set y = i %}' +
+          '{% set ns.total = ns.total + i %}{% endfor %}[{{ y }}]{{ ns.total }}',
+        { xs: [1, 2, 3] },
+      ),
+    ).toBe('[]6');
+  });
+  it('loop.first / index / last / previtem と for a, b in groupby', () => {
+    expect(
+      show(
+        '{% for i in xs %}{% if not loop.first %}{{ loop.previtem }}>{% endif %}' +
+          '{{ loop.index }}{% if loop.last %}!{% endif %};{% endfor %}',
+        { xs: ['a', 'b'] },
+      ),
+    ).toBe('1;a>2!;');
+    expect(
+      show('{% for k, items in rows|groupby("k") %}{{ k }}={{ items|length }};{% endfor %}', {
+        rows: [{ k: 'b' }, { k: 'a' }, { k: 'b' }],
+      }),
+    ).toBe('a=1;b=2;');
+  });
+  it('range と文字列メソッド', () => {
+    expect(
+      show(
+        '{% for i in range(2) %}{{ i }}{% endfor %}|{% for l in s.splitlines() %}' +
+          '{% if l.startswith("※") %}<i>{{ l }}</i>{% endif %}{% endfor %}',
+        { s: '※1\n本文\n※2' },
+      ),
+    ).toBe('01|<i>※1</i><i>※2</i>');
+  });
+  it('解釈できない set は unsupported に数える', () => {
+    const f = new Filler();
+    expect(show('{% set a, b = 1, 2 %}{{ a }}', {}, f)).toBe('');
+    expect([...f.unsupported]).toEqual(['set a, b = 1, 2']);
+  });
+  it('繰り返しの総数に上限があり、超えた分は展開せず unsupported に数える', () => {
+    const f = new Filler();
+    const out = show(
+      '{% for a in range(100000) %}{% for b in range(100000) %}x{% endfor %}{% endfor %}',
+      {},
+      f,
+    );
+    expect(out.length).toBeLessThanOrEqual(200_000);
+    expect(f.unsupported.size).toBe(1);
+  });
+});
+
 describe('部品', () => {
   it('parseForHeader', () => {
     expect(parseForHeader('for a in xs')).toEqual({ vars: ['a'], iter: 'xs' });
@@ -107,12 +177,25 @@ describe('部品', () => {
     });
     expect(parseForHeader('for in xs')).toBeNull();
   });
-  it('loopCtx は元の ctx を変えず、loop の 5 項目を持つ', () => {
+  it('loopCtx は元の ctx を変えず、loop の項目を持つ', () => {
     const base = { a: 1 };
     const c = loopCtx(base, ['k', 'v'], [['x', 9]], 0);
     expect(c).toMatchObject({ a: 1, k: 'x', v: 9 });
-    expect(c.loop).toEqual({ index: 1, index0: 0, first: true, last: true, length: 1 });
+    expect(c.loop).toStrictEqual({
+      index: 1,
+      index0: 0,
+      first: true,
+      last: true,
+      length: 1,
+      previtem: undefined,
+    });
+    expect(loopCtx(base, ['i'], ['p', 'q'], 1).loop).toMatchObject({ previtem: 'p' });
     expect(base).toEqual({ a: 1 });
+  });
+  it('loopCtx のループ変数が `__proto__` でも prototype を差し替えない', () => {
+    const c = loopCtx({}, ['__proto__'], [{ polluted: 1 }], 0);
+    expect(Object.hasOwn(c, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(c)).toBe(Object.prototype);
   });
   it('escapeHtmlFull', () => {
     expect(escapeHtmlFull(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;');
@@ -136,6 +219,11 @@ describe('renderPlainFilled', () => {
     expect(html).toContain('<p>B</p>');
     expect(html).not.toMatch(/\{\{|\{%|\{#/);
     expect(findEditingMarkers(html)).toEqual([]);
+  });
+  it('set は渡した値の object を書き換えない', () => {
+    const sample = { n: 1 };
+    expect(renderPlainFilled('{% set n = 2 %}{% set m = 3 %}{{ n }}', sample).html).toBe('2');
+    expect(sample).toEqual({ n: 1 });
   });
   it('字句エラーは投げる', () => {
     expect(() => renderPlainFilled('<p>{{ a </p>', {})).toThrow();

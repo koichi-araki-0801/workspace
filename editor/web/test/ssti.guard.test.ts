@@ -18,6 +18,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { renderPlainFilled } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -143,6 +144,93 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
     const code = readFileSync(path.join(WEB_SRC, 'lib/renderHostClient.ts'), 'utf8');
     expect(stripComments(code)).not.toContain('allow-same-origin');
     expect(stripComments(code)).toContain("'allow-scripts'");
+  });
+
+  describe('値差込の評価器は許可リストの外を呼ばない', () => {
+    // 評価器(`shared/src/jinja/jinjaExpr.ts`)はコンパイルせずに式を読むが、フィルタ・テスト・関数・
+    // メソッドの呼び出しを持つ。呼べる名前が一覧から増えていないこと、一覧の名前を足場にしても
+    // prototype の関数へ届かないことを、server と web が共有する描画器(`renderPlainFilled`)の出口で
+    // 確かめる。名前を足したら、ここにもその名前を使った攻撃の例を足す。
+    const g = globalThis as { __pwnedSsti?: number };
+    const run = (src: string) => renderPlainFilled(src, { s: 'abc', xs: [{ a: 1 }], h: '<b>' });
+
+    it.each([
+      'default',
+      'int',
+      'length',
+      'list',
+      'trim',
+      'safe',
+      'batch(1)',
+      'slice(1)',
+      'groupby("a")',
+      'select',
+      'reject',
+      'selectattr("a")',
+    ])('許可しているフィルタ %s は解釈できる', (filter) => {
+      expect(run(`{{ xs|${filter} }}`).diagnostics.unsupported).toEqual([]);
+    });
+
+    it.each([
+      // Jinja2 / nunjucks の組み込みのうち、本番パーツが使っていないもの。属性・書式・JSON 化は
+      // とくに SSTI の足場になる。
+      'attr("constructor")',
+      'map("constructor")',
+      'format("x")',
+      'xmlattr',
+      'tojson',
+      'dictsort',
+      'join',
+      'first',
+      'sort',
+      'unique',
+      'rejectattr("a")',
+      'string',
+      'indent',
+      'urlize',
+      'wordwrap',
+      'pprint',
+      'constructor',
+      '__proto__',
+      'toString',
+      'valueOf',
+      'hasOwnProperty',
+    ])('一覧に無いフィルタ %s は解釈しない', (filter) => {
+      expect(run(`{{ xs|${filter} }}`).diagnostics.unsupported).toEqual([`xs|${filter}`]);
+    });
+
+    it.each([
+      ['テスト', '{{ xs is callable }}'],
+      ['テスト(prototype の名前)', '{{ xs is constructor }}'],
+      ['select のテスト', '{{ xs|select("callable")|list }}'],
+      ['selectattr のテスト', '{{ xs|selectattr("a", "sameas", 1)|list }}'],
+      ['関数', '{{ cycler(1) }}'],
+      ['関数', '{{ lipsum() }}'],
+      ['関数の prototype', '{{ range.constructor("globalThis.__pwnedSsti = 1")() }}'],
+      ['関数の prototype', '{{ namespace.constructor("globalThis.__pwnedSsti = 1")() }}'],
+      ['メソッド', '{{ s.upper() }}'],
+      ['メソッドの prototype', '{{ s.startswith.constructor("globalThis.__pwnedSsti = 1")() }}'],
+      ['文字列以外のメソッド', '{{ xs.startswith("a") }}'],
+      ['Python の SSTI', "{{ ''.__class__.__mro__[1].__subclasses__() }}"],
+      ['Python の SSTI', '{{ cycler.__init__.__globals__.os.popen("id").read() }}'],
+      [
+        'set 経由の呼び出し',
+        '{% set f = range.constructor %}{{ f("globalThis.__pwnedSsti = 1")() }}',
+      ],
+      ['値データの属性への代入', '{% set xs.a = 1 %}'],
+      ['長すぎる range', '{{ range(1000000) }}'],
+    ])('%s: %s は評価しない', (_, src) => {
+      expect(run(src).diagnostics.unsupported.length).toBeGreaterThan(0);
+      expect(g.__pwnedSsti).toBeUndefined();
+    });
+
+    it('prototype の値は一覧の名前を経由しても関数として出てこない', () => {
+      const { html } = run(
+        '{{ (s|safe).constructor }}|{{ namespace(a=1).constructor }}|' +
+          '{{ xs|selectattr("constructor")|list|length }}|{{ (xs|groupby("a"))[0].constructor }}',
+      );
+      expect(html).toBe('||0|');
+    });
   });
 
   it('発信元の検証が contentWindow の同一性で行われている', () => {

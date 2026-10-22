@@ -228,10 +228,10 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
 
   it('条件式が解釈できなければ false 扱いにして診断へ挙げる', () => {
     const { html, diagnostics } = toFilledWithDiagnostics(
-      `<section>{% if holdings | length %}<p class="up">U</p>{% else %}<p class="down">D</p>{% endif %}</section>`,
+      `<section>{% if holdings | first %}<p class="up">U</p>{% else %}<p class="down">D</p>{% endif %}</section>`,
       sample,
     );
-    expect(diagnostics.unsupported).toEqual(['holdings | length']);
+    expect(diagnostics.unsupported).toEqual(['holdings | first']);
     expect(html).toContain('class="down"');
   });
 
@@ -297,6 +297,70 @@ describe('toFilled の端', () => {
       expect(back).toBe(raw);
     }
     expect(toFilled('{% if ok %}<p>A</p>{% endif %}', { ok: false })).not.toContain('<p>A</p>');
+  });
+});
+
+describe('toFilled — 本番パーツが使う構文も描き、原文へ戻る', () => {
+  const roundTrips = (raw: string, data: Record<string, unknown>) => {
+    const { html, diagnostics } = toFilledWithDiagnostics(raw, data);
+    expect(diagnostics.unsupported).toEqual([]);
+    expect(diagnostics.frozen).toEqual([]);
+    expect(toTemplate(html, { asFragment: true })).toBe(raw);
+    return html;
+  };
+
+  it('フィルタ付きの出力はチップになり、値を見せて原文へ戻る', () => {
+    const html = roundTrips(
+      '<p>{{ holdings|length }}件 {{ fund.missing|default("-") }} {{ " x "|trim }}</p>',
+      sample,
+    );
+    expect(html).toContain('>3<');
+    expect(html).toContain('>-<');
+    expect(html).toContain('>x<');
+  });
+
+  it('set の代入は以後のチップの値に効き、渡したサンプルを書き換えない', () => {
+    const data = { ...sample, n: 2 };
+    const html = roundTrips('<p>{% set y = n * 21 %}{{ y }}</p><p>{{ y + 1 }}</p>', data);
+    expect(html).toContain('>42<');
+    expect(html).toContain('>43<');
+    expect(data).not.toHaveProperty('y');
+  });
+
+  it('namespace・loop の属性・selectattr を使うループの行も原文へ戻る', () => {
+    const raw =
+      '{% set ns = namespace(total=0) %}<table><tbody>' +
+      '{% for h in holdings|selectattr("weight") %}{% set ns.total = ns.total + h.weight|int %}' +
+      '<tr><td>{{ loop.index }}{% if not loop.first %}({{ loop.previtem.name }}){% endif %}</td>' +
+      '<td>{{ h.name }}</td></tr>{% endfor %}</tbody></table><p>{{ ns.total }}</p>';
+    const html = roundTrips(raw, sample);
+    expect(html).toMatch(/\(<span [^>]*>トヨタ自動車<\/span>\)/);
+    expect(html).toContain('>12<'); // 5 + 4 + 3
+  });
+
+  it('safe の値は HTML として描き(チップの中に要素ができ)、原文へ戻る', () => {
+    const html = roundTrips('<p>{{ note|safe }}</p>', { note: 'a<br>b' });
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(doc.querySelector('p .jinja-chip br')).not.toBeNull();
+    // safe の無い出力は従来どおりエスケープする。
+    expect(toFilled('<p>{{ note }}</p>', { note: 'a<br>b' })).toContain('a&lt;br&gt;b');
+  });
+
+  it('許可リストの外の呼び出しは評価しない(prototype の関数に届かず、診断へ挙がる)', () => {
+    const g = globalThis as { __pwnedFill?: number };
+    const attacks = [
+      '{{ range.constructor("globalThis.__pwnedFill = 1")() }}',
+      '{{ fund.name|attr("constructor") }}',
+      '{% set f = namespace.constructor %}{{ f("globalThis.__pwnedFill = 1")() }}',
+      '{{ fund.name.startswith.constructor("globalThis.__pwnedFill = 1")() }}',
+      '{{ holdings|map("constructor")|list }}',
+    ];
+    for (const a of attacks) {
+      const { html, diagnostics } = toFilledWithDiagnostics(`<p>${a}</p>`, sample);
+      expect(diagnostics.unsupported.length, a).toBeGreaterThan(0);
+      expect(html).not.toContain('native code');
+    }
+    expect(g.__pwnedFill).toBeUndefined();
   });
 });
 

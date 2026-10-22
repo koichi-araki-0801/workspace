@@ -204,6 +204,43 @@ describe('rerenderUneditedJinjaParts', () => {
     expect(r.html).toBe(doc(inserted('全体ファンド')));
   });
 
+  describe('safe で値の HTML をそのまま描くパーツ', () => {
+    const safeCatalog = new Map([['s', '<section class="s">{{ note|safe }}</section>']]);
+    const approved = (inner: string) =>
+      doc(`<section class="s" data-part-id="s">${inner}</section>`);
+
+    it('写し先の値が地の HTML なら描き直す(エスケープしない)', () => {
+      const r = rerenderUneditedJinjaParts({
+        sourceHtml: approved('交付<br>注記'),
+        catalog: safeCatalog,
+        sourceValues: { note: '交付<br>注記' },
+        targetValues: { note: '全体<br>注記' },
+        targetHtml: '',
+      });
+      expect(r.rerendered).toEqual(['s#1']);
+      expect(r.html).toContain('全体<br>注記');
+    });
+
+    it.each([
+      ['イベント属性', '<img src="x" onerror="alert(1)">'],
+      ['script 要素', '<script>alert(1)</script>'],
+      ['javascript: の URL', '<a href="javascript:alert(1)">x</a>'],
+      ['往復用の印', '<span class="jinja-chip jinja-var" data-jinja="e3sgeCB9fQ==">x</span>'],
+    ])('写し先の値が%sを持てば、承認で書く本文の検査に通らないので描き直さない', (_, bad) => {
+      const src = approved('交付<br>注記');
+      const r = rerenderUneditedJinjaParts({
+        sourceHtml: src,
+        catalog: safeCatalog,
+        sourceValues: { note: '交付<br>注記' },
+        targetValues: { note: `全体${bad}` },
+        targetHtml: '',
+      });
+      expect(r.html).toBe(src);
+      expect(r.edited).toEqual(['s#1']);
+      expect(r.rerendered).toEqual([]);
+    });
+  });
+
   it('根が複数のパーツ(editor は先頭の根だけに data-part-id を付ける)は edited になる', () => {
     const src = doc('<p data-part-id="m">交付ファンド</p>');
     const r = rerenderUneditedJinjaParts({

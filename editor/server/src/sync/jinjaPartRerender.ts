@@ -11,7 +11,13 @@
 // 誤って「直していない」に倒すと手直しを捨てて描き直すことになり、逆に「直した」に倒しても承認された
 // HTML をそのまま写すだけ(警告を添える)で失うものが無いため。
 
-import { containsJinja, renderPlainFilled, type SampleData } from '@editor/shared';
+import {
+  containsJinja,
+  findEditingMarkers,
+  renderPlainFilled,
+  type SampleData,
+} from '@editor/shared';
+import { collectExecutableUnits } from '../security/templateScripts.js';
 import { applyOps, extractSyncParts } from './partSync.js';
 
 /**
@@ -58,6 +64,19 @@ function withPartId(html: string, partId: string): string | null {
   while (at > m[0].length && (html[at - 1] === '/' || /\s/.test(html[at - 1]))) at--;
   const quote = partId.includes('"') ? "'" : '"';
   return `${html.slice(0, at)} data-part-id=${quote}${partId}${quote}${html.slice(at)}`;
+}
+
+/**
+ * 描き直したパーツが、承認で書く本文の検査(`confirmedWrite.ts` の往復用の印の関所と実行コードの
+ * 不変性)に通るか。`safe` は値の HTML をエスケープせずに描くので、写し先の値に script・イベント属性・
+ * 往復用の印があるとパーツに入る。置き換える承認済みのパーツと能動コンテンツの並びが同じなら、
+ * 置き換えても本文全体の並びは変わらない。通らなければ描き直さず、承認された HTML をそのまま写す。
+ */
+function passesWriteGates(next: string, approvedPart: string): boolean {
+  if (findEditingMarkers(next).length > 0) return false;
+  const before = collectExecutableUnits(approvedPart);
+  const after = collectExecutableUnits(next);
+  return before.length === after.length && before.every((u, i) => u === after[i]);
 }
 
 interface JinjaPartRerenderInput {
@@ -117,7 +136,7 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
       edited.push(part.key);
       continue;
     }
-    if (next === null) {
+    if (next === null || !passesWriteGates(next, part.html)) {
       edited.push(part.key);
       continue;
     }

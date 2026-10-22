@@ -8,10 +8,23 @@
 // 往復用の描画と公開関数を抱えて大きくなりすぎないため。
 
 import type { SampleData } from '../index.js';
-import { evaluateJinjaExpr, type JinjaCtx, stringifyJinjaValue } from './jinjaExpr.js';
+import {
+  assignJinjaSet,
+  evaluateJinjaExpr,
+  isJinjaSafe,
+  type JinjaCtx,
+  stringifyJinjaValue,
+} from './jinjaExpr.js';
+import type { JinjaToken } from './jinjaLex.js';
 import { type JinjaNode, parseJinja } from './jinjaTree.js';
 
 // ── 1. 式の評価 ──
+
+/**
+ * 1 回の描画で展開する繰り返しの総数の上限。`range` と入れ子の for で掛け算の回数を作れるので、
+ * server で描く経路(ペア同期の描き直し)が止まらなくならないよう、描画ごとに数える。
+ */
+const MAX_LOOP_ITEMS = 100_000;
 
 /**
  * 1 回の描画に紐づく評価器。解釈できない式を空値へ落とすのは画面を落とさないためだが、落としたことを
@@ -21,20 +34,43 @@ export class Filler {
   /** Set を使うのは同じ式がループ展開で何度も現れるため(件数でなく種類を数える)。 */
   readonly unsupported = new Set<string>();
   readonly missing = new Set<string>();
+  private loopItems = 0;
 
   private fail(expr: string): void {
     this.unsupported.add(expr);
   }
 
-  /** `{{ expr }}` の可視テキスト。 */
-  expr(expr: string, ctx: JinjaCtx): string {
+  private output(expr: string, ctx: JinjaCtx): unknown {
     try {
       const v = evaluateJinjaExpr(expr, ctx);
       if (v === undefined || v === null) this.missing.add(expr);
-      return stringifyJinjaValue(v);
+      return v;
     } catch {
       this.fail(expr);
-      return '';
+      return undefined;
+    }
+  }
+
+  /**
+   * `{{ expr }}` を HTML に置くときの文字列。値は `escapeText` でエスケープし、`safe` の付いた値だけは
+   * そのまま出す(本番の出力と同じ見た目にするため。危険な要素・属性は canvas の入口の刈り取りと、
+   * server の描き直しの検査が落とす)。
+   */
+  html(expr: string, ctx: JinjaCtx, escapeText: (s: string) => string = escapeHtmlFull): string {
+    const v = this.output(expr, ctx);
+    const s = stringifyJinjaValue(v);
+    return isJinjaSafe(v) ? s : escapeText(s);
+  }
+
+  /**
+   * `{% set … %}` を実行して `ctx` へ代入する。`ctx` は描画の入口で複製した文脈(またはループの
+   * 1 回ぶんの文脈)なので、呼び出し側の値データは書き換わらない。
+   */
+  assign(tok: JinjaToken, ctx: JinjaCtx): void {
+    try {
+      assignJinjaSet(tok.body.slice('set'.length), ctx);
+    } catch {
+      this.fail(tok.body);
     }
   }
 
@@ -48,16 +84,31 @@ export class Filler {
     }
   }
 
-  /** `{% for v in iter %}` の反復対象。配列でなければ空(ループは展開しない)。 */
+  /**
+   * `{% for v in iter %}` の反復対象。配列でなければ空(ループは展開しない)。繰り返しの総数が上限を
+   * 超えたら、以後は式を評価せずに空を返す(上限を超えた式を unsupported に数える)。
+   */
   array(expr: string, ctx: JinjaCtx): unknown[] {
+    if (this.loopItems > MAX_LOOP_ITEMS) return [];
     try {
       const v = evaluateJinjaExpr(expr, ctx);
-      return Array.isArray(v) ? v : [];
+      if (!Array.isArray(v)) return [];
+      this.loopItems += v.length;
+      if (this.loopItems > MAX_LOOP_ITEMS) {
+        this.fail(expr);
+        return [];
+      }
+      return v;
     } catch {
       this.fail(expr);
       return [];
     }
   }
+}
+
+/** 範囲を持たない `{% set x = … %}`(ブロックの set は木が opaque として扱う)。 */
+export function isSetStatement(tok: JinjaToken): boolean {
+  return tok.kind === 'stmt' && tok.keyword === 'set';
 }
 
 // ── 2. ブロックの規則 ──
@@ -71,10 +122,15 @@ export function parseForHeader(body: string): { vars: string[]; iter: string } |
   return { vars: m[1].split(',').map((v) => v.trim()), iter: m[2].trim() };
 }
 
-/** ループの i 番目の文脈。変数が複数なら要素(配列)を順に割り当てる(nunjucks のタプル展開)。 */
+/**
+ * ループの i 番目の文脈。変数が複数なら要素(配列)を順に割り当てる(nunjucks のタプル展開)。
+ * 回ごとに新しい object を作るので、ループの中の `set` は外へも次の回へも漏れない(Jinja と同じ。
+ * 持ち越しは namespace の属性への代入で行う)。束ねる object の prototype を null にするのは、
+ * 変数名が `__proto__` でも prototype の差し替えにせず、ただのキーとして置くため。
+ */
 export function loopCtx(ctx: JinjaCtx, vars: string[], items: unknown[], i: number): JinjaCtx {
   const item = items[i];
-  const bound: JinjaCtx = {};
+  const bound: JinjaCtx = Object.create(null);
   if (vars.length === 1) bound[vars[0]] = item;
   else for (const [k, v] of vars.entries()) bound[v] = Array.isArray(item) ? item[k] : undefined;
   return {
@@ -86,6 +142,7 @@ export function loopCtx(ctx: JinjaCtx, vars: string[], items: unknown[], i: numb
       first: i === 0,
       last: i === items.length - 1,
       length: items.length,
+      previtem: i > 0 ? items[i - 1] : undefined,
     },
   };
 }
@@ -124,9 +181,10 @@ export function escapeHtmlFull(s: string): string {
 // ── 3. 表示用の描画 ──
 
 /**
- * ブロック木を評価して素の HTML にする。Jinja コメントと範囲を持たない文(`set` など)と
- * `opaqueBlock`(macro 等)は何も出さず、`raw` は中身を原文のまま出す。属性値の中の出力も同じく
- * エスケープした値に置き換わる(木は HTML の文脈を見ないため)。
+ * ブロック木を評価して素の HTML にする。Jinja コメントと範囲を持たない文と `opaqueBlock`(macro 等)は
+ * 何も出さず、`raw` は中身を原文のまま出す。属性値の中の出力も同じくエスケープした値に置き換わる
+ * (木は HTML の文脈を見ないため)。`set` は `ctx` へ代入するので、呼び出し側は複製した文脈を渡す。
+ * if の枝は同じ `ctx` で描くので、枝の中の `set` は if の後ろへ届く(Jinja と同じ)。
  */
 export function renderDisplay(
   src: string,
@@ -141,7 +199,8 @@ export function renderDisplay(
         out += src.slice(n.start, n.end);
         break;
       case 'token':
-        if (n.token.kind === 'output') out += escapeHtmlFull(f.expr(n.token.body, ctx));
+        if (n.token.kind === 'output') out += f.html(n.token.body, ctx);
+        else if (isSetStatement(n.token)) f.assign(n.token, ctx);
         break;
       case 'raw':
         out += src.slice(n.open.end, n.close.start);
@@ -190,6 +249,6 @@ export function renderPlainFilled(
   const r = parseJinja(raw);
   if (!r.ok) throw new Error(`renderPlainFilled: ${r.error.message} (位置 ${r.error.at})`);
   const f = new Filler();
-  const html = renderDisplay(raw, r.nodes, sample as JinjaCtx, f);
+  const html = renderDisplay(raw, r.nodes, { ...sample } as JinjaCtx, f);
   return { html, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
 }

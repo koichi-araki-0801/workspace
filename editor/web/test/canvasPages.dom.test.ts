@@ -1,3 +1,4 @@
+import { renderPlainFilled } from '@editor/shared';
 import type { Component, Editor } from 'grapesjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_GEOM, geomToStyle } from '@/features/editor/geom';
@@ -351,6 +352,22 @@ describe('insertPart', () => {
     g.goToPage(0);
     expect(g.canInsertPart.value).toBe(false);
     expect(g.insertPart('<section>new</section>', 'NEW')).toBe(false);
+  });
+
+  it('safe で値の HTML をそのまま描いた断片も、canvas の入口で危険な属性・要素が落ちる', () => {
+    // 編集タブの挿入と同じく、カタログの断片を値ファイルの値で描いてから入れる(`partRender.ts`)。
+    const { html } = renderPlainFilled('<section class="p">{{ note|safe }}</section>', {
+      note: '注<br>記<img src="x" onerror="globalThis.__pwnedPart = 1"><script>1</script>',
+    });
+    expect(html).toContain('onerror'); // 描画器はエスケープしない(本番の出力と同じ)
+    load(DOC);
+    expect(g.insertPart(html, 'NEW')).toBe(true);
+    const saved = g.getBodyHtml();
+    expect(saved).toContain(
+      '<section data-part-id="NEW" class="p">注<br/>記<img src="x"/></section>',
+    );
+    expect(saved).not.toContain('onerror');
+    expect(saved).not.toContain('<script');
   });
 
   it('挿入する HTML から部品ができなければ(append が root を返さない)false で、本文を変えない', () => {
