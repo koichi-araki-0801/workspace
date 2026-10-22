@@ -83,6 +83,7 @@ async function rerenderForPair(
   values: TemplateValuesReader,
   input: {
     sourceHtml: string;
+    targetHtml: string;
     catalog: readonly PartCatalogItem[];
     sourceTemplateId: string;
     pairId: string;
@@ -101,22 +102,25 @@ async function rerenderForPair(
   ]);
   const r = rerenderUneditedJinjaParts({
     sourceHtml: input.sourceHtml,
+    targetHtml: input.targetHtml,
     catalog: jinjaCatalog,
     sourceValues: source.values,
     targetValues: target.values,
   });
-  for (const key of r.edited) warnings.set(key, [editedWarning(input.sourceEdition)]);
+  // 1 パーツに理由が複数つきうるので、上書きせず追記する。
+  const add = (key: string, reason: string): void => {
+    warnings.set(key, [...(warnings.get(key) ?? []), reason]);
+  };
+  for (const key of r.edited) add(key, editedWarning(input.sourceEdition));
   if (!target.found) {
     // 値ファイルが無いと欠けた値は全部になるだけなので、無いことだけを知らせる(挿入時と同じ)。
-    for (const key of r.rerendered) warnings.set(key, [valuesNotFoundWarning(input.targetEdition)]);
+    for (const key of r.rerendered) add(key, valuesNotFoundWarning(input.targetEdition));
   } else {
     for (const b of r.blanks) {
-      const list: string[] = [];
       if (b.missing.length > 0)
-        list.push(`次の値が見つからないため空欄で写しました: ${b.missing.join('、')}`);
+        add(b.partKey, `次の値が見つからないため空欄で写しました: ${b.missing.join('、')}`);
       if (b.unsupported.length > 0)
-        list.push(`次の書き方は描画できないため空欄で写しました: ${b.unsupported.join('、')}`);
-      warnings.set(b.partKey, list);
+        add(b.partKey, `次の書き方は描画できないため空欄で写しました: ${b.unsupported.join('、')}`);
     }
   }
   return { html: r.html, warnings };
@@ -221,6 +225,7 @@ export function createPairSyncService(
           target === 'filled'
             ? await rerenderForPair(values, {
                 sourceHtml,
+                targetHtml,
                 catalog,
                 sourceTemplateId,
                 pairId,

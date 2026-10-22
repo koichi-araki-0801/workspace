@@ -28,15 +28,35 @@ export function normalizePartHtml(html: string): string {
 }
 
 /**
- * 描いた HTML の根(先頭の開始タグ)へ `data-part-id` を付ける。挿入時(`useGrapes.ts` の
- * `insertPart`)と同じく根に付け、次の承認でもペア同期とメモがこのパーツを同じ id で引けるようにする。
- * 根の開始タグが読めなければ null(描き直しを見送る)。
+ * 描いた HTML の根(先頭の開始タグ)の属性の末尾へ `data-part-id` を付ける。挿入時(`useGrapes.ts` の
+ * `insertPart` の `addAttributes`)と同じ位置に揃える: ペア同期は生の HTML の SHA-1 で比べるので、
+ * 付ける位置が違うと、誰も直していない往復の承認で「両側変更」の競合になる。根の開始タグが読めなければ
+ * null(描き直しを見送る)。
  */
 function withPartId(html: string, partId: string): string | null {
-  const m = /^<([A-Za-z][A-Za-z0-9-]*)/.exec(html);
+  const m = /^<[A-Za-z][A-Za-z0-9-]*/.exec(html);
   if (!m) return null;
+  // 開始タグの閉じ `>` を引用符の中を飛ばして探す(属性値の中の `>` で切らない)。
+  let i = m[0].length;
+  let gt = -1;
+  while (i < html.length) {
+    const c = html[i];
+    if (c === '"' || c === "'") {
+      const q = html.indexOf(c, i + 1);
+      if (q < 0) return null;
+      i = q + 1;
+      continue;
+    }
+    if (c === '>') {
+      gt = i;
+      break;
+    }
+    i++;
+  }
+  if (gt < 0) return null;
+  let at = gt;
+  while (at > m[0].length && (html[at - 1] === '/' || /\s/.test(html[at - 1]))) at--;
   const quote = partId.includes('"') ? "'" : '"';
-  const at = m[0].length;
   return `${html.slice(0, at)} data-part-id=${quote}${partId}${quote}${html.slice(at)}`;
 }
 
@@ -49,6 +69,12 @@ interface JinjaPartRerenderInput {
   sourceValues: SampleData;
   /** 写し先の値ファイルの値(描き直しに使う)。 */
   targetValues: SampleData;
+  /**
+   * 写し先の本文。同じキーのパーツが写し先でも直されていなければ(写し先の値で描いた形と一致すれば)、
+   * 描いた結果でなく写し先のバイト列を使う。生の HTML の SHA-1 で比べるペア同期で、属性の書き方の
+   * 違いだけで競合にしないため。
+   */
+  targetHtml: string;
 }
 
 interface JinjaPartRerenderResult {
@@ -67,6 +93,7 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
   const edited: string[] = [];
   const blanks: JinjaPartRerenderResult['blanks'] = [];
   const ops: { start: number; end: number; text: string; seq: number }[] = [];
+  const targetParts = new Map(extractSyncParts(input.targetHtml).map((p) => [p.key, p.html]));
   for (const part of extractSyncParts(input.sourceHtml)) {
     const raw = input.catalog.get(part.partId);
     if (raw === undefined || !containsJinja(raw)) continue;
@@ -79,7 +106,11 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
         continue;
       }
       const rendered = renderPlainFilled(raw, input.targetValues);
-      next = withPartId(rendered.html.trim(), part.partId);
+      const current = targetParts.get(part.key);
+      next =
+        current !== undefined && normalizePartHtml(current) === normalizePartHtml(rendered.html)
+          ? current
+          : withPartId(rendered.html.trim(), part.partId);
       diagnostics = rendered.diagnostics;
     } catch {
       // 壊れた Jinja は描けないので、承認された HTML をそのまま写す側に倒す。

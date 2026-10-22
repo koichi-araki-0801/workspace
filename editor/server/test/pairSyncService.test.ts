@@ -609,6 +609,42 @@ d('pairSyncService', () => {
       ]);
     });
 
+    it('交付版を承認 → 全体版を承認(変更なし)の往復で skipped が空、競合が記録されない', {
+      timeout: 60_000,
+    }, async () => {
+      const opts = { css: null };
+      // 1) 全体版に無いパーツを写す。2) 両版に別々に挿入済み(履歴なし)。どちらも往復で競合にしない。
+      for (const [fund, pairHas] of [
+        ['640000', false],
+        ['641000', true],
+      ] as const) {
+        const src = `AM01_${fund}_20240710_交付版`;
+        const dst = `AM01_${fund}_20240710_全体版`;
+        valueFiles.set(src, { fund: { name: '交付ファンド' } });
+        valueFiles.set(dst, { fund: { name: '全体ファンド' } });
+        put('filled', src, doc(part('a', 'x'), jPart('交付ファンド')));
+        put(
+          'filled',
+          dst,
+          // 全体版側は書き方(タグ間の改行)が違う挿入。生の HTML で比べても競合にしないこと。
+          pairHas
+            ? doc(part('a', 'x'), jPart('全体ファンド').replace('<p>', '\n<p>'))
+            : doc(part('a', 'x')),
+        );
+        const first = await jsvc.syncPairAfterConfirm(src, 'u', 'filled', opts);
+        expect(first?.skipped).toEqual([]);
+        const back = await jsvc.syncPairAfterConfirm(dst, 'u', 'filled', opts);
+        expect(back?.error).toBeNull();
+        expect(back?.skipped).toEqual([]);
+        expect(back?.applied).toEqual([]);
+        const again = await jsvc.syncPairAfterConfirm(src, 'u', 'filled', opts);
+        expect(again?.skipped).toEqual([]);
+        expect((await jsvc.getPairSyncStatus(src)).conflicts).toEqual([]);
+        expect(read('filled', src)).toContain('交付ファンドの注記');
+        expect(read('filled', dst)).toContain('全体ファンドの注記');
+      }
+    });
+
     it('3 区切り(テンプレート)の承認では描き直さない', {
       timeout: 60_000,
     }, async () => {

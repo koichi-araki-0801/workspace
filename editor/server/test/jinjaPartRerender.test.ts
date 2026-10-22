@@ -35,6 +35,7 @@ describe('rerenderUneditedJinjaParts', () => {
       catalog,
       sourceValues,
       targetValues,
+      targetHtml: '',
     });
     expect(r.rerendered).toEqual(['note-a#1']);
     expect(r.edited).toEqual([]);
@@ -48,7 +49,13 @@ describe('rerenderUneditedJinjaParts', () => {
     const src = doc(
       '<section class="note" data-part-id="note-a"><p>交付ファンドの注記(改)</p></section>',
     );
-    const r = rerenderUneditedJinjaParts({ sourceHtml: src, catalog, sourceValues, targetValues });
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: src,
+      catalog,
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
     expect(r.html).toBe(src);
     expect(r.edited).toEqual(['note-a#1']);
     expect(r.rerendered).toEqual([]);
@@ -58,7 +65,13 @@ describe('rerenderUneditedJinjaParts', () => {
     const src = doc(
       "<section class='note' data-part-id='note-a'><p>交付ファンドの注記</p></section>",
     );
-    const r = rerenderUneditedJinjaParts({ sourceHtml: src, catalog, sourceValues, targetValues });
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: src,
+      catalog,
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
     expect(r.html).toBe(src);
     expect(r.edited).toEqual(['note-a#1']);
   });
@@ -73,6 +86,7 @@ describe('rerenderUneditedJinjaParts', () => {
       catalog: new Map([['plain', '<section><p>固定文</p></section>']]),
       sourceValues,
       targetValues,
+      targetHtml: '',
     });
     expect(r).toEqual({ html: src, rerendered: [], edited: [], blanks: [] });
   });
@@ -84,6 +98,7 @@ describe('rerenderUneditedJinjaParts', () => {
       catalog: new Map([['broken', '<section><p>{% if a %}</p></section>']]),
       sourceValues,
       targetValues,
+      targetHtml: '',
     });
     expect(r.html).toBe(src);
     expect(r.edited).toEqual(['broken#1']);
@@ -95,6 +110,7 @@ describe('rerenderUneditedJinjaParts', () => {
       catalog,
       sourceValues,
       targetValues: {},
+      targetHtml: '',
     });
     expect(r.rerendered).toEqual(['note-a#1']);
     expect(r.html).toContain('<p>の注記</p>');
@@ -103,7 +119,13 @@ describe('rerenderUneditedJinjaParts', () => {
 
   it('同じパーツが 2 回あれば、出現ごとに判定する', () => {
     const src = doc(inserted('交付ファンド'), inserted('手で直した'));
-    const r = rerenderUneditedJinjaParts({ sourceHtml: src, catalog, sourceValues, targetValues });
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: src,
+      catalog,
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
     expect(r.rerendered).toEqual(['note-a#1']);
     expect(r.edited).toEqual(['note-a#2']);
     expect(r.html).toContain('全体ファンドの注記');
@@ -116,6 +138,7 @@ describe('rerenderUneditedJinjaParts', () => {
       catalog: new Map([['u', '<p>{{ fund.name }}{{ f() }}</p>']]),
       sourceValues,
       targetValues,
+      targetHtml: '',
     });
     expect(r.html).toContain('<p data-part-id="u">全体ファンド</p>');
     expect(r.blanks).toEqual([{ partKey: 'u#1', missing: [], unsupported: ['f()'] }]);
@@ -127,7 +150,70 @@ describe('rerenderUneditedJinjaParts', () => {
       catalog: new Map([['q"x', '<p>{{ fund.name }}</p>']]),
       sourceValues,
       targetValues,
+      targetHtml: '',
     });
     expect(r.html).toContain(`<p data-part-id='q"x'>全体ファンド</p>`);
+  });
+
+  it('data-part-id は根の属性の末尾に付ける(挿入時の addAttributes と同じ位置)', () => {
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: doc(inserted('交付ファンド')),
+      catalog,
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
+    expect(r.html).toContain(inserted('全体ファンド'));
+  });
+
+  it('自己終了の根でも、`/>` の前に付ける', () => {
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: doc('<img alt="交付ファンド" data-part-id="i" />'),
+      catalog: new Map([['i', '<img alt="{{ fund.name }}" />']]),
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
+    expect(r.html).toContain('<img alt="全体ファンド" data-part-id="i" />');
+  });
+
+  it('写し先の同じパーツも直していなければ、写し先のバイト列をそのまま使う', () => {
+    // 写し先は別の書き方(属性間の空白)で挿入されている。描いた結果で置き換えると、生の HTML の
+    // SHA-1 で比べるペア同期が「変わった」と見る。
+    const current =
+      '<section class="note"  data-part-id="note-a">\n<p>全体ファンドの注記</p>\n</section>';
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: doc(inserted('交付ファンド')),
+      catalog,
+      sourceValues,
+      targetValues,
+      targetHtml: doc(current),
+    });
+    expect(r.rerendered).toEqual(['note-a#1']);
+    expect(r.html).toBe(doc(current));
+  });
+
+  it('写し先の同じパーツが直されていれば、写し先の値で描いた結果を使う', () => {
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: doc(inserted('交付ファンド')),
+      catalog,
+      sourceValues,
+      targetValues,
+      targetHtml: doc(inserted('全体ファンド(改)')),
+    });
+    expect(r.html).toBe(doc(inserted('全体ファンド')));
+  });
+
+  it('根が複数のパーツ(editor は先頭の根だけに data-part-id を付ける)は edited になる', () => {
+    const src = doc('<p data-part-id="m">交付ファンド</p>');
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: src,
+      catalog: new Map([['m', '<p>{{ fund.name }}</p><p>2 つ目</p>']]),
+      sourceValues,
+      targetValues,
+      targetHtml: '',
+    });
+    expect(r.html).toBe(src);
+    expect(r.edited).toEqual(['m#1']);
   });
 });
