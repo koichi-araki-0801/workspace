@@ -8,6 +8,7 @@ import {
   renderPlainFilled,
   takenBranchIndex,
 } from '../src/jinja/fillRender';
+import { evaluateJinjaExpr, JinjaBudget } from '../src/jinja/jinjaExpr';
 import { parseJinja } from '../src/jinja/jinjaTree';
 import { findEditingMarkers } from '../src/security/editingMarkers';
 
@@ -303,12 +304,60 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
       expect([...f.unsupported]).toContain(expr);
       expect(f.exhausted).toBe(true);
     });
-    it('繰り返しごとの文脈の複製(キーの数 × 回数)も数える', () => {
+    it('繰り返しの費用は文脈のキーの数に依らない(キー 500 個・300 行 × 20 列の入れ子の for を描ける)', () => {
       const ctx: Record<string, unknown> = {};
-      for (let k = 0; k < 5000; k++) ctx[`k${k}`] = k;
+      for (let k = 0; k < 500; k++) ctx[`k${k}`] = k;
+      ctx.rows = Array.from({ length: 300 }, (_, i) =>
+        Array.from({ length: 20 }, (_, j) => `${i}-${j}`),
+      );
       const f = new Filler();
-      show('{% for j in range(1000) %}x{% endfor %}', ctx, f);
-      expect([...f.unsupported]).toEqual(['range(1000)']);
+      const out = show(
+        '{% for row in rows %}<tr>{% for c in row %}<td>{{ c }}{{ k499 }}</td>{% endfor %}</tr>{% endfor %}',
+        ctx,
+        f,
+      );
+      expect([...f.unsupported]).toEqual([]);
+      expect(f.exhausted).toBe(false);
+      expect(out.match(/<td>/g)?.length).toBe(6000);
+      expect(out.endsWith('<td>299-19499</td></tr>')).toBe(true);
+    });
+    it('ループの層をたどる名前の参照も prototype には届かない', () => {
+      const f = new Filler();
+      const names = ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf'];
+      const body = names.map((n) => `[{{ ${n} }}][{{ ${n}.constructor }}]`).join('');
+      const out = show(
+        `{% for x in [1] %}{% for y in [2] %}${body}{% endfor %}{% endfor %}`,
+        {},
+        f,
+      );
+      expect(out).toBe('[][]'.repeat(names.length));
+      expect([...f.unsupported]).toEqual([]);
+      const g = new Filler();
+      expect(
+        show(
+          '{% for x in [1] %}{% set __proto__ = 5 %}{{ __proto__ }}{% endfor %}[{{ __proto__ }}]',
+          {},
+          g,
+        ),
+      ).toBe('5[]');
+      expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+      expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    });
+    it('ループの中の set は外へも次の回へも漏れず、namespace は入れ子の層を通して持ち越す', () => {
+      expect(
+        show(
+          '{% set a = 1 %}{% for x in [1, 2] %}{{ a }}{% set a = x + 10 %}{{ a }}' +
+            '{% for y in [0] %}{{ a }}{% set a = 99 %}{% endfor %}{{ a }}{% endfor %}{{ a }}',
+          {},
+        ),
+      ).toBe(['1', '11', '11', '11', '1', '12', '12', '12', '1'].join(''));
+      expect(
+        show(
+          '{% set ns = namespace(t=0) %}{% for r in [1, 2] %}{% for c in [1, 2] %}' +
+            '{% set ns.t = ns.t + r * c %}{% endfor %}{% endfor %}{{ ns.t }}',
+          {},
+        ),
+      ).toBe('9');
     });
     it.each([
       ['trim の chars', '{{ "x"|trim(t) }}', '"x"|trim(t)'],
@@ -396,6 +445,35 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     expect(show(`{{ ${expr} }}`, { xs: [1] }, f)).toBe('');
     expect([...f.unsupported]).toEqual([expr]);
   });
+  it.each([
+    '[1]|batch(100000, r)|length',
+    '[1]|slice(100000, r)|length',
+  ])('%s(覚え書き済みの大きな並びで埋める)は 1 回で評価の量を使い切り、以後を描かない', (expr) => {
+    const f = new Filler();
+    const out = show(
+      `{% set r = range(100000) %}{% for j in range(99000) %}{{ ${expr} }}{{ v }}{% endfor %}`,
+      { v: 'V' },
+      f,
+    );
+    expect(out).toBe('');
+    expect([...f.unsupported]).toEqual([expr, '描画の量が上限を超えたため、以降を省きました']);
+    expect(f.exhausted).toBe(true);
+  });
+  it.each([
+    // [式, 作る前に数える量(行・列の数 + 埋める数)]
+    ['xs|batch(1000, 0)', 1 + 999],
+    ['xs|batch(1000)', 1],
+    ['xs|slice(1000, 0)', 1000 + 999],
+    ['xs|slice(1000)', 1000],
+  ])('%s は作る量を評価の量に数える', (expr, made) => {
+    const b = new JinjaBudget();
+    const before = b.remaining;
+    evaluateJinjaExpr(expr, { xs: [1] }, b);
+    // 基本の費用 + 入力の大きさ + 作る前の量 + 結果の入れ子の大きさ。
+    const result = evaluateJinjaExpr(expr, { xs: [1] }) as unknown[][];
+    const deep = 1 + result.reduce((n, row) => n + 1 + row.length, 0);
+    expect(before - b.remaining).toBe(1 + expr.length + 1 + 1 + made + deep);
+  });
 });
 
 describe('部品', () => {
@@ -407,10 +485,11 @@ describe('部品', () => {
     });
     expect(parseForHeader('for in xs')).toBeNull();
   });
-  it('loopCtx は元の ctx を変えず、loop の項目を持つ', () => {
+  it('loopCtx は元の ctx を変えず、変数と loop だけを持つ層を作る(外側の名前は層をたどって引く)', () => {
     const base = { a: 1 };
     const c = loopCtx(base, ['k', 'v'], [['x', 9]], 0);
-    expect(c).toMatchObject({ a: 1, k: 'x', v: 9 });
+    expect(Object.keys(c)).toEqual(['k', 'v', 'loop']);
+    expect(evaluateJinjaExpr('[a, k, v]', c)).toEqual([1, 'x', 9]);
     expect(c.loop).toStrictEqual({
       index: 1,
       index0: 0,
@@ -425,7 +504,8 @@ describe('部品', () => {
   it('loopCtx のループ変数が `__proto__` でも prototype を差し替えない', () => {
     const c = loopCtx({}, ['__proto__'], [{ polluted: 1 }], 0);
     expect(Object.hasOwn(c, '__proto__')).toBe(true);
-    expect(Object.getPrototypeOf(c)).toBe(Object.prototype);
+    expect(Object.getPrototypeOf(c)).toBeNull();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
   it('escapeHtmlFull', () => {
     expect(escapeHtmlFull(`&<>"'`)).toBe('&amp;&lt;&gt;&quot;&#39;');

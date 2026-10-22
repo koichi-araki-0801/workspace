@@ -147,7 +147,10 @@ function tokenize(src: string): Token[] {
 
 // ── 2. 値の部品 ──
 
-/** 差込コンテキスト。描画器が渡す値データとループ変数・`set` の代入の合成。 */
+/**
+ * 差込コンテキスト。描画器が渡す値データとループ変数・`set` の代入の合成。ループの中では
+ * `innerJinjaCtx` の層が外側を参照し、名前は内側の層から順に引く。
+ */
 export type JinjaCtx = Record<string, unknown>;
 
 /**
@@ -178,6 +181,34 @@ const NAMESPACES = new WeakSet<object>();
  */
 function defineOwn(obj: object, key: string, value: unknown): void {
   Object.defineProperty(obj, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
+/** 内側の文脈の層から外側の文脈への参照。層そのものはキーを持たないので、値として引けない。 */
+const OUTER = new WeakMap<object, JinjaCtx>();
+
+/**
+ * `outer` の内側に置く文脈の層。ループ変数・`loop`・ループの中の `set` の値だけを持ち、それ以外の名前は
+ * 外側をたどって引く。繰り返しのたびに外側を丸ごと複製しないため(文脈のキーの数に比例する仕事を
+ * 回ごとにさせない)。prototype を null にするのは、`__proto__` という名前もただのキーとして置くため。
+ */
+export function innerJinjaCtx(outer: JinjaCtx): JinjaCtx {
+  const layer: JinjaCtx = Object.create(null);
+  OUTER.set(layer, outer);
+  return layer;
+}
+
+/**
+ * 名前を内側の層から外側へたどって探し、最初に own property として持つ層を返す(無ければ null)。
+ * 外側へ 1 段たどるごとに評価の量を 1 数える(層の数は for の入れ子の深さ)。
+ */
+function findNameLayer(ctx: JinjaCtx, name: string, budget: JinjaBudget): JinjaCtx | null {
+  let c: JinjaCtx | undefined = ctx;
+  while (c !== undefined) {
+    if (Object.hasOwn(c, name)) return c;
+    c = OUTER.get(c);
+    if (c !== undefined) budget.charge(1);
+  }
+  return null;
 }
 
 /** `obj` から own property だけを引く。prototype と function 値には決して届かない。 */
@@ -310,15 +341,24 @@ function deepSize(v: unknown, cap: number, walk: { visited: number }, depth = 0)
   let n = 1;
   for (const e of Array.isArray(v) ? v : Object.values(v)) {
     n += deepSize(e, cap - n, walk, depth + 1);
-    if (n > cap || walk.visited > cap) throw new JinjaExprError('値が大きすぎます');
+    if (n > cap || walk.visited > cap) throw new TooLargeError();
   }
   if (Array.isArray(v)) DEEP_SIZE.set(v, n);
   return n;
 }
 
+/** 入れ子の大きさが残りの評価の量を超えた(`deepSize` が投げる)。 */
+class TooLargeError extends JinjaExprError {
+  constructor() {
+    super('値が大きすぎます');
+  }
+}
+
 /**
- * `v` の入れ子の大きさを評価の量に数える。たどるのは残りの量までで、超えて投げるときも、たどった
+ * `v` の入れ子の大きさを評価の量に数える。たどるのは残りの量までで、深さで投げるときは、たどった
  * 量を数えてから投げる(dict は覚え書きできないので、投げる経路で費用を払わないと毎回たどり直せる)。
+ * 大きさが残りの量を超えたときは評価の量を使い切ったことにする。覚え書きした並びは数要素で上限を
+ * 超えるので、たどった量だけを払うと、作るのに掛かった仕事を払わずに何度でも作り直せるため。
  */
 function chargeDeepSize(budget: JinjaBudget, v: unknown): void {
   const walk = { visited: 0 };
@@ -326,7 +366,7 @@ function chargeDeepSize(budget: JinjaBudget, v: unknown): void {
   try {
     n = deepSize(v, budget.remaining, walk);
   } catch (e) {
-    budget.charge(walk.visited);
+    budget.charge(e instanceof TooLargeError ? budget.remaining + 1 : walk.visited);
     throw e;
   }
   budget.charge(Math.max(n, walk.visited));
@@ -514,10 +554,13 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
     apply: (v, linecount, fill) => {
       const n = positiveInt(linecount, 'batch の個数');
       const seq = toSeq(v);
+      const filling = fill !== undefined && fill !== null && seq.length % n !== 0;
+      // 作る前に、作る行の数と埋める数を数える(入力の大きさは呼び出し側が数えた)。
+      chargeActive(Math.ceil(seq.length / n) + (filling ? n - (seq.length % n) : 0));
       const out: unknown[][] = [];
       for (let i = 0; i < seq.length; i += n) out.push(seq.slice(i, i + n));
       const last = out[out.length - 1];
-      if (last && fill !== undefined && fill !== null) while (last.length < n) last.push(fill);
+      if (last && filling) while (last.length < n) last.push(fill);
       return out;
     },
   },
@@ -529,13 +572,16 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
       const seq = toSeq(v);
       const per = Math.floor(seq.length / n);
       const extra = seq.length % n;
+      const filling = fill !== undefined && fill !== null;
+      // 作る前に、作る列の数と埋める数を数える(入力の大きさは呼び出し側が数えた)。
+      chargeActive(n + (filling ? n - extra : 0));
       const out: unknown[][] = [];
       let offset = 0;
       for (let i = 0; i < n; i++) {
         const start = offset + i * per;
         if (i < extra) offset += 1;
         const tmp = seq.slice(start, offset + (i + 1) * per);
-        if (fill !== undefined && fill !== null && i >= extra) tmp.push(fill);
+        if (filling && i >= extra) tmp.push(fill);
         out.push(tmp);
       }
       return out;
@@ -986,8 +1032,9 @@ class Parser {
 
   /** 名前解決も own property のみ(prototype 経由の `constructor` 等へ届かせない)。 */
   private lookupName(name: string): unknown {
-    if (!Object.hasOwn(this.ctx, name)) return undefined;
-    const v = this.ctx[name];
+    const layer = findNameLayer(this.ctx, name, this.budget);
+    if (layer === null) return undefined;
+    const v = layer[name];
     return typeof v === 'function' ? undefined : v;
   }
 }
@@ -1074,7 +1121,8 @@ const LITERAL_NAMES = new Set(['true', 'True', 'false', 'False', 'none', 'None',
 /**
  * `{% set … %}` の `set` より後ろ(`x = expr` か `ns.x = expr`)を実行し、`ctx` へ代入する。属性への
  * 代入は `namespace()` で作った object にだけ許す(値データの object を書き換えさせない)。
- * 複数の代入(`a, b = …`)は受けない。`ctx` は呼び出し側が複製して渡す(外へ漏らさないため)。
+ * 複数の代入(`a, b = …`)は受けない。名前への代入は `ctx` の層そのものに置くので、呼び出し側は
+ * 複製か内側の層(`innerJinjaCtx`)を渡す(外へ漏らさないため)。
  */
 export function assignJinjaSet(
   src: string,
@@ -1107,7 +1155,8 @@ export function assignJinjaSet(
     defineOwn(ctx, target.value, value);
     return;
   }
-  const ns = Object.hasOwn(ctx, target.value) ? ctx[target.value] : undefined;
+  const layer = findNameLayer(ctx, target.value, budget);
+  const ns = layer === null ? undefined : layer[target.value];
   if (typeof ns !== 'object' || ns === null || !NAMESPACES.has(ns)) {
     throw new JinjaExprError('属性へ代入できるのは namespace だけです');
   }

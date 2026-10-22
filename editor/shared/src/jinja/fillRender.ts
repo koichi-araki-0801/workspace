@@ -11,6 +11,7 @@ import type { SampleData } from '../index.js';
 import {
   assignJinjaSet,
   evaluateJinjaExpr,
+  innerJinjaCtx,
   isJinjaSafe,
   JinjaBudget,
   type JinjaCtx,
@@ -196,8 +197,8 @@ export class Filler {
       const v = evaluateJinjaExpr(expr, ctx, this.budget);
       if (!Array.isArray(v)) return [];
       this.loopItems += v.length;
-      // 繰り返しのたびに文脈を複製する(`loopCtx`)ので、回数 × 文脈のキーの数を評価の量に数える。
-      this.budget.charge(v.length * (1 + Object.keys(ctx).length + varCount));
+      // 繰り返しのたびに変数と `loop` を持つ層を作る(`loopCtx`)ので、回数 × 変数の数を数える。
+      this.budget.charge(v.length * (1 + varCount));
       if (this.loopItems > MAX_LOOP_ITEMS) {
         this.fail(expr);
         return [];
@@ -239,27 +240,24 @@ export function parseForHeader(body: string): { vars: string[]; iter: string } |
 
 /**
  * ループの i 番目の文脈。変数が複数なら要素(配列)を順に割り当てる(nunjucks のタプル展開)。
- * 回ごとに新しい object を作るので、ループの中の `set` は外へも次の回へも漏れない(Jinja と同じ。
- * 持ち越しは namespace の属性への代入で行う)。束ねる object の prototype を null にするのは、
- * 変数名が `__proto__` でも prototype の差し替えにせず、ただのキーとして置くため。
+ * 回ごとに `ctx` の内側の層(`innerJinjaCtx`)を新しく作り、ループ変数と `loop` だけを置く。ループの
+ * 中の `set` はこの層に置かれるので、外へも次の回へも漏れない(Jinja と同じ。持ち越しは namespace の
+ * 属性への代入で行う)。層の prototype は null なので、変数名が `__proto__` でもただのキーになる。
  */
 export function loopCtx(ctx: JinjaCtx, vars: string[], items: unknown[], i: number): JinjaCtx {
   const item = items[i];
-  const bound: JinjaCtx = Object.create(null);
-  if (vars.length === 1) bound[vars[0]] = item;
-  else for (const [k, v] of vars.entries()) bound[v] = Array.isArray(item) ? item[k] : undefined;
-  return {
-    ...ctx,
-    ...bound,
-    loop: {
-      index: i + 1,
-      index0: i,
-      first: i === 0,
-      last: i === items.length - 1,
-      length: items.length,
-      previtem: i > 0 ? items[i - 1] : undefined,
-    },
+  const layer = innerJinjaCtx(ctx);
+  if (vars.length === 1) layer[vars[0]] = item;
+  else for (const [k, v] of vars.entries()) layer[v] = Array.isArray(item) ? item[k] : undefined;
+  layer.loop = {
+    index: i + 1,
+    index0: i,
+    first: i === 0,
+    last: i === items.length - 1,
+    length: items.length,
+    previtem: i > 0 ? items[i - 1] : undefined,
   };
+  return layer;
 }
 
 /**
