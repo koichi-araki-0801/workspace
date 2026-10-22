@@ -91,10 +91,22 @@ describe('normalizePartHtml — DOM 上で同じになる書き方を寄せる',
     same('<svg><g/></svg><br/>', '<svg><g></g></svg><br>');
   });
 
-  it('閉じないコメント・タグ・raw text は末尾までで打ち切る', () => {
+  it('閉じないコメント・raw text は末尾までで打ち切る', () => {
     expect(normalizePartHtml('<p>x<!-- a')).toBe('<p>x<!-- a');
-    expect(normalizePartHtml('<p title="a')).toBe('<p title="a">');
     expect(normalizePartHtml('<style>a{}')).toBe('<style>a{}');
+  });
+
+  it('`>` の前に終わるタグ(ブラウザは捨てる)は比べない', () => {
+    expect(normalizePartHtml('<p title="a')).toBeNull();
+    expect(normalizePartHtml('<p>x</p><br')).toBeNull();
+    differ('<p title="a', '<p title="a">');
+  });
+
+  it('`<pre>` の中の空白は寄せない', () => {
+    differ('<pre>a  b</pre>', '<pre>a b</pre>');
+    differ('<pre><b>a</b> <i>b</i></pre>', '<pre><b>a</b><i>b</i></pre>');
+    same('<pre>a&nbsp;b</pre>', '<pre>a b</pre>');
+    same('<div>\n  <p>a  b</p>\n</div>', '<div><p>a b</p></div>');
   });
 
   it('壊れた数値参照(0・サロゲート・範囲外)は解かない', () => {

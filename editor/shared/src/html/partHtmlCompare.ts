@@ -134,10 +134,14 @@ function normalizeAttrValue(name: string, raw: string | null): string | null {
   return v;
 }
 
-/** テキストを寄せる。空白だけのテキスト(タグの間の改行・字下げ)は消す。 */
-function normalizeText(s: string): string | null {
+/**
+ * テキストを寄せる。空白だけのテキスト(タグの間の改行・字下げ)は消す。`<pre>` の中は空白が見た目に
+ * 出るので寄せない(`keepSpace`)。
+ */
+function normalizeText(s: string, keepSpace: boolean): string | null {
   const d = decode(s);
   if (d === null) return null;
+  if (keepSpace) return escText(d);
   const t = collapse(d);
   return t === ' ' ? '' : escText(t);
 }
@@ -156,10 +160,14 @@ interface OpenElement {
 const MAX_INPUT_CHARS = 10_000_000;
 const MAX_OPEN_ELEMENTS = 4096;
 
+/** 中の空白がそのまま見た目に出る要素。 */
+const PRESERVE_SPACE = ['pre', 'listing'];
+
 /**
  * 比較用の正規形。2 つのパーツの正規形が一致すれば、GrapesJS で読み込んだときに同じ DOM になる。
  * 一致しないからといって DOM が違うとは限らない(寄せない書き方の違いは一致させない側に倒す)。
- * 上限を超えた入力と、解かない実体参照を含む入力は `null`(比べられない)。`null` 同士も一致とは見なさないこと(`samePartHtml`)。
+ * 上限を超えた入力・解かない実体参照を含む入力・閉じないまま終わるタグは `null`(比べられない)。
+ * `null` 同士も一致とは見なさないこと(`samePartHtml`)。
  */
 export function normalizePartHtml(html: string): string | null {
   if (html.length > MAX_INPUT_CHARS) return null;
@@ -186,7 +194,10 @@ export function normalizePartHtml(html: string): string | null {
   const n = html.length;
   const flush = () => {
     if (text !== '') {
-      const t = normalizeText(text);
+      const t = normalizeText(
+        text,
+        PRESERVE_SPACE.some((p) => (openCount.get(p) ?? 0) > 0),
+      );
       if (t === null) unresolved = true;
       else out.push(t);
     }
@@ -251,7 +262,9 @@ export function normalizePartHtml(html: string): string | null {
       }
       k = a.next;
     }
-    i = Math.min(n, k + 1);
+    // `>` の前に入力が終わったタグは、ブラウザが丸ごと捨てる。寄せずに比べない側へ倒す。
+    if (k >= n) return null;
+    i = k + 1;
     if (endTag) {
       if (name === 'table' && stack[stack.length - 1]?.implicit) {
         out.push('</tbody>');
