@@ -11,6 +11,11 @@ sproc/  template/series/user/session/part/sample/audit/noteMaster.sql
           3 部名で読み、テーブル名・列名は仮(sproc の中だけに書く)。一覧/取得/確定/下書きは git・ファイル
 dev/    Rep1_検証用.sql(LocalDB に検証用の Rep1 を作る) / 台帳_削除.sql(旧テンプレート台帳の DROP)
         … apply.ps1 の対象外。必要なときに手で流す
+migrate/ 共通サンプル_分類登録.sql(パーツカタログの分類から共通サンプルの行を値なしで作る)
+        … apply.ps1 の対象外。本番は SSMS で開いて usrap に対して実行する。既定はプレビューで、
+          `@実行` を 1 にして登録する。冪等
+diag/    パーツ_Jinja構文調査.sql(内容HTML の Jinja 構文を数える。読み取りのみ。SSMS で usrap に対して実行)
+         パーツ_Jinja引数調査.sql(テスト名・loop の属性・set の形を数える。読み取りのみ。SSMS で usrap に対して実行)
 seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / サンプルデータ.sql
 apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用
 ```
