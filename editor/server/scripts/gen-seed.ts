@@ -60,18 +60,28 @@ GO
 fs.writeFileSync(path.join(seedDir, 'パーツカタログ.sql'), partSql, 'utf8');
 
 // --- 共通サンプル (分類ごとの JSON 断片) --------------------------------------
-// 行の定義は commonSampleSeed.ts。再実行しても同じになるよう、全行を消してから入れ直す。
+// 行の定義は commonSampleSeed.ts。再適用で運用側の登録・編集を消さないよう、分類キー(計算列
+// `分類キー` と同じ式)で存在を確かめてから入れ、既にある行は上書きしない。
 const T_COMMON = '[ug01].[Rep1_運報自動化_Editor_共通サンプル]';
+const classKey = (r: {
+  category: string | null;
+  major: string | null;
+  middle: string | null;
+  minor: string | null;
+}): string =>
+  [r.category, r.major, r.middle, r.minor]
+    .map((v) => `N'${(v ?? '').replace(/'/g, "''")}'`)
+    .join(' + NCHAR(31) + ');
 const commonRows = COMMON_SAMPLE_SEED_ROWS.map(
-  (r) => `  INSERT INTO ${T_COMMON}
+  (r) => `IF NOT EXISTS (SELECT 1 FROM ${T_COMMON} WHERE [分類キー] = ${classKey(r)})
+  INSERT INTO ${T_COMMON}
     ([カテゴリ],[大分類],[中分類],[小分類],[データJSON],[更新日時],[更新者])
   VALUES (${q(r.category)}, ${q(r.major)}, ${q(r.middle)}, ${q(r.minor)},
     ${q(JSON.stringify(r.data))}, SYSUTCDATETIME(), N'seed');`,
-).join('\n');
+).join('\nGO\n');
 const commonSql = `${BOM}/* seed: 共通サンプル (生成物 — gen-seed.ts / commonSampleSeed.ts) */
 SET NOCOUNT ON;
 SET QUOTED_IDENTIFIER ON; -- 計算列に索引がある表への書き込みに必要(sqlcmd の既定は OFF)
-DELETE FROM ${T_COMMON};
 ${commonRows}
 GO
 `;

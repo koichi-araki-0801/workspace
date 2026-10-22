@@ -292,7 +292,10 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
           dataJson: asString(r.データJSON),
         })),
       );
-      const fund = (sample.fund ?? {}) as Record<string, unknown>;
+      const fund =
+        sample.fund !== null && typeof sample.fund === 'object' && !Array.isArray(sample.fund)
+          ? (sample.fund as Record<string, unknown>)
+          : {};
       return { ...sample, fund: { ...fund, code: fundCode } };
     },
   };
