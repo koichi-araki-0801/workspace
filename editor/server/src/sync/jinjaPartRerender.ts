@@ -14,6 +14,7 @@
 import {
   containsJinja,
   findEditingMarkers,
+  JinjaBudget,
   renderPlainFilled,
   type SampleData,
 } from '@editor/shared';
@@ -106,6 +107,53 @@ interface JinjaPartRerenderResult {
   blanks: { partKey: string; missing: readonly string[]; unsupported: readonly string[] }[];
 }
 
+/**
+ * 1 回の承認で描く回数の上限。描画は `withReviewLock` の中で同期的に走るので、同じ承認で描く量が
+ * 増えるほど event loop が止まる。描いた結果はパーツ ID ごとに覚えるので、回数はパーツの種類の 2 倍で
+ * 済むが、カタログの種類が多い本文でも止まる時間に上限を置く。
+ */
+const MAX_RENDERS = 100;
+
+/** 1 回の承認で描いた HTML の合計の文字数の上限(出力は評価の量と別に伸ばせる)。 */
+const MAX_RENDERED_CHARS = 20_000_000;
+
+type Rendered = ReturnType<typeof renderPlainFilled>;
+
+/** 描けなかった理由。`error` は壊れた Jinja、`limit` は 1 回の承認の上限に届いたこと。 */
+type RenderOutcome = Rendered | 'error' | 'limit';
+
+/**
+ * 1 回の承認の描画の受け持ち。結果は「原文 + 値」で決まるので、同じ側(写し元 / 写し先)の値で描く
+ * 同じパーツは 1 回だけ描き、出現が何回あっても描く回数は増えない。評価の量は承認の全体で 1 つの
+ * `JinjaBudget` を引き合い、回数・量・出力のどれかが上限に届いたら以後は描かない。上限に届いた描画は
+ * 途中で省いた結果なので使わない。
+ */
+function createRenderer(catalog: ReadonlyMap<string, string>) {
+  const budget = new JinjaBudget();
+  const memo = new Map<string, RenderOutcome>();
+  let renders = 0;
+  let chars = 0;
+  const overLimit = () => budget.exhausted || chars > MAX_RENDERED_CHARS;
+  return (side: 'source' | 'target', partId: string, values: SampleData): RenderOutcome => {
+    const key = `${side}:${partId}`;
+    const hit = memo.get(key);
+    if (hit !== undefined) return hit;
+    let out: RenderOutcome = 'limit';
+    if (renders < MAX_RENDERS && !overLimit()) {
+      renders++;
+      try {
+        const r = renderPlainFilled(catalog.get(partId) ?? '', values, { budget });
+        chars += r.html.length;
+        out = overLimit() ? 'limit' : r;
+      } catch {
+        out = 'error';
+      }
+    }
+    memo.set(key, out);
+    return out;
+  };
+}
+
 /** `sourceHtml` の Jinja パーツのうち、直していないものを写し先の値で描き直す。 */
 export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): JinjaPartRerenderResult {
   const rerendered: string[] = [];
@@ -113,29 +161,31 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
   const blanks: JinjaPartRerenderResult['blanks'] = [];
   const ops: { start: number; end: number; text: string; seq: number }[] = [];
   const targetParts = new Map(extractSyncParts(input.targetHtml).map((p) => [p.key, p.html]));
+  const render = createRenderer(input.catalog);
   for (const part of extractSyncParts(input.sourceHtml)) {
     const raw = input.catalog.get(part.partId);
     if (raw === undefined || !containsJinja(raw)) continue;
-    let next: string | null;
-    let diagnostics: ReturnType<typeof renderPlainFilled>['diagnostics'];
-    try {
-      const asApproved = renderPlainFilled(raw, input.sourceValues).html;
-      if (normalizePartHtml(asApproved) !== normalizePartHtml(part.html)) {
-        edited.push(part.key);
-        continue;
-      }
-      const rendered = renderPlainFilled(raw, input.targetValues);
-      const current = targetParts.get(part.key);
-      next =
-        current !== undefined && normalizePartHtml(current) === normalizePartHtml(rendered.html)
-          ? current
-          : withPartId(rendered.html.trim(), part.partId);
-      diagnostics = rendered.diagnostics;
-    } catch {
-      // 壊れた Jinja は描けないので、承認された HTML をそのまま写す側に倒す。
+    // 壊れた Jinja・上限に届いたものは描けないので、承認された HTML をそのまま写す側に倒す。
+    const asApproved = render('source', part.partId, input.sourceValues);
+    if (typeof asApproved === 'string') {
       edited.push(part.key);
       continue;
     }
+    if (normalizePartHtml(asApproved.html) !== normalizePartHtml(part.html)) {
+      edited.push(part.key);
+      continue;
+    }
+    const rendered = render('target', part.partId, input.targetValues);
+    if (typeof rendered === 'string') {
+      edited.push(part.key);
+      continue;
+    }
+    const current = targetParts.get(part.key);
+    const next =
+      current !== undefined && normalizePartHtml(current) === normalizePartHtml(rendered.html)
+        ? current
+        : withPartId(rendered.html.trim(), part.partId);
+    const diagnostics = rendered.diagnostics;
     if (next === null || !passesWriteGates(next, part.html)) {
       edited.push(part.key);
       continue;

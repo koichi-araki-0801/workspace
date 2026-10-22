@@ -539,3 +539,21 @@ describe('renderPlainFilled', () => {
     expect(() => renderPlainFilled('<p>{{ a </p>', {})).toThrow();
   });
 });
+
+describe('renderPlainFilled の budget の共有', () => {
+  const heavy = '{% for i in range(100000) %}{{ i }}{% endfor %}';
+
+  it('budget を渡すと、複数の描画で評価の量を引き合い、使い切った描画は上限の印を残す', () => {
+    const budget = new JinjaBudget();
+    let last: ReturnType<typeof renderPlainFilled> | undefined;
+    for (let k = 0; k < 20 && !budget.exhausted; k++)
+      last = renderPlainFilled(heavy, {}, { budget });
+    expect(budget.exhausted).toBe(true);
+    expect(last?.diagnostics.unsupported.join()).toContain('上限');
+  });
+
+  it('渡さなければ描画ごとに別の budget で、同じ描画を繰り返しても上限に届かない', () => {
+    for (let k = 0; k < 3; k++)
+      expect(renderPlainFilled(heavy, {}).diagnostics.unsupported).toEqual([]);
+  });
+});

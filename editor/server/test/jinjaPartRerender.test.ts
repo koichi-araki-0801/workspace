@@ -3,8 +3,24 @@
 // =============================================================================
 // 挿入したままのパーツ(カタログの `内容HTML` を写し元の値で描いた形と一致)だけを写し先の値で
 // 描き直す。書き方が少しでも違えば「直した」に倒し、承認された HTML を捨てない。
-import { describe, expect, it } from 'vitest';
+import { renderPlainFilled } from '@editor/shared';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizePartHtml, rerenderUneditedJinjaParts } from '../src/sync/jinjaPartRerender.js';
+
+// 描いた回数を数えるため、本物の描画器を包む(振る舞いは変えない)。
+vi.mock('@editor/shared', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('@editor/shared')>();
+  return {
+    ...orig,
+    renderPlainFilled: vi.fn((...a: Parameters<typeof orig.renderPlainFilled>) =>
+      orig.renderPlainFilled(...a),
+    ),
+  };
+});
+const renderSpy = vi.mocked(renderPlainFilled);
+beforeEach(() => {
+  renderSpy.mockClear();
+});
 
 const CONTENT = '<section class="note"><p>{{ fund.name }}の注記</p></section>';
 const catalog = new Map([['note-a', CONTENT]]);
@@ -269,5 +285,50 @@ describe('rerenderUneditedJinjaParts', () => {
     });
     expect(r.html).toBe(src);
     expect(r.edited).toEqual(['m#1']);
+  });
+
+  describe('1 回の承認で描く量', () => {
+    it('同じパーツが 50 回あっても、描くのは写し元と写し先の 2 回だけ', () => {
+      const parts = Array.from({ length: 50 }, () => inserted('交付ファンド'));
+      const r = rerenderUneditedJinjaParts({
+        sourceHtml: doc(...parts),
+        catalog,
+        sourceValues,
+        targetValues,
+        targetHtml: '',
+      });
+      expect(r.rerendered).toHaveLength(50);
+      expect(renderSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('描く回数の上限を超えたパーツは描かずに edited にする', () => {
+      const ids = Array.from({ length: 60 }, (_, i) => `p${i}`);
+      const r = rerenderUneditedJinjaParts({
+        sourceHtml: doc(...ids.map((id) => `<p data-part-id="${id}">交付ファンド</p>`)),
+        catalog: new Map(ids.map((id) => [id, '<p>{{ fund.name }}</p>'])),
+        sourceValues,
+        targetValues,
+        targetHtml: '',
+      });
+      expect(renderSpy).toHaveBeenCalledTimes(100);
+      expect(r.rerendered).toHaveLength(50);
+      expect(r.edited).toEqual(ids.slice(50).map((id) => `${id}#1`));
+    });
+
+    it('評価の量を使い切ったら、そのパーツと残りのパーツは edited にする', () => {
+      const heavy = '<p>{% for i in range(100000) %}{{ i }}{% endfor %}{{ fund.name }}</p>';
+      const ids = Array.from({ length: 10 }, (_, i) => `h${i}`);
+      const r = rerenderUneditedJinjaParts({
+        sourceHtml: doc(...ids.map((id) => `<p data-part-id="${id}">x</p>`)),
+        catalog: new Map(ids.map((id) => [id, heavy])),
+        sourceValues,
+        targetValues,
+        targetHtml: '',
+      });
+      expect(r.rerendered).toEqual([]);
+      expect(r.edited).toEqual(ids.map((id) => `${id}#1`));
+      // 使い切った後は描かない(描画ごとの上限の掛け算にしない)。
+      expect(renderSpy.mock.calls.length).toBeLessThan(ids.length);
+    });
   });
 });

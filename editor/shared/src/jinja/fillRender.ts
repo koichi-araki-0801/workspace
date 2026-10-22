@@ -64,11 +64,18 @@ export class Filler {
   readonly missing = new Set<string>();
   private loopItems = 0;
   private emitted = 0;
-  /** 1 回の描画のすべての式で共有する評価の量(range やフィルタの掛け算を描画の単位で止める)。 */
-  private readonly budget = new JinjaBudget();
+  /**
+   * 1 回の描画のすべての式で共有する評価の量(range やフィルタの掛け算を描画の単位で止める)。
+   * 呼び出し側が複数の描画で 1 つを共有すれば、その全体の量を止められる。
+   */
+  private readonly budget: JinjaBudget;
   /** `safe` の値の仮置き(`finalize` で位置を見て生かエスケープかを決める)。 */
   private readonly pending: { expr: string; html: string }[] = [];
   private readonly nonce = newNonce();
+
+  constructor(budget: JinjaBudget = new JinjaBudget()) {
+    this.budget = budget;
+  }
 
   private fail(expr: string): void {
     this.unsupported.add(expr);
@@ -361,14 +368,17 @@ export function renderDisplay(
  *   3. 編集タブへ挿入するカタログのパーツを、値ファイルの値で地の HTML にする(web の `partRender.ts`)。
  * 壊れたテンプレートは黙って通さず例外で止める。2 の呼び出し側はそれを受けて複製を作らず、3 の
  * 呼び出し側は挿入を止める。
+ * `opts.budget` を渡すと評価の量をその budget から引く。server が 1 回の承認で何度も描くとき、
+ * 描画ごとの上限の掛け算にならないよう全体で 1 つを共有するために使う。
  */
 export function renderPlainFilled(
   raw: string,
   sample: SampleData,
+  opts: { budget?: JinjaBudget } = {},
 ): { html: string; diagnostics: { unsupported: readonly string[]; missing: readonly string[] } } {
   const r = parseJinja(raw);
   if (!r.ok) throw new Error(`renderPlainFilled: ${r.error.message} (位置 ${r.error.at})`);
-  const f = new Filler();
+  const f = new Filler(opts.budget);
   const html = f.finalize(renderDisplay(raw, r.nodes, { ...sample } as JinjaCtx, f));
   return { html, diagnostics: { unsupported: [...f.unsupported], missing: [...f.missing] } };
 }
