@@ -1,15 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildSampleData, type FundMaster, parseTemplateFileName } from '@editor/shared';
+import { parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { useGrapes } from '@/features/editor/useGrapes';
-import fundMaster from '../src/api/fixtures/funds.json';
 import { toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { defaultHtmlParser, type HtmlParser } from '../src/lib/htmlParser';
 import { lexJinja } from '../src/lib/jinjaLex';
 import { normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
 import { linkedomParser } from '../src/workers/htmlWorkerImpl';
+import { fixtureSample } from './helpers/fundSample';
 import { generateCases } from './helpers/jinjaCorpusGen';
 import { REPRO_CASES } from './helpers/jinjaReproCases';
 
@@ -82,10 +82,7 @@ function fixtureCase(file: string): { raw: string; sample: Record<string, unknow
   const raw = readFileSync(resolve(fixtureDir, file), 'utf8');
   const attrs = parseTemplateFileName(file);
   if (!attrs) throw new Error(file);
-  const sample = buildSampleData(
-    (fundMaster as Record<string, FundMaster>)[attrs.fundCode],
-    attrs.fundCode,
-  ) as Record<string, unknown>;
+  const sample = fixtureSample(attrs.fundCode) as Record<string, unknown>;
   return { raw, sample };
 }
 

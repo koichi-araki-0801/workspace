@@ -107,13 +107,13 @@ async function renderOne(
     return filledDoc;
   }
 
-  const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
+  const sampleRes = await templates.getSampleData(tpl.meta.id);
   if (isErr(sampleRes)) {
     return err(conflict(`サンプルデータ${nth}の取得に失敗しました。`, { cause: sampleRes.error }));
   }
-  // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない
+  // 版種・基準日(ファイル名由来)を被せる。getSampleData は版種・基準日を持たない
   // (`loadForPreview` と同じ被せ方)。
-  const sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+  const sample = applyTemplateAttributes(sampleRes.value.sample, tpl.meta.attributes);
 
   const doc = await renderPdfDocument(tpl.html, formatCss(tpl.css), sample, {
     cropMarks: false,

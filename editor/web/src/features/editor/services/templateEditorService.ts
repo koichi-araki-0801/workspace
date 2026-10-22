@@ -112,10 +112,10 @@ export function createTemplateEditorService(
       // (差込は空値になるだけ)。
       let sample: SampleData = {};
       try {
-        const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
-        // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
+        const sampleRes = await templates.getSampleData(id);
+        // 版種・基準日(ファイル名由来)を被せる。getSampleData は版種・基準日を持たない。
         if (!isErr(sampleRes))
-          sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+          sample = applyTemplateAttributes(sampleRes.value.sample, tpl.meta.attributes);
       } catch {
         /* sample は空のままにする */
       }

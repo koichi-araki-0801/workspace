@@ -139,10 +139,10 @@ export function createTemplatePreviewService(
       // 取りに行くと、値の出どころを持たない配備でも取得失敗がプレビュー全体の失敗になる。
       let sample: SampleData = {};
       if (!isFilled) {
-        const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
+        const sampleRes = await templates.getSampleData(id);
         if (isErr(sampleRes)) return sampleRes;
-        // 版種・基準日(ファイル名由来)を被せる。getSampleData はファンド単位で属性を持たない。
-        sample = applyTemplateAttributes(sampleRes.value, tpl.meta.attributes);
+        // 版種・基準日(ファイル名由来)を被せる。getSampleData は版種・基準日を持たない。
+        sample = applyTemplateAttributes(sampleRes.value.sample, tpl.meta.attributes);
       }
 
       const draftRes = await templates.getDraft(id);

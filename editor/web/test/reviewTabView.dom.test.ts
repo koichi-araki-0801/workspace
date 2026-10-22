@@ -142,7 +142,7 @@ const CommentPanelStub = defineComponent({
 beforeEach(() => {
   listReviewsFn.mockReset().mockResolvedValue(ok([]));
   getTemplateFn.mockReset().mockResolvedValue(ok(template()));
-  getSampleDataFn.mockReset().mockResolvedValue(ok({}));
+  getSampleDataFn.mockReset().mockResolvedValue(ok({ sample: {}, warnings: [] }));
   listNotesFn.mockReset().mockResolvedValue(ok([]));
   addNoteFn.mockClear();
   push.mockClear();

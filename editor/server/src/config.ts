@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { apiPaths } from '@editor/shared';
+import { apiPaths, DEFAULT_SAMPLE_OVERLAY_KEYS } from '@editor/shared';
 import { z } from 'zod';
 import { COMMITTED_AREAS } from './git/committedAreas.js';
 
@@ -84,6 +84,15 @@ const appConfigSchema = z
       .object({
         level: z.string().optional(),
         pretty: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    sampleOverlay: z
+      .object({
+        fundCode: z.string().min(1).optional(),
+        fundName: z.string().min(1).optional(),
+        companyCode: z.string().min(1).optional(),
+        companyName: z.string().min(1).optional(),
       })
       .strict()
       .optional(),
@@ -617,6 +626,12 @@ export const config = {
    * を明示した local モード(`start.bat local`。DB なし / ログインなし)だけ。
    */
   requireAuth: envFlag('AUTH_REQUIRED', process.env.AUTH_REQUIRED) ?? true,
+
+  /**
+   * 共通サンプルへ Rep1 の実名を置く先のパス(ドット区切り)。共通サンプルは運用側が本番の変数名で
+   * 登録するので、editor が名前を決め打ちしないよう appconfig の `sampleOverlay` で差し替えられる。
+   */
+  sampleOverlay: { ...DEFAULT_SAMPLE_OVERLAY_KEYS, ...file.sampleOverlay },
 
   /** 構造化ロギング / 監査証跡(audit trail)。 */
   logging: {

@@ -20,10 +20,10 @@ import { fileURLToPath } from 'node:url';
 import {
   applyTemplateAttributes,
   buildSampleData,
-  type FundMaster,
   parseTemplateFileName,
   type SampleData,
   type SampleTemplateAttributes,
+  sampleCommon,
 } from '@editor/shared';
 import fundMaster from '../src/api/fixtures/funds.json';
 import { renderPlainFilled } from '../src/lib/fillRender';
@@ -37,7 +37,10 @@ const sampleDir = resolve(web, 'src/api/fixtures/sample');
 const outDirs = [resolve(web, 'src/api/fixtures/filled')];
 for (const d of outDirs) mkdirSync(d, { recursive: true });
 
-const funds = fundMaster as Record<string, FundMaster>;
+const funds = fundMaster as Record<
+  string,
+  { name: string; company: { code: string; name: string } }
+>;
 
 /**
  * ファンドの差込サンプルを解決する。`sample/<fund>.json`(実値)があればそれを使い、版種・
@@ -50,7 +53,13 @@ function resolveSample(fundCode: string, attrs: SampleTemplateAttributes): Sampl
     const real = JSON.parse(readFileSync(file, 'utf8')) as SampleData;
     return applyTemplateAttributes(real, attrs);
   }
-  return buildSampleData(funds[fundCode], fundCode, attrs);
+  const f = funds[fundCode];
+  const master = f && {
+    fundName: f.name,
+    companyCode: f.company.code,
+    companyName: f.company.name,
+  };
+  return applyTemplateAttributes(buildSampleData(sampleCommon, master, fundCode), attrs);
 }
 
 // Auto-discover every template fixture; fund code + edition type come from the

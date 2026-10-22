@@ -41,7 +41,7 @@ function templatesOf(edition = '交付版'): TemplateRepository {
         css: `.${id}{}`,
       } as Template),
     ),
-    getSampleData: vi.fn(async () => ok({})),
+    getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
   } as unknown as TemplateRepository;
 }
 
@@ -68,7 +68,7 @@ function filledTemplatesOf(body: (id: string) => string): TemplateRepository {
         filled: body(id),
       } as Template),
     ),
-    getSampleData: vi.fn(async () => ok({})),
+    getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
   } as unknown as TemplateRepository;
 }
 
@@ -160,7 +160,7 @@ describe('MergePdfService.renderMergedPdf', () => {
           ? err(notFound('no'))
           : (templatesOf().getTemplate as (id: string) => unknown)(id),
       ),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createMergePdfService(templates, historyOf().repo);
 

@@ -398,13 +398,17 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      [toOpenApiPath(apiPaths.fundSampleData)]: {
+      [toOpenApiPath(apiPaths.templateSampleData)]: {
         get: {
           tags: ['templates'],
-          summary: 'プレビュー用サンプルデータ(fundCode ごと)',
+          summary: 'プレビュー用サンプルデータ(共通サンプルに Rep1 の実名を被せたもの)',
           operationId: 'getSampleData',
-          requestParams: { path: z.object({ fundCode: z.string() }) },
-          responses: { '200': json('サンプルデータ', s.SampleData), ...ERR_401, ...ERR_404 },
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '200': json('サンプルデータと合成の警告', s.SampleDataResult),
+            ...ERR_400,
+            ...ERR_401,
+          },
         },
       },
 

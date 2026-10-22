@@ -137,14 +137,16 @@ describe('restTemplateRepo', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'GET /api/templates/t1/draft',
       'DELETE /api/templates/t1/draft',
-      'GET /api/funds/510037/sample-data',
+      'GET /api/templates/510037/sample-data',
       'GET /api/templates/t1/sync-status',
       'POST /api/generate',
     ]);
   });
-  it('getSampleData は同じファンドの 2 回目を sessionStorage から返し、clear で捨てる', async () => {
+  it('getSampleData は同じテンプレート ID の 2 回目を sessionStorage から返し、clear で捨てる', async () => {
     sessionStorage.clear();
-    const calls = stubFetch(() => json({ fund: { code: '510037', name: 'F' } }));
+    const calls = stubFetch(() =>
+      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+    );
     const first = await restTemplateRepo.getSampleData('510037');
     const second = await restTemplateRepo.getSampleData('510037');
     expect(calls).toHaveLength(1);
@@ -158,14 +160,30 @@ describe('restTemplateRepo', () => {
   it('getSampleData は sessionStorage に配列が入っていてもそれを返さず API から取り直す', async () => {
     sessionStorage.clear();
     sessionStorage.setItem('editor:sample:510037', '[]');
-    const calls = stubFetch(() => json({ fund: { code: '510037', name: 'F' } }));
+    const calls = stubFetch(() =>
+      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+    );
     const res = await restTemplateRepo.getSampleData('510037');
     expect(calls).toHaveLength(1);
-    expect(isOk(res) && res.value).toEqual({ fund: { code: '510037', name: 'F' } });
+    expect(isOk(res) && res.value).toEqual({
+      sample: { fund: { code: '510037', name: 'F' } },
+      warnings: [],
+    });
     // 取り直した値で上書きされている(配列は残らない)。
     expect(JSON.parse(sessionStorage.getItem('editor:sample:510037') ?? 'null')).toEqual({
-      fund: { code: '510037', name: 'F' },
+      sample: { fund: { code: '510037', name: 'F' } },
+      warnings: [],
     });
+  });
+  it('getSampleData は旧形式のキャッシュ(sample 本体だけ)を返さず取り直す', async () => {
+    sessionStorage.clear();
+    sessionStorage.setItem('editor:sample:510037', JSON.stringify({ fund: { code: '510037' } }));
+    const calls = stubFetch(() =>
+      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+    );
+    const res = await restTemplateRepo.getSampleData('510037');
+    expect(calls).toHaveLength(1);
+    expect(isOk(res) && res.value.warnings).toEqual([]);
   });
   it('getSampleData は失敗を保存しない', async () => {
     sessionStorage.clear();
@@ -176,10 +194,15 @@ describe('restTemplateRepo', () => {
   it('getSampleData は壊れたキャッシュ(オブジェクトでない JSON)を無視して再取得する', async () => {
     sessionStorage.clear();
     sessionStorage.setItem('editor:sample:510037', '"broken"');
-    const calls = stubFetch(() => json({ fund: { code: '510037', name: 'F' } }));
+    const calls = stubFetch(() =>
+      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+    );
     const r = await restTemplateRepo.getSampleData('510037');
     expect(calls).toHaveLength(1);
-    expect(isOk(r) && r.value).toEqual({ fund: { code: '510037', name: 'F' } });
+    expect(isOk(r) && r.value).toEqual({
+      sample: { fund: { code: '510037', name: 'F' } },
+      warnings: [],
+    });
     // 取り直した値で上書きされ、以後は正常にキャッシュから返る。
     expect(sessionStorage.getItem('editor:sample:510037')).not.toBe('"broken"');
   });

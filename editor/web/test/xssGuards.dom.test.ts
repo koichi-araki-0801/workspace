@@ -237,7 +237,7 @@ describe('compareService の描画結果', () => {
   const templates = {
     getTemplate: async () =>
       ok({ meta: { attributes: { fundCode: '510037' } }, html: ACTIVE, css: '' }),
-    getSampleData: async () => ok({ fund: { code: '510037' } }),
+    getSampleData: async () => ok({ sample: { fund: { code: '510037' } }, warnings: [] }),
   };
   const history = {
     getSnapshot: async () => ok({ html: ACTIVE, css: '', fundCode: '510037' }),

@@ -1,13 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildSampleData, type FundMaster, parseTemplateFileName } from '@editor/shared';
+import { parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
-import fundMaster from '../src/api/fixtures/funds.json';
 import { defaultSkeleton } from '../src/api/local/store';
 import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
 import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
+import { fixtureSample } from './helpers/fundSample';
 
 const sample = {
   company: { code: 'AM01', name: 'アセットマネジメント株式会社' },
@@ -94,8 +94,6 @@ describe('real report templates round-trip token-for-token', () => {
       if (!attrs) throw new Error(`テンプレ名から属性を取れない fixture: ${file}`);
       return [file, attrs.fundCode] as const;
     });
-  const funds = fundMaster as Record<string, FundMaster>;
-
   it('走査でテンプレ fixture を実際に見つけている(セルフテスト)', () => {
     // 0 件だと以下の `for` が 1 件も it を生まず「常に緑」になるため、下限を固定する。
     expect(templates.length).toBeGreaterThanOrEqual(8);
@@ -104,7 +102,7 @@ describe('real report templates round-trip token-for-token', () => {
   for (const [file, fund] of templates) {
     it(file, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
-      const data = buildSampleData(funds[fund], fund);
+      const data = fixtureSample(fund);
       // Mirror the editor's real path: only the <body> inner is filled, edited,
       // and restored; the <head> is taken verbatim from the source on save.
       const filledBody = getBodyInner(toFilled(raw, data));
@@ -126,10 +124,7 @@ describe('real report templates round-trip token-for-token', () => {
     it(`${file}: 解釈できない/未定義の Jinja 式が無い`, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
       const attrs = parseTemplateFileName(file);
-      const { diagnostics } = toFilledWithDiagnostics(
-        raw,
-        buildSampleData(funds[fund], fund, attrs ?? undefined),
-      );
+      const { diagnostics } = toFilledWithDiagnostics(raw, fixtureSample(fund, attrs ?? undefined));
       expect(diagnostics.unsupported).toEqual([]);
       expect(diagnostics.missing).toEqual([]);
     });
@@ -162,15 +157,13 @@ const GENERATED_SKELETON_BODY = `<div class="page">
 </div>`;
 
 describe('生成スケルトンの参照キーがサンプルで満たされる', () => {
-  const funds = fundMaster as Record<string, FundMaster>;
-
   it('生成器の書きぶり(基準日・前日比の符号分岐): 解釈できない/未定義の Jinja 式が無い', () => {
     const attrs = parseTemplateFileName('AM01_510037_20240710_kr.html');
     expect(attrs).not.toBeNull();
     if (!attrs) return;
     const { diagnostics } = toFilledWithDiagnostics(
       GENERATED_SKELETON_BODY,
-      buildSampleData(funds[attrs.fundCode], attrs.fundCode, attrs),
+      fixtureSample(attrs.fundCode, attrs),
     );
     expect(diagnostics.unsupported).toEqual([]);
     expect(diagnostics.missing).toEqual([]);
@@ -179,7 +172,7 @@ describe('生成スケルトンの参照キーがサンプルで満たされる'
   it('defaultSkeleton(local の新規作成雛形): 解釈できない/未定義の Jinja 式が無い', () => {
     const { diagnostics } = toFilledWithDiagnostics(
       defaultSkeleton(),
-      buildSampleData(undefined, '000000', { editionType: '交付版', baseDate: '20260101' }),
+      fixtureSample('000000', { editionType: '交付版', baseDate: '20260101' }),
     );
     expect(diagnostics.unsupported).toEqual([]);
     expect(diagnostics.missing).toEqual([]);

@@ -85,7 +85,7 @@ export interface CompareService {
   renderTemplateBody(
     html: string,
     css: string,
-    fundCode: string,
+    templateId: string,
     origin: ReviewOrigin,
   ): Promise<Result<RenderedVersion>>;
 }
@@ -156,9 +156,9 @@ export function createCompareService(
         // 値入り HTML は完成した文書そのもの。描画を通さずそのまま比較に使う(理由は
         // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
         if (tpl.filled) return ok({ html: tpl.filled, css: tpl.css });
-        const sampleRes = await templates.getSampleData(tpl.meta.attributes.fundCode);
+        const sampleRes = await templates.getSampleData(tpl.meta.id);
         if (isErr(sampleRes)) return sampleRes;
-        const rendered = await renderJinjaIsolated(tpl.html, sampleRes.value);
+        const rendered = await renderJinjaIsolated(tpl.html, sampleRes.value.sample);
         if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
         return ok({ html: rendered.html, css: tpl.css });
       }
@@ -171,14 +171,14 @@ export function createCompareService(
       return ok({ html: snap.html, css: snap.css });
     },
 
-    async renderTemplateBody(html, css, fundCode, origin) {
+    async renderTemplateBody(html, css, templateId, origin) {
       // 編集タブ由来の申請本文は値入り HTML で、描画を通さない(通すと地の文の `{{` 風の
       // 字面まで式として解釈され本文が静かに欠ける)。
       if (origin === 'edit') return ok({ html, css });
-      const sampleRes = await templates.getSampleData(fundCode);
+      const sampleRes = await templates.getSampleData(templateId);
       if (isErr(sampleRes)) return sampleRes;
       // baseline 経路と同じく素の sample で描画する(版種を被せない)。現行版と土俵を揃える。
-      const rendered = await renderJinjaIsolated(html, sampleRes.value);
+      const rendered = await renderJinjaIsolated(html, sampleRes.value.sample);
       if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
       return ok({ html: rendered.html, css });
     },
@@ -198,7 +198,7 @@ export async function renderReviewPair(
   const afterRes = await render.renderTemplateBody(
     input.html,
     input.css,
-    input.fundCode,
+    input.templateId,
     input.origin,
   );
   if (isErr(afterRes)) return afterRes;

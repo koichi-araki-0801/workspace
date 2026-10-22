@@ -844,17 +844,17 @@
         }
       }
     },
-    "/funds/{fundCode}/sample-data": {
+    "/templates/{id}/sample-data": {
       "get": {
         "tags": [
           "templates"
         ],
-        "summary": "プレビュー用サンプルデータ(fundCode ごと)",
+        "summary": "プレビュー用サンプルデータ(共通サンプルに Rep1 の実名を被せたもの)",
         "operationId": "getSampleData",
         "parameters": [
           {
             "in": "path",
-            "name": "fundCode",
+            "name": "id",
             "schema": {
               "type": "string"
             },
@@ -863,17 +863,17 @@
         ],
         "responses": {
           "200": {
-            "description": "サンプルデータ",
+            "description": "サンプルデータと合成の警告",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SampleData"
+                  "$ref": "#/components/schemas/SampleDataResult"
                 }
               }
             }
           },
-          "401": {
-            "description": "未認証 (kind=unauthorized)",
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
             "content": {
               "application/json": {
                 "schema": {
@@ -882,8 +882,8 @@
               }
             }
           },
-          "404": {
-            "description": "対象が存在しない (kind=not_found)",
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3850,6 +3850,26 @@
         },
         "required": [
           "template"
+        ],
+        "additionalProperties": false
+      },
+      "SampleDataResult": {
+        "type": "object",
+        "properties": {
+          "sample": {
+            "$ref": "#/components/schemas/SampleData"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "共通サンプルの合成で見つかった問題(キーの重複・壊れた行)。無ければ空"
+          }
+        },
+        "required": [
+          "sample",
+          "warnings"
         ],
         "additionalProperties": false
       },

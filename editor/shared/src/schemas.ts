@@ -141,6 +141,15 @@ export const SampleData = z
   .record(z.string(), z.unknown())
   .meta({ id: 'SampleData', description: 'プレビュー用サンプルデータ(任意の JSON)' });
 
+export const SampleDataResult = z
+  .object({
+    sample: SampleData,
+    warnings: z.array(z.string()).meta({
+      description: '共通サンプルの合成で見つかった問題(キーの重複・壊れた行)。無ければ空',
+    }),
+  })
+  .meta({ id: 'SampleDataResult' });
+
 // ── 3. Users / auth — ユーザと認証 ──
 
 export const UserRole = z.enum(['admin', 'approver', 'editor', 'viewer']).meta({

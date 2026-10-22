@@ -15,7 +15,7 @@
 /**
  * 全 REST エンドポイントの Fastify 形パス。パラメータ名はここで確定する
  * (既存の不統一をそのまま固定: `templateById`=`:id`、`partHistory` 等=`:templateId`、
- * `fundSampleData`=`:fundCode`、`snapshotById`=`:historyId`)。
+ * `snapshotById`=`:historyId`)。
  */
 export const apiPaths = {
   // system
@@ -35,7 +35,7 @@ export const apiPaths = {
   templateDraft: '/templates/:id/draft',
   templateSyncStatus: '/templates/:id/sync-status',
   generate: '/generate',
-  fundSampleData: '/funds/:fundCode/sample-data',
+  templateSampleData: '/templates/:id/sample-data',
   // parts
   partClassificationOptions: '/parts/classification-options',
   parts: '/parts',

@@ -43,7 +43,7 @@ function ownerOf(belongs: boolean): DraftOwner {
 function draftRepos(html: string): TemplateRepository {
   return {
     getTemplate: vi.fn(async () => ok(tpl)),
-    getSampleData: vi.fn(async () => ok({})),
+    getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     getDraft: vi.fn(async () =>
       ok({ templateId: 't1', html, css: '.from-draft{}', savedAt: '', savedBy: '' }),
     ),
@@ -78,7 +78,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('builds a preview document from the source file when there is no draft', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
@@ -114,7 +114,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const enc = b64encode('<img src=x onerror=alert(1)>');
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () =>
         ok({
           templateId: 't1',
@@ -134,7 +134,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('reports a user-facing render error when the template fails to render', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok({ ...tpl, html: '<body>{{ oops</body>' })),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
@@ -172,7 +172,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('下書きが無ければ cssBaseline は申請する css と同じ(CSS は変わっていない)', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
@@ -225,7 +225,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
 
     const templatesB = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => err(notFound('draft down'))),
     } as unknown as TemplateRepository;
     const resB = await createTemplatePreviewService(templatesB, history).loadForPreview('t1');
@@ -246,7 +246,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
     // `{{ raw }}` は値入り HTML に紛れた地の文。描画を通すと空になる。
     const templates = {
       getTemplate: vi.fn(async () => ok(filledTpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
@@ -269,7 +269,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('filled が非空のテンプレの下書きは Jinja 復元を通さず filled の本文を差し替える', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(filledTpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () =>
         ok({
           templateId: 't1',

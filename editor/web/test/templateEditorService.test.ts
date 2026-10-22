@@ -79,7 +79,7 @@ describe('TemplateEditorService.loadForEdit', () => {
   it('値の差込に使ったサンプルを返す(作成タブの canvas で Jinja を含む <style> を描画する)', async () => {
     const { templates, parts } = repos({ draft: null });
     (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>
-      ok({ x: 'v' }),
+      ok({ sample: { x: 'v' }, warnings: [] }),
     );
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
@@ -117,7 +117,9 @@ describe('TemplateEditorService.loadForEdit', () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
       getDraft: vi.fn(async () => ok(null)),
-      getSampleData: vi.fn(async () => ok({ fund: { name: 'グローバル株式ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: 'グローバル株式ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
     const svc = createTemplateEditorService(templates, parts);

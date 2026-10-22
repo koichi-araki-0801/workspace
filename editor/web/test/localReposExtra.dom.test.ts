@@ -531,14 +531,29 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
   });
 
   it('getSampleData returns the common dummy for an unknown fund (code overridden, placeholder name)', async () => {
-    const r = await localTemplateRepo.getSampleData('zzz-unknown');
+    const r = await localTemplateRepo.getSampleData('AM01_999999_交付版');
     expect(isOk(r)).toBe(true);
     if (isOk(r)) {
-      const fund = r.value.fund as { code: string; name: string };
-      expect(fund.code).toBe('zzz-unknown');
+      const fund = r.value.sample.fund as { code: string; name: string };
+      expect(fund.code).toBe('999999');
       // master 未収録なので名称は placeholder のまま、本体はパーツ別共通ダミー。
       expect(fund.name).toBe('サンプルファンド');
-      expect(Array.isArray(r.value.holdings)).toBe(true);
+      expect(Array.isArray(r.value.sample.holdings)).toBe(true);
+      expect(r.value.warnings).toEqual([]);
+    }
+  });
+
+  it('getSampleData overlays funds.json names for a known fund (3- and 4-part ids)', async () => {
+    for (const id of ['AM01_510037_交付版', 'AM01_510037_20240710_交付版']) {
+      const r = await localTemplateRepo.getSampleData(id);
+      expect(isOk(r)).toBe(true);
+      if (isOk(r)) {
+        expect(r.value.sample.fund).toMatchObject({
+          code: '510037',
+          name: 'コア投資戦略ファンド（切替型）',
+        });
+        expect(r.value.sample.company).toMatchObject({ code: 'AM01' });
+      }
     }
   });
 

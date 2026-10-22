@@ -24,7 +24,7 @@ describe('openapi document', () => {
       apiPaths.templateById,
       apiPaths.templateDraft,
       apiPaths.generate,
-      apiPaths.fundSampleData,
+      apiPaths.templateSampleData,
       apiPaths.parts,
       apiPaths.partHistory,
       apiPaths.historyEdit,

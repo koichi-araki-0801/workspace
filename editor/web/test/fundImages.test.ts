@@ -4,7 +4,7 @@
 // 差す範囲は PDF・プレビューと同じにする(編集画面だけ見えるずれを作らない)。Jinja 本文は
 // `{{ fund.code }}` をテンプレ ID のファンドコードで解き、値入り本文は確定パスだけを差す。
 // 参照は文書位置基準(`../images/…`)で、会社フォルダは会社コードと照合する。
-import { buildSampleData, parseTemplateFileName } from '@editor/shared';
+import { parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   cssString,
@@ -14,6 +14,7 @@ import {
 } from '@/features/editor/fundImages';
 import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
 import { fundCodeOfTemplateId } from '@/lib/fundImages';
+import { fixtureSample } from './helpers/fundSample';
 
 const ID = 'AM01_510037_20250105_交付版';
 const JINJA = { mode: 'jinja' as const, fundCode: '510037', companyCode: 'AM01' };
@@ -30,7 +31,7 @@ describe('fundCodeOfTemplateId', () => {
   it('buildSampleData が fund.code に入れる値と出所が一致する', () => {
     const attrs = parseTemplateFileName(`${ID}.html`);
     expect(attrs).not.toBeNull();
-    const fund = buildSampleData(undefined, attrs?.fundCode ?? '').fund as { code: string };
+    const fund = fixtureSample(attrs?.fundCode ?? '').fund as { code: string };
     expect(fundCodeOfTemplateId(ID)).toBe(fund.code);
   });
 });

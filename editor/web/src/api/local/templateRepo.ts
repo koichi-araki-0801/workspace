@@ -22,6 +22,7 @@ import {
   type ReviewRequest,
   type SaveDraftRequest,
   type SkeletonAttributes,
+  sampleCommon,
   skeletonFileName,
   type TemplateAttributes,
   type TemplateDraft,
@@ -439,10 +440,19 @@ export const localTemplateRepo: TemplateRepository = {
       return delay(undefined);
     }),
 
-  // パーツ別共通ダミー(`sampleCommon`)に funds.json のファンド固有値だけ被せて返す。
+  // パーツ別共通ダミー(`sampleCommon`)に funds.json の実名だけ被せて返す(local に合成の警告は無い)。
   // 版種・基準日(ファイル名由来)はテンプレを開く文脈で `applyTemplateAttributes` が上書きする。
-  getSampleData: (fundCode: string) =>
-    attempt(() => delay(buildSampleData(fundMaster[fundCode], fundCode))),
+  getSampleData: (templateId: string) =>
+    attempt(() => {
+      const fundCode = parseAnyTemplateFileName(`${templateId}.html`)?.fundCode ?? '';
+      const f = fundMaster[fundCode];
+      const master = f && {
+        fundName: f.name,
+        companyCode: f.company.code,
+        companyName: f.company.name,
+      };
+      return delay({ sample: buildSampleData(sampleCommon, master, fundCode), warnings: [] });
+    }),
 
   // ペア同期は server 側機構(承認直後に実行)のため local ではペアの有無だけを返す。
   // 競合は常に空(local に同期状態ファイルは存在しない)。

@@ -193,32 +193,132 @@ describe('templateRepo と filled/', () => {
   });
 });
 
-describe('getSampleData(共通一覧の合成 + ファンドコード)', () => {
+describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
   let createTemplateRepo: typeof import('../src/repositories/templateRepo.js').createTemplateRepo;
-  let createSprocClient: typeof import('../src/db/sproc.js').createSprocClient;
+  const ID = 'AM01_510037_20240710_交付版';
 
   beforeAll(async () => {
     ({ createTemplateRepo } = await import('../src/repositories/templateRepo.js'));
-    ({ createSprocClient } = await import('../src/db/sproc.js'));
   });
 
-  /** 共通一覧の行を固定で返す最小 sproc。 */
-  const sprocWithRows = (rows: Record<string, unknown>[]): SprocClient =>
-    createSprocClient(async () => rows);
+  const COMMON = [
+    { 共通サンプルID: 1, データJSON: JSON.stringify({ fund: { name: '共通名', nav: 1 }, a: 1 }) },
+    { 共通サンプルID: 2, データJSON: JSON.stringify({ b: 2 }) },
+  ];
 
-  it('共通一覧を合成し、fund.code にファンドコードを被せる', async () => {
+  /** 共通一覧・委託会社一覧・ファンド一覧を固定で返す最小 sproc。`rep1Throws` で Rep1 側だけ落とす。 */
+  const sprocOf = (opts: {
+    common?: Record<string, unknown>[];
+    companies?: Record<string, unknown>[];
+    funds?: Record<string, unknown>[];
+    rep1Throws?: boolean;
+  }): SprocClient => ({
+    async callSproc<T>(_proc: string, op: string): Promise<T[]> {
+      if (op === '共通一覧') return (opts.common ?? COMMON) as T[];
+      if (opts.rep1Throws) throw new Error('rep1 down');
+      if (op === '委託会社一覧') return (opts.companies ?? []) as T[];
+      if (op === 'ファンド一覧') return (opts.funds ?? []) as T[];
+      return [];
+    },
+  });
+
+  const COMPANIES = [
+    { 委託会社コード: '00001', 委託会社名: '他社', 委託会社略称: 'ZZ99' },
+    { 委託会社コード: '00002', 委託会社名: '実委託会社', 委託会社略称: 'am01  ' },
+  ];
+  const FUNDS = [
+    { ファンドコード: '510001', ファンド名: '別ファンド' },
+    { ファンドコード: '510037', ファンド名: '実ファンド' },
+  ];
+
+  it('共通一覧を合成し、Rep1 の委託会社名・ファンド名を被せる', async () => {
+    const repo = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: FUNDS }));
+    const { sample, warnings } = await repo.getSampleData(ID);
+    expect(warnings).toEqual([]);
+    // 略称は末尾空白・大小を無視して引く。company.code はファイル名の会社コード(Rep1 の略称)。
+    expect(sample).toEqual({
+      fund: { name: '実ファンド', nav: 1, code: '510037' },
+      company: { code: 'am01', name: '実委託会社' },
+      a: 1,
+      b: 2,
+    });
+  });
+
+  it('3 区切り(基準日なし)の ID でも引ける', async () => {
+    const repo = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: FUNDS }));
+    const { sample } = await repo.getSampleData('AM01_510037_交付版');
+    expect(sample.fund).toMatchObject({ code: '510037', name: '実ファンド' });
+  });
+
+  it('Rep1 で見つからなければ共通値のまま返す(ファンドコードだけ被せる)', async () => {
+    const repo = createTemplateRepo(sprocOf({ companies: [] }));
+    expect((await repo.getSampleData(ID)).sample).toEqual({
+      fund: { name: '共通名', nav: 1, code: '510037' },
+      a: 1,
+      b: 2,
+    });
+    // 会社は見つかるがファンドが無いときは、会社名だけ被さる。
+    const noFund = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: [] }));
+    const r = (await noFund.getSampleData(ID)).sample;
+    expect(r.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+    expect(r.company).toMatchObject({ name: '実委託会社' });
+  });
+
+  it('Rep1 の取得が失敗しても共通値を返す', async () => {
+    const repo = createTemplateRepo(sprocOf({ rep1Throws: true }));
+    const { sample, warnings } = await repo.getSampleData(ID);
+    expect(warnings).toEqual([]);
+    expect(sample.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+  });
+
+  it('合成の warnings をそのまま返す', async () => {
     const repo = createTemplateRepo(
-      sprocWithRows([
-        { 共通サンプルID: 1, データJSON: JSON.stringify({ fund: { name: '共通名' }, a: 1 }) },
-        { 共通サンプルID: 2, データJSON: JSON.stringify({ b: 2 }) },
-      ]),
+      sprocOf({
+        common: [
+          { 共通サンプルID: 1, データJSON: JSON.stringify({ k: 1 }) },
+          { 共通サンプルID: 2, データJSON: JSON.stringify({ k: 2 }) },
+          { 共通サンプルID: 3, データJSON: '{broken' },
+        ],
+      }),
     );
-    const sample = await repo.getSampleData('510037');
-    expect(sample).toEqual({ fund: { name: '共通名', code: '510037' }, a: 1, b: 2 });
+    const { sample, warnings } = await repo.getSampleData(ID);
+    expect(sample.k).toBe(1);
+    expect(warnings).toHaveLength(2);
   });
 
   it('行が無ければ fund.code だけの sample', async () => {
-    const repo = createTemplateRepo(sprocWithRows([]));
-    expect(await repo.getSampleData('999999')).toEqual({ fund: { code: '999999' } });
+    const repo = createTemplateRepo(sprocOf({ common: [] }));
+    expect((await repo.getSampleData(ID)).sample).toEqual({ fund: { code: '510037' } });
+  });
+
+  it('ID が不正なら validation', async () => {
+    const repo = createTemplateRepo(sprocOf({}));
+    await expect(repo.getSampleData('../evil')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(repo.getSampleData('AM01')).rejects.toMatchObject({ kind: 'validation' });
+  });
+});
+
+describe('config.sampleOverlay の差し替え', () => {
+  it('被せ先のパスは config.sampleOverlay に従う', async () => {
+    const { config } = await import('../src/config.js');
+    const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
+    const saved = { ...config.sampleOverlay };
+    Object.assign(config.sampleOverlay, { fundCode: 'x.code', fundName: 'x.name' });
+    try {
+      const repo = createTemplateRepo({
+        async callSproc<T>(_proc: string, op: string): Promise<T[]> {
+          if (op === '委託会社一覧') {
+            return [{ 委託会社コード: '1', 委託会社名: '社', 委託会社略称: 'AM01' }] as T[];
+          }
+          if (op === 'ファンド一覧') return [{ ファンドコード: '510037', ファンド名: 'F' }] as T[];
+          return [];
+        },
+      });
+      expect((await repo.getSampleData('AM01_510037_交付版')).sample).toMatchObject({
+        x: { code: '510037', name: 'F' },
+      });
+    } finally {
+      Object.assign(config.sampleOverlay, saved);
+    }
   });
 });

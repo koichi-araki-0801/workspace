@@ -8,7 +8,6 @@ import {
   conflict,
   DEFAULT_ERROR_MESSAGE,
   type DropdownQuery,
-  type FundMaster,
   type PartCatalogItem,
   parseAnyTemplateFileName,
   type TemplateMeta,
@@ -89,9 +88,16 @@ for (const [path, content] of Object.entries(cssFiles)) {
   fixtureCss[baseName(path)] = content;
 }
 
+/** `funds.json` の 1 件。 */
+interface FundFixture {
+  name: string;
+  nickname?: string;
+  company: { code: string; name: string };
+}
+
 // ファンド固有マスタ(コード → 名称/会社)。サンプル本体はパーツ別共通ダミー
-// (`sampleCommon`)を使い、ここからは fund.name/nickname・company だけを上書きする。
-export const fundMaster: Record<string, FundMaster> = fundMasterJson;
+// (`sampleCommon`)を使い、ここからは fund.name・company だけを上書きする。
+export const fundMaster: Record<string, FundFixture> = fundMasterJson;
 
 // ── 2. localStorage overlay — 読み書きとトランザクション ──
 

@@ -82,7 +82,7 @@ export const DEFAULT_USERS: readonly FakeUserSeed[] = [
   { username: 'admin', displayName: '管理 次郎', role: 'admin', password: 'admin' },
 ];
 
-// ファンドマスタが無いと `parseFundMaster` が undefined を返し、差し込むファンド名が既定の「サンプルファンド」になる。
+// ファンドマスタが無いと Rep1 の実名を被せられず、差し込むファンド名が共通サンプルの値のままになる。
 // コードは `editor/web/src/api/fixtures/sample/*.json` と一致させる(dataRoot 側の seed が
 // 同じファンドのテンプレートを置くため)。
 export const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';

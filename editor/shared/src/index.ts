@@ -32,6 +32,8 @@ export type TemplateDraft = z.infer<typeof sch.TemplateDraft>;
 // ── 2. Domain: sample data (nunjucks プレビュー文脈)。fundCode をキーにする ──
 
 export type SampleData = z.infer<typeof sch.SampleData>;
+/** 共通サンプルに Rep1 の実名を被せた値と、合成の警告。 */
+export type SampleDataResult = z.infer<typeof sch.SampleDataResult>;
 
 // ── 3. Domain: users / auth ──
 

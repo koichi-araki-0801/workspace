@@ -167,4 +167,35 @@ describe('assertImagesDirOutsideCommittedAreas', () => {
       ).not.toThrow();
     }
   });
+
+  it('sampleOverlay の既定は fund.code / fund.name / company.code / company.name', async () => {
+    const { config } = await importConfigWithEnv({ DATA_ROOT });
+    expect(config.sampleOverlay).toEqual({
+      fundCode: 'fund.code',
+      fundName: 'fund.name',
+      companyCode: 'company.code',
+      companyName: 'company.name',
+    });
+  });
+
+  it('appconfig の sampleOverlay で上書きできる(指定しなかった先は既定のまま)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-overlay-'));
+    const file = path.join(dir, 'appconfig.json');
+    try {
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ sampleOverlay: { fundName: 'ファンド.名称', companyName: '会社.名称' } }),
+        'utf8',
+      );
+      const { config } = await importConfigWithEnv({ DATA_ROOT, APP_CONFIG: file });
+      expect(config.sampleOverlay).toEqual({
+        fundCode: 'fund.code',
+        fundName: 'ファンド.名称',
+        companyCode: 'company.code',
+        companyName: '会社.名称',
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -5,21 +5,26 @@
 // throw し、ルートハンドラは中央の `errorHandler` に HTTP への変換を委ねる
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import {
+  assertAnyTemplateId,
+  buildSampleData,
   type CompanyOption,
   type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
+  type FundMaster,
   type FundOption,
   notFound,
+  parseAnyTemplateFileName,
   parseTemplateFileName,
-  type SampleData,
+  type SampleDataResult,
   skeletonFileName,
   type Template,
   type TemplateDraft,
   type TemplateMeta,
   templateIdFromFileName,
 } from '@editor/shared';
+import { config } from '../config.js';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
@@ -114,7 +119,7 @@ export interface TemplateRepo {
   saveDraft(templateId: string, html: string, css: string): Promise<void>;
   getDraft(templateId: string): Promise<TemplateDraft | null>;
   discardDraft(templateId: string): Promise<void>;
-  getSampleData(fundCode: string): Promise<SampleData>;
+  getSampleData(templateId: string): Promise<SampleDataResult>;
   listCompanies(): Promise<CompanyOption[]>;
   listFunds(rep1CompanyCode: string): Promise<FundOption[]>;
   getCreatableInfo(q: {
@@ -134,6 +139,33 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       fundCode: asString(r.ファンドコード),
       fundName: asString(r.ファンド名),
     }));
+  }
+
+  /**
+   * ファイル名の会社コード(Rep1 の委託会社略称)とファンドコードから、Rep1 の実名を引く。略称は
+   * 末尾空白を落として大文字小文字を区別せず照合する。Rep1 が落ちていても共通値を返したいので、
+   * 失敗は握りつぶして undefined にする。
+   */
+  async function findFundMaster(
+    companyAbbr: string,
+    fundCode: string,
+  ): Promise<FundMaster | undefined> {
+    try {
+      const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+      const want = companyAbbr.trim().toLowerCase();
+      const company = rows.find((r) => asString(r.委託会社略称).trimEnd().toLowerCase() === want);
+      if (!company) return undefined;
+      const fund = (await listFunds(asString(company.委託会社コード))).find(
+        (f) => f.fundCode.trim() === fundCode,
+      );
+      return {
+        companyCode: asString(company.委託会社略称).trimEnd(),
+        companyName: asString(company.委託会社名),
+        ...(fund ? { fundName: fund.fundName } : {}),
+      };
+    } catch {
+      return undefined;
+    }
   }
 
   return {
@@ -276,13 +308,16 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     },
 
     /**
-     * プレビュー文脈のサンプルデータ。DB の共通サンプル(分類ごとの行)を合成し、ファンドコードだけを
-     * 被せる。ファンド名・会社名は Rep1 から引いて被せる形へ移す途中(`fundCode` のみ)。版種(ファイル名由来)は
+     * プレビュー文脈のサンプルデータ。DB の共通サンプル(分類ごとの行)を合成し、テンプレート ID の
+     * 会社・ファンドを Rep1 で引いた実名を被せる。Rep1 で引けない・取得に失敗したときは共通値のまま
+     * 返す(差込が空値になるだけで、作成タブ・プレビューは開ける)。版種(ファイル名由来)は
      * テンプレを開く web 側(`applyTemplateAttributes`)で上書きする。
      */
-    async getSampleData(fundCode) {
+    async getSampleData(templateId) {
+      const attrs = parseAnyTemplateFileName(`${assertAnyTemplateId(templateId)}.html`);
+      if (!attrs) throw notFound(`テンプレートが見つかりません: ${templateId}`);
       const rows = await sproc.callSproc(SP.sample, '共通一覧');
-      const { sample } = mergeCommonSampleRows(
+      const { sample, warnings } = mergeCommonSampleRows(
         rows.map((r) => ({
           id: Number(r.共通サンプルID),
           category: asStringOrNull(r.カテゴリ),
@@ -292,11 +327,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
           dataJson: asString(r.データJSON),
         })),
       );
-      const fund =
-        sample.fund !== null && typeof sample.fund === 'object' && !Array.isArray(sample.fund)
-          ? (sample.fund as Record<string, unknown>)
-          : {};
-      return { ...sample, fund: { ...fund, code: fundCode } };
+      const master = await findFundMaster(attrs.companyCode, attrs.fundCode);
+      return {
+        sample: buildSampleData(sample, master, attrs.fundCode, config.sampleOverlay),
+        warnings,
+      };
     },
   };
 }

@@ -59,7 +59,9 @@ describe('CompareService.renderVersionHtml', () => {
           filled: '',
         }),
       ),
-      getSampleData: vi.fn(async () => ok({ fund: { name: '原本ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: '原本ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const history = {} as HistoryRepository;
 
@@ -100,7 +102,7 @@ describe('CompareService.renderVersionHtml', () => {
       getTemplate: vi.fn(async () =>
         ok({ meta: { attributes: { fundCode: '510037' } }, html: '{% if %}', css: '', filled: '' }),
       ),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:t');
@@ -118,7 +120,9 @@ describe('CompareService.renderVersionHtml', () => {
           filled: '<p>値入り {{ fund.name }}</p>',
         }),
       ),
-      getSampleData: vi.fn(async () => ok({ fund: { name: '原本ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: '原本ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
@@ -132,7 +136,7 @@ describe('CompareService.renderVersionHtml', () => {
       getSnapshot: vi.fn(async () => ok(snapshot)),
     } as unknown as HistoryRepository;
     const templates = {
-      getSampleData: vi.fn(async () => ok({ fund: { name: 'x' } })),
+      getSampleData: vi.fn(async () => ok({ sample: { fund: { name: 'x' } }, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, history);
     const res = await svc.renderVersionHtml('eh-1');
@@ -144,7 +148,9 @@ describe('CompareService.renderVersionHtml', () => {
 
 describe('CompareService.renderTemplateBody', () => {
   it("origin='edit' の本文は描画を通さずそのまま返す", async () => {
-    const templates = { getSampleData: vi.fn(async () => ok({})) } as unknown as TemplateRepository;
+    const templates = {
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
+    } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderTemplateBody('<p>{{ raw }}</p>', '.c{}', '510037', 'edit');
     expect(isOk(res) && res.value).toEqual({ html: '<p>{{ raw }}</p>', css: '.c{}' });
@@ -153,17 +159,25 @@ describe('CompareService.renderTemplateBody', () => {
 
   it("origin='create' の本文はサンプル値で描画する", async () => {
     const templates = {
-      getSampleData: vi.fn(async () => ok({ fund: { name: '作成ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: '作成ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
-    const res = await svc.renderTemplateBody('<p>{{ fund.name }}</p>', '.c{}', '510037', 'create');
+    const res = await svc.renderTemplateBody(
+      '<p>{{ fund.name }}</p>',
+      '.c{}',
+      'AM01_510037_交付版',
+      'create',
+    );
+    expect(templates.getSampleData).toHaveBeenCalledWith('AM01_510037_交付版');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.html).toContain('作成ファンド');
   });
 
   it('描画に失敗したら安全な文言を返す', async () => {
     const templates = {
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderTemplateBody('{% if %}', '', '510037', 'create');

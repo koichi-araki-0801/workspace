@@ -116,11 +116,7 @@ export const templatesRoutes: FastifyPluginAsync<{
     return templates.getTemplate(request.params.id);
   });
 
-  app.get<{ Params: { fundCode: string } }>(
-    apiPaths.fundSampleData,
-    { preHandler: requireAuth },
-    async (request) => {
-      return templates.getSampleData(request.params.fundCode);
-    },
-  );
+  app.get<IdParams>(apiPaths.templateSampleData, { preHandler: requireAuth }, async (request) => {
+    return templates.getSampleData(request.params.id);
+  });
 };

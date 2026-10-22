@@ -10,7 +10,6 @@
 //      (getBodyHtml / getCss)に載らない。
 //   3. Jinja を含む `<style>` は従来どおり原文を運ぶチップで、保存は原文のまま。canvas の複製は
 //      作成タブだけがサンプルで描画して作り、編集タブ(描画用のサンプルが無い)では作らない。
-import { buildSampleData, type FundMaster } from '@editor/shared';
 import grapesjs, { type Component } from 'grapesjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -27,11 +26,11 @@ import { BODY_STYLE_VIEW_ATTR } from '@/lib/bodyStyleAttr';
 import { toFilled } from '@/lib/fillJinja';
 import { toTemplate } from '@/lib/jinjaMask';
 import { pageItems, splitPages } from '@/lib/pageBreaks';
-import fundMaster from '../src/api/fixtures/funds.json';
+import { fixtureSample } from './helpers/fundSample';
 
 vi.mock('@/components/ui/toast', () => ({ toast: vi.fn(), toastError: vi.fn() }));
 
-const sample = buildSampleData((fundMaster as FundMaster[])[0]);
+const sample = fixtureSample('510037');
 
 const STYLE = '<style>.a{color:red}</style>';
 const BODY = `<p>x</p>${STYLE}`;

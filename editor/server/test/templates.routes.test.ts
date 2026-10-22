@@ -273,7 +273,7 @@ describe('templates.routes', () => {
     expect(none.json()).toEqual([]);
   });
 
-  it('GET /templates/:id と /funds/:fundCode/sample-data', async () => {
+  it('GET /templates/:id と /templates/:id/sample-data', async () => {
     const t = await app.inject({
       method: 'GET',
       url: `/templates/${encodeURIComponent(ID)}`,
@@ -291,14 +291,35 @@ describe('templates.routes', () => {
         })
       ).statusCode,
     ).toBe(404);
-    const s = await app.inject({
+    // 3 区切り・4 区切りのどちらの ID でも、共通サンプルに Rep1 の実名が被さる。
+    for (const id of ['AM01_110024_20251117_交付版', 'AM01_110024_交付版']) {
+      const s = await app.inject({
+        method: 'GET',
+        url: `/templates/${encodeURIComponent(id)}/sample-data`,
+        headers: as('editor'),
+      });
+      expect(s.statusCode).toBe(200);
+      expect(s.json().sample.fund).toMatchObject({
+        code: '110024',
+        name: '高金利ソブリンオープン',
+      });
+      expect(s.json().warnings).toEqual([]);
+    }
+  });
+
+  it('GET /templates/:id/sample-data: 不正な ID は 400、旧 /funds/:fundCode/sample-data は 404', async () => {
+    const bad = await app.inject({
+      method: 'GET',
+      url: `/templates/${encodeURIComponent('AM01_..')}/sample-data`,
+      headers: as('editor'),
+    });
+    expect(bad.statusCode).toBe(400);
+    const old = await app.inject({
       method: 'GET',
       url: '/funds/110024/sample-data',
       headers: as('editor'),
     });
-    expect(s.statusCode).toBe(200);
-    // ファンド名・会社名の Rep1 からの上書きは別タスク。ここでは共通値にファンドコードが被さる。
-    expect(s.json().fund).toMatchObject({ code: '110024', name: 'サンプルファンド' });
+    expect(old.statusCode).toBe(404);
   });
 
   it('PUT /templates/:id/draft: body の templateId が URL と違えば 400、一致すれば 204 で drafts に書く。GET は保存内容、DELETE は 204 で消す', async () => {
