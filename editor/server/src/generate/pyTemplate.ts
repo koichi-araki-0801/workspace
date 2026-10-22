@@ -183,39 +183,47 @@ interface OutputState {
   ino: number;
   isFile: boolean;
   digest: string;
+  /** 通常のファイルのときの中身(指紋と html を同じバイト列から作るため)。 */
+  bytes: Buffer | null;
 }
+
+/** 大文字小文字を区別しない OS だけ、名前の比較キーを小文字にそろえる。 */
+const foldName = (name: string): string =>
+  process.platform === 'win32' ? name.toLowerCase() : name;
+
+const isEnoent = (err: unknown): boolean => (err as NodeJS.ErrnoException).code === 'ENOENT';
 
 /**
  * 出力ファイルの状態(無ければ null)。シンボリックリンクは辿らない(`lstat`)。内容の指紋も持つのは、
  * 更新時刻の粒度が粗くファイル番号を返さない(`ino` が 0 の)ドライブでも書き直しを見分けるため。
+ * 無いこと(ENOENT)以外の失敗は「無い」と区別できないので投げる。
  */
 async function outputState(file: string): Promise<OutputState | null> {
   try {
     const s = await lstat(file);
-    const digest = s.isFile()
-      ? createHash('sha256')
-          .update(await readFile(file))
-          .digest('hex')
-      : '';
-    return { mtimeMs: s.mtimeMs, ino: s.ino, isFile: s.isFile(), digest };
-  } catch {
-    return null;
+    const bytes = s.isFile() ? await readFile(file) : null;
+    const digest = bytes ? createHash('sha256').update(bytes).digest('hex') : '';
+    return { mtimeMs: s.mtimeMs, ino: s.ino, isFile: s.isFile(), digest, bytes };
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
   }
 }
 
-/** `output/` の全 `.html` の起動前の状態。キーは小文字の名前(Windows は大文字小文字を区別しない)。 */
+/** `output/` の全 `.html` の起動前の状態。フォルダが無ければ空。 */
 async function snapshotOutputs(dir: string): Promise<Map<string, OutputState>> {
   const states = new Map<string, OutputState>();
   let names: string[];
   try {
     names = await readdir(dir);
-  } catch {
-    return states;
+  } catch (err) {
+    if (isEnoent(err)) return states;
+    throw err;
   }
   for (const name of names) {
     if (!name.toLowerCase().endsWith('.html')) continue;
     const state = await outputState(path.join(dir, name));
-    if (state) states.set(name.toLowerCase(), state);
+    if (state) states.set(foldName(name), { ...state, bytes: null });
   }
   return states;
 }
@@ -237,23 +245,33 @@ async function readGeneratedFile(
   if (name.includes('/') || name.includes('\\') || name.includes('..')) {
     throw rejected(`の出力名が不正です(フォルダ区切りや .. を含みます): ${name}`);
   }
-  const attributes = parseSkeletonFileName(name);
+  // 名前そのものは厳密に検査する(`:` や制御文字、トークン末尾の空白を持つ名前は通さない)。
+  // 緩めるのは、有効な名前の会社を作成先と比べるときだけ。
+  let attributes: SkeletonAttributes | null;
+  try {
+    attributes = parseSkeletonFileName(assertSkeletonFileName(name));
+  } catch {
+    attributes = null;
+  }
   if (!attributes) throw rejected(`の出力名が 会社_ファンド_版種.html の形ではありません: ${name}`);
+  if (!(GENERATED_EDITIONS as readonly string[]).includes(attributes.editionType)) {
+    throw rejected(`の出力の版種が 交付版・全体版 ではありません: ${name}`);
+  }
   if (attributes.companyCode.trimEnd().toLowerCase() !== companyCode.trimEnd().toLowerCase()) {
     throw rejected(`の出力の会社が作成先と違います: ${name}`);
   }
   const file = path.join(dir, name);
   const after = await outputState(file);
   if (after && !after.isFile) throw rejected(`の出力が通常のファイルではありません: ${name}`);
-  const prev = before.get(name.toLowerCase());
+  const prev = before.get(foldName(name));
   const written =
-    after?.isFile === true &&
+    after?.bytes != null &&
     (prev === undefined ||
       after.mtimeMs > prev.mtimeMs ||
       after.ino !== prev.ino ||
       after.digest !== prev.digest);
-  if (!written) throw rejected(`が ${name} を書き出していません`);
-  const html = await readFile(file, 'utf8');
+  if (!written || !after?.bytes) throw rejected(`が ${name} を書き出していません`);
+  const html = after.bytes.toString('utf8');
   if (!html.trim()) throw rejected(`が空の出力を返しました: ${name}`);
   return { fileName: name, attributes, html, path: file };
 }
@@ -278,7 +296,15 @@ export function generateTemplates(
     const before = await snapshotOutputs(dir);
     const sizeBefore = await logSizeBefore(log);
     await runGenerator(args);
-    const names = parseOutputNames(await readRunLog(log, sizeBefore));
+    const listed = parseOutputNames(await readRunLog(log, sizeBefore));
+    // 同じファイルを大文字小文字違いで 2 回挙げても 1 本として数える(最初の綴りを残す)。
+    const seen = new Set<string>();
+    const names = listed.filter((n) => {
+      const key = n.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     if (names.length > config.python.maxOutputFiles) {
       throw rejected(
         `の出力が上限(${config.python.maxOutputFiles} 本)を超えています: ${names.length} 本`,

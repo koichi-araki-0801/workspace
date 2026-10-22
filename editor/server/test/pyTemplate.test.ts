@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 // Hoisted so the vi.mock factory (also hoisted) can reference it. `config.ts` と `logger.ts` は
 // import 時に env を読むので、置き場をここで一時ディレクトリへ逸らす(作業ツリーへログを書かない)。
@@ -242,6 +242,7 @@ describe('生成器の指紋', () => {
   }
 
   afterEach(() => vi.resetModules());
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it('一致すれば起動する', async () => {
     const { generateTemplates: gen } = await load(script, sha);
@@ -499,8 +500,28 @@ describe('generateTemplates の全体の失敗', () => {
     await expect(run()).rejects.toThrow(/Python生成器.*会社/);
     answerWith((c) => bothEditions(c.pos[1], 'c1'));
     await expect(run()).resolves.toHaveLength(2);
-    // ファイル名側の末尾空白(Rep1 の略称は固定長で埋まることがある)も同じ会社とみなす。
-    answerWith((c) => bothEditions(c.pos[1], 'C1 '));
+  });
+
+  it.each([
+    ['末尾空白の会社', 'C1 _F1_交付版.html'],
+    ['コロン(代替データストリーム)', 'C1_F1_交付版.html:x.html'],
+    ['制御文字', 'C1_F1_交付版.html'],
+  ])('名前の検査は厳密で、%s を含む名前は全体の失敗にする', async (_label, bad) => {
+    answerRaw((call) =>
+      produce({ ...call }, bothEditions(), [...Object.keys(bothEditions()), bad]),
+    );
+    await expect(run()).rejects.toThrow(/Python生成器の出力名/);
+  });
+
+  it('版種が 交付版・全体版 以外なら(組入先でも)全体の失敗にする', async () => {
+    answerWith((c) => ({ ...bothEditions(c.pos[1]), 'C1_G1_月次.html': '<html>g</html>' }));
+    await expect(run()).rejects.toThrow(/Python生成器の出力の版種/);
+  });
+
+  it('大文字小文字違いで同じファイルを重ねて挙げても 1 本として数える', async () => {
+    answerRaw((call) =>
+      produce({ ...call }, bothEditions(), [...Object.keys(bothEditions()), 'c1_f1_交付版.html']),
+    );
     await expect(run()).resolves.toHaveLength(2);
   });
 
