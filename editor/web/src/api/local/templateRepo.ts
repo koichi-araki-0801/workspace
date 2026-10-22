@@ -184,7 +184,7 @@ function confirmedSkeleton(
 }
 
 /** local の Rep1 委託会社コード(略称 → コード)。検証用 DB(`Rep1_検証用.sql`)と同じ対応。 */
-const LOCAL_REP1_COMPANY_CODES: Readonly<Record<string, string>> = { AM01: '0001' };
+const LOCAL_REP1_COMPANY_CODES: Readonly<Record<string, string>> = { AM01: '00001', AM02: '00002' };
 const rep1CodeOf = (abbr: string) => LOCAL_REP1_COMPANY_CODES[abbr] ?? abbr;
 
 /** 編集タブ・比較・結合が扱うのは値入り HTML(基準日あり)だけ。テンプレートは作成タブで開く。 */

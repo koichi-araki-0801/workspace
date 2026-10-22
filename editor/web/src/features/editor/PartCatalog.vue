@@ -1,3 +1,8 @@
+<script lang="ts">
+/** 編集中テンプレートの委託会社(Rep1 の委託会社コード)の解決状況。 */
+export type CompanyFilter = { state: 'pending' } | { state: 'none' } | { state: 'ok'; code: string };
+</script>
+
 <script setup lang="ts">
 // =============================================================================
 // PartCatalog.vue — 分類で絞り込む parts catalog(編集 canvas への挿入元)
@@ -5,7 +10,12 @@
 // 4 段の連動プルダウンで小分類まで選ぶと対象パーツが 1 件に確定し、下部にその視覚
 // プレビューを出して「追加」ボタンで canvas へ挿入する。小分類が同名で複数該当する
 // ときだけコンパクトな選択リストを挟む。名称検索は持たない(分類で十分絞れるため)。
-import type { PartCatalogItem, PartClassificationOptions, PartClassificationQuery } from '@editor/shared';
+import {
+  ok,
+  type PartCatalogItem,
+  type PartClassificationOptions,
+  type PartClassificationQuery,
+} from '@editor/shared';
 import { Inbox, Loader2, Plus } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
 import { usePartRepo } from '@/api/repositories';
@@ -23,6 +33,11 @@ const props = defineProps<{
   insertBlockedReason?: string | null;
   /** 編集中テンプレートの版種。空なら全件。一覧と分類候補をこの版で絞る(URL には載せない)。 */
   editionType?: string | null;
+  /**
+   * 編集中テンプレートの委託会社。解決できるまで(pending)は一覧を取らず、解決できなければ(none)
+   * 空にする。他社のパーツを出さないため、全件にはフォールバックしない。URL には載せない。
+   */
+  companyFilter: CompanyFilter;
 }>();
 const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem] }>();
 
@@ -44,10 +59,17 @@ const EMPTY: PartClassificationOptions = {
   minorClasses: [],
 };
 
-// 版種は分類の選択ではなく編集中テンプレートの属性なので、`query`(= URL 同期の対象)へは
+// 版種と委託会社は分類の選択ではなく編集中テンプレートの属性なので、`query`(= URL 同期の対象)へは
 // 入れず、取得の直前にだけ足す。
-const withEdition = (q: PartClassificationQuery): PartClassificationQuery =>
-  props.editionType ? { ...q, editionType: props.editionType } : q;
+const withEdition = (q: PartClassificationQuery): PartClassificationQuery => {
+  const withType = props.editionType ? { ...q, editionType: props.editionType } : q;
+  return props.companyFilter.state === 'ok'
+    ? { ...withType, companyCode: props.companyFilter.code }
+    : withType;
+};
+
+// 委託会社が決まるまでは取りに行かない(絞り込み無しの全件を一瞬でも出さない)。
+const canFetch = () => props.companyFilter.state === 'ok';
 
 const { query, options, list: parts, loading, onLevelChange, reset } = useCascadingSelect<
   PartClassificationQuery,
@@ -56,8 +78,9 @@ const { query, options, list: parts, loading, onLevelChange, reset } = useCascad
 >({
   levels: levels.map((l) => l.key),
   emptyOptions: EMPTY,
-  fetchOptions: (q) => repo.getPartClassificationOptions(withEdition(q)),
-  fetchList: (q) => repo.listParts(withEdition(q)),
+  fetchOptions: (q) =>
+    canFetch() ? repo.getPartClassificationOptions(withEdition(q)) : Promise.resolve(ok(EMPTY)),
+  fetchList: (q) => (canFetch() ? repo.listParts(withEdition(q)) : Promise.resolve(ok([]))),
 });
 
 // 分類4段を URL クエリへ同期し、編集画面を離れて戻っても絞り込みを復元する。
@@ -68,10 +91,14 @@ useUrlQuerySync(query, {
   prefix: 'pc',
 });
 
-// 別テンプレートへ切り替わる等で版種が変わったら、選択を解いて候補と一覧を取り直す。
-// 選択が残ると、新しい版種で隠れる分類を選んだまま一覧が空になる。
+// 別テンプレートへ切り替わる等で版種・委託会社が変わったら、選択を解いて候補と一覧を取り直す。
+// 選択が残ると、新しい条件で隠れる分類を選んだまま一覧が空になる。
 watch(
-  () => props.editionType,
+  () => [
+    props.editionType,
+    props.companyFilter.state,
+    props.companyFilter.state === 'ok' ? props.companyFilter.code : null,
+  ],
   () => reset(),
 );
 
@@ -147,7 +174,16 @@ function onInsert() {
 
     <!-- プレビュー領域 -->
     <div class="flex-1 overflow-auto px-3 py-3">
-      <div v-if="loading" class="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
+      <div
+        v-if="companyFilter.state === 'none'"
+        class="flex flex-col items-center gap-2 py-8 text-center text-xs text-muted-foreground"
+      >
+        <Inbox class="h-7 w-7 opacity-40" />
+        <span>委託会社を特定できないため、パーツを表示できません</span>
+      </div>
+      <div
+        v-else-if="loading || companyFilter.state === 'pending'"
+        class="flex items-center justify-center gap-2 py-6 text-xs text-muted-foreground">
         <Loader2 class="h-4 w-4 animate-spin" /> 読み込み中…
       </div>
       <div

@@ -17,8 +17,11 @@ const cls = (i: PartCatalogItem) => i.classification;
 // 版種が空なら全件。そうでなければ対象版種なし(null・空文字列とも両版共通)か一致するものだけを通す。
 const matchEdition = (i: PartCatalogItem, q: PartClassificationQuery) =>
   !q.editionType || !i.targetEdition || i.targetEdition === q.editionType;
+// 委託会社コードが空なら全件。値があれば完全一致だけ(server の sproc と同じ。コード無しは出さない)。
+const matchCompany = (i: PartCatalogItem, q: PartClassificationQuery) =>
+  !q.companyCode || i.companyCode === q.companyCode;
 const matchCat = (i: PartCatalogItem, q: PartClassificationQuery) =>
-  matchEdition(i, q) && (!q.category || cls(i).category === q.category);
+  matchEdition(i, q) && matchCompany(i, q) && (!q.category || cls(i).category === q.category);
 const matchMajor = (i: PartCatalogItem, q: PartClassificationQuery) =>
   matchCat(i, q) && (!q.majorClass || cls(i).majorClass === q.majorClass);
 const matchMiddle = (i: PartCatalogItem, q: PartClassificationQuery) =>
@@ -31,7 +34,9 @@ export const localPartRepo: PartRepository = {
     attempt(() =>
       delay({
         categories: uniq(
-          partCatalog.filter((i) => matchEdition(i, query)).map((i) => cls(i).category),
+          partCatalog
+            .filter((i) => matchEdition(i, query) && matchCompany(i, query))
+            .map((i) => cls(i).category),
         ),
         majorClasses: uniq(
           partCatalog.filter((i) => matchCat(i, query)).map((i) => cls(i).majorClass),

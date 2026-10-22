@@ -289,15 +289,15 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     // 略称(ファイル名の会社コード)と Rep1 の委託会社コードは別の値(検証用 DB と同じ対応)。
     expect(isOk(companies) && companies.value[0]).toMatchObject({
       companyCode: 'AM01',
-      rep1CompanyCode: '0001',
+      rep1CompanyCode: '00001',
     });
-    const funds = await localTemplateRepo.listFunds('0001');
+    const funds = await localTemplateRepo.listFunds('00001');
     expect(isOk(funds) && funds.value.map((f) => f.fundCode)).toContain('510037');
     const byAbbr = await localTemplateRepo.listFunds('AM01');
     expect(isOk(byAbbr) && byAbbr.value).toEqual([]);
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: '0001',
+      rep1CompanyCode: '00001',
       fundCode: '510037',
       editionType: '交付版',
     });
@@ -308,7 +308,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(id).toBe('AM01_510037_交付版');
     const after = await localTemplateRepo.getCreatableInfo({
       companyCode: 'am01',
-      rep1CompanyCode: '0001',
+      rep1CompanyCode: '00001',
       fundCode: '510037',
       editionType: '交付版',
     });
@@ -384,7 +384,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
   it('getCreatableInfo はシリーズに属さないファンドではコピー元の候補を返さない', async () => {
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: '0001',
+      rep1CompanyCode: '00001',
       fundCode: '999999',
       editionType: '交付版',
     });
@@ -591,7 +591,7 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     const id = first.value.template.meta.id;
     const info = await localTemplateRepo.getCreatableInfo({
       companyCode: 'AM01',
-      rep1CompanyCode: '0001',
+      rep1CompanyCode: '00001',
       fundCode: '510155',
       editionType: '交付版',
     });

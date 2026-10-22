@@ -32,11 +32,19 @@ const state = reactive({
  */
 const wantedFunds = new Set<string>();
 
+/** 同じ略称(小文字)が 2 件以上ある会社一覧の略称。コードを一意に決められないので解決しない。 */
+const duplicatedAbbrs = new Set<string>();
+
+/** 会社一覧の取得(成否によらず終わったら解決する)。`resolveRep1CompanyCode` が待つ。 */
+let companiesLoad: Promise<void> | undefined;
+
 /** テスト用: 保持している取得結果を捨てる。 */
 export function resetRep1NamesForTest(): void {
   state.companies = undefined;
   state.funds.clear();
   wantedFunds.clear();
+  duplicatedAbbrs.clear();
+  companiesLoad = undefined;
 }
 
 export function useRep1Names() {
@@ -63,14 +71,16 @@ export function useRep1Names() {
 
   function loadCompanies(): void {
     state.companies = { state: 'loading' };
-    repo
+    companiesLoad = repo
       .listCompanies()
       .then((res) => {
         if (isErr(res)) throw res.error;
         const byAbbr = new Map<string, CompanyOption>();
+        duplicatedAbbrs.clear();
         for (const c of res.value) {
           const key = c.companyCode.toLowerCase();
-          if (!byAbbr.has(key)) byAbbr.set(key, c);
+          if (byAbbr.has(key)) duplicatedAbbrs.add(key);
+          else byAbbr.set(key, c);
         }
         state.companies = { state: 'ok', value: byAbbr };
         flush();
@@ -124,5 +134,16 @@ export function useRep1Names() {
     return funds.value.get(fundCode) ?? UNREGISTERED;
   }
 
-  return { resolveCompanies, resolveFunds, companyLabel, fundName };
+  /**
+   * 略称から Rep1 の委託会社コードを引く(会社一覧の取得を待つ)。Rep1 に無い・取得失敗・同じ略称が
+   * 2 件以上は null。パーツ一覧の絞り込みに使うので、曖昧なまま別会社のコードを返さない。
+   */
+  async function resolveRep1CompanyCode(abbr: string): Promise<string | null> {
+    flush();
+    await companiesLoad;
+    if (duplicatedAbbrs.has(abbr.toLowerCase())) return null;
+    return companyOf(abbr)?.rep1CompanyCode ?? null;
+  }
+
+  return { resolveCompanies, resolveFunds, resolveRep1CompanyCode, companyLabel, fundName };
 }

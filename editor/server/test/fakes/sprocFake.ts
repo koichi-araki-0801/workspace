@@ -122,6 +122,8 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
 ];
 
 // 既定は「未判断」= ペア同期も次回反映もしない。承認フローで機械転写が勝手に走らない側へ倒す。
+// 既定のパーツは既定ファンドの Rep1 委託会社コード(`R-AM01`)のもの。パーツ一覧は委託会社で
+// 絞るので、コードが無いと e2e で一覧が空になる。
 const DEFAULT_PARTS: readonly FakePartSeed[] = [
   {
     id: 'p-cover-title',
@@ -134,6 +136,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: null,
+    companyCode: 'R-AM01',
   },
   {
     id: 'p-note-tax',
@@ -146,6 +149,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: null,
+    companyCode: 'R-AM01',
   },
   {
     id: 'p-guide-delivery',
@@ -158,6 +162,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: '交付版',
+    companyCode: 'R-AM01',
   },
   {
     id: 'p-guide-whole',
@@ -170,6 +175,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: '全体版',
+    companyCode: 'R-AM01',
   },
 ];
 

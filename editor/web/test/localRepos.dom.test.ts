@@ -265,6 +265,38 @@ describe('localPartRepo', () => {
     }
   });
 
+  describe('委託会社での絞り込み', () => {
+    const other = { ...partCatalog[0], id: 'other-company', companyCode: '00002' };
+    const idsOf = async (companyCode?: string) => {
+      const r = await localPartRepo.listParts(companyCode === undefined ? {} : { companyCode });
+      return isOk(r) ? r.value.map((i) => i.id) : [];
+    };
+
+    it('companyCode を指定すると他社のパーツが出ない', async () => {
+      partCatalog.push(other);
+      try {
+        const ids = await idsOf('00001');
+        expect(ids).not.toContain('other-company');
+        expect(ids.length).toBeGreaterThan(0);
+        expect(await idsOf('00002')).toEqual(['other-company']);
+        const opts = await localPartRepo.getPartClassificationOptions({ companyCode: '00002' });
+        expect(isOk(opts) && opts.value.categories).toEqual([other.classification.category]);
+      } finally {
+        partCatalog.pop();
+      }
+    });
+
+    it('未指定・空なら全件を返す', async () => {
+      partCatalog.push(other);
+      try {
+        expect(await idsOf()).toContain('other-company');
+        expect(await idsOf('')).toContain('other-company');
+      } finally {
+        partCatalog.pop();
+      }
+    });
+  });
+
   describe('版種での絞り込み', () => {
     const withEdition = (edition: string) => partCatalog.filter((i) => i.targetEdition === edition);
     const idsOf = async (editionType?: string) => {
