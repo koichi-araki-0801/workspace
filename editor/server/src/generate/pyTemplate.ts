@@ -23,7 +23,6 @@ import {
   assertTemplateAttributeToken,
   parseSkeletonFileName,
   type SkeletonAttributes,
-  skeletonFileName,
 } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -345,7 +344,7 @@ export async function removeGeneratedFiles(files: readonly GeneratedFile[]): Pro
   }
 }
 
-function runGenerator(args: string[], extraEnv: NodeJS.ProcessEnv = {}): Promise<void> {
+function runGenerator(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = execFile(
       config.python.bin,
@@ -355,7 +354,7 @@ function runGenerator(args: string[], extraEnv: NodeJS.ProcessEnv = {}): Promise
         timeout: config.python.timeoutMs,
         maxBuffer: 16 * 1024 * 1024,
         encoding: 'utf8',
-        env: { ...generatorEnv(), ...extraEnv },
+        env: generatorEnv(),
       },
       // 標準出力は使わない(出力は output/ のファイルと実行ログ)。失敗時の stderr だけを残す。
       (err, _stdout, stderr) => {
@@ -369,58 +368,5 @@ function runGenerator(args: string[], extraEnv: NodeJS.ProcessEnv = {}): Promise
       },
     );
     child.on('error', reject);
-  });
-}
-
-// ── 旧契約(JSON 引数・PENDING_DIR)。生成ルートが新しい契約へ移るまでの橋渡し ──
-
-/** 旧契約で生成器へ渡す属性。 */
-export interface LegacyGenerateAttributes {
-  companyCode: string;
-  fundCode: string;
-  editionType: string;
-  sourceFundCode?: string;
-  isRedemption?: boolean;
-}
-
-/** 旧契約の呼び出し。書き先は `PENDING_DIR`。 */
-export function generateTemplate(attrs: LegacyGenerateAttributes): Promise<string> {
-  if (attrs.sourceFundCode) {
-    assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode);
-  }
-  const output = path.join(
-    config.pendingDir,
-    assertSkeletonFileName(
-      skeletonFileName({
-        companyCode: assertTemplateAttributeToken('会社コード', attrs.companyCode),
-        fundCode: assertTemplateAttributeToken('ファンドコード', attrs.fundCode),
-        editionType: assertTemplateAttributeToken('版種', attrs.editionType),
-      }),
-    ),
-  );
-  const payload = {
-    companyCode: attrs.companyCode,
-    fundCode: attrs.fundCode,
-    editionType: attrs.editionType,
-    ...(attrs.sourceFundCode ? { sourceFundCode: attrs.sourceFundCode } : {}),
-    ...(attrs.isRedemption ? { isRedemption: true } : {}),
-  };
-  return GENERATE_GATE.run(async () => {
-    await assertGeneratorFingerprint();
-    const before = await outputState(output);
-    await runGenerator([JSON.stringify(payload)], { PENDING_DIR: config.pendingDir });
-    const after = await outputState(output);
-    const written =
-      after?.isFile === true &&
-      (before === null ||
-        after.mtimeMs > before.mtimeMs ||
-        after.ino !== before.ino ||
-        after.digest !== before.digest);
-    if (!written) {
-      throw new Error(`Python生成器が ${path.basename(output)} を書き出していません`);
-    }
-    const html = await readFile(output, 'utf8');
-    if (!html.trim()) throw new Error('Python生成器が空の出力を返しました');
-    return html;
   });
 }

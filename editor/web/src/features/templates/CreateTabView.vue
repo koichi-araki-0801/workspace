@@ -132,24 +132,8 @@ function openInCreateRoute(id: string | undefined) {
 }
 
 async function createNew() {
-  const { companyCode, fundCode, editionType } = liveQuery;
-  if (!companyCode || !fundCode || !editionType) {
-    toastError(SELECT_ALL_MSG);
-    return;
-  }
-  const consent = await recreateConsent();
-  if (!consent) return;
-  await create(
-    { companyCode, fundCode, editionType, isRedemption: isRedemption.value, ...consent },
-    'テンプレートを作成しました',
-  );
-}
-
-async function createFromSeries(sourceFundCode: string) {
-  if (creating.value || alreadyCreated.value) return; // 連打・作成済みで二重に作らせない
-  // コピー元は候補のファンド。作成されるのは Step1 で選んだファンド。
-  const { companyCode, fundCode, editionType } = liveQuery;
-  if (!companyCode || !fundCode || !editionType) {
+  const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
+  if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
@@ -158,6 +142,30 @@ async function createFromSeries(sourceFundCode: string) {
   await create(
     {
       companyCode,
+      rep1CompanyCode,
+      fundCode,
+      editionType,
+      isRedemption: isRedemption.value,
+      ...consent,
+    },
+    'テンプレートを作成しました',
+  );
+}
+
+async function createFromSeries(sourceFundCode: string) {
+  if (creating.value || alreadyCreated.value) return; // 連打・作成済みで二重に作らせない
+  // コピー元は候補のファンド。作成されるのは Step1 で選んだファンド。
+  const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
+  if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) {
+    toastError(SELECT_ALL_MSG);
+    return;
+  }
+  const consent = await recreateConsent();
+  if (!consent) return;
+  await create(
+    {
+      companyCode,
+      rep1CompanyCode,
       fundCode,
       editionType,
       sourceFundCode,

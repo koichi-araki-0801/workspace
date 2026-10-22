@@ -381,6 +381,9 @@ export function buildOpenApiDocument() {
           summary: '新規テンプレートを生成(Python ジェネレータ)',
           operationId: 'generate',
           description: [
+            '1 回の作成で、選んだファンドの交付版・全体版と、生成器が一緒に書き出す組入先を取り込む。',
+            '組入先は、作成済み・承認待ちの作成申請・作業中のどれも無い版だけを取り込み、',
+            '残りは `skipped` で返す。',
             '生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。',
             '直後は `GET /templates/{id}` が `status: "draft"` で返り、`GET /templates` の一覧には',
             '現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認',
@@ -393,7 +396,9 @@ export function buildOpenApiDocument() {
             '200': json('生成結果(meta.status は draft)', s.GenerateResult),
             ...ERR_400,
             ...ERR_401,
-            '409': err('同じ属性の確定テンプレートが既にある (kind=conflict)'),
+            '409': err(
+              '選んだファンドのどちらかの版が作成済み・申請中、または同意の無い作業中 (kind=conflict)',
+            ),
             ...ERR_500,
           },
         },

@@ -209,6 +209,8 @@ export type CreatableInfo = z.infer<typeof sch.CreatableInfo>;
 
 export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
 
+export type GenerateSkipped = z.infer<typeof sch.GenerateSkipped>;
+
 export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 
 export type SaveDraftRequest = z.infer<typeof sch.SaveDraftRequest>;

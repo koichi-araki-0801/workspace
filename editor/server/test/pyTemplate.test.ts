@@ -576,49 +576,6 @@ describe('removeGeneratedFiles', () => {
   });
 });
 
-describe('旧契約の橋渡し(generateTemplate)', () => {
-  const legacy = { companyCode: 'C1', fundCode: 'F1', editionType: '交付版' };
-  const target = () => path.join(config.pendingDir, 'C1_F1_交付版.html');
-
-  function legacyWrite(html: string | null): void {
-    execFileMock.mockImplementation((_b, _a, opts: Opts, cb: Callback) => {
-      if (html !== null) {
-        fs.mkdirSync(config.pendingDir, { recursive: true });
-        fs.writeFileSync(target(), html, 'utf8');
-      }
-      expect(opts.env.PENDING_DIR).toBe(config.pendingDir);
-      cb(null, '', '');
-      return { on: vi.fn() };
-    });
-  }
-
-  afterEach(() => fs.rmSync(config.pendingDir, { recursive: true, force: true }));
-
-  it('PENDING_DIR に書かれたファイルを返す(コピー元・償還は JSON に載る)', async () => {
-    legacyWrite('<html>旧</html>');
-    const { generateTemplate } = await import('../src/generate/pyTemplate.js');
-    await expect(
-      generateTemplate({ ...legacy, sourceFundCode: 'S1', isRedemption: true }),
-    ).resolves.toBe('<html>旧</html>');
-    const args = execFileMock.mock.calls[0][1] as string[];
-    expect(JSON.parse(args[args.length - 1])).toMatchObject({
-      sourceFundCode: 'S1',
-      isRedemption: true,
-    });
-  });
-
-  it('書かれていない・空・規約外のコピー元は失敗にする', async () => {
-    const { generateTemplate } = await import('../src/generate/pyTemplate.js');
-    legacyWrite(null);
-    await expect(generateTemplate(legacy)).rejects.toThrow(/書き出していません/);
-    legacyWrite('  ');
-    await expect(generateTemplate(legacy)).rejects.toThrow(/空の出力/);
-    expect(() => generateTemplate({ ...legacy, sourceFundCode: '../x' })).toThrow(
-      /不正なコピー元ファンドコード/,
-    );
-  });
-});
-
 describe('実 execFile 経路', () => {
   // 他のケースは `execFile` を差し替えているため、引数の組み立てが実 API を通るかは見ていない。
   // ここだけ差し替えを外し、存在しない実行ファイルで「失敗の形」が保たれることを確かめる。

@@ -6,27 +6,12 @@
 // `loginId = request.user?.username ?? 'system'` の `?? 'system'` 側と、
 // `if (config.requireAuth) { ... }` の else 側(pending 書込をしない)を一度も踏まない。
 // web の local モード(localStorage のみ・DB 不達を前提)を模した本ファイルは user 注入を外し、
-// 生成物を返すだけで sproc の `テンプレート` にも pending にも触れないことを固定する。
+// 押した版を返すだけで sproc の `テンプレート` の台帳にも pending にも触れないことを固定する。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// 生成器(python)は本テストの対象外。本物の生成器と同じく pending/ へ書いてから、その内容を返す。
-vi.mock('../src/generate/pyTemplate.js', async () => {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  return {
-    generateTemplate: async () => {
-      const html = '<html><body><p>生成物</p></body></html>';
-      const dir = process.env.PENDING_DIR ?? '';
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(path.join(dir, 'AM01_510037_交付版.html'), html, 'utf8');
-      return html;
-    },
-  };
-});
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-generate-local-'));
 process.env.DATA_ROOT = path.join(root, 'data');
@@ -41,11 +26,37 @@ process.env.AUTH_REQUIRED = 'false';
 
 const templatesDir = path.join(root, 'data', 'templates');
 const pendingDir = path.join(root, 'data', 'pending');
+const outputDir = path.join(root, 'output');
+
+// 生成器(python)は本テストの対象外。本物の生成器と同じく output/ へ両版を書いてから返す。
+vi.mock('../src/generate/pyTemplate.js', async (importOriginal) => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  return {
+    ...(await importOriginal<typeof import('../src/generate/pyTemplate.js')>()),
+    generateTemplates: async (attrs: { companyCode: string; fundCode: string }) => {
+      const dir = path.join(process.env.DATA_ROOT ?? '', '..', 'output');
+      fs.mkdirSync(dir, { recursive: true });
+      return ['交付版', '全体版'].map((editionType) => {
+        const fileName = `${attrs.companyCode}_${attrs.fundCode}_${editionType}.html`;
+        const html = `<html><body><p>生成物 ${editionType}</p></body></html>`;
+        const file = path.join(dir, fileName);
+        fs.writeFileSync(file, html, 'utf8');
+        return {
+          fileName,
+          attributes: { companyCode: attrs.companyCode, fundCode: attrs.fundCode, editionType },
+          html,
+          path: file,
+        };
+      });
+    },
+  };
+});
 
 describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では sproc の テンプレート にも pending にも触れない', () => {
   let app: FastifyInstance;
-  // `SP.template` を呼んだ回数だけを数える。注記マスタ適用(`SP.noteMaster` の `取得`)は
-  // 生成のたび呼ばれる正当な経路なので、ここでは対象外にする。
+  // Rep1 の会社一覧の照合以外で `SP.template` を呼んだ回数だけを数える。注記マスタ適用
+  // (`SP.noteMaster` の `取得`)は生成のたび呼ばれる正当な経路なので、ここでは対象外にする。
   let templateCalls = 0;
 
   beforeAll(async () => {
@@ -56,7 +67,10 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
     const { SP } = await import('../src/db/sprocNames.js');
     const { createDeps } = await import('../src/deps.js');
     const { createSessionStub } = await import('./helpers/sessionStub.js');
-    const sproc = createSprocClient(async (sql) => {
+    const sproc = createSprocClient(async (sql, values) => {
+      if (sql.includes(SP.template) && values[0] === '委託会社一覧') {
+        return [{ 委託会社コード: 'R-AM01', 委託会社名: '会社 1', 委託会社略称: 'AM01' }];
+      }
       if (sql.includes(SP.template)) templateCalls += 1;
       return [];
     });
@@ -74,23 +88,32 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
   });
   beforeEach(() => {
     templateCalls = 0;
-    for (const d of [templatesDir, pendingDir]) {
+    for (const d of [templatesDir, pendingDir, outputDir]) {
       fs.rmSync(d, { recursive: true, force: true });
       fs.mkdirSync(d, { recursive: true });
     }
   });
 
-  it('local モードでは生成物を返すだけで、sproc の テンプレート を呼ばず、生成器が書いた pending も残さない', async () => {
+  it('押した版を返し、取り込んだファイルを output/ から消し、pending も作成記録も作らない', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/generate',
-      payload: { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' },
+      payload: {
+        companyCode: 'AM01',
+        rep1CompanyCode: 'R-AM01',
+        fundCode: '510037',
+        editionType: '全体版',
+      },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().template.html).toContain('生成物');
+    expect(res.json().template.meta.id).toBe('AM01_510037_全体版');
+    expect(res.json().template.html).toContain('生成物 全体版');
+    expect(res.json().importedIds).toEqual(['AM01_510037_交付版', 'AM01_510037_全体版']);
     expect(templateCalls).toBe(0);
     // 確定領域(`templatesDir`)へ書かないことは `generate.routes.test.ts` が認証オンで
-    // 主張する。ここは local の非到達(sproc・pending)だけを見る。
+    // 主張する。ここは local の非到達(sproc・pending・作成記録)と output/ の後始末だけを見る。
     expect(fs.readdirSync(pendingDir)).toEqual([]);
+    expect(fs.readdirSync(outputDir)).toEqual([]);
+    expect(fs.existsSync(path.join(root, 'logs', 'history', 'create.jsonl'))).toBe(false);
   });
 });

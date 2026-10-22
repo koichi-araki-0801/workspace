@@ -170,10 +170,15 @@ export async function recordPdfExport(templateId: string, loginId: string): Prom
   await appendHistory('pdf', entry);
 }
 
+/**
+ * 作成を 1 件記録する。`requestedFundCode` は組入先として取り込んだときだけ渡す(作成画面で
+ * 選んだファンド。どの作成で入ったかを後から辿るため)。
+ */
 export async function recordCreate(
   attributes: TemplateAttributes,
   sourceFundCode: string | undefined,
   loginId: string,
+  requestedFundCode?: string,
 ): Promise<void> {
   const entry: CreateHistoryEntry = {
     id: `ch-${randomUUID()}`,
@@ -181,6 +186,7 @@ export async function recordCreate(
     user: loginId,
     timestamp: new Date().toISOString(),
     ...(sourceFundCode === undefined ? {} : { sourceFundCode }),
+    ...(requestedFundCode === undefined ? {} : { requestedFundCode }),
   };
   await appendHistory('create', entry);
 }

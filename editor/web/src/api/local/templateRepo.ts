@@ -412,7 +412,11 @@ export const localTemplateRepo: TemplateRepository = {
       });
       write(K.createHist, createHist);
       // 新規生成 skeleton には静的 fill が無い。editor が 1 つ描画する。
-      return delay({ template: { meta, html: baseHtml, css, filled: '' } });
+      return delay({
+        template: { meta, html: baseHtml, css, filled: '' },
+        importedIds: [id],
+        skipped: [],
+      });
     }),
 
   saveDraft: (req: SaveDraftRequest) =>
