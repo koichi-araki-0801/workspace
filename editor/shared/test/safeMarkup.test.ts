@@ -70,12 +70,19 @@ describe('isAllowedSafeMarkup — 生で置いてよい形か(疑わしければ
     '<table><tr><td colspan=2>1</td></tr></table>',
     '<span style="color: red; font-weight: bold">x</span>',
     '<FONT COLOR="red">x</FONT>',
-    'a -- b > c " d \' e & f',
+    'a -- b > c & f',
     '',
   ])('%s は通す', (html) => {
     expect(isAllowedSafeMarkup(html)).toBe(true);
   });
   it.each([
+    ['地の文の二重引用符', '" onmouseover="x'],
+    ['地の文の一重引用符', "a ' b"],
+    ['地の文のバッククォート', 'a ` b'],
+    ['style の CSS 関数(src)', '<span style="src(x)">x</span>'],
+    ['style の CSS 関数(image)', '<span style="background: image(x)">x</span>'],
+    ['style の CSS 関数(cross-fade)', '<span style="background: cross-fade(a, b)">x</span>'],
+    ['style の @', '<span style="@import x">x</span>'],
     ['イベント属性', '<b onclick="alert(1)">x</b>'],
     ['`/` で区切ったイベント属性', '<img/src=x/onerror=alert(1)>'],
     ['許可していない要素', '<img src="x">'],

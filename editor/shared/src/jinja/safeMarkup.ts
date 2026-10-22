@@ -101,16 +101,20 @@ const END_TAG_RE = new RegExp(`</([A-Za-z][A-Za-z0-9]*)${WS}*>`, 'y');
 const ATTR_RE = new RegExp(ATTR, 'g');
 
 /**
- * style の値は CSS の外部参照・エスケープ・実体参照(`&#117;rl(` で `url(` を隠す)を持たないものだけ。
- * 持てば判定をやめてエスケープする側に倒す。
+ * style の値に使える文字(許可リスト)。括弧を入れないので CSS の関数(`url(` `src(` `image(`
+ * `cross-fade(` `rgb(` など)は一律に通らず、`\`(CSS のエスケープ)・`&`(実体参照で `url(` を隠す)・
+ * `@` も通らない。外れたら判定をやめてエスケープする側に倒す。
  */
-const UNSAFE_STYLE_RE = /url\s*\(|image-set|expression|@import|[\\&<>]/i;
+const SAFE_STYLE_RE = /^[\p{L}\p{N}\t\n\f\r #%.,:;!'-]*$/u;
+
+/** 属性値の引用符を外す(`ATTR` の値は引用符つきか英数字だけ)。 */
+const unquote = (v: string) => (/^["']/.test(v) ? v.slice(1, -1) : v);
 
 function attrsAllowed(attrs: string): boolean {
   for (const m of attrs.matchAll(ATTR_RE)) {
     const name = m[1].toLowerCase();
     if (!ALLOWED_ATTRS.has(name)) return false;
-    if (name === 'style' && UNSAFE_STYLE_RE.test(m[2] ?? '')) return false;
+    if (name === 'style' && !SAFE_STYLE_RE.test(unquote(m[2] ?? ''))) return false;
   }
   return true;
 }
@@ -119,11 +123,18 @@ function attrsAllowed(attrs: string): boolean {
  * `html` を生で置いてよい形か: 許可したタグ・属性だけの、対応の取れた断片(上の冒頭の説明)。
  * 外れたら false(呼び出し側がエスケープする)。
  */
+/**
+ * 地の文の引用符。テキストの位置に置く限り無害だが、位置の判定を誤ったときに属性値を抜ける文字なので、
+ * 疑わしければエスケープする側に倒す。
+ */
+const QUOTE_RE = /["'`]/;
+
 export function isAllowedSafeMarkup(html: string): boolean {
   const stack: string[] = [];
   let i = 0;
   while (i < html.length) {
     const lt = html.indexOf('<', i);
+    if (QUOTE_RE.test(html.slice(i, lt < 0 ? html.length : lt))) return false;
     if (lt < 0) break;
     END_TAG_RE.lastIndex = lt;
     const end = END_TAG_RE.exec(html);

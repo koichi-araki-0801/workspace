@@ -85,14 +85,18 @@ export class Filler {
     if (!was && this.exhausted) this.fail(OUTPUT_LIMIT_NOTE);
   }
 
-  private output(expr: string, ctx: JinjaCtx): unknown {
+  /**
+   * 式を評価して文字列にする。文字列化も評価の量と長さの上限を数えるので(並びの倍化で伸ばせる)、
+   * 同じ try の中で行い、上限を超えたら他の解釈できない式と同じく空にして数える。
+   */
+  private output(expr: string, ctx: JinjaCtx): { v: unknown; s: string } {
     try {
       const v = evaluateJinjaExpr(expr, ctx, this.budget);
       if (v === undefined || v === null) this.missing.add(expr);
-      return v;
+      return { v, s: stringifyJinjaValue(v, this.budget) };
     } catch {
       this.fail(expr);
-      return undefined;
+      return { v: undefined, s: '' };
     }
   }
 
@@ -104,8 +108,7 @@ export class Filler {
    */
   html(expr: string, ctx: JinjaCtx, escapeText: (s: string) => string = escapeHtmlFull): string {
     if (this.exhausted) return '';
-    const v = this.output(expr, ctx);
-    const s = stringifyJinjaValue(v);
+    const { v, s } = this.output(expr, ctx);
     let out: string;
     if (!isJinjaSafe(v)) out = escapeText(s);
     else if (isAllowedSafeMarkup(s)) {

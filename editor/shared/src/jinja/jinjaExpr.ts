@@ -194,9 +194,9 @@ function lookupMember(obj: unknown, key: string | number): unknown {
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof SafeHtml);
 
-/** 値を文字列として扱う(`safe` の印は外す)。 */
+/** 値を文字列として扱う(`safe` の印は外す)。長さと評価の量は `jsString` が数える。 */
 function asText(v: unknown): string {
-  return v instanceof SafeHtml ? v.toString() : stringifyJinjaValue(v);
+  return stringifyJinjaValue(v);
 }
 
 /** フィルタが並びとして読む値。Jinja の `list(value)` と同じく文字列は文字、dict はキーの並び。 */
@@ -238,6 +238,88 @@ export class JinjaBudget {
     if (this.used > MAX_WORK) throw new JinjaExprError('評価の量が上限を超えました');
   }
 }
+
+/**
+ * 評価中の式の評価の量。フィルタ・テストの表(`FILTERS` / `TESTS`)の引数を値だけに保つため、評価器が
+ * 同期で動く(途中で別の評価が割り込まない)ことを使い、`withBudget` の間だけここに置く。
+ */
+let activeBudget: JinjaBudget | null = null;
+
+function withBudget<T>(budget: JinjaBudget, run: () => T): T {
+  const prev = activeBudget;
+  activeBudget = budget;
+  try {
+    return run();
+  } finally {
+    activeBudget = prev;
+  }
+}
+
+function chargeActive(units: number): void {
+  activeBudget?.charge(units);
+}
+
+/** 入れ子の深さの上限。値データの木はこれより浅く、namespace の自己参照で止まらなくしない。 */
+const MAX_DEPTH = 64;
+
+/** 並びの入れ子の要素の数の覚え書き。並びは評価器の中で書き換わらないので覚えてよい。 */
+const DEEP_SIZE = new WeakMap<object, number>();
+
+/**
+ * 入れ子を含めた要素の数。`[a, a]` を重ねると参照の数は倍々に増え、文字列化・ループの展開で
+ * そのぶんの仕事になるので、並びを作るたびにこれを評価の量に数える。上限を超えたら throw。
+ */
+function deepSize(v: unknown, cap: number = MAX_WORK, depth = 0): number {
+  if (typeof v !== 'object' || v === null || v instanceof SafeHtml) return 1;
+  if (depth > MAX_DEPTH) throw new JinjaExprError('値の入れ子が深すぎます');
+  if (Array.isArray(v)) {
+    const hit = DEEP_SIZE.get(v);
+    if (hit !== undefined) return hit;
+  }
+  let n = 1;
+  for (const e of Array.isArray(v) ? v : Object.values(v)) {
+    n += deepSize(e, cap - n, depth + 1);
+    if (n > cap) throw new JinjaExprError('値が大きすぎます');
+  }
+  if (Array.isArray(v)) DEEP_SIZE.set(v, n);
+  return n;
+}
+
+const isObjectValue = (v: unknown): v is object => typeof v === 'object' && v !== null;
+
+/**
+ * JS の文字列化(`String(v)`)と同じ結果を、長さの上限と評価の量を数えながら作る。並びは要素を `,`
+ * でつなぎ(null / undefined は空)、dict は `[object Object]`。値の object に置かれた `toString` は
+ * 呼ばない。`+`・比較・フィルタの文字列化はすべてここを通す(`[a, a]` の倍化で止まらなくしない)。
+ */
+function jsString(v: unknown): string {
+  if (!isObjectValue(v)) return String(v);
+  if (v instanceof SafeHtml) return v.toString();
+  if (!Array.isArray(v)) return '[object Object]';
+  const parts: string[] = [];
+  let len = 0;
+  const add = (s: string) => {
+    len += s.length;
+    if (len > MAX_STRING_LENGTH) throw new JinjaExprError('文字列が長すぎます');
+    chargeActive(s.length);
+    parts.push(s);
+  };
+  const visit = (a: readonly unknown[], depth: number) => {
+    if (depth > MAX_DEPTH) throw new JinjaExprError('値の入れ子が深すぎます');
+    for (let i = 0; i < a.length; i++) {
+      if (i > 0) add(',');
+      const e = a[i];
+      if (e === null || e === undefined) continue;
+      if (Array.isArray(e)) visit(e, depth + 1);
+      else add(jsString(e));
+    }
+  };
+  visit(v, 0);
+  return parts.join('');
+}
+
+/** 算術・比較の前に object を JS と同じ文字列へ直す(長さと評価の量を数える)。 */
+const toPrimitive = (v: unknown): unknown => (isObjectValue(v) ? jsString(v) : v);
 
 /** 仕事の量として数える値の大きさ(並び・文字列は要素数、dict はキーの数)。 */
 function sizeOf(v: unknown): number {
@@ -428,7 +510,9 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
 const TESTS: Readonly<Record<string, (value: unknown, ...args: unknown[]) => boolean>> = allowlist({
   defined: (v) => v !== undefined,
   equalto: (v, other) => v === other,
+  // 1 回ごとに右辺の大きさを数える(`select("in", 長い並び)` は要素数の掛け算の仕事になる)。
   in: (v, seq) => {
+    chargeActive(1 + sizeOf(seq));
     if (Array.isArray(seq)) return seq.includes(v);
     if (typeof seq === 'string' || seq instanceof SafeHtml) {
       if (typeof v !== 'string') throw new JinjaExprError('文字列の in は文字列だけを探せます');
@@ -441,7 +525,9 @@ const TESTS: Readonly<Record<string, (value: unknown, ...args: unknown[]) => boo
 
 function lookupTest(name: unknown): (value: unknown, ...args: unknown[]) => boolean {
   if (typeof name !== 'string' || !Object.hasOwn(TESTS, name)) {
-    throw new JinjaExprError(`許可していないテスト: ${String(name)}`);
+    throw new JinjaExprError(
+      `許可していないテスト: ${typeof name === 'string' ? name : typeof name}`,
+    );
   }
   return TESTS[name];
 }
@@ -627,13 +713,10 @@ class Parser {
     let left = this.parseMultiplicative();
     for (;;) {
       if (this.eat('op', '+')) {
-        left = (left as number) + (this.parseMultiplicative() as number);
-        if (typeof left === 'string') {
-          if (left.length > MAX_STRING_LENGTH) throw new JinjaExprError('文字列が長すぎます');
-          this.budget.charge(left.length);
-        }
+        left = addOp(left, this.parseMultiplicative());
+        if (typeof left === 'string') this.budget.charge(left.length);
       } else if (this.eat('op', '-'))
-        left = (left as number) - (this.parseMultiplicative() as number);
+        left = (toPrimitive(left) as number) - (toPrimitive(this.parseMultiplicative()) as number);
       else break;
     }
     return left;
@@ -654,8 +737,8 @@ class Parser {
   /** Jinja の `parse_unary` と同じく、単項の後にフィルタ・テストを重ねる(`-x|f` は `(-x)|f`)。 */
   private parseUnary(withFilter = true): unknown {
     let value: unknown;
-    if (this.eat('op', '-')) value = -(this.parseUnary(false) as number);
-    else if (this.eat('op', '+')) value = +(this.parseUnary(false) as number);
+    if (this.eat('op', '-')) value = -(toPrimitive(this.parseUnary(false)) as number);
+    else if (this.eat('op', '+')) value = +(toPrimitive(this.parseUnary(false)) as number);
     else value = this.parsePostfix();
     return withFilter ? this.parseFilterExpr(value) : value;
   }
@@ -677,7 +760,10 @@ class Parser {
     const args = bindFilterArgs(name, spec, call);
     if (this.dead > 0) return undefined;
     this.budget.charge(1 + sizeOf(value));
-    return spec.apply(value, ...args);
+    const result = spec.apply(value, ...args);
+    // batch / slice の fill_with などで同じ値への参照を並べられるので、作った並びは入れ子ごと数える。
+    if (Array.isArray(result)) this.budget.charge(deepSize(result));
+    return result;
   }
 
   /** `x is [not] name` / `x is name(args)`。括弧なしの引数(`is divisibleby 3`)は受けない。 */
@@ -770,7 +856,10 @@ class Parser {
       if (this.eat('op', ']')) return items;
       for (;;) {
         items.push(this.parseOr());
-        if (this.eat('op', ']')) return items;
+        if (this.eat('op', ']')) {
+          if (this.dead === 0) this.budget.charge(deepSize(items));
+          return items;
+        }
         this.expect('op', ',');
       }
     }
@@ -816,8 +905,28 @@ class Parser {
   }
 }
 
-/** nunjucks の `compareOps` と同じ演算子へ委譲する(`==` は緩い比較のまま)。 */
-function compareOp(op: string, a: unknown, b: unknown): boolean {
+/**
+ * `+`。JS と同じく、片方が文字列か object なら文字列の連結、そうでなければ数の加算。文字列化は
+ * `jsString` が長さを数える。
+ */
+function addOp(a: unknown, b: unknown): unknown {
+  if (isObjectValue(a) || isObjectValue(b) || typeof a === 'string' || typeof b === 'string') {
+    const s = jsString(a) + jsString(b);
+    if (s.length > MAX_STRING_LENGTH) throw new JinjaExprError('文字列が長すぎます');
+    return s;
+  }
+  return (a as number) + (b as number);
+}
+
+/**
+ * nunjucks の `compareOps` と同じ演算子へ委譲する(`==` は緩い比較のまま)。object 同士の
+ * `==` / `!=` は JS と同じく同一性で比べ、それ以外は object を `jsString` で文字列に直してから比べる
+ * (JS が暗黙に行う文字列化を、長さを数える側で先に済ませる)。
+ */
+function compareOp(op: string, x: unknown, y: unknown): boolean {
+  const identity = (op === '==' || op === '!=') && isObjectValue(x) && isObjectValue(y);
+  const a = identity ? x : toPrimitive(x);
+  const b = identity ? y : toPrimitive(y);
   switch (op) {
     case '==':
       // biome-ignore lint/suspicious/noDoubleEquals: Jinja の `==` は緩い比較で、nunjucks も `==` を吐く。厳密比較にすると `'0' == 0` の判定が変わる。
@@ -838,8 +947,8 @@ function compareOp(op: string, a: unknown, b: unknown): boolean {
 
 /** nunjucks の `compileMul` 系が吐く JS と同じ結果にする。 */
 function arithmeticOp(op: string, a: unknown, b: unknown): number {
-  const x = a as number;
-  const y = b as number;
+  const x = toPrimitive(a) as number;
+  const y = toPrimitive(b) as number;
   switch (op) {
     case '*':
       return x * y;
@@ -866,7 +975,7 @@ export function evaluateJinjaExpr(
   ctx: JinjaCtx,
   budget: JinjaBudget = new JinjaBudget(),
 ): unknown {
-  return new Parser(tokenize(src), ctx, budget).parseAll();
+  return withBudget(budget, () => new Parser(tokenize(src), ctx, budget).parseAll());
 }
 
 const LITERAL_NAMES = new Set(['true', 'True', 'false', 'False', 'none', 'None', 'null']);
@@ -896,7 +1005,12 @@ export function assignJinjaSet(
   if (tokens[at]?.type !== 'op' || tokens[at].value !== '=') {
     throw new JinjaExprError('代入の = が必要です');
   }
-  const value = new Parser(tokens.slice(at + 1), ctx, budget).parseAll();
+  const value = withBudget(budget, () => {
+    const v = new Parser(tokens.slice(at + 1), ctx, budget).parseAll();
+    // 代入した値はループと文字列化で何度も使われるので、入れ子ごとの大きさを数える。
+    budget.charge(deepSize(v));
+    return v;
+  });
   if (attr === null) {
     defineOwn(ctx, target.value, value);
     return;
@@ -913,7 +1027,7 @@ export function assignJinjaSet(
  * (autoescape 無効)+ 文字列連結と同じ規則: null / undefined は空文字、それ以外は
  * JS の文字列化(配列は `a,b`、オブジェクトは `[object Object]`)。`safe` の値は元の HTML。
  */
-export function stringifyJinjaValue(value: unknown): string {
+export function stringifyJinjaValue(value: unknown, budget?: JinjaBudget): string {
   if (value === null || value === undefined) return '';
-  return String(value);
+  return budget ? withBudget(budget, () => jsString(value)) : jsString(value);
 }

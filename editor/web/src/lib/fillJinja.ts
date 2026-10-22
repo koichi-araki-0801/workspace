@@ -362,6 +362,7 @@ export function toFilledWithDiagnostics(
   parse: HtmlParser = defaultHtmlParser,
 ): { html: string; diagnostics: FillDiagnostics } {
   const f = new Filler();
+  const fillers = [f];
   const a = analyzeFill(raw);
   // `set` は文脈へ代入するので、描くたびに複製から始める(渡されたサンプルを書き換えず、自己検査の
   // 後の描き直しにも 1 回目の代入を持ち込まない)。
@@ -382,7 +383,11 @@ export function toFilledWithDiagnostics(
     };
     html = f.finalize(emitRange(e, a.parse.nodes, 0, raw.length, freshCtx(), NO_ROWS));
     if (!roundTripsToOriginal(raw, emitHook ? emitHook(html) : html, parse)) {
-      html = f.finalize(emitWholeBody(raw, a, freshCtx(), f));
+      // 描き直しは新しい Filler で行う(1 回目で使った評価の量・繰り返し・出力の上限を持ち越すと、
+      // 本文全体を固めた表示だけが上限で欠ける)。診断は両方を合わせて返す。
+      const redraw = new Filler();
+      html = redraw.finalize(emitWholeBody(raw, a, freshCtx(), redraw));
+      fillers.push(redraw);
       selfCheckFailed = true;
     }
   }
@@ -391,8 +396,8 @@ export function toFilledWithDiagnostics(
   return {
     html,
     diagnostics: {
-      unsupported: [...f.unsupported],
-      missing: [...f.missing],
+      unsupported: [...new Set(fillers.flatMap((x) => [...x.unsupported]))],
+      missing: [...new Set(fillers.flatMap((x) => [...x.missing]))],
       frozen,
       structureError: a.parse.ok ? null : a.parse.error.message,
     },

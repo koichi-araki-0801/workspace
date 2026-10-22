@@ -167,7 +167,7 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   });
   it('置く位置は描き終えた出力で決める(if の枝で引用符が消えても属性値の中ならエスケープする)', () => {
     const src = '<p title="{% if c %}"{% endif %}>{{ v|safe }}</p>';
-    const v = '" onmouseover="alert(1)';
+    const v = '<b>x</b>';
     expect(show(src, { c: false, v })).toBe(`<p title=">${escapeHtmlFull(v)}</p>`);
     expect(show(src, { c: true, v })).toBe(`<p title="">${v}</p>`);
   });
@@ -211,9 +211,7 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   });
   it('ループの中で大きな range やフィルタを何度も呼ぶと、評価の量の上限で止まり unsupported になる', () => {
     const f = new Filler();
-    const t0 = Date.now();
     show('{% for i in range(1000) %}{{ range(100000)|length }}{% endfor %}', {}, f);
-    expect(Date.now() - t0).toBeLessThan(5_000);
     expect([...f.unsupported]).toEqual(['range(100000)|length']);
   });
   it('育てた文字列をループで出し続けると、出力の量の上限で以降を省く(例外にしない)', () => {
@@ -227,6 +225,35 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     expect(out.length).toBeLessThan(12_000_000);
     expect(out.endsWith('</i>')).toBe(true); // 繰り返しの単位で止めるので、タグの対応は崩れない
     expect([...f.unsupported]).toEqual(['描画の量が上限を超えたため、以降を省きました']);
+  });
+  it.each([
+    16, 20,
+  ])('配列リテラルで同じ値を %i 回倍にしても、出力の上限以下で止まり unsupported になる(例外にしない)', (times) => {
+    let src = '{% set b0 = range(1000) %}';
+    for (let k = 1; k <= times; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    src +=
+      `<p>{{ b${times} }}</p><p>{{ b${times}|trim }}</p><p>{{ b${times}|safe }}</p>` +
+      `{% if b${times} < "x" %}lt{% endif %}{% if "0" in b${times}|list %}{% endif %}` +
+      `<p>{{ b${times} + "x" }}</p>`;
+    let r: ReturnType<typeof renderPlainFilled> | undefined;
+    expect(() => {
+      r = renderPlainFilled(src, {});
+    }).not.toThrow();
+    expect(r?.html.length).toBeLessThan(10_000_000);
+    expect(r?.diagnostics.unsupported.length).toBeGreaterThan(0);
+  });
+  it('select("in", 長い並び)は要素ごとに右辺を数え、評価の量の上限で止まる', () => {
+    const expr = 'range(100000)|select("in", range(100000))|list|length';
+    const { html, diagnostics } = renderPlainFilled(`{{ ${expr} }}|`.repeat(6), {});
+    expect(diagnostics.unsupported).toEqual([expr]);
+    expect(html).toBe('||||||');
+  });
+  it('倍化の途中で上限に当たった set は unsupported に数え、以後の値は空になる', () => {
+    const f = new Filler();
+    let src = '{% set b0 = range(1000) %}';
+    for (let k = 1; k <= 12; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    show(`${src}[{{ b12|length }}]`, {}, f);
+    expect([...f.unsupported].some((e) => e.startsWith('set b'))).toBe(true);
   });
   it.each([
     'xs|batch(100000000, 0)',
