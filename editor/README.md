@@ -183,6 +183,8 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `PY_GENERATE_SCRIPT` | `server/scripts/fake_generate_template.py` | 生成器のスクリプト（既定はテスト用の偽物。本番は既存の生成器を指す） |
 | `PY_GENERATE_SCRIPT_SHA256` | なし | 生成器のスクリプトの SHA256。設定すると生成のたびに照合する |
 | `GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` | 2 / 8 | 生成の同時実行と待ち行列の上限 |
+| `PY_TIMEOUT_MS` | 300000（5 分。上限 600000） | 生成器 1 回のタイムアウト（ms） |
+| `GENERATE_MAX_OUTPUT_FILES` | 50 | 1 回の作成で取り込む出力ファイルの上限（appconfig の `python.maxOutputFiles`） |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
 REST モード（`start.bat rest`）で効く認証/DB 系:

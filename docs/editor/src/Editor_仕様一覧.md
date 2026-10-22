@@ -1,7 +1,7 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "1.6"
+version: "1.7"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
@@ -9,10 +9,11 @@ rev:
   - 1.3 | 2026-10-03 | 作成タブの候補を Rep1 のファンド属性へ（companies / funds / creatable）、sproc `シリーズ` 追加、テンプレート台帳と `/templates/series` の削除
   - 1.4 | 2026-10-03 | テンプレートの ID から基準日を外す（作成タブの基準日の項目を削除、既存・作成中を開くボタン、creatable の templateId / inProgressId、generate の 409 の 3 種類と replaceExisting）
   - 1.5 | 2026-10-05 | Template の cssMissing、申請の fundCode の削除と cssBaseline の追加、同期状態の CSS の競合、build の singleDoc の扱い
+  - 1.7 | 2026-10-23 | 生成 API を 1 回の作成で両版と組入先を取り込む形へ（GenerateRequest の rep1CompanyCode、GenerateResult の importedIds / skipped、409・400 の条件）
   - 1.6 | 2026-10-08 | パーツカタログの対象版種と分類の英名、パーツ一覧と分類候補の版種による絞り込み（`@版種` と `editionType`）
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.6 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.7 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -23,9 +24,9 @@ rev:
 | 3 | PW初期化 | 新パスワード | `password` | `string` | ○ | mustChangePassword=true のとき必須。/auth/init-password で確定 |
 | 4 | テンプレート作成 | 委託会社 | `companyCode` | `string` | ○ | ドロップダウン（/templates/companies）。表示は「略称（委託会社コード）」、値はファイル名の会社コード（Rep1 の委託会社略称）。略称の前方一致か委託会社コードでも絞れる |
 | 5 | テンプレート作成 | ファンド | `fundCode` | `string` | ○ | ドロップダウン（/templates/funds。会社を選ぶと Rep1 の委託会社コードで一括取得）。表示は「コード 名称」 |
-| 6 | テンプレート作成 | 版種 | `editionType` | `string` | ○ | ドロップダウン（交付版 / 全体版の 1 つ） |
+| 6 | テンプレート作成 | 版種 | `editionType` | `string` | ○ | ドロップダウン（交付版 / 全体版の 1 つ）。作成後に開く版で、生成は両版とも行う |
 | 7 | テンプレート作成 | コピー元ファンド | `sourceFundCode` | `string` |  | シリーズから作成するときに、同じシリーズの候補（/templates/creatable）から選ぶ。コピー元のテンプレートが無い候補は警告し作成不可 |
-| 8 | テンプレート作成 | 償還 | `isRedemption` | `boolean` |  | 償還ファンドとして作成。生成器へパラメータとして渡す |
+| 8 | テンプレート作成 | 償還 | `isRedemption` | `boolean` |  | 償還ファンドとして作成。生成器へ末尾の位置引数 `1` として渡す（コピー元が無いときは、コピー元の位置に空文字を入れる） |
 | 9 | テンプレート作成 | 既存のテンプレートを開く | — | ボタン |  | 作成済み（/templates/creatable の created=true）のときだけ表示。templateId を作成経路（?created=1）の編集画面で開く。このとき「属性から新規作成」「既存のシリーズを元に作成」は押せない |
 | 10 | テンプレート作成 | 作成中のテンプレートを開く | — | ボタン |  | 作成中（/templates/creatable の inProgressId あり）のときだけ表示。inProgressId を作成経路で開く。新規作成・シリーズから作成は押せるが、「作業中の内容を捨てて作り直しますか」と確認し、同意したら replaceExisting=true で生成する |
 | 11 | ユーザー管理 | ユーザーID | `username` | `string` | ○ | validateNewUser: 必須・パターン・重複（大小無視）チェック |
@@ -58,7 +59,7 @@ rev:
 | 15 | `GET` | `/templates/:id/sync-status` | ○ | id | 交付版⇄全体版パーツ同期の状態（パーツの競合と、テンプレの CSS の競合 cssConflicts、ペアから写した Jinja パーツのうちこの版で値を確かめてほしいもの valueChecks） |
 | 16 | `GET` | `/templates/:id/sample-data` | ○ | id（3 区切り・4 区切り） | SampleDataResult（共通サンプル + Rep1 の実名、合成の warnings） |
 | 17 | `GET` | `/templates/:id/values` | ○ | id（4 区切り。編集タブのテンプレート） | TemplateValues（found = `<dataRoot>/json/<ID>.json` があったか、values = その中身。無ければ found: false と空。挿入する Jinja パーツの描画に使う） |
-| 18 | `POST` | `/generate` | editor | GenerateRequest（companyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。生成される id は `会社_ファンド_版種`（基準日なし）。作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、同じ id の下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（テンプレート骨子 + draft） |
+| 18 | `POST` | `/generate` | editor | GenerateRequest（companyCode, rep1CompanyCode, fundCode, editionType, sourceFundCode?, isRedemption?, replaceExisting?）。1 回の作成で、選んだファンドの交付版・全体版の両方と、生成器が書き出した組入先を取り込む（editionType は作成後に開く版）。生成される id は `会社_ファンド_版種`（基準日なし）。companyCode と rep1CompanyCode が Rep1 で同じ会社の組でなければ 400。生成器へは基準日（日本時間の当日。土日は直前の金曜）を editor が渡す。選んだファンドは、どちらかの版が作成済みなら 409「作成済みです。既存のテンプレートを開いてください」、承認待ちの作成申請があれば 409「申請中です。承認か却下を待ってください」、下書きか pending があり replaceExisting が無ければ 409「作成中のテンプレートがあります」（replaceExisting があれば両版をまとめて置き換える）。組入先は版ごとに、作成済み・申請中・作業中のどれも無いものだけを取り込み、あるものは skipped に載せる（replaceExisting は効かない）。生成器が失敗した・出力の検査に外れた（会社違い・片版欠け・本数超過など）ときは何も取り込まない。同じ会社の作成は 1 本ずつ実行する。下書きと pending は生成の成功後に捨てる。sourceFundCode のコピー元テンプレートが無ければ 400 | GenerateResult（template = 押した版のテンプレート骨子 + draft、importedIds = 取り込んだ id、skipped = 取り込まなかった組入先と理由） |
 | 19 | `GET` | `/parts` | ○ | 分類フィルタ、editionType（任意。編集中テンプレートの版種）、companyCode（任意。編集中テンプレートの Rep1 の委託会社コード。指定時は一致するパーツだけ） | PartCatalogItem[]（対象版種 `targetEdition`・委託会社コード `companyCode` を含む） |
 | 20 | `GET` | `/parts/classification-options` | ○ | editionType・companyCode（任意。分類ドロップダウン候補の絞り込み。扱いは `/parts` と同じ） | 分類ドロップダウン候補 |
 | 21 | `GET` | `/templates/:templateId/part-history` | ○ | templateId | パーツ変更履歴 |

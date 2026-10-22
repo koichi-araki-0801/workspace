@@ -2,20 +2,20 @@
 // create.spec.ts — 作成タブの属性選択から ?created=1 の編集画面へ到達することの回帰網
 // =============================================================================
 // 「属性から新規作成」は `POST /api/generate`(Python 生成器。テスト用の偽物 `server/scripts/fake_generate_template.py`)
-// を経て `pending/` に置かれ、そのうえで編集画面へ遷移する。作成経路(?created=1)= 差し込み値
+// を経て、作成画面のファンドの交付版・全体版の両方が `pending/` に置かれ、押した版の編集画面へ遷移する。作成経路(?created=1)= 差し込み値
 // ハイライト有りであることを実画面で固定する(設計正典「編集 2 系統」)。編集画面へは作成の操作で
 // 遷移するので、`openEditor`(URL を開く)へは委ねず遷移先で直接 canvas を待つ。
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Page } from '@playwright/test';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
 import { login } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
-test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集画面が開きハイライトが出る', async ({
-  page,
-}) => {
+/** 作成タブで AM01 / 510037 と版種を選び、「属性から新規作成」を押す。 */
+async function createFund510037(page: Page, edition: '交付版' | '全体版'): Promise<void> {
   await login(page);
   await page.goto('/create', { waitUntil: 'commit' });
   await page.getByText('作成するファンドを指定').first().waitFor();
@@ -28,21 +28,45 @@ test('作成タブ: 属性を選んで新規作成すると ?created=1 の編集
   // Select トリガの accessible name はプレースホルダ span の中身に付かないため
   // (`getByRole('combobox', { name: ... })` は空名でマッチしない)、表示文字列での絞り込みにする。
   await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
-  await page.getByRole('option', { name: '交付版', exact: true }).click();
+  await page.getByRole('option', { name: edition, exact: true }).click();
 
   // 作成済みの判定は templates/ の 3 つ区切りのファイルだけ。e2e の seed は templates/ を空で始めるので注意は出ない。
   await expect(page.getByText('テンプレートは作成済みです')).toHaveCount(0);
   await page.getByRole('button', { name: '属性から新規作成' }).click();
+}
+
+test('作成タブ: 属性を選んで新規作成すると両版ができ、押した版の ?created=1 の編集画面が開きハイライトが出る', async ({
+  page,
+}) => {
+  await createFund510037(page, '交付版');
 
   await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
   const url = new URL(page.url());
   expect(decodeURIComponent(url.pathname)).toBe('/edit/AM01_510037_交付版');
+
+  // 1 回の作成で両版が pending/ に入る。
+  const pendingDir = path.join(E2E_REST_DATA_ROOT, 'pending');
+  for (const edition of ['交付版', '全体版']) {
+    expect(fs.existsSync(path.join(pendingDir, `AM01_510037_${edition}.html`))).toBe(true);
+  }
 
   // 生成器のスケルトンは最小の帳票 1 枚(`fake_generate_template.py`)なので、canvas の描画完了は
   // 見出し要素で待つ。
   const frame = page.frameLocator('iframe.gjs-frame');
   await frame.locator('.report-title').first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.locator('body')).toHaveClass(/jinja-vars-highlight/, { timeout: 15_000 });
+});
+
+test('作成タブ: 全体版を選んで作成すると、全体版の編集画面が開く', async ({ page }) => {
+  await createFund510037(page, '全体版');
+
+  await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
+  expect(decodeURIComponent(new URL(page.url()).pathname)).toBe('/edit/AM01_510037_全体版');
+  const frame = page.frameLocator('iframe.gjs-frame');
+  await frame.locator('.report-title').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await expect(frame.locator('body')).toHaveClass(/jinja-vars-highlight/, { timeout: 15_000 });
+  const pendingDir = path.join(E2E_REST_DATA_ROOT, 'pending');
+  expect(fs.existsSync(path.join(pendingDir, 'AM01_510037_交付版.html'))).toBe(true);
 });
 
 test('作成タブ: 作成済みなら「既存のテンプレートを開く」で作成経路の編集画面を開き、基準日を出さない', async ({
