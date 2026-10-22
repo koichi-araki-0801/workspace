@@ -150,6 +150,13 @@ export const SampleDataResult = z
   })
   .meta({ id: 'SampleDataResult' });
 
+export const TemplateValues = z
+  .object({
+    found: z.boolean().meta({ description: '値ファイル(json)があったか。無ければ false' }),
+    values: SampleData.meta({ description: '値ファイルの中身。found が false なら空' }),
+  })
+  .meta({ id: 'TemplateValues' });
+
 // ── 3. Users / auth — ユーザと認証 ──
 
 export const UserRole = z.enum(['admin', 'approver', 'editor', 'viewer']).meta({

@@ -895,6 +895,58 @@
         }
       }
     },
+    "/templates/{id}/values": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "編集タブの値ファイル(dataRoot/json/<ID>.json。4 区切りの ID だけ)",
+        "description": "ファイルが無いときは 404 ではなく found: false と空の values を返す。",
+        "operationId": "getTemplateValues",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "値ファイルの中身",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateValues"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/parts/classification-options": {
       "get": {
         "tags": [
@@ -3880,6 +3932,24 @@
         },
         "additionalProperties": {},
         "description": "プレビュー用サンプルデータ(任意の JSON)"
+      },
+      "TemplateValues": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "値ファイル(json)があったか。無ければ false"
+          },
+          "values": {
+            "description": "値ファイルの中身。found が false なら空",
+            "$ref": "#/components/schemas/SampleData"
+          }
+        },
+        "required": [
+          "found",
+          "values"
+        ],
+        "additionalProperties": false
       },
       "PartClassificationOptions": {
         "type": "object",

@@ -10,6 +10,7 @@ import {
   type DropdownQuery,
   type PartCatalogItem,
   parseAnyTemplateFileName,
+  type SampleData,
   type TemplateMeta,
   templateIdFromFileName,
   type User,
@@ -44,6 +45,12 @@ const filledFiles = import.meta.glob('../fixtures/filled/*.html', {
   query: '?raw',
   import: 'default',
 }) as Record<string, string>;
+
+// 編集タブの値ファイル(server の `<dataRoot>/json/<ID>.json`)。キーは filled と同じ ID。
+const jsonFiles = import.meta.glob('../fixtures/json/*.json', {
+  eager: true,
+  import: 'default',
+}) as Record<string, SampleData>;
 
 const cssFiles = import.meta.glob('../fixtures/css/*.css', {
   eager: true,
@@ -80,6 +87,12 @@ for (const [path, content] of Object.entries(templateFiles)) {
 export const fixtureFilled: Record<string, string> = {};
 for (const [path, content] of Object.entries(filledFiles)) {
   fixtureFilled[baseName(path)] = content;
+}
+
+/** fixtures の値ファイル。キーは `<ID>.json`(server の `json/` と同じ名前)。 */
+export const fixtureValues: Record<string, SampleData> = {};
+for (const [path, content] of Object.entries(jsonFiles)) {
+  fixtureValues[baseName(path)] = content;
 }
 
 /** fixtures の CSS。キーはファイル名(`cssFileNameOf` の出力と同じ `<会社>_<ファンド>_<版種>.css`)。 */

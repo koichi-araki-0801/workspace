@@ -59,6 +59,7 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`GET ${api(apiPaths.templateDraft)}`]: 'auth',
   [`GET ${api(apiPaths.templateSyncStatus)}`]: 'auth',
   [`GET ${api(apiPaths.templateSampleData)}`]: 'auth',
+  [`GET ${api(apiPaths.templateValues)}`]: 'auth',
   // 下書きは他人のものも触れる(所有者検査は別の根で入る)。viewer には開かない。
   [`PUT ${api(apiPaths.templateDraft)}`]: 'editor',
   [`DELETE ${api(apiPaths.templateDraft)}`]: 'editor',

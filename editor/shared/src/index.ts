@@ -35,6 +35,9 @@ export type SampleData = z.infer<typeof sch.SampleData>;
 /** 共通サンプルに Rep1 の実名を被せた値と、合成の警告。 */
 export type SampleDataResult = z.infer<typeof sch.SampleDataResult>;
 
+/** 編集タブの値ファイル(dataRoot/json/<ID>.json)。無いときは found: false と空の values。 */
+export type TemplateValues = z.infer<typeof sch.TemplateValues>;
+
 // ── 3. Domain: users / auth ──
 
 // admin = 全権 / approver = 精査者(確定保存の承認) / editor = 編集者(申請のみ) / viewer = 閲覧。

@@ -22,6 +22,7 @@ import {
   type Template,
   type TemplateDraft,
   type TemplateMeta,
+  type TemplateValues,
   templateIdFromFileName,
 } from '@editor/shared';
 import { config } from '../config.js';
@@ -41,6 +42,7 @@ import {
   templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
+import { readTemplateValues } from '../files/valuesFile.js';
 import { logger } from '../logger.js';
 import { mergeCommonSampleRows } from './commonSample.js';
 import { fileToMeta } from './templateMeta.js';
@@ -121,6 +123,7 @@ export interface TemplateRepo {
   getDraft(templateId: string): Promise<TemplateDraft | null>;
   discardDraft(templateId: string): Promise<void>;
   getSampleData(templateId: string): Promise<SampleDataResult>;
+  getTemplateValues(templateId: string): Promise<TemplateValues>;
   listCompanies(): Promise<CompanyOption[]>;
   listFunds(rep1CompanyCode: string): Promise<FundOption[]>;
   getCreatableInfo(q: {
@@ -338,6 +341,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         sample: buildSampleData(sample, master, attrs.fundCode, config.sampleOverlay),
         warnings,
       };
+    },
+
+    /** 編集タブの値ファイル。無ければ `found: false`(検査・読み取りは `valuesFile`)。 */
+    getTemplateValues(templateId) {
+      return readTemplateValues(templateId);
     },
   };
 }

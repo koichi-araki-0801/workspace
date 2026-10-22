@@ -63,6 +63,7 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         filledDir: z.string().optional(),
+        jsonDir: z.string().optional(),
         jsDir: z.string().optional(),
         imagesDir: z.string().optional(),
         draftsDir: z.string().optional(),
@@ -362,6 +363,11 @@ export const config = {
    * git 管理**内**(承認コミットに本文と一緒に載せる。管理外だと巻き戻しで本文だけが戻る)。
    */
   filledDir: resolveDataPath(process.env.FILLED_DIR, file.paths?.filledDir, 'filled'),
+  /**
+   * 編集タブの値ファイル(`<ID>.json`、4 区切りの ID)を置くディレクトリ。別ツールが置き、エディタは
+   * 読んで挿入時の描画に使うだけ。git 管理外(承認コミットの対象ではない)。
+   */
+  jsonDir: resolveDataPath(process.env.JSON_DIR, file.paths?.jsonDir, 'json'),
   /**
    * **全ファンド共通**のテンプレ JS(`js/…`)を置くディレクトリ。テンプレはこれを `js/…` の
    * 相対パスで参照し、PDF ビルド / プレビューの配信ルートへ `vivliostyle/docAssets.ts` が写す。

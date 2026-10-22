@@ -35,6 +35,7 @@ process.env.DATA_ROOT = path.join(root, 'data');
 process.env.GIT_REPO_DIR = path.join(root, 'data');
 process.env.TEMPLATES_DIR = path.join(root, 'data', 'templates');
 process.env.FILLED_DIR = path.join(root, 'data', 'filled');
+process.env.JSON_DIR = path.join(root, 'data', 'json');
 process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.DRAFTS_DIR = path.join(root, 'data', 'drafts');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
@@ -305,6 +306,26 @@ describe('templates.routes', () => {
       });
       expect(s.json().warnings).toEqual([]);
     }
+  });
+
+  it('GET /templates/:id/values: 200 / 無ければ found false / 3 区切りと不正な ID は 400 / 未ログインは 401', async () => {
+    fs.mkdirSync(process.env.JSON_DIR as string, { recursive: true });
+    fs.writeFileSync(
+      path.join(process.env.JSON_DIR as string, `${ID}.json`),
+      JSON.stringify({ fund: { code: '510037' } }),
+      'utf8',
+    );
+    const get = (id: string, headers?: Record<string, string>) =>
+      app.inject({ method: 'GET', url: `/templates/${encodeURIComponent(id)}/values`, headers });
+    const ok = await get(ID, as('editor'));
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ found: true, values: { fund: { code: '510037' } } });
+    const none = await get('AM01_999999_20240710_交付版', as('editor'));
+    expect(none.statusCode).toBe(200);
+    expect(none.json()).toEqual({ found: false, values: {} });
+    expect((await get('AM01_510037_交付版', as('editor'))).statusCode).toBe(400);
+    expect((await get('AM01_..', as('editor'))).statusCode).toBe(400);
+    expect((await get(ID)).statusCode).toBe(401);
   });
 
   it('GET /templates/:id/sample-data: 不正な ID は 400、旧 /funds/:fundCode/sample-data は 404', async () => {

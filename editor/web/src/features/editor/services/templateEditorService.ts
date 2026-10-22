@@ -11,6 +11,7 @@ import {
   type PartCatalogItem,
   type PartHistoryEntry,
   type PartRepository,
+  parseTemplateFileName,
   type Result,
   type SampleData,
   type Template,
@@ -37,6 +38,13 @@ interface EditorLoad {
    * 同じ値で描画して効かせるのに使う(`useGrapes` の `setStyleSample`)。
    */
   sample: SampleData;
+  /**
+   * 編集タブの値ファイル(`json/<ID>.json`)の中身。編集経路(4 区切りの ID)で取得したもの。
+   * 作成経路・取得失敗・ファイル無しのときは null(ファイル無しと失敗は `valuesFound` が false)。
+   */
+  values: SampleData | null;
+  /** 値ファイルが見つかったか。挿入時に「見つからない」警告を出すかの判断に使う。 */
+  valuesFound: boolean;
   /** canvas 選択を docs へ解決するための catalog parts。 */
   parts: PartCatalogItem[];
   /** editor タイトルの既定(ファイル名。ファンド名は上部バーが Rep1 から引いて差し替える)。 */
@@ -120,6 +128,23 @@ export function createTemplateEditorService(
         /* sample は空のままにする */
       }
 
+      // 編集経路(4 区切りの ID)だけ値ファイルを 1 回取得して保持する。挿入のたびには取らない。
+      // 取得の失敗はテンプレートの読み込みを止めない(values は空、valuesFound は false)。
+      let values: SampleData | null = null;
+      let valuesFound = false;
+      if (parseTemplateFileName(`${id}.html`)) {
+        values = {};
+        try {
+          const valuesRes = await templates.getTemplateValues(id);
+          if (!isErr(valuesRes)) {
+            values = valuesRes.value.values;
+            valuesFound = valuesRes.value.found;
+          }
+        } catch {
+          /* values は空のままにする */
+        }
+      }
+
       // editor canvas は "filled" 形式(値を差込み、Jinja source は保持)を編集する。
       // 静的な fill を優先し、無ければ load 時に生成する。draft は既に編集可能/filled
       // 形式なので最優先となる。
@@ -156,6 +181,8 @@ export function createTemplateEditorService(
         confirmedBody,
         css,
         sample,
+        values,
+        valuesFound,
         parts: partsRes.value,
         fundName,
         hasDraft: !!draft,

@@ -131,6 +131,7 @@ export default defineConfig({
         'editor/server/src/vivliostyle/workDir.ts',
         'editor/server/src/files/historyFiles.ts',
         'editor/server/src/files/notesFile.ts',
+        'editor/server/src/files/valuesFile.ts',
         'editor/server/src/repositories/noteRepo.ts',
         'editor/server/src/routes/zipBodyParser.ts',
         // editor/web (UI/VM/Service/Repository 層)

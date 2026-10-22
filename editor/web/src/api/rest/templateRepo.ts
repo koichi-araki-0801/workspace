@@ -21,6 +21,7 @@ import {
   type TemplateDraft,
   type TemplateMeta,
   type TemplateRepository,
+  type TemplateValues,
 } from '@editor/shared';
 import { apiFetch, attemptRest } from './http';
 
@@ -131,6 +132,11 @@ export const restTemplateRepo: TemplateRepository = {
     if (isOk(res)) writeSampleCache(templateId, res.value);
     return res;
   },
+
+  getTemplateValues: (templateId: string) =>
+    attemptRest(() =>
+      apiFetch<TemplateValues>(buildPath(apiPaths.templateValues, { id: templateId })),
+    ),
 
   getSyncStatus: (templateId: string) =>
     attemptRest(() =>

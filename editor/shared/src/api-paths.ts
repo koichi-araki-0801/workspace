@@ -36,6 +36,7 @@ export const apiPaths = {
   templateSyncStatus: '/templates/:id/sync-status',
   generate: '/generate',
   templateSampleData: '/templates/:id/sample-data',
+  templateValues: '/templates/:id/values',
   // parts
   partClassificationOptions: '/parts/classification-options',
   parts: '/parts',

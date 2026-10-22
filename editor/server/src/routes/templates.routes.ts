@@ -119,4 +119,8 @@ export const templatesRoutes: FastifyPluginAsync<{
   app.get<IdParams>(apiPaths.templateSampleData, { preHandler: requireAuth }, async (request) => {
     return templates.getSampleData(request.params.id);
   });
+
+  app.get<IdParams>(apiPaths.templateValues, { preHandler: requireAuth }, async (request) => {
+    return templates.getTemplateValues(request.params.id);
+  });
 };

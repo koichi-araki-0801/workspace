@@ -20,6 +20,7 @@ const PATH_ENV_KEYS = [
   'CSS_DIR',
   'FILLED_DIR',
   'JS_DIR',
+  'JSON_DIR',
   'IMAGES_DIR',
   'DRAFTS_DIR',
   'PENDING_DIR',
@@ -96,6 +97,14 @@ describe('config paths', () => {
     const jsDir = path.resolve(path.sep, 'tmp', 'editor-js-elsewhere');
     const { config } = await importConfigWithEnv({ DATA_ROOT, JS_DIR: jsDir });
     expect(config.jsDir).toBe(jsDir);
+  });
+
+  it('JSON_DIR が DATA_ROOT より優先され、無ければ DATA_ROOT 配下の json', async () => {
+    const jsonDir = path.resolve(path.sep, 'tmp', 'editor-json-elsewhere');
+    const set = await importConfigWithEnv({ DATA_ROOT, JSON_DIR: jsonDir });
+    expect(set.config.jsonDir).toBe(jsonDir);
+    const unset = await importConfigWithEnv({ DATA_ROOT });
+    expect(unset.config.jsonDir).toBe(path.join(DATA_ROOT, 'json'));
   });
 
   it('ASSETS_DIR は読まない(設定されていても起動でき、jsDir は既定のまま)', async () => {

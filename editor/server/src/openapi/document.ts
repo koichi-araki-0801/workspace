@@ -412,6 +412,21 @@ export function buildOpenApiDocument() {
         },
       },
 
+      [toOpenApiPath(apiPaths.templateValues)]: {
+        get: {
+          tags: ['templates'],
+          summary: '編集タブの値ファイル(dataRoot/json/<ID>.json。4 区切りの ID だけ)',
+          description: 'ファイルが無いときは 404 ではなく found: false と空の values を返す。',
+          operationId: 'getTemplateValues',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '200': json('値ファイルの中身', s.TemplateValues),
+            ...ERR_400,
+            ...ERR_401,
+          },
+        },
+      },
+
       // ── 4. parts ──
       '/parts/classification-options': {
         get: {

@@ -2,6 +2,7 @@
 // templateRepo.ts — テンプレートの一覧/取得/生成/保存の local 実装
 // =============================================================================
 import {
+  assertTemplateId,
   buildSampleData,
   type ConfirmSaveRequest,
   type CreateHistoryEntry,
@@ -42,6 +43,7 @@ import {
   delay,
   fixtureCss,
   fixtureTemplates,
+  fixtureValues,
   fundMaster,
   K,
   META_KEY,
@@ -452,6 +454,14 @@ export const localTemplateRepo: TemplateRepository = {
         companyName: f.company.name,
       };
       return delay({ sample: buildSampleData(sampleCommon, master, fundCode), warnings: [] });
+    }),
+
+  // 編集タブの値ファイル。server と同じく 4 区切りの ID だけを受け、無ければ found: false。
+  getTemplateValues: (templateId: string) =>
+    attempt(() => {
+      assertTemplateId(templateId);
+      const values = fixtureValues[`${templateId}.json`];
+      return delay(values ? { found: true, values } : { found: false, values: {} });
     }),
 
   // ペア同期は server 側機構(承認直後に実行)のため local ではペアの有無だけを返す。

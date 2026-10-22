@@ -488,6 +488,52 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     if (isOk(res)) expect(res.value.fundName).toBe('t1'); // sample が空なのでファイル名フォールバック
   });
 
+  describe('値ファイル', () => {
+    const FILLED_ID = 'AM01_510037_20240710_交付版';
+    const withValues = (getTemplateValues: unknown) => {
+      const { templates, parts } = repos({ draft: null });
+      (templates as unknown as { getTemplateValues: unknown }).getTemplateValues =
+        getTemplateValues;
+      return { templates, parts };
+    };
+
+    it('4 区切りの ID では値ファイルを取得して EditorLoad.values に入れる', async () => {
+      const getTemplateValues = vi.fn(async () =>
+        ok({ found: true, values: { fund: { code: '510037' } } }),
+      );
+      const { templates, parts } = withValues(getTemplateValues);
+      const res = await createTemplateEditorService(templates, parts).loadForEdit(FILLED_ID);
+      expect(getTemplateValues).toHaveBeenCalledWith(FILLED_ID);
+      expect(isOk(res) && res.value.values).toEqual({ fund: { code: '510037' } });
+      expect(isOk(res) && res.value.valuesFound).toBe(true);
+    });
+
+    it('値ファイルの取得に失敗しても読み込みは止めず values = {} と valuesFound = false', async () => {
+      for (const getTemplateValues of [
+        vi.fn(async () => err(network('x'))),
+        vi.fn(async () => {
+          throw new Error('boom');
+        }),
+      ]) {
+        const { templates, parts } = withValues(getTemplateValues);
+        const res = await createTemplateEditorService(templates, parts).loadForEdit(FILLED_ID);
+        expect(isOk(res) && res.value.values).toEqual({});
+        expect(isOk(res) && res.value.valuesFound).toBe(false);
+      }
+    });
+
+    it('作成経路(3 区切りの ID)では値ファイルを取得しない', async () => {
+      const getTemplateValues = vi.fn(async () => ok({ found: true, values: {} }));
+      const { templates, parts } = withValues(getTemplateValues);
+      const res = await createTemplateEditorService(templates, parts).loadForEdit(
+        'AM01_510037_交付版',
+      );
+      expect(getTemplateValues).not.toHaveBeenCalled();
+      expect(isOk(res) && res.value.values).toBeNull();
+      expect(isOk(res) && res.value.valuesFound).toBe(false);
+    });
+  });
+
   it('discardDraft が失敗したら下書きの所属は解放しない', async () => {
     const templates = {
       discardDraft: vi.fn(async () => err(network('x'))),
