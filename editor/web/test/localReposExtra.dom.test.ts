@@ -312,6 +312,34 @@ describe('localTemplateRepo dropdowns / generate / drafts', () => {
     expect(isOk(after) && after.value).not.toHaveProperty('inProgressId');
   });
 
+  it('シリーズ候補の hasTemplate は両版が承認済みのときだけ true(片方だけなら false)', async () => {
+    const q = {
+      companyCode: 'AM01',
+      rep1CompanyCode: '00001',
+      fundCode: '510155',
+      editionType: '交付版',
+    };
+    const has = async () => {
+      const info = await localTemplateRepo.getCreatableInfo(q);
+      if (!isOk(info)) throw new Error('getCreatableInfo に失敗');
+      return info.value.seriesFunds.find((s) => s.fundCode === '510037')?.hasTemplate;
+    };
+    // approveSkeleton は両版を承認するので、片方だけ承認する状態は生成後に手で作る。
+    await localAuthRepo.login({ username: 'admin', password: 'admin' });
+    const gen = await localTemplateRepo.generate({
+      companyCode: 'AM01',
+      fundCode: '510037',
+      editionType: '交付版',
+    });
+    if (!isOk(gen)) throw new Error('generate に失敗');
+    const confirm = (templateId: string) =>
+      confirmSaveLocal({ templateId, html: '<p>x</p>', css: '', origin: 'create' });
+    expect(isOk(await confirm('AM01_510037_交付版'))).toBe(true);
+    expect(await has()).toBe(false);
+    expect(isOk(await confirm('AM01_510037_全体版'))).toBe(true);
+    expect(await has()).toBe(true);
+  });
+
   it('generate(sourceFundCode) は承認済みのコピー元テンプレート(3 つ区切り)の HTML を写す', async () => {
     await approveSkeleton('510037', '全体版', '<p>コピー元 {{ fund.name }}</p>');
     const r = await localTemplateRepo.generate({

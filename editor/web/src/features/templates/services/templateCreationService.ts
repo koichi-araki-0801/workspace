@@ -58,7 +58,12 @@ export function createTemplateCreationService(
         return err(validation(SELECT_ALL_MSG));
       }
       const res = await repo.generate(req);
-      if (isOk(res)) forgetEditState(res.value.template.meta.id);
+      if (isOk(res)) {
+        // 1 回の作成は両版と組入先をまとめて置き換えるので、開いた版だけでなく取り込んだ全 id の
+        // 前の編集状態を捨てる(同じタブで別の版を開いたとき古い Undo が戻らないように)。
+        const ids = new Set([res.value.template.meta.id, ...res.value.importedIds]);
+        for (const id of ids) forgetEditState(id);
+      }
       return map(res, (r) => ({ meta: r.template.meta, skipped: r.skipped }));
     },
     listCompanies: () => repo.listCompanies(),

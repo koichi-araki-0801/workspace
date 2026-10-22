@@ -127,6 +127,13 @@ describe('fake_generate_template.py', () => {
     expect(files(sb)).toEqual([]);
   }, 30_000);
 
+  it('LocalDB の Rep1 コード(00001)は表で略称(AM01)へ引く', async () => {
+    const sb = sandbox('rep1-code');
+    const r = await run(sb, ['00001', FUND, DATE]);
+    expect(r.code).toBe(0);
+    expect(files(sb)).toEqual(['AM01_510037_交付版.html', 'AM01_510037_全体版.html']);
+  }, 30_000);
+
   it('999001 は組入先 999000 の両版も書く', async () => {
     const sb = sandbox('f1');
     expect((await run(sb, [REP1, '999001', DATE])).code).toBe(0);

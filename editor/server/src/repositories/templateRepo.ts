@@ -242,7 +242,8 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         .map(([code]) => ({
           fundCode: code,
           fundName: names.get(code) ?? '',
-          hasTemplate: findTemplateId(files, companyCode, code, editionType) !== null,
+          // 生成は選んだファンドの両版をコピーするので、コピー元は両版がそろっている必要がある。
+          hasTemplate: editions.every((e) => findTemplateId(files, companyCode, code, e) !== null),
         }))
         .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
       return { created, ...extra, seriesFunds };

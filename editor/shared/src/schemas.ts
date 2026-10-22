@@ -811,7 +811,8 @@ export const FundOption = z
 export const SeriesFundOption = FundOption.extend({
   hasTemplate: z.boolean().meta({
     description:
-      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか',
+      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)が交付版・' +
+      '全体版の両方にあるか(生成は両版をコピーするので、片方だけでは選べない)',
   }),
 }).meta({ id: 'SeriesFundOption' });
 

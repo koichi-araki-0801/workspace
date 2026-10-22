@@ -76,6 +76,26 @@ describe('TemplateCreationService.create', () => {
     await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
     expect(forget).not.toHaveBeenCalled();
   });
+
+  it('1 回の作成で取り込んだ全 id(両版と組入先)の編集状態を、重複なく捨てる', async () => {
+    const repo = repoWithGenerate();
+    repo.generate.mockResolvedValueOnce(
+      ok({
+        template: { meta, html: '', css: '' },
+        importedIds: [meta.id, 'AM01_510037_全体版', 'AM01_999000_交付版', meta.id],
+        skipped: [],
+      }) as never,
+    );
+    const forget = vi.fn();
+    await createTemplateCreationService(repo, forget).create({
+      companyCode: 'AM01',
+      fundCode: '510037',
+      editionType: 'kr',
+    });
+    expect(forget.mock.calls.map((c) => c[0]).sort()).toEqual(
+      [meta.id, 'AM01_510037_全体版', 'AM01_999000_交付版'].sort(),
+    );
+  });
 });
 
 describe('TemplateCreationService の作成タブ用の問い合わせ', () => {

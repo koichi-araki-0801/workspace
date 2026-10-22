@@ -307,7 +307,10 @@ export const localTemplateRepo: TemplateRepository = {
             .map((c) => ({
               fundCode: c,
               fundName: fundMaster[c]?.name ?? '',
-              hasTemplate: confirmedSkeleton(companyCode, c, editionType) !== undefined,
+              // 生成は両版のコピー元を要るので、両版がそろった候補だけ選べる(server と同じ)。
+              hasTemplate: editions.every(
+                (e) => confirmedSkeleton(companyCode, c, e) !== undefined,
+              ),
             }))
         : [];
       return delay({

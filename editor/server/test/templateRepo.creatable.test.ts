@@ -125,11 +125,25 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
   });
 
   it('シリーズの他ファンドをコピー元候補にし、自分は含めず、テンプレの有無を付ける', async () => {
+    // 生成は両版のコピー元を要るので、片方の版しか無い候補(510003 は全体版だけ、510037 は
+    // 交付版だけ)は選べない。
     expect((await repo.getCreatableInfo(q('510155'))).seriesFunds).toEqual([
       { fundCode: '510003', fundName: 'コア投資戦略ファンド（安定型）', hasTemplate: false },
-      { fundCode: '510037', fundName: 'コア投資戦略ファンド（切替型）', hasTemplate: true },
+      { fundCode: '510037', fundName: 'コア投資戦略ファンド（切替型）', hasTemplate: false },
     ]);
     expect((await repo.getCreatableInfo(q('110024'))).seriesFunds).toEqual([]);
+
+    // 両版がそろえば、押した版に関係なく選べる。
+    const extra = path.join(tmp, 'templates', 'AM01_510037_全体版.html');
+    fs.writeFileSync(extra, '<p>x</p>', 'utf8');
+    try {
+      for (const editionType of ['交付版', '全体版']) {
+        const info = await repo.getCreatableInfo({ ...q('510155'), editionType });
+        expect(info.seriesFunds.find((f) => f.fundCode === '510037')?.hasTemplate).toBe(true);
+      }
+    } finally {
+      fs.rmSync(extra);
+    }
   });
 
   it('シリーズ一覧に行が無いファンドも落ちず、seriesFunds は空', async () => {
