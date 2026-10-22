@@ -62,6 +62,17 @@ describe('mergeCommonSampleRows', () => {
     expect(warnings).toHaveLength(1);
   });
 
+  it('__proto__ のキーはプロトタイプを差し替えず、own のキーとして入る', () => {
+    const { sample, warnings } = mergeCommonSampleRows([
+      row(1, '{"__proto__": {"polluted": 1}, "a": 1}'),
+    ]);
+    expect(Object.getPrototypeOf(sample)).toBe(Object.prototype);
+    expect((sample as { polluted?: unknown }).polluted).toBeUndefined();
+    expect(Object.hasOwn(sample, '__proto__')).toBe(true);
+    expect(Object.keys(sample)).toEqual(['__proto__', 'a']);
+    expect(warnings).toEqual([]);
+  });
+
   it('行が無ければ空の sample と空の warnings', () => {
     expect(mergeCommonSampleRows([])).toEqual({ sample: {}, warnings: [] });
   });

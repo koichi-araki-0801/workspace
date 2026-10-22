@@ -55,7 +55,13 @@ export function mergeCommonSampleRows(rows: readonly CommonSampleRow[]): {
         continue;
       }
       owner.set(key, r);
-      sample[key] = value;
+      // 代入だと `__proto__` のキーがプロトタイプの差し替えになるので、own のプロパティとして置く。
+      Object.defineProperty(sample, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
   }
   return { sample, warnings };
