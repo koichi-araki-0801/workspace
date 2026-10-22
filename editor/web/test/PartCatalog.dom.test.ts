@@ -104,7 +104,7 @@ describe('PartCatalog の版種', () => {
     const w = await mountCatalog(null, '交付版');
     w.parts.listParts.mockClear();
     w.parts.getPartClassificationOptions.mockClear();
-    await w.setProps({ editionType: '全体版', companyCode: '00001' });
+    await w.setProps({ editionType: '全体版' });
     await flushPromises();
     expect(w.parts.getPartClassificationOptions).toHaveBeenCalledWith({
       editionType: '全体版',
@@ -118,7 +118,7 @@ describe('PartCatalog の版種', () => {
     const vm = w.vm as unknown as { query: { category?: string } };
     vm.query.category = '注記';
     w.parts.listParts.mockClear();
-    await w.setProps({ editionType: '全体版', companyCode: '00001' });
+    await w.setProps({ editionType: '全体版' });
     await flushPromises();
     expect(w.parts.listParts).toHaveBeenCalledWith({ editionType: '全体版', companyCode: '00001' });
     expect(w.parts.listParts).not.toHaveBeenCalledWith(
@@ -162,6 +162,38 @@ describe('PartCatalog の委託会社', () => {
     expect(w.parts.listParts).toHaveBeenCalledWith({ companyCode: '00002' });
     expect(w.parts.listParts).not.toHaveBeenCalledWith(
       expect.objectContaining({ category: '注記' }),
+    );
+  });
+});
+
+describe('PartCatalog の委託会社の遷移', () => {
+  it('最初の pending → ok では復元した分類を残して取り直す', async () => {
+    const w = await mountCatalog(null, null, { state: 'pending' });
+    const vm = w.vm as unknown as { query: { category?: string } };
+    vm.query.category = '注記';
+    await w.setProps({ companyFilter: { state: 'ok', code: '00001' } });
+    await flushPromises();
+    expect(vm.query.category).toBe('注記');
+    expect(w.parts.listParts).toHaveBeenCalledWith({ category: '注記', companyCode: '00001' });
+  });
+
+  it('取得中に pending へ変わったら、遅れて届いた旧会社の応答を一覧に入れない', async () => {
+    let release: (v: ReturnType<typeof ok<PartCatalogItem[]>>) => void = () => {};
+    const w = await mountCatalog(null);
+    w.parts.listParts.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+    const vm = w.vm as unknown as { query: { category?: string } };
+    vm.query.category = '注記';
+    await w.setProps({ companyFilter: { state: 'ok', code: '00002' } });
+    await flushPromises();
+    await w.setProps({ companyFilter: { state: 'pending' } });
+    await flushPromises();
+    const old = { ...PART, id: 'old', name: '旧会社のパーツ' };
+    release(ok([old]));
+    await flushPromises();
+    expect(w.findAll('li')).toHaveLength(0);
+    expect(w.text()).not.toContain('旧会社のパーツ');
+    expect((w.emitted('select') ?? []).flat()).not.toContainEqual(
+      expect.objectContaining({ id: 'old' }),
     );
   });
 });

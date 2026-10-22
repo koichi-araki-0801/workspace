@@ -71,7 +71,7 @@ const withEdition = (q: PartClassificationQuery): PartClassificationQuery => {
 // 委託会社が決まるまでは取りに行かない(絞り込み無しの全件を一瞬でも出さない)。
 const canFetch = () => props.companyFilter.state === 'ok';
 
-const { query, options, list: parts, loading, onLevelChange, reset } = useCascadingSelect<
+const { query, options, list: parts, loading, onLevelChange, reset, refresh } = useCascadingSelect<
   PartClassificationQuery,
   PartClassificationOptions,
   PartCatalogItem
@@ -91,15 +91,22 @@ useUrlQuerySync(query, {
   prefix: 'pc',
 });
 
-// 別テンプレートへ切り替わる等で版種・委託会社が変わったら、選択を解いて候補と一覧を取り直す。
+// 版種が変わったら(別テンプレートへの切り替え等)、選択を解いて候補と一覧を取り直す。
 // 選択が残ると、新しい条件で隠れる分類を選んだまま一覧が空になる。
 watch(
+  () => props.editionType,
+  () => reset(),
+);
+
+// 委託会社の解決状況が変わったら取り直す。解決済みの会社から別の状態へ変わったときだけ選択も解く。
+// 最初の pending → ok では解かない(URL から復元した分類を残す)。pending / none へ変わるときも
+// refresh を通すのは、前の会社の取得中の応答を捨てて一覧を空にするため。
+watch(
   () => [
-    props.editionType,
     props.companyFilter.state,
     props.companyFilter.state === 'ok' ? props.companyFilter.code : null,
   ],
-  () => reset(),
+  (_now, prev) => (prev[0] === 'ok' ? reset() : void refresh()),
 );
 
 const optionsByLevel: Record<LevelKey, () => string[]> = {

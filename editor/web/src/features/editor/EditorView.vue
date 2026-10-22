@@ -5,7 +5,7 @@
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical, PanelLeft, PanelRight, StickyNote, TriangleAlert } from '@lucide/vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, useTemplateRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
@@ -13,9 +13,7 @@ import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
 import { tabOf } from '@/features/layout/tabOf';
-import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { pairSyncConflictText } from '@/lib/pairSyncText';
-import { useRep1Names } from '@/lib/useRep1Names';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
@@ -23,10 +21,10 @@ import EditorTopBar from './EditorTopBar.vue';
 import Inspector from './Inspector.vue';
 import { INSERT_BLOCKED_MESSAGE } from './insertTarget';
 import NoteBubble from './NoteBubble.vue';
-import type { CompanyFilter } from './PartCatalog.vue';
 import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
 import { syncUi } from './syncUi';
+import { useCompanyFilter } from './useCompanyFilter';
 import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
 import { useTemplateEditor } from './useTemplateEditor';
@@ -103,21 +101,8 @@ const rect = g.selectedRect;
 
 const sessionStore = useEditorSessionStore();
 
-// ── パーツ一覧を絞る委託会社。テンプレート ID 先頭の略称を Rep1 の委託会社コードへ引く。
-// 引けるまで(pending)は一覧を出さず、引けなければ(none)他社のパーツを見せない。 ──
-const { resolveRep1CompanyCode } = useRep1Names();
-const companyFilter = ref<CompanyFilter>({ state: 'pending' });
-watch(
-  () => props.id,
-  async (id) => {
-    companyFilter.value = { state: 'pending' };
-    const abbr = companyCodeOfTemplateId(id);
-    const code = abbr ? await resolveRep1CompanyCode(abbr) : null;
-    if (props.id !== id) return;
-    companyFilter.value = code ? { state: 'ok', code } : { state: 'none' };
-  },
-  { immediate: true },
-);
+// ── パーツ一覧を絞る委託会社(テンプレート ID 先頭の略称から解決) ──
+const companyFilter = useCompanyFilter(toRef(props, 'id'));
 
 // ── 右ペインの表示(プロパティ / コメント)。編集セッションの ui 状態を継ぐ
 // (プレビュー往復で保持、倍率・表示系と同じく永続ミラー経由でリロードでも復元)。 ──

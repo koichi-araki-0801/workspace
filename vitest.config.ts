@@ -200,6 +200,7 @@ export default defineConfig({
         'editor/web/src/lib/sessionExpiry.ts',
         'editor/web/src/lib/useIframeAutoFit.ts',
         'editor/web/src/features/editor/geom.ts',
+        'editor/web/src/features/editor/useCompanyFilter.ts',
         'editor/web/src/lib/pairSyncText.ts',
         // 編集画面を開くときの読み込み順と、確定版の正規形・CSS の baseline を測る時点。
         'editor/web/src/features/editor/openCanvas.ts',

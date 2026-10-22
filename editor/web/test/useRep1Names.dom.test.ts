@@ -11,7 +11,7 @@ import { REPOS_KEY } from '@/api/repositories';
 import { resetRep1NamesForTest, useRep1Names } from '@/lib/useRep1Names';
 
 const COMPANIES: CompanyOption[] = [
-  { companyCode: 'AM01', companyName: '会社', rep1CompanyCode: '0001' },
+  { companyCode: 'AM01', companyName: '会社', rep1CompanyCode: '00001' },
 ];
 const FUNDS: FundOption[] = [{ fundCode: '510037', fundName: '切替型' }];
 
@@ -38,14 +38,14 @@ describe('useRep1Names', () => {
     expect(api.companyLabel('AM01')).toBe('AM01');
     api.resolveCompanies();
     await flushPromises();
-    expect(api.companyLabel('AM01')).toBe('AM01（0001）');
+    expect(api.companyLabel('AM01')).toBe('AM01（00001）');
   });
 
   it('略称の大文字小文字は問わない', async () => {
     const api = setup({ listCompanies: vi.fn(async () => ok(COMPANIES)), listFunds: vi.fn() });
     api.resolveCompanies();
     await flushPromises();
-    expect(api.companyLabel('am01')).toBe('am01（0001）');
+    expect(api.companyLabel('am01')).toBe('am01（00001）');
   });
 
   it('一覧に無い略称は（未登録）。そのファンドも（未登録）で listFunds を呼ばない', async () => {
@@ -69,7 +69,7 @@ describe('useRep1Names', () => {
     expect(api.companyLabel('AM01')).toBe('AM01');
     api.resolveCompanies();
     await flushPromises();
-    expect(api.companyLabel('AM01')).toBe('AM01（0001）');
+    expect(api.companyLabel('AM01')).toBe('AM01（00001）');
     expect(listCompanies).toHaveBeenCalledTimes(2);
   });
 
@@ -83,7 +83,7 @@ describe('useRep1Names', () => {
     await flushPromises();
     expect(listCompanies).toHaveBeenCalledTimes(1);
     expect(listFunds).toHaveBeenCalledTimes(1);
-    expect(listFunds).toHaveBeenCalledWith('0001');
+    expect(listFunds).toHaveBeenCalledWith('00001');
     expect(api.fundName('AM01', '510037')).toBe('切替型');
     expect(api.fundName('AM01', '999999')).toBe('（未登録）');
   });
@@ -148,8 +148,8 @@ describe('useRep1Names の取得失敗からの回復', () => {
 describe('useRep1Names の resolveRep1CompanyCode', () => {
   it('略称から Rep1 の委託会社コードを引く', async () => {
     const api = setup({ listCompanies: vi.fn(async () => ok(COMPANIES)), listFunds: vi.fn() });
-    expect(await api.resolveRep1CompanyCode('AM01')).toBe('0001');
-    expect(await api.resolveRep1CompanyCode('am01')).toBe('0001');
+    expect(await api.resolveRep1CompanyCode('AM01')).toBe('00001');
+    expect(await api.resolveRep1CompanyCode('am01')).toBe('00001');
   });
 
   it('Rep1 に無い略称は null', async () => {
@@ -160,7 +160,7 @@ describe('useRep1Names の resolveRep1CompanyCode', () => {
   it('同じ略称が 2 件あれば null', async () => {
     const dup: CompanyOption[] = [
       ...COMPANIES,
-      { companyCode: 'am01', companyName: '別会社', rep1CompanyCode: '0002' },
+      { companyCode: 'am01', companyName: '別会社', rep1CompanyCode: '00002' },
     ];
     const api = setup({ listCompanies: vi.fn(async () => ok(dup)), listFunds: vi.fn() });
     expect(await api.resolveRep1CompanyCode('AM01')).toBeNull();
@@ -173,6 +173,6 @@ describe('useRep1Names の resolveRep1CompanyCode', () => {
       .mockResolvedValueOnce(ok(COMPANIES));
     const api = setup({ listCompanies, listFunds: vi.fn() });
     expect(await api.resolveRep1CompanyCode('AM01')).toBeNull();
-    expect(await api.resolveRep1CompanyCode('AM01')).toBe('0001');
+    expect(await api.resolveRep1CompanyCode('AM01')).toBe('00001');
   });
 });
