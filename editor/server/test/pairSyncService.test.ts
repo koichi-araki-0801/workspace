@@ -512,10 +512,12 @@ d('pairSyncService', () => {
 
   describe('編集タブで挿入した Jinja パーツ', () => {
     // カタログの `内容HTML` が Jinja を含むパーツ `j`。編集タブでは写し元の値で描いた地の HTML が
+    // GrapesJS の書き出しの形(属性の順序・style の書き直し・`<br/>`・テキストの `'` は文字のまま)で
     // 本文に入っている(根に `data-part-id`)。
-    const J_CONTENT = '<section class="note"><p>{{ fund.name }}の注記</p></section>';
+    const J_CONTENT =
+      '<section class="note" style="color: red"><p>{{ fund.name }}の注記<br>{{ q }}</p></section>';
     const jPart = (text: string) =>
-      `<section class="note" data-part-id="j"><p>${text}の注記</p></section>`;
+      `<section data-part-id="j" class="note" style="color:red;"><p>${text}の注記<br/>it's</p></section>`;
     const valueFiles = new Map<string, Record<string, unknown>>();
     const readValues = vi.fn(async (id: string) => {
       const v = valueFiles.get(id);
@@ -538,8 +540,8 @@ d('pairSyncService', () => {
     it('4 区切りの承認では、写し先の値ファイルで描き直してから転写する', {
       timeout: 60_000,
     }, async () => {
-      valueFiles.set('AM01_600000_20240710_交付版', { fund: { name: '交付ファンド' } });
-      valueFiles.set('AM01_600000_20240710_全体版', { fund: { name: '全体ファンド' } });
+      valueFiles.set('AM01_600000_20240710_交付版', { fund: { name: '交付ファンド' }, q: "it's" });
+      valueFiles.set('AM01_600000_20240710_全体版', { fund: { name: '全体ファンド' }, q: "it's" });
       put('filled', 'AM01_600000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド')));
       put('filled', 'AM01_600000_20240710_全体版', doc(part('a', 'x')));
       const r = await jsvc.syncPairAfterConfirm('AM01_600000_20240710_交付版', 'u', 'filled', {
@@ -559,8 +561,8 @@ d('pairSyncService', () => {
     it('直したパーツはそのまま写し、valueWarnings に「<版種>の値のまま写したので、値を確かめてください」を積む', {
       timeout: 60_000,
     }, async () => {
-      valueFiles.set('AM01_610000_20240710_交付版', { fund: { name: '交付ファンド' } });
-      valueFiles.set('AM01_610000_20240710_全体版', { fund: { name: '全体ファンド' } });
+      valueFiles.set('AM01_610000_20240710_交付版', { fund: { name: '交付ファンド' }, q: "it's" });
+      valueFiles.set('AM01_610000_20240710_全体版', { fund: { name: '全体ファンド' }, q: "it's" });
       put('filled', 'AM01_610000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド(改)')));
       put('filled', 'AM01_610000_20240710_全体版', doc(part('a', 'x')));
       const r = await jsvc.syncPairAfterConfirm('AM01_610000_20240710_交付版', 'u', 'filled', {
@@ -576,7 +578,7 @@ d('pairSyncService', () => {
     it('写し先の値ファイルが無ければ空欄で描き、valueWarnings に積む', {
       timeout: 60_000,
     }, async () => {
-      valueFiles.set('AM01_620000_20240710_交付版', { fund: { name: '交付ファンド' } });
+      valueFiles.set('AM01_620000_20240710_交付版', { fund: { name: '交付ファンド' }, q: "it's" });
       put('filled', 'AM01_620000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド')));
       put('filled', 'AM01_620000_20240710_全体版', doc(part('a', 'x')));
       const r = await jsvc.syncPairAfterConfirm('AM01_620000_20240710_交付版', 'u', 'filled', {
@@ -590,15 +592,15 @@ d('pairSyncService', () => {
         },
       ]);
       const pair = read('filled', 'AM01_620000_20240710_全体版');
-      expect(pair).toContain('<p>の注記</p>');
+      expect(pair).toContain('<p>の注記<br></p>');
       expect(pair).not.toContain('交付ファンド');
     });
 
     it('写し先の値ファイルに値が欠ければ、欠けた名前を valueWarnings に積む', {
       timeout: 60_000,
     }, async () => {
-      valueFiles.set('AM01_621000_20240710_交付版', { fund: { name: '交付ファンド' } });
-      valueFiles.set('AM01_621000_20240710_全体版', { other: 1 });
+      valueFiles.set('AM01_621000_20240710_交付版', { fund: { name: '交付ファンド' }, q: "it's" });
+      valueFiles.set('AM01_621000_20240710_全体版', { other: 1, q: "it's" });
       put('filled', 'AM01_621000_20240710_交付版', doc(part('a', 'x'), jPart('交付ファンド')));
       put('filled', 'AM01_621000_20240710_全体版', doc(part('a', 'x')));
       const r = await jsvc.syncPairAfterConfirm('AM01_621000_20240710_交付版', 'u', 'filled', {
@@ -620,8 +622,8 @@ d('pairSyncService', () => {
       ] as const) {
         const src = `AM01_${fund}_20240710_交付版`;
         const dst = `AM01_${fund}_20240710_全体版`;
-        valueFiles.set(src, { fund: { name: '交付ファンド' } });
-        valueFiles.set(dst, { fund: { name: '全体ファンド' } });
+        valueFiles.set(src, { fund: { name: '交付ファンド' }, q: "it's" });
+        valueFiles.set(dst, { fund: { name: '全体ファンド' }, q: "it's" });
         put('filled', src, doc(part('a', 'x'), jPart('交付ファンド')));
         put(
           'filled',

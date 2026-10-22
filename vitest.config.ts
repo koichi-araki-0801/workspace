@@ -64,6 +64,7 @@ export default defineConfig({
         'editor/shared/src/jinja/safeMarkup.ts',
         'editor/shared/src/jinja/containsJinja.ts',
         'editor/shared/src/html/htmlLex.ts',
+        'editor/shared/src/html/partHtmlCompare.ts',
         'editor/shared/src/html/rawText.ts',
         'editor/shared/src/css/cssRules.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)

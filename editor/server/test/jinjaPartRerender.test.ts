@@ -5,7 +5,7 @@
 // 描き直す。書き方が少しでも違えば「直した」に倒し、承認された HTML を捨てない。
 import { renderPlainFilled } from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { normalizePartHtml, rerenderUneditedJinjaParts } from '../src/sync/jinjaPartRerender.js';
+import { rerenderUneditedJinjaParts } from '../src/sync/jinjaPartRerender.js';
 
 // 描いた回数を数えるため、本物の描画器を包む(振る舞いは変えない)。
 vi.mock('@editor/shared', async (importOriginal) => {
@@ -26,23 +26,10 @@ const CONTENT = '<section class="note"><p>{{ fund.name }}の注記</p></section>
 const catalog = new Map([['note-a', CONTENT]]);
 const sourceValues = { fund: { name: '交付ファンド' } };
 const targetValues = { fund: { name: '全体ファンド' } };
+/** GrapesJS が書き出す形(`data-part-id` は class の前)。 */
 const inserted = (text: string) =>
-  `<section class="note" data-part-id="note-a"><p>${text}の注記</p></section>`;
+  `<section data-part-id="note-a" class="note"><p>${text}の注記</p></section>`;
 const doc = (...parts: string[]) => `<div class="page">\n${parts.join('\n')}\n</div>`;
-
-describe('normalizePartHtml', () => {
-  it('data-part-id を除き、タグ間の空白を消し、連続空白を 1 つにする', () => {
-    expect(normalizePartHtml('<div  class="a"  data-part-id="x">\n  <p>a   b</p>\n</div>')).toBe(
-      '<div class="a"><p>a b</p></div>',
-    );
-  });
-
-  it('属性の並べ替えはしない', () => {
-    expect(normalizePartHtml('<p class="a" id="b"></p>')).not.toBe(
-      normalizePartHtml('<p id="b" class="a"></p>'),
-    );
-  });
-});
 
 describe('rerenderUneditedJinjaParts', () => {
   it('直していないパーツは写し先の値で描き直し、data-part-id を保つ', () => {
@@ -77,9 +64,29 @@ describe('rerenderUneditedJinjaParts', () => {
     expect(r.rerendered).toEqual([]);
   });
 
-  it('属性の引用符や空白の書き方が変わっただけのパーツも edited に倒す', () => {
+  it('GrapesJS の書き出しの形(属性の順序・style・void 要素・実体参照)の違いは直していない扱い', () => {
+    const tpl =
+      '<section class="note" style="color: red" title="t"><p>{{ fund.name }}<br>注記</p></section>';
+    const values = (name: string) => ({ fund: { name } });
+    const r = rerenderUneditedJinjaParts({
+      sourceHtml: doc(
+        `<section title="t" data-part-id="n" class="note" style="color:red;"><p>交付's<br/>注記</p></section>`,
+      ),
+      catalog: new Map([['n', tpl]]),
+      sourceValues: values("交付's"),
+      targetValues: values('全体"s'),
+      targetHtml: '',
+    });
+    expect(r.edited).toEqual([]);
+    expect(r.rerendered).toEqual(['n#1']);
+    expect(r.html).toContain(
+      '<section title="t" data-part-id="n" class="note" style="color: red"><p>全体&quot;s<br>注記</p></section>',
+    );
+  });
+
+  it('属性値を直したパーツは edited に倒す', () => {
     const src = doc(
-      "<section class='note' data-part-id='note-a'><p>交付ファンドの注記</p></section>",
+      '<section data-part-id="note-a" class="note2"><p>交付ファンドの注記</p></section>',
     );
     const r = rerenderUneditedJinjaParts({
       sourceHtml: src,
@@ -171,7 +178,7 @@ describe('rerenderUneditedJinjaParts', () => {
     expect(r.html).toContain(`<p data-part-id='q"x'>全体ファンド</p>`);
   });
 
-  it('data-part-id は根の属性の末尾に付ける(挿入時の addAttributes と同じ位置)', () => {
+  it('data-part-id は GrapesJS の書き出しの順(他の属性 → data-part-id → class → style)で付ける', () => {
     const r = rerenderUneditedJinjaParts({
       sourceHtml: doc(inserted('交付ファンド')),
       catalog,

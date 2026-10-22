@@ -1,4 +1,4 @@
-import { renderPlainFilled } from '@editor/shared';
+import { normalizePartHtml, renderPlainFilled } from '@editor/shared';
 import type { Component, Editor } from 'grapesjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_GEOM, geomToStyle } from '@/features/editor/geom';
@@ -366,6 +366,35 @@ describe('insertPart', () => {
     const saved = g.getBodyHtml();
     expect(saved).toContain('<section data-part-id="NEW" class="p">注<br/>記<b>太</b>&lt;img');
     expect(saved).not.toMatch(/<img|<script/);
+  });
+
+  // 承認後のペア同期(server の `jinjaPartRerender.ts`)は、承認された本文のパーツ(GrapesJS の書き出し)と
+  // カタログを写し元の値で描いた形(`renderPlainFilled`)を `normalizePartHtml` で比べて「直していない」
+  // を決める。実物の GrapesJS の書き出しで、挿入しただけのパーツが一致することを固定する。
+  it.each([
+    [
+      '属性の順序・style・void 要素・実体参照・NBSP',
+      `<section title="t" class="p q" style="color: red; font-weight:bold" lang="ja">` +
+        `注&nbsp;記<br>{{ v }} it's "q"<img alt="{{ v }}" src="a.png"><hr/></section>`,
+    ],
+    [
+      'tbody の補い・SVG の空要素・値の無い属性・コメント',
+      `<section id="k" data-x="1" class="n"><table><tr><td colspan="2">{{ v }}</td></tr></table>` +
+        `<svg viewBox="0 0 1 1"><path d="M0 0"/></svg><p hidden>h</p>` +
+        `<span style="margin:0 auto">s</span><!-- c --></section>`,
+    ],
+    ['空白の連なりと改行', '<section>\n  <p>  a\n   {{ v }}  </p>\n</section>'],
+  ])('挿入しただけのパーツは、GrapesJS の書き出しと描いた形の正規形が一致する(%s)', (_, tpl) => {
+    const { html } = renderPlainFilled(tpl, { v: `a<b>&'" ` });
+    load(DOC);
+    expect(g.insertPart(html, 'NEW')).toBe(true);
+    const saved = g.getBodyHtml();
+    const start = saved.indexOf('<section');
+    const part = saved.slice(start, saved.indexOf('</section>', start) + '</section>'.length);
+    expect(part).toContain('data-part-id="NEW"');
+    expect(normalizePartHtml(part)).toBe(normalizePartHtml(html));
+    // 中身を 1 文字でも変えれば一致しない(手直しを「直していない」と取り違えない)。
+    expect(normalizePartHtml(part.replace('a&lt;b', 'a&lt;c'))).not.toBe(normalizePartHtml(html));
   });
 
   it('描画器を通らずに生の HTML が来ても、canvas の入口で危険な属性・要素が落ちる', () => {

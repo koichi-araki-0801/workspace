@@ -7,14 +7,20 @@
 // カタログの `内容HTML` から写し先の値で描き直す。
 //
 // 「直していない」の判定は、カタログの `内容HTML` を写し元の値で描いた形と、承認された本文の
-// パーツが同じ規則の正規化(`normalizePartHtml`)で一致すること。正規化はわざと狭くする: 判定を
-// 誤って「直していない」に倒すと手直しを捨てて描き直すことになり、逆に「直した」に倒しても承認された
-// HTML をそのまま写すだけ(警告を添える)で失うものが無いため。
+// パーツ(GrapesJS の直列化を通った形)が、DOM 上で同じになる形への正規化(shared の
+// `normalizePartHtml`)で一致すること。正規化が寄せるのは DOM と見た目が変わらない書き方の違いだけで、
+// テキストや属性値の中身が違えば必ず一致しない: 判定を誤って「直していない」に倒すと手直しを捨てて
+// 描き直すことになり、逆に「直した」に倒しても承認された HTML をそのまま写すだけ(警告を添える)で
+// 失うものが無いため。
 
 import {
   containsJinja,
   findEditingMarkers,
+  isHtmlSpace,
+  isTagNameEnd,
   JinjaBudget,
+  normalizePartHtml,
+  readAttr,
   renderPlainFilled,
   type SampleData,
 } from '@editor/shared';
@@ -22,49 +28,38 @@ import { collectExecutableUnits } from '../security/templateScripts.js';
 import { applyOps, extractSyncParts } from './partSync.js';
 
 /**
- * 比較用の正規形。`data-part-id`(挿入時に editor が根へ付ける)を除き、連続空白を 1 つにし、
- * タグ間の空白を消す。属性の順序・引用符・自己終了の書き方は揃えない(上の倒し方の理由)。
- * 空白を先に 1 つへ畳むのは、後段の正規表現が空白の連なりで二次の走査をしないため。
- */
-export function normalizePartHtml(html: string): string {
-  return html
-    .replace(/\s+/g, ' ')
-    .replace(/ ?data-part-id ?= ?(?:"[^"]*"|'[^']*'|[^ >]*)/gi, '')
-    .replace(/> </g, '><')
-    .trim();
-}
-
-/**
- * 描いた HTML の根(先頭の開始タグ)の属性の末尾へ `data-part-id` を付ける。挿入時(`useGrapes.ts` の
- * `insertPart` の `addAttributes`)と同じ位置に揃える: ペア同期は生の HTML の SHA-1 で比べるので、
- * 付ける位置が違うと、誰も直していない往復の承認で「両側変更」の競合になる。根の開始タグが読めなければ
- * null(描き直しを見送る)。
+ * 描いた HTML の根(先頭の開始タグ)へ `data-part-id` を付ける。位置は GrapesJS が挿入したパーツを
+ * 書き出す順(他の属性 → `data-part-id` → `class` → `style`)に揃える: ペア同期は生の HTML の SHA-1 で
+ * 比べるので、写し先の本文と書き方が違うと、誰も直していない往復の承認で「両側変更」の競合になる。
+ * 属性の原文と、最後の属性の後ろ(` />` など)はそのまま残す。根の開始タグが読めなければ null
+ * (描き直しを見送る)。
  */
 function withPartId(html: string, partId: string): string | null {
-  const m = /^<[A-Za-z][A-Za-z0-9-]*/.exec(html);
-  if (!m) return null;
-  // 開始タグの閉じ `>` を引用符の中を飛ばして探す(属性値の中の `>` で切らない)。
-  let i = m[0].length;
-  let gt = -1;
-  while (i < html.length) {
-    const c = html[i];
-    if (c === '"' || c === "'") {
-      const q = html.indexOf(c, i + 1);
-      if (q < 0) return null;
-      i = q + 1;
+  if (!/^<[A-Za-z]/.test(html)) return null;
+  let k = 1;
+  while (k < html.length && !isTagNameEnd(html[k])) k++;
+  const head = html.slice(0, k);
+  const others: string[] = [];
+  const classes: string[] = [];
+  const styles: string[] = [];
+  let lastEnd = k;
+  while (k < html.length && html[k] !== '>') {
+    if (isHtmlSpace(html[k]) || html[k] === '/') {
+      k++;
       continue;
     }
-    if (c === '>') {
-      gt = i;
-      break;
-    }
-    i++;
+    const a = readAttr(html, k, html.length);
+    const raw = html.slice(k, a.next).trimEnd();
+    if (a.name === 'class') classes.push(raw);
+    else if (a.name === 'style') styles.push(raw);
+    else if (a.name !== 'data-part-id') others.push(raw);
+    k = a.next;
+    lastEnd = k;
   }
-  if (gt < 0) return null;
-  let at = gt;
-  while (at > m[0].length && (html[at - 1] === '/' || /\s/.test(html[at - 1]))) at--;
+  if (k >= html.length) return null;
   const quote = partId.includes('"') ? "'" : '"';
-  return `${html.slice(0, at)} data-part-id=${quote}${partId}${quote}${html.slice(at)}`;
+  const attrs = [...others, `data-part-id=${quote}${partId}${quote}`, ...classes, ...styles];
+  return `${head} ${attrs.join(' ')}${html.slice(lastEnd)}`;
 }
 
 /**

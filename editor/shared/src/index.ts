@@ -272,6 +272,8 @@ export * from './domain/user.js';
 export * from './errors.js';
 // HTML の字句解析の小さな部品と raw text の終わり探し。タグを読む走査器 5 本が共有する。
 export * from './html/htmlLex.js';
+// パーツの HTML の比較用の正規形(承認後のペア同期の「直していない」の判定)。
+export * from './html/partHtmlCompare.js';
 export * from './html/rawText.js';
 // Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
 export * from './jinja/containsJinja.js';
