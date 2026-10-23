@@ -36,18 +36,23 @@ const isSeriesFund = computed(() => (info.value?.seriesFunds.length ?? 0) > 0);
 const alreadyCreated = computed(() => info.value?.created === true);
 // 償還ファンドとして作成するか(生成器へのパラメータ)。
 const isRedemption = ref(false);
-// 日本時間の今日。日付入力の上限と、未来日の検査に使う(サーバも同じ検査をする)。
-const today = new Intl.DateTimeFormat('en-CA', {
+const jstDate = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Tokyo',
   year: 'numeric',
   month: '2-digit',
   day: '2-digit',
-}).format(new Date());
+});
+// 日本時間の今日。日付入力の上限と、未来日の検査に使う(サーバも同じ検査をする)。画面を開いた
+// まま日付をまたぐと古くなるので、フォーカス時と検査の直前に取り直す。
+const today = ref(jstDate.format(new Date()));
+function refreshToday() {
+  today.value = jstDate.format(new Date());
+}
 // 基準日(空なら送らず、サーバが最新基準日を使う)。
 const baseDate = ref('');
 // 同じ桁数のゼロ埋め文字列なので、文字列の大小がそのまま日付の前後になる。
 const baseDateError = computed(() =>
-  baseDate.value > today ? '基準日は今日より後にできません' : '',
+  baseDate.value > today.value ? '基準日は今日より後にできません' : '',
 );
 // 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
 const latestResolve = useLatest();
@@ -155,6 +160,7 @@ function openInCreateRoute(id: string | undefined) {
 
 /** 基準日が誤りなら知らせて false(入力欄の下にも同じ文言を出している)。 */
 function baseDateOk(): boolean {
+  refreshToday();
   if (!baseDateError.value) return true;
   toastError(baseDateError.value);
   return false;
@@ -276,6 +282,7 @@ async function createFromSeries(sourceFundCode: string) {
                 type="date"
                 :max="today"
                 class="w-[170px]"
+                @focus="refreshToday"
                 :aria-invalid="!!baseDateError"
               />
             </div>

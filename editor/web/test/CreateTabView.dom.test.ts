@@ -209,6 +209,26 @@ describe('CreateTabView', () => {
     expect(templates.generate).not.toHaveBeenCalled();
   });
 
+  it('開いたまま日本時間の日付が変わっても、新しい今日までの基準日を受け付ける', async () => {
+    // Date だけ偽装する(flushPromises が使うタイマーは本物のまま)。
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-22T14:00:00Z'));
+      const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+      await settle();
+      vi.setSystemTime(new Date('2026-10-22T15:30:00Z'));
+      await w.find('input[type="date"]').setValue('2026-10-23');
+      await buttonNamed(w, '属性から新規作成')?.trigger('click');
+      await settle();
+      expect(templates.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ baseDate: '2026-10-23' }),
+      );
+      expect(w.find('input[type="date"]').attributes('max')).toBe('2026-10-23');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('取り込まなかった組入先があれば、飛ばした id を並べて知らせる', async () => {
     const { w, templates } = mountWith({ created: false, seriesFunds: [] });
     const first = await templates.generate();

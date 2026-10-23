@@ -3,9 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
-// open だけを差し替えられるようにする(未設定なら本物)。開けない理由と読み取りの失敗を、
-// OS に依らず決まった形で起こすため。
+// open と stat だけを差し替えられるようにする(未設定なら本物)。開けない理由・確かめられない
+// 理由・読み取りの失敗を、OS に依らず決まった形で起こすため。
 const openOverride = vi.hoisted(() => ({
+  fn: undefined as undefined | ((...a: unknown[]) => Promise<unknown>),
+}));
+const statOverride = vi.hoisted(() => ({
   fn: undefined as undefined | ((...a: unknown[]) => Promise<unknown>),
 }));
 vi.mock('node:fs/promises', async (orig) => {
@@ -14,6 +17,8 @@ vi.mock('node:fs/promises', async (orig) => {
     ...real,
     open: (...a: Parameters<typeof real.open>) =>
       openOverride.fn ? openOverride.fn(...a) : real.open(...a),
+    stat: (...a: Parameters<typeof real.stat>) =>
+      statOverride.fn ? statOverride.fn(...a) : real.stat(...a),
   };
 });
 
@@ -67,6 +72,23 @@ describe('logSizeBefore', () => {
   });
   it('通常のファイルでなければ投げる', async () => {
     await expect(logSizeBefore(dir)).rejects.toThrow('実行ログ');
+  });
+  it('ENOENT 以外で確かめられなければ 0 にせず、元の文言を含めて投げる', async () => {
+    statOverride.fn = () =>
+      Promise.reject(Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' }));
+    try {
+      const err = await logSizeBefore('/x/denied.log').then(
+        (v) => v,
+        (e: Error) => e,
+      );
+      expect(err).toBeInstanceOf(Error);
+      const msg = (err as Error).message;
+      expect(msg).toContain('実行ログ');
+      expect(msg).toContain('denied.log');
+      expect(msg).toContain('EACCES');
+    } finally {
+      statOverride.fn = undefined;
+    }
   });
 });
 

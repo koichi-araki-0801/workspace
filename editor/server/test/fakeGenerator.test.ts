@@ -105,6 +105,21 @@ describe('fake_generate_template.py', () => {
     expect(argsLines(readLog(sb))[0]).toContain('args=["R-AM01","510037","2026-10-23","","1"]');
   }, 30_000);
 
+  it('償還の旗は出力を変えない(引数としてログに残るだけ)', async () => {
+    const plain = sandbox('redeem-off');
+    const flagged = sandbox('redeem-on');
+    expect((await run(plain, [REP1, FUND, DATE])).code).toBe(0);
+    expect((await run(flagged, [REP1, FUND, DATE, '', '1'])).code).toBe(0);
+    expect(files(flagged)).toEqual(files(plain));
+    expect(files(plain)).toEqual(['AM01_510037_交付版.html', 'AM01_510037_全体版.html']);
+    for (const name of files(plain)) {
+      expect(fs.readFileSync(path.join(flagged.output, name))).toEqual(
+        fs.readFileSync(path.join(plain.output, name)),
+      );
+    }
+    expect(argsLines(readLog(flagged))[0]).toMatch(/,"","1"\]$/);
+  }, 30_000);
+
   it('コピー元があれば TEMPLATES_DIR の両版を写す(会社の大小は問わない)', async () => {
     const sb = sandbox('source');
     fs.writeFileSync(path.join(sb.templates, 'am01_510037_交付版.html'), '<p>src-d</p>', 'utf8');
