@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { apiPaths } from '@editor/shared';
+import { apiPaths, DEFAULT_SAMPLE_OVERLAY_KEYS } from '@editor/shared';
 import { z } from 'zod';
 import { COMMITTED_AREAS } from './git/committedAreas.js';
 
@@ -30,6 +30,17 @@ function resolveDefaultBrowser(): string | undefined {
   ];
   return candidates.find((p) => fs.existsSync(p));
 }
+
+/** `sampleOverlay` のパス。空セグメントと原型汚染になる語を持つパスは設定エラーにする。 */
+const overlayPath = z
+  .string()
+  .refine(
+    (v) =>
+      v.split('.').every((s) => s !== '' && !['__proto__', 'constructor', 'prototype'].includes(s)),
+    {
+      message: 'ドット区切りのパスで、空の区間や __proto__ / constructor / prototype は使えません',
+    },
+  );
 
 /**
  * `appconfig.json` のスキーマ。全フィールドを optional とし、部分的なファイル
@@ -52,6 +63,7 @@ const appConfigSchema = z
         templatesDir: z.string().optional(),
         cssDir: z.string().optional(),
         filledDir: z.string().optional(),
+        jsonDir: z.string().optional(),
         jsDir: z.string().optional(),
         imagesDir: z.string().optional(),
         draftsDir: z.string().optional(),
@@ -71,6 +83,7 @@ const appConfigSchema = z
         script: z.string().optional(),
         scriptSha256: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
+        maxOutputFiles: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
@@ -84,6 +97,15 @@ const appConfigSchema = z
       .object({
         level: z.string().optional(),
         pretty: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    sampleOverlay: z
+      .object({
+        fundCode: overlayPath.optional(),
+        fundName: overlayPath.optional(),
+        companyCode: overlayPath.optional(),
+        companyName: overlayPath.optional(),
       })
       .strict()
       .optional(),
@@ -343,6 +365,11 @@ export const config = {
    */
   filledDir: resolveDataPath(process.env.FILLED_DIR, file.paths?.filledDir, 'filled'),
   /**
+   * 編集タブの値ファイル(`<ID>.json`、4 区切りの ID)を置くディレクトリ。別ツールが置き、エディタは
+   * 読んで挿入時の描画に使うだけ。git 管理外(承認コミットの対象ではない)。
+   */
+  jsonDir: resolveDataPath(process.env.JSON_DIR, file.paths?.jsonDir, 'json'),
+  /**
    * **全ファンド共通**のテンプレ JS(`js/…`)を置くディレクトリ。テンプレはこれを `js/…` の
    * 相対パスで参照し、PDF ビルド / プレビューの配信ルートへ `vivliostyle/docAssets.ts` が写す。
    * フォントは CSS 側の資産なので `<cssDir>/fonts` に置く(CSS から `url(fonts/…)` で引く)。
@@ -390,7 +417,7 @@ export const config = {
 
   /**
    * テンプレート生成器(社内の共有フォルダなどにある既存ツール)。起動は
-   * `<bin> <args...> <script> <属性 JSON>`(`generate/pyTemplate.ts`)。
+   * `<bin> <args...> <script> <Rep1 会社コード> <ファンドコード> <基準日> […]`(`generate/pyTemplate.ts`)。
    */
   python: {
     ...resolvePythonCommand({
@@ -417,7 +444,7 @@ export const config = {
     timeoutMs: envPositiveNumber(
       'PY_TIMEOUT_MS',
       process.env.PY_TIMEOUT_MS,
-      file.python?.timeoutMs ?? 30000,
+      file.python?.timeoutMs ?? 300_000,
       { integer: true, max: 600_000 },
     ),
     /** 同時に起動する生成器の上限。 */
@@ -432,6 +459,13 @@ export const config = {
       integer: true,
       max: 256,
     }),
+    /** 1 回の生成で受け取る出力ファイルの本数の上限(作成画面のファンドの 2 版 + 組入先)。 */
+    maxOutputFiles: envPositiveNumber(
+      'GENERATE_MAX_OUTPUT_FILES',
+      process.env.GENERATE_MAX_OUTPUT_FILES,
+      file.python?.maxOutputFiles ?? 50,
+      { integer: true, max: 1000 },
+    ),
   },
 
   /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */
@@ -617,6 +651,12 @@ export const config = {
    * を明示した local モード(`start.bat local`。DB なし / ログインなし)だけ。
    */
   requireAuth: envFlag('AUTH_REQUIRED', process.env.AUTH_REQUIRED) ?? true,
+
+  /**
+   * 共通サンプルへ Rep1 の実名を置く先のパス(ドット区切り)。共通サンプルは運用側が本番の変数名で
+   * 登録するので、editor が名前を決め打ちしないよう appconfig の `sampleOverlay` で差し替えられる。
+   */
+  sampleOverlay: { ...DEFAULT_SAMPLE_OVERLAY_KEYS, ...file.sampleOverlay },
 
   /** 構造化ロギング / 監査証跡(audit trail)。 */
   logging: {
@@ -865,7 +905,7 @@ export function buildCspDirectives(
     // **アプリオリジンに eval 系の実行手段を残さない**(`'unsafe-eval'` を載せない)。
     // Jinja のコンパイルは opaque オリジンのレンダーホスト(`render/renderHost.ts`)の中
     // だけで行い、そこは別 CSP を持つ。`lib/fillJinja.ts` の `toFilled`(作成タブの値差込。
-    // Worker も同一オリジンでこの CSP を継承する)は `lib/jinjaExpr.ts` の許可リスト評価器で
+    // Worker も同一オリジンでこの CSP を継承する)は `shared/src/jinja/jinjaExpr.ts` の許可リスト評価器で
     // 実装し、`nunjucks.compile`(= `new Function`)への依存を持たない。
     //
     // ⚠ 戻さないこと。`fillJinja` へフィルタ等を足したくなっても `new Function` を呼ぶ

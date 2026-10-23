@@ -31,7 +31,7 @@ import { appendPreviewStyle, sanitizePreviewRoot, stripExternalRefs } from '@/li
 // あたる nunjucks 実装を直に噛ませる(隔離そのものは `renderHostClient.test.ts` と
 // `ssti.guard.test.ts` が固定する)。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 
@@ -237,7 +237,7 @@ describe('compareService の描画結果', () => {
   const templates = {
     getTemplate: async () =>
       ok({ meta: { attributes: { fundCode: '510037' } }, html: ACTIVE, css: '' }),
-    getSampleData: async () => ok({ fund: { code: '510037' } }),
+    getSampleData: async () => ok({ sample: { fund: { code: '510037' } }, warnings: [] }),
   };
   const history = {
     getSnapshot: async () => ok({ html: ACTIVE, css: '', fundCode: '510037' }),

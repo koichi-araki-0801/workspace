@@ -30,7 +30,6 @@ describe('localReviewRepo の現行の 3 状態の外にある申請', () => {
     const submit = (t: typeof t1) =>
       localReviewRepo.submitReview({
         templateId: t.id,
-        fundCode: t.attributes.fundCode,
         origin: 'edit',
         html: `<div>${t.id}</div>`,
         css: '',
@@ -61,7 +60,6 @@ describe('localReviewRepo の拒否と既定値', () => {
   it('規約外 templateId の申請は not_found、未ログインの申請者は「不明」', async () => {
     const bad = await localReviewRepo.submitReview({
       templateId: 'not-a-template',
-      fundCode: 'x',
       origin: 'edit',
       html: '',
       css: '',
@@ -73,7 +71,6 @@ describe('localReviewRepo の拒否と既定値', () => {
     if (!target) return;
     const r = await localReviewRepo.submitReview({
       templateId: target.id,
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
       html: '<p>x</p>',
       css: '',
@@ -81,6 +78,26 @@ describe('localReviewRepo の拒否と既定値', () => {
       changedSummary: { count: 1, names: ['a'] },
     });
     expect(isOk(r) && r.value.submittedBy).toBe('不明');
+  });
+
+  it('cssBaseline は申請本体として保存し、メタにも単件の取得にも載せない', async () => {
+    const target = await firstTemplate();
+    expect(target).not.toBeNull();
+    if (!target) return;
+    const sub = await localReviewRepo.submitReview({
+      templateId: target.id,
+      origin: 'edit',
+      html: '<p>x</p>',
+      css: '.a{}',
+      cssBaseline: '.a{color:red;}',
+    });
+    expect(isOk(sub)).toBe(true);
+    if (!isOk(sub)) return;
+    expect(sub.value).not.toHaveProperty('cssBaseline');
+    const got = await localReviewRepo.getReview(sub.value.id);
+    expect(isOk(got) && got.value).not.toHaveProperty('cssBaseline');
+    const stored = JSON.parse(localStorage.getItem(K.reviews) ?? '{}');
+    expect(stored[sub.value.id].cssBaseline).toBe('.a{color:red;}');
   });
 
   it('現行版の取得に失敗した申請は baseHash が null(申請自体は妨げない)', async () => {
@@ -92,7 +109,6 @@ describe('localReviewRepo の拒否と既定値', () => {
       .mockResolvedValueOnce(err(notFound('x')));
     const sub = await localReviewRepo.submitReview({
       templateId: target.id,
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
       html: '<p>x</p>',
       css: '',
@@ -118,7 +134,6 @@ describe('localReviewRepo の拒否と既定値', () => {
     if (!target) return;
     const sub = await localReviewRepo.submitReview({
       templateId: target.id,
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
       html: '<p>x</p>',
       css: '',
@@ -156,7 +171,6 @@ describe('localReviewRepo の値入り HTML 要求', () => {
 
     const bad = await localReviewRepo.submitReview({
       templateId: id,
-      fundCode: '510037',
       origin: 'edit',
       html: '<p>x</p>',
       css: '',
@@ -167,7 +181,6 @@ describe('localReviewRepo の値入り HTML 要求', () => {
     // 同じテンプレでも作成タブ経路(`create`)の申請は通る。
     const good = await localReviewRepo.submitReview({
       templateId: id,
-      fundCode: '510037',
       origin: 'create',
       html: '<p>{{ x }}</p>',
       css: '',
@@ -184,7 +197,6 @@ describe('localReviewRepo の値入り HTML 要求(承認時)', () => {
     if (!target) return;
     const sub = await localReviewRepo.submitReview({
       templateId: target.id,
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
       html: '<p>申請本文</p>',
       css: '',
@@ -219,7 +231,6 @@ describe('localReviewRepo の空本文の申請', () => {
     if (!target) return;
     const empty = await localReviewRepo.submitReview({
       templateId: target.id,
-      fundCode: target.attributes.fundCode,
       origin: 'edit',
       html: '',
       css: '',

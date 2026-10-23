@@ -3,6 +3,7 @@
 // =============================================================================
 import type { AddressInfo } from 'node:net';
 import { config } from '../config.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import { sharedInlineConfig } from './options.js';
 import { PreviewManager, type PreviewServerHandle, type PreviewSpec } from './previewManager.js';
 
@@ -38,7 +39,7 @@ async function captureStdio<T>(fn: () => Promise<T>): Promise<{ result: T; outpu
 
 // プレビュー起動を直列化し、`captureStdio` のグローバルな stdout/stderr ラップが
 // 同時起動で破壊されないようにする。
-let startChain: Promise<unknown> = Promise.resolve();
+const startQueue = createSerialQueue();
 
 /**
  * `@vivliostyle/cli` の `preview()` を裏付けとする実プレビュー起動関数。cli を import するのは
@@ -95,9 +96,7 @@ const vivliostylePreviewStarter = (
     };
   };
 
-  const result = startChain.then(run, run);
-  startChain = result.catch(() => undefined);
-  return result;
+  return startQueue(run);
 };
 
 /** プロセス全体のプレビューセッション管理(実 cli starter を配線済み)。 */

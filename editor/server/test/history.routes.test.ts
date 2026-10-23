@@ -163,7 +163,7 @@ d('history routes still serve valid ids', () => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
     fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>本文</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', '999999.css'), 'p{color:#000}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'AM01_999999_交付版.css'), 'p{color:#000}', 'utf8');
     hash = await git.commitAll(`確定保存: ${templateId} by tester`, { name: 'tester' });
     app = await buildApp();
   });

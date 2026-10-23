@@ -11,11 +11,12 @@ import type {
   GenerateRequest,
   GenerateResult,
   PairSyncStatus,
-  SampleData,
+  SampleDataResult,
   SaveDraftRequest,
   Template,
   TemplateDraft,
   TemplateMeta,
+  TemplateValues,
 } from '../index.js';
 import type { Result } from '../result.js';
 
@@ -47,7 +48,16 @@ export interface TemplateRepository {
    * 確定保存(承認ワークフローの実反映)は下書きを自動クリアするため、こちらは「破棄」専用。
    */
   discardDraft(templateId: string): Promise<Result<void>>;
-  getSampleData(fundCode: string): Promise<Result<SampleData>>;
+  /**
+   * プレビュー文脈のサンプル。DB の共通サンプルに、テンプレート ID の会社・ファンドを Rep1 で引いた
+   * 実名を被せて返す(3 区切り・4 区切りの ID を受ける)。`warnings` は合成の問題。
+   */
+  getSampleData(templateId: string): Promise<Result<SampleDataResult>>;
+  /**
+   * 編集タブの値ファイル(4 区切りの ID だけ)。ファイルが無いときはエラーにせず
+   * `found: false` と空の `values` を返す(警告を出すかは呼び出し側が決める)。
+   */
+  getTemplateValues(templateId: string): Promise<Result<TemplateValues>>;
   /**
    * 交付版⇄全体版 ペア同期の現況(未解決競合の一覧)。編集画面を開いた時のバナー表示に使う。
    * ペア対象外の版種でもエラーにせず `pairTemplateId: null` を返す(呼び出し側の分岐を単純に)。

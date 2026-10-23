@@ -15,6 +15,7 @@ import { onUnmounted, type Ref, ref, type ShallowRef, watch } from 'vue';
 import { createLcsBudget } from '@/features/compare/htmlBlockDiff';
 import { logError } from '@/lib/appError';
 import { getBodyInner } from '@/lib/templateDoc';
+import { canvasRoot } from '../canvasGeometry';
 import { applyRedline, clearRedline, clearRedlineWithin } from './redlineApply';
 import { REDLINE_BODY_CLASS } from './redlineCss';
 import { diffRedline } from './redlineDiff';
@@ -36,6 +37,11 @@ interface RedlineDeps {
    * 本文の読み込みで既に同じ通知が出ているため、基準づくりで二重に出すと誤解を招く。
    */
   parseHtml: (html: string) => ComponentDefinition[];
+  /**
+   * 装飾を置き直した後に呼ぶ(`useGrapes.refreshPageMarks`)。根の直下に置いた削除要素には
+   * 1 ページ表示の印が無く、付け直さないと全ページに出続ける。
+   */
+  onDecorated: () => void;
 }
 
 export function useRedline(deps: RedlineDeps) {
@@ -48,7 +54,7 @@ export function useRedline(deps: RedlineDeps) {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   function rootEl(): HTMLElement | undefined {
-    return deps.editor.value?.getWrapper()?.getEl() ?? undefined;
+    return canvasRoot(deps.editor) ?? undefined;
   }
 
   function applyBodyClass(): void {
@@ -90,20 +96,14 @@ export function useRedline(deps: RedlineDeps) {
     schedule();
   }
 
-  /** `comp` が属するパーツ（`.page` 直下の block）の配下だけ装飾を外す。 */
+  /** `comp` が属するパーツ（根の直下の要素）の配下だけ装飾を外す。 */
   function clearPartOf(comp: Component | undefined): void {
     const el = comp?.getEl();
     const root = rootEl();
     // `el` が `root` 自身、または `root` の子孫でない場合は登り続けると `<html>` まで届く。
     if (!el || !root || el === root || !root.contains(el)) return;
     let part: HTMLElement = el;
-    while (
-      part.parentElement &&
-      part.parentElement !== root &&
-      !part.parentElement.classList.contains('page')
-    ) {
-      part = part.parentElement;
-    }
+    while (part.parentElement && part.parentElement !== root) part = part.parentElement;
     clearRedlineWithin(part);
   }
 
@@ -127,6 +127,7 @@ export function useRedline(deps: RedlineDeps) {
       const live = fromComponents(ed.getWrapper() as Component);
       applyRedline(root, diffRedline(baseline, live, createLcsBudget()));
       clearPartOf(ed.getSelected());
+      deps.onDecorated();
     } catch (e) {
       // 表示の失敗で編集を止めない。装飾は外した状態にして記録だけ残す。
       logError(toAppError(e));
@@ -181,7 +182,6 @@ export function useRedline(deps: RedlineDeps) {
     available,
     setBaseline,
     toggle,
-    recompute,
     schedule,
     onSelected,
     onDragStart,

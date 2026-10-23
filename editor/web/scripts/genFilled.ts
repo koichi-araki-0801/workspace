@@ -5,8 +5,8 @@
  *
  *   npx vite-node scripts/genFilled.ts     (from editor/web)
  *
- * The filled form preserves the original Jinja source (see fillJinja.toFilled),
- * so jinjaMask.toTemplate restores the exact template on save.
+ * 出力は編集タブ用の値入り HTML で、本番の `filled/` と同じく往復用の印も Jinja も持たない。
+ * 作成タブの値入り表示は `toFilled` が実行時に作るので、ここでは使わない。
  *
  * 2系統の原則(設計正典.md「編集 2 系統」)に従い、filled fixtures は編集タブが
  * 読む「値埋め込み済みHTML」であり、値は**ファンド別の実サンプル**でなければならない
@@ -20,13 +20,13 @@ import { fileURLToPath } from 'node:url';
 import {
   applyTemplateAttributes,
   buildSampleData,
-  type FundMaster,
   parseTemplateFileName,
+  renderPlainFilled,
   type SampleData,
   type SampleTemplateAttributes,
+  sampleCommon,
 } from '@editor/shared';
 import fundMaster from '../src/api/fixtures/funds.json';
-import { toFilled } from '../src/lib/fillJinja';
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const templatesDir = resolve(web, 'src/api/fixtures/templates');
@@ -37,7 +37,10 @@ const sampleDir = resolve(web, 'src/api/fixtures/sample');
 const outDirs = [resolve(web, 'src/api/fixtures/filled')];
 for (const d of outDirs) mkdirSync(d, { recursive: true });
 
-const funds = fundMaster as Record<string, FundMaster>;
+const funds = fundMaster as Record<
+  string,
+  { name: string; company: { code: string; name: string } }
+>;
 
 /**
  * ファンドの差込サンプルを解決する。`sample/<fund>.json`(実値)があればそれを使い、版種・
@@ -50,7 +53,13 @@ function resolveSample(fundCode: string, attrs: SampleTemplateAttributes): Sampl
     const real = JSON.parse(readFileSync(file, 'utf8')) as SampleData;
     return applyTemplateAttributes(real, attrs);
   }
-  return buildSampleData(funds[fundCode], fundCode, attrs);
+  const f = funds[fundCode];
+  const master = f && {
+    fundName: f.name,
+    companyCode: f.company.code,
+    companyName: f.company.name,
+  };
+  return applyTemplateAttributes(buildSampleData(sampleCommon, master, fundCode), attrs);
 }
 
 // Auto-discover every template fixture; fund code + edition type come from the
@@ -63,7 +72,9 @@ for (const file of readdirSync(templatesDir).filter((f) => f.endsWith('.html')))
   }
   const raw = readFileSync(resolve(templatesDir, file), 'utf8');
   const sample = resolveSample(attrs.fundCode, attrs);
-  const filled = toFilled(raw, sample);
+  const { html: filled, diagnostics } = renderPlainFilled(raw, sample);
+  if (diagnostics.unsupported.length > 0)
+    console.warn(`${file}: 解釈できない式 ${diagnostics.unsupported.join(' / ')}`);
   for (const d of outDirs) writeFileSync(resolve(d, file), filled, 'utf8');
   console.log(`wrote ${file} (${filled.length} chars)`);
 }

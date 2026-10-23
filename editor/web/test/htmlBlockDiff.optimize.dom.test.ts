@@ -97,10 +97,12 @@ describe('diffTokens parity (A-3 trim)', () => {
 });
 
 describe('page skip (A-1)', () => {
-  // CSS クラス由来の改ページ。各 .page が 1 ページになる。
-  const css = '.page { page-break-after: always; }';
-  const page = (n: number, body: string) => `<section class="page" id="p${n}">${body}</section>`;
-  const build = (pages: string[]) => `<!doctype html><html><body>${pages.join('')}</body></html>`;
+  // 根の直下の `div.pagebreak` で区切る。各 section が 1 ページになる。CSS は判定に使わない
+  // ので、渡しても結果は変わらない。
+  const css = '.pagebreak { break-after: page; }';
+  const page = (n: number, body: string) => `<section id="p${n}">${body}</section>`;
+  const build = (pages: string[]) =>
+    `<!doctype html><html><body>${pages.join('<div class="pagebreak"></div>')}</body></html>`;
 
   it('一部ページのみ変更 → 変更ページだけ changed、他は same でバイト同一', () => {
     const before = build([
@@ -130,7 +132,10 @@ describe('page skip (A-1)', () => {
   it('全ページ同一文書は changedPageCount 0(高速パスのみ)', () => {
     const html = build([page(0, '<p>a</p>'), page(1, '<p>b</p>'), page(2, '<p>c</p>')]);
     const diff = buildHtmlDiff(html, html, css, css);
+    expect(diff.pages).toHaveLength(3);
     expect(diff.changedPageCount).toBe(0);
+    // 区切りはどのページのパーツにも現れない。
+    expect(diff.pages.every((p) => p.blocks.length === 1)).toBe(true);
     expect(diff.pages.every((p) => p.blocks.every((b) => b.status === 'same'))).toBe(true);
   });
 });

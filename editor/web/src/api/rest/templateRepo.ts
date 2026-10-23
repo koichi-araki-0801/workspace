@@ -15,38 +15,49 @@ import {
   isOk,
   ok,
   type PairSyncStatus,
-  type SampleData,
+  type SampleDataResult,
   type SaveDraftRequest,
   type Template,
   type TemplateDraft,
   type TemplateMeta,
   type TemplateRepository,
+  type TemplateValues,
 } from '@editor/shared';
 import { apiFetch, attemptRest } from './http';
 
-// ファンド名・会社名(`getSampleData`)は作成タブの表示にしか使わず、同じタブの間に何度も
-// 変わらない。sessionStorage に持ち、タブを閉じれば消える(端末に残さない)。
+// サンプル(`getSampleData`)は共通サンプルとファンド名・会社名で、同じタブの間に何度も変わらない。
+// テンプレート ID ごとに sessionStorage に持ち、タブを閉じれば消える(端末に残さない)。
 const SAMPLE_CACHE_PREFIX = 'editor:sample:';
-const sampleCacheKey = (fundCode: string) => `${SAMPLE_CACHE_PREFIX}${fundCode}`;
+const sampleCacheKey = (templateId: string) => `${SAMPLE_CACHE_PREFIX}${templateId}`;
 
-function readSampleCache(fundCode: string): SampleData | null {
+function isSampleDataResult(v: unknown): v is SampleDataResult {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const { sample, warnings } = v as Record<string, unknown>;
+  return (
+    typeof sample === 'object' &&
+    sample !== null &&
+    !Array.isArray(sample) &&
+    Array.isArray(warnings) &&
+    warnings.every((w) => typeof w === 'string')
+  );
+}
+
+function readSampleCache(templateId: string): SampleDataResult | null {
   try {
-    const raw = sessionStorage.getItem(sampleCacheKey(fundCode));
+    const raw = sessionStorage.getItem(sampleCacheKey(templateId));
     if (!raw) return null;
+    // sessionStorage は他スクリプト・拡張機能からも書き換えられうる外部入力。`{ sample, warnings }` の
+    // 形でない値(壊れた JSON・配列・旧形式のサンプル本体)を扱うと呼び出し側が形の合わない値を掴む。
     const parsed: unknown = JSON.parse(raw);
-    // sessionStorage は他スクリプト・拡張機能からも書き換えられうる外部入力。オブジェクトで
-    // ない値(壊れた JSON・配列)を SampleData として扱うと呼び出し側が形の合わない値を掴む。
-    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-      ? (parsed as SampleData)
-      : null;
+    return isSampleDataResult(parsed) ? parsed : null;
   } catch {
     return null;
   }
 }
 
-function writeSampleCache(fundCode: string, data: SampleData): void {
+function writeSampleCache(templateId: string, data: SampleDataResult): void {
   try {
-    sessionStorage.setItem(sampleCacheKey(fundCode), JSON.stringify(data));
+    sessionStorage.setItem(sampleCacheKey(templateId), JSON.stringify(data));
   } catch {
     /* 容量超過・無効化時は保存しない(次回も取得するだけ) */
   }
@@ -112,15 +123,20 @@ export const restTemplateRepo: TemplateRepository = {
       apiFetch<void>(buildPath(apiPaths.templateDraft, { id: templateId }), { method: 'DELETE' }),
     ),
 
-  getSampleData: async (fundCode: string) => {
-    const cached = readSampleCache(fundCode);
+  getSampleData: async (templateId: string) => {
+    const cached = readSampleCache(templateId);
     if (cached) return ok(cached);
     const res = await attemptRest(() =>
-      apiFetch<SampleData>(buildPath(apiPaths.fundSampleData, { fundCode })),
+      apiFetch<SampleDataResult>(buildPath(apiPaths.templateSampleData, { id: templateId })),
     );
-    if (isOk(res)) writeSampleCache(fundCode, res.value);
+    if (isOk(res)) writeSampleCache(templateId, res.value);
     return res;
   },
+
+  getTemplateValues: (templateId: string) =>
+    attemptRest(() =>
+      apiFetch<TemplateValues>(buildPath(apiPaths.templateValues, { id: templateId })),
+    ),
 
   getSyncStatus: (templateId: string) =>
     attemptRest(() =>

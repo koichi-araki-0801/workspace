@@ -18,20 +18,17 @@ import {
 } from 'reka-ui';
 import { computed } from 'vue';
 import { cn } from '@/lib/utils';
-
-type Option = string | { label: string; value: string };
+import { normalizeOptions, type UiOption } from './options';
 
 const props = defineProps<{
-  options: Option[];
+  options: UiOption[];
   placeholder?: string;
   disabled?: boolean;
   class?: string;
 }>();
 const model = defineModel<string | undefined>();
 
-const normalized = computed(() =>
-  props.options.map((o) => (typeof o === 'string' ? { label: o, value: o } : o)),
-);
+const normalized = computed(() => normalizeOptions(props.options));
 </script>
 
 <template>

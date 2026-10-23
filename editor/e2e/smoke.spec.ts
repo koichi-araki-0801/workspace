@@ -2,6 +2,7 @@
 // smoke.spec.ts — 認証フローの E2E スモークテスト (Playwright)
 // =============================================================================
 import { expect, test } from './fixtures';
+import { partLocator } from './helpers';
 
 // 各テストはセッション cookie を捨て、古い session が実行間で漏れないようにする。
 test.beforeEach(async ({ context }) => {
@@ -72,7 +73,7 @@ test('preview shows the edited body after an autosaved draft exists', async ({ p
   const id = encodeURIComponent('AM01_510037_20240710_交付版');
   await page.goto(`/edit/${id}`, { waitUntil: 'commit' });
   const frame = page.frameLocator('iframe.gjs-frame');
-  await frame.locator('.page').first().waitFor({ state: 'visible', timeout: 30_000 });
+  await partLocator(frame).first().waitFor({ state: 'visible', timeout: 30_000 });
 
   // 編集を許可 → 地のテキスト(chip でない段落)へ 1 語追記 → canvas 外クリックで確定。
   await page.getByText('編集を許可', { exact: true }).click();
@@ -95,8 +96,7 @@ test('preview shows the edited body after an autosaved draft exists', async ({ p
     el.append('E2E追記');
     el.dispatchEvent(new InputEvent('input', { bubbles: true }));
   });
-  await frame
-    .locator('.page')
+  await partLocator(frame)
     .first()
     .click({ position: { x: 5, y: 5 } });
   // 追記が canvas モデルへ入ったことを先に確かめる(ここで落ちたら編集操作自体の問題で、

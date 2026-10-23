@@ -23,6 +23,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { isGitObjectId, validation } from '@editor/shared';
 import { config, envPositiveNumber } from '../config.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import { COMMITTED_AREAS } from './committedAreas.js';
 
 const execFileAsync = promisify(execFile);
@@ -67,7 +68,7 @@ function checkRelPath(relPath: string): string {
 }
 
 /** git log の 1 コミット分のメタ(版一覧/編集履歴の素)。 */
-export interface GitCommitMeta {
+interface GitCommitMeta {
   hash: string;
   /** author date(ISO 8601)。 */
   date: string;
@@ -142,16 +143,7 @@ async function git(args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<
 
 // ── コミット直列化(index.lock 競合対策) ──
 // モジュール内の単一 Promise チェーン。全コミットを直列に実行する。
-let lock: Promise<unknown> = Promise.resolve();
-export function withGitLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = lock.then(fn, fn);
-  // チェーンは握りつぶして次へ繋ぐ(個々の結果は run が保持)。
-  lock = run.then(
-    () => undefined,
-    () => undefined,
-  );
-  return run;
-}
+export const withGitLock = createSerialQueue();
 
 /** identity の name/email を解決する。email はログインID から安全な local アドレスを合成。 */
 function resolveIdentity(author: GitAuthor): { name: string; email: string } {
@@ -358,6 +350,8 @@ const LOG_FORMAT = '%H%x09%aI%x09%an%x09%s';
 /**
  * 1 回の `git log` が返すコミット数の上限。履歴は承認のたび単調に伸びるので、上限が
  * 無いと「古いリポジトリほど 1 リクエストが重い」= 時間とともに悪化する経路になる。
+ * テストから直接検証するために公開する。
+ * @public
  */
 export const MAX_LOG_COMMITS = 500;
 
@@ -391,7 +385,7 @@ export async function logForFile(relPath: string): Promise<GitCommitMeta[]> {
 }
 
 /** コミットメタ + そのコミットで変更されたファイル(pathspec に一致するもの)。 */
-export interface GitCommitWithFiles extends GitCommitMeta {
+interface GitCommitWithFiles extends GitCommitMeta {
   files: string[];
 }
 

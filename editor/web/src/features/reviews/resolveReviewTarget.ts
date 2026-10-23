@@ -8,6 +8,7 @@
 // 2 系統の判定(`route.query.created === '1'`)をここでも同じ規則で読む。
 
 import type { LocationQuery } from 'vue-router';
+import { routeOrigin } from '@/features/layout/tabOf';
 
 const EDIT_PATH = /^\/(?:edit|preview)\/([^/?#]+)(?:\?([^#]*))?/;
 /** テンプレート id の字面(`assertTemplateId` と同じ意図。`/` `\` `..` を含まない)。 */
@@ -29,7 +30,7 @@ export function resolveReviewTarget(
   const m = EDIT_PATH.exec(editTabPath);
   if (!m) return null;
   const search = new URLSearchParams(m[2] ?? '');
-  if (search.get('created') === '1') return null;
+  if (routeOrigin({ created: search.get('created') }) === 'create') return null;
   try {
     return safeId(decodeURIComponent(m[1]));
   } catch {

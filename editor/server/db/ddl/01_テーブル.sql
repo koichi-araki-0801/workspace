@@ -78,6 +78,36 @@ IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'�
     ADD [次回反映既定] NVARCHAR(16) COLLATE Japanese_CI_AS NULL;
 GO
 
+/* 一覧の版種による絞り込み(後付け列のため COL_LENGTH で冪等追加)。NULL = 両版共通。
+ * 値はテンプレートの版種と同じ文字列で、値は固定しない(CHECK を付けない)。表示だけに使い、
+ * ペア同期のポリシーは `同期既定` 列だけで決める。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'対象版種') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD [対象版種] NVARCHAR(32) COLLATE Japanese_CI_AS NULL;
+GO
+
+/* 一覧の委託会社による絞り込み(後付け列のため COL_LENGTH で冪等追加)。値は Rep1 の
+ * `委託会社コード` と同じ CHAR(5)。本番には既にある。NULL は後付けのため未設定というだけで、
+ * 全社共通の意味は持たない(指定した会社には出ない)。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'委託会社コード') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
+    ADD [委託会社コード] CHAR(5) COLLATE Japanese_CI_AS NULL;
+GO
+
+/* 分類の英名(別ツール用。editor は読まない)。後付け列のため COL_LENGTH で冪等追加。 */
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'カテゴリ英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [カテゴリ英名] NVARCHAR(128) NULL;
+GO
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'大分類英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [大分類英名] NVARCHAR(128) NULL;
+GO
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'中分類英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [中分類英名] NVARCHAR(128) NULL;
+GO
+IF COL_LENGTH(N'[ug01].[Rep1_運報自動化_Editor_パーツカタログ]', N'小分類英名') IS NULL
+  ALTER TABLE [ug01].[Rep1_運報自動化_Editor_パーツカタログ] ADD [小分類英名] NVARCHAR(128) NULL;
+GO
+
 /* --- 3. 監査ログ ---------------------------------------------------------- */
 /* logger.ts の AuditEvent を列化(ファイルログとの二重化)。JSON はテキスト保管。   */
 IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_監査ログ]', N'U') IS NULL
@@ -98,16 +128,27 @@ BEGIN
 END
 GO
 
-/* --- 4. サンプルデータ ---------------------------------------------------- */
-/* fundCode ごとのプレビュー context(任意 JSON をテキスト保管)。               */
-IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_サンプルデータ]', N'U') IS NULL
+/* --- 4. 共通サンプル ------------------------------------------------------ */
+/* 作成タブ系の表示値。分類(カテゴリ・大分類・中分類・小分類。空 = 上位の分類全体、4 段とも空 = 全体共通) */
+/* ごとに、トップレベルが object の JSON 断片を 1 行持つ。server が全行を ID 昇順でトップレベル  */
+/* だけ合成する(同じキーは先の行を採る)。分類キーは空と NULL を同じに扱う一意性のための計算列。 */
+/* 計算列を持つ表の作成には QUOTED_IDENTIFIER ON が必要(sqlcmd の既定は OFF)。 */
+SET QUOTED_IDENTIFIER ON;
+GO
+IF OBJECT_ID(N'[ug01].[Rep1_運報自動化_Editor_共通サンプル]', N'U') IS NULL
 BEGIN
-  CREATE TABLE [ug01].[Rep1_運報自動化_Editor_サンプルデータ] (
-    [サンプルID]        BIGINT IDENTITY(1,1) NOT NULL,
-    [ファンドコード]    NVARCHAR(32)  COLLATE Japanese_CI_AS NOT NULL,
+  CREATE TABLE [ug01].[Rep1_運報自動化_Editor_共通サンプル] (
+    [共通サンプルID]    BIGINT IDENTITY(1,1) NOT NULL,
+    [カテゴリ]          NVARCHAR(64)  COLLATE Japanese_CI_AS NULL,
+    [大分類]            NVARCHAR(64)  COLLATE Japanese_CI_AS NULL,
+    [中分類]            NVARCHAR(64)  COLLATE Japanese_CI_AS NULL,
+    [小分類]            NVARCHAR(64)  COLLATE Japanese_CI_AS NULL,
     [データJSON]        NVARCHAR(MAX) NOT NULL,
     [更新日時]          DATETIME2(3)  NULL,
-    CONSTRAINT [PK_サンプルデータ] PRIMARY KEY CLUSTERED ([サンプルID])
+    [更新者]            NVARCHAR(64)  NULL,
+    [分類キー]          AS (ISNULL([カテゴリ], N'') + NCHAR(31) + ISNULL([大分類], N'') + NCHAR(31)
+                          + ISNULL([中分類], N'') + NCHAR(31) + ISNULL([小分類], N'')) PERSISTED,
+    CONSTRAINT [PK_共通サンプル] PRIMARY KEY CLUSTERED ([共通サンプルID])
   );
 END
 GO

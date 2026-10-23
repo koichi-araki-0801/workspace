@@ -13,14 +13,11 @@ function filled(value: string | undefined): boolean {
 /**
  * 検索を実行してよいか。
  *
- * 必須フィールドの指定があるときはそれが全て埋まっていること、無いときは対象
- * フィールドのどれか 1 つでも埋まっていることを条件にする。
+ * 対象フィールドのどれか 1 つでも埋まっていることを条件にする。
  */
 export function canSubmitSearch<F extends string>(
   query: Partial<Record<F, string>>,
   fields: readonly F[],
-  requiredFields: readonly F[],
 ): boolean {
-  if (requiredFields.length > 0) return requiredFields.every((f) => filled(query[f]));
   return fields.some((f) => filled(query[f]));
 }

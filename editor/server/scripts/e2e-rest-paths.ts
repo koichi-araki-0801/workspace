@@ -25,3 +25,13 @@ export const E2E_REST_DATA_ROOT = path.join(repoRoot, '.tmp', 'e2e-rest-dataroot
 export const E2E_REST_PORT = Number(process.env.E2E_REST_PORT ?? '24680');
 /** e2e の Vite dev ポート。`playwright.config.ts` の webServer と揃える。 */
 export const E2E_REST_WEB_PORT = Number(process.env.E2E_REST_WEB_PORT ?? '24681');
+/**
+ * e2e 専用の制御ポート(ログイン計数のリセット用)。本番の `buildApp` へテスト専用ルートを
+ * 足さないため、e2e サーバと同じプロセスに別の loopback サーバを立てて受ける。既定は
+ * サーバのポート + 2(Vite の次)。
+ */
+export const E2E_REST_CONTROL_PORT = Number(
+  process.env.E2E_REST_CONTROL_PORT ?? String(E2E_REST_PORT + 2),
+);
+/** 制御サーバのログイン計数リセット先。`fixtures.ts` が各テストの前に叩く。 */
+export const E2E_RESET_LOGIN_LIMIT_URL = `http://127.0.0.1:${E2E_REST_CONTROL_PORT}/__e2e/reset-login-limit`;

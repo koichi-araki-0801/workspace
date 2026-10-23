@@ -51,6 +51,7 @@ describe('inspectSvg — 通すもの', () => {
       wrap('<filter id="f"><feGaussianBlur stdDeviation="1"/><feOffset dx="1"/></filter>'),
     ],
     ['data-* 属性', wrap('<g data-part="logo"/>')],
+    ['name 属性', wrap('<g name="qr"><rect width="1" height="1"/></g>')],
   ])('%s', (_label, svg) => {
     expect(inspectSvg(svg)).toEqual([]);
   });
@@ -262,6 +263,99 @@ describe('inspectSvg — 落とすもの', () => {
   });
 });
 
+// `image-set("x.png" 1x)` のように引用符の文字列で URL を取る関数がある。関数名を数え上げずに
+// 「URL にならない関数」の許可リストで判定するので、知らない関数は違反の側へ倒れる。
+describe('inspectSvg — CSS の関数の中の引用符の文字列', () => {
+  it.each([
+    '<style>.a{background:image-set("x.png" 1x)}</style>',
+    '<style>.a{background:-webkit-image-set("x.png" 1x)}</style>',
+    '<rect style=\'fill:image-set("x.png" 1x)\'/>',
+    '<style>.a{background:somefn("x.png")}</style>',
+    '<style>.a{background:IMAGE-SET("x.png" 1x)}</style>',
+    '<style>.a{background:\\69mage-set("x.png" 1x)}</style>',
+    "<style>.a{background:image-set('x\\'.png' 1x)}</style>",
+    '<style>.a{background:cross-fade("a.png" 50%, "b.png")}</style>',
+    '<style>.a{background:image-set(var(--u, "x.png") 1x)}</style>',
+    '<style>.a{background:image-set(env(u, "x.png") 1x)}</style>',
+    '<style>.a{background:image-set(("x.png") 1x)}</style>',
+    '<style>.a{src:src("x.png")}</style>',
+    '<style>.a{--u:"x.png"}.b{background:image-set(var(--u) 1x)}</style>',
+    '<style>.a{\\2d-u:"x.png"}</style>',
+    '<style>@property --u{syntax:"*";inherits:false;initial-value:"x.png"}</style>',
+    '<style>.a{background:image-set("data:image/png;base64,AAAA" 1x)}</style>',
+    '<style>.a{fill:url("\u00a0#g")}</style>',
+    '<style>.a{fill:url("\u3000#g")}</style>',
+    '<style>.a{fill:url(\u00a0#g)}</style>',
+    '<rect fill="url(#g\u3000)"/>',
+    '<style>.a{fill:url("\ufeff#g")}</style>',
+    '<style>.a{background:image-set("\u00a0#g" 1x)}</style>',
+    '<style>.a{background:image-set("#g\u3000x.png" 1x)}</style>',
+    '<style>.a{--u:{} "x.png"}</style>',
+    '<style>.a{--u:{"x.png"}}</style>',
+    `<rect style='--u:{} "x.png"'/>`,
+    '<style>.a{background:image-set(attr(data-x, "x.png") 1x)}</style>',
+    '<style>.a:nth-child(2 of [x="y"]){background:image-set("x.png" 1x)}</style>',
+    '<style>:host([x="y"]){background:image-set("x.png" 1x)}</style>',
+    '<style>.a{--label:"注"}</style>',
+  ])('関数の中の引用符の文字列が #id 以外を指せば違反 %s', (inner) => {
+    expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).not.toEqual([]);
+  });
+
+  it('違反の文言は場所を添える', () => {
+    expect(inspectSvg(wrap('<style>.a{background:image-set("x.png" 1x)}</style>'))).toContain(
+      '引用符の文字列が #id 以外を指す(style 要素)',
+    );
+    expect(inspectSvg(wrap('<rect style=\'fill:image-set("x.png" 1x)\'/>'))).toContain(
+      '引用符の文字列が #id 以外を指す(style 属性)',
+    );
+  });
+
+  it.each([
+    '<style>.a{background:image-set("#g" 1x)}</style>',
+    '<style>@font-face{font-family:"F";src:url(data:font/woff2;base64,AAAA) format("woff2")}</style>',
+    '<style>.a{font-family:"Noto Sans"}</style>',
+    '<style>.a::before{content:"注"}</style>',
+    '<style>.a::before{content:counters(n, ".")}</style>',
+    '<style>@font-face{font-family:"F";src:local("Noto Sans")}</style>',
+    '<style>.a{fill:url("#g")}.b{fill:URL(#g)}</style>',
+    '<style>.a{fill:url(" #g ")}.b{background:image-set(" #g " 1x)}</style>',
+    '<style>.a{font-family:"x(";fill:url(#g)}.b::before{content:")"}</style>',
+    '<style>/* image-set("x.png") */.a{fill:url(#g)}</style>',
+    '<style>.a:not([class="x"]){fill:red}.b:is([id="y"]){fill:red}</style>',
+    '<style>.a{background:image-set/**/("x.png" 1x)}</style>',
+    '<style>.a:nth-child(2 of [data-x="y"]){fill:red}</style>',
+    '<style>.a:nth-last-child(1 of [data-x="y"]){fill:red}</style>',
+    '<style>:host([data-x="y"]){fill:red}</style>',
+    '<style>:host-context([data-x="y"]){fill:red}</style>',
+  ])('URL にならない文字列は違反にしない %s', (inner) => {
+    expect(inspectSvg(`<svg xmlns="http://www.w3.org/2000/svg">${inner}</svg>`)).toEqual([]);
+  });
+
+  it('許可リストは関数の名前だけで効く(値の位置の nth-child でも違反にしない)', () => {
+    // `nth-child` は値の関数ではなく、ブラウザは無効な値として捨てるので取得は起きない。
+    // 判定が文脈ではなく名前だけであることを固定する。値の関数になる名前が増えたら見直す。
+    expect(inspectSvg(wrap('<style>.a::before{content:nth-child("x.png")}</style>'))).toEqual([]);
+    // 絶対 URL は別の検査(外部参照)が捕まえ、文字列の検査は報告しない。報告全体で両方を固定する。
+    expect(inspectSvg(wrap('<style>.a::before{content:nth-child("http://x")}</style>'))).toEqual([
+      '外部参照を含む CSS(style 要素)',
+    ]);
+  });
+});
+
+// CSS の前処理で CRLF は LF 1 個になるので、16 進エスケープの後ろの CRLF は 1 個の空白として
+// 食われ、`\75` + CRLF + `rl(` は `url(` になる。style 属性では文字参照の CR LF が同じ形を作る。
+describe('inspectSvg — CRLF をまたぐエスケープ', () => {
+  it('style 要素の CRLF', () => {
+    const css = `${String.raw`.a{fill:\75`}\r\nrl(http://evil.example/x)}`;
+    expect(inspectSvg(wrap(`<style>${css}</style>`))).toContain('外部参照を含む CSS(style 要素)');
+  });
+
+  it('style 属性の文字参照 &#13;&#10;', () => {
+    const attr = `${String.raw`fill:\75`}&#13;&#10;rl(http://evil.example/x)`;
+    expect(inspectSvg(wrap(`<rect style="${attr}"/>`))).toContain('外部参照を含む CSS(style 属性)');
+  });
+});
+
 // 悪意ある入力で同期処理を止めさせない(単体配信ルートはリクエスト毎に検査する)。実時間の上限は
 // CI のランナーが遅い前提で緩く取る。二乗時間の経路が残ると桁違いに超える。
 describe('inspectSvg — 入力サイズに対して線形', () => {
@@ -303,7 +397,33 @@ describe('inspectSvg — 入力サイズに対して線形', () => {
     expect(inspectSvg(svg)).toEqual([]);
   });
 
+  it('知らない属性は違反のまま', () => {
+    expect(inspectSvg(wrap('<rect foo="1"/>'))).toContain('許可されていない属性 foo');
+  });
+
   it('重複属性は違反のまま', () => {
     expect(inspectSvg(wrap('<rect width="1" width="2"/>'))).toContain('重複した属性 width');
+  });
+});
+
+// `@namespace` の URI は取得されないので `#id` の検査から外す。形から外れたもの・ほかの文脈の
+// URL は今までどおり違反。
+describe('inspectSvg — @namespace', () => {
+  it.each([
+    '<style>@namespace svg url(http://www.w3.org/2000/svg);svg|rect{fill:red}</style>',
+    '<style>@namespace "http://www.w3.org/2000/svg";.a{fill:url(#g)}</style>',
+  ])('名前空間 URI は違反にしない %s', (inner) => {
+    expect(inspectSvg(wrap(inner))).toEqual([]);
+  });
+
+  it.each([
+    '<style>@namespace svg url(http://evil/x) .a{fill:red}</style>',
+    '<style>@namespace "x" "http://evil/x";</style>',
+    '<style>@media url(x.png){.a{fill:red}}</style>',
+    '<style>@charset "http://evil/x";</style>',
+    '<style>.a{@namespace url(http://evil/x);}</style>',
+    '<style>@media print{@namespace url(http://evil/x);}</style>',
+  ])('形から外れた・ほかの at-rule の URL は違反 %s', (inner) => {
+    expect(inspectSvg(wrap(inner))).not.toEqual([]);
   });
 });

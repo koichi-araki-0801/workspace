@@ -7,6 +7,7 @@ import {
   err,
   type FundOption,
   type GenerateRequest,
+  type GenerateSkipped,
   isOk,
   map,
   type Result,
@@ -30,8 +31,11 @@ interface TemplateCreationService {
   getCreatableInfo(
     q: Parameters<TemplateRepository['getCreatableInfo']>[0],
   ): Promise<Result<CreatableInfo>>;
-  /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
-  create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
+  /**
+   * 属性を検証してから生成する(交付版と全体版を 1 組で取り込む)。成功時は押した版の meta と、
+   * 既にあるため取り込まなかった組入先を返す。
+   */
+  create(req: GenerateRequest): Promise<Result<{ meta: TemplateMeta; skipped: GenerateSkipped[] }>>;
 }
 
 /**
@@ -54,8 +58,13 @@ export function createTemplateCreationService(
         return err(validation(SELECT_ALL_MSG));
       }
       const res = await repo.generate(req);
-      if (isOk(res)) forgetEditState(res.value.template.meta.id);
-      return map(res, (r) => r.template.meta);
+      if (isOk(res)) {
+        // 1 回の作成は両版と組入先をまとめて置き換えるので、開いた版だけでなく取り込んだ全 id の
+        // 前の編集状態を捨てる(同じタブで別の版を開いたとき古い Undo が戻らないように)。
+        const ids = new Set([res.value.template.meta.id, ...res.value.importedIds]);
+        for (const id of ids) forgetEditState(id);
+      }
+      return map(res, (r) => ({ meta: r.template.meta, skipped: r.skipped }));
     },
     listCompanies: () => repo.listCompanies(),
     listFunds: (rep1CompanyCode) => repo.listFunds(rep1CompanyCode),

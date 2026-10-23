@@ -10,7 +10,7 @@ describe('templateAttributeItems', () => {
       editionType: '交付版',
     });
     expect(items.map((i) => [i.label, i.value])).toEqual([
-      ['委託会社コード', 'AM01'],
+      ['委託会社', 'AM01'],
       ['ファンドコード', '510037'],
       ['基準日', '20240710'],
       ['版種', '交付版'],

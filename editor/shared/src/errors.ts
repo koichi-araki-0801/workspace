@@ -74,7 +74,8 @@ export function isAppError(value: unknown): value is AppError {
 /**
  * throw/catch した任意の値を `AppError` に包む。既に `AppError` ならそのまま返す。
  * 未知の throw には汎用の安全なメッセージを与え、元の値は `cause` に保持する
- * — リポジトリの throw→Result の継ぎ目で使う。
+ * — リポジトリの throw→Result の継ぎ目で使う。`fallbackKind` はテストから直接検証するために
+ * 公開している引数。
  */
 export function toAppError(cause: unknown, fallbackKind: AppErrorKind = 'unexpected'): AppError {
   if (isAppError(cause)) return cause;

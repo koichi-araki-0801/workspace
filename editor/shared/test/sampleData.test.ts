@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   applyTemplateAttributes,
@@ -58,24 +60,111 @@ describe('applyTemplateAttributes', () => {
   });
 });
 
-describe('buildSampleData のテンプレ属性上書き', () => {
-  it('attributes を渡すと共通ダミーの report を版種・基準日で上書きする', () => {
-    const out = buildSampleData(undefined, '510037', ATTRS);
+describe('buildSampleData', () => {
+  const BASE: SampleData = { fund: { code: 'x', name: '共通名', keep: 1 }, other: [1, 2] };
+
+  it('指定したパスへ実名を被せ、base は変えない', () => {
+    const out = buildSampleData(
+      BASE,
+      { fundName: '実ファンド', companyCode: 'AM01', companyName: '実会社' },
+      '510037',
+      { fundCode: 'f.c', fundName: 'f.n', companyCode: 'co.c', companyName: 'co.n' },
+    );
+    expect(out).toEqual({
+      fund: { code: 'x', name: '共通名', keep: 1 },
+      other: [1, 2],
+      f: { c: '510037', n: '実ファンド' },
+      co: { c: 'AM01', n: '実会社' },
+    });
+    expect(BASE).toEqual({ fund: { code: 'x', name: '共通名', keep: 1 }, other: [1, 2] });
+  });
+
+  it('既定のパスは fund.code / fund.name / company.code / company.name', () => {
+    const out = buildSampleData(
+      BASE,
+      { fundName: '実', companyCode: 'C', companyName: '社' },
+      '510037',
+    );
+    expect(out.fund).toEqual({ code: '510037', name: '実', keep: 1 });
+    expect(out.company).toEqual({ code: 'C', name: '社' });
+  });
+
+  it('パスの途中が無ければ object を作り、object でなければ置き換える', () => {
+    const out = buildSampleData({ a: 'str' }, { fundName: 'N' }, '1', {
+      fundCode: 'a.b.c',
+      fundName: 'x.y',
+      companyCode: 'cc',
+      companyName: 'cn',
+    });
+    expect(out).toEqual({ a: { b: { c: '1' } }, x: { y: 'N' } });
+  });
+
+  it('master が無ければ fundCode だけ被せ、名前は共通値のまま', () => {
+    const out = buildSampleData(BASE, undefined, '999999');
+    expect(out.fund).toEqual({ code: '999999', name: '共通名', keep: 1 });
+    expect(out.company).toBeUndefined();
+  });
+
+  it('master の項目が欠ければその項目は共通値のまま', () => {
+    const out = buildSampleData(BASE, { companyName: '社のみ' }, '1');
+    expect(out.fund).toEqual({ code: '1', name: '共通名', keep: 1 });
+    expect(out.company).toEqual({ name: '社のみ' });
+  });
+
+  it('原型汚染になるパスは無視する', () => {
+    const out = buildSampleData({}, { fundName: 'N' }, '1', {
+      fundCode: '__proto__.polluted',
+      fundName: 'constructor.prototype.x',
+      companyCode: 'a..b',
+      companyName: 'z',
+    });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(out).toEqual({});
+  });
+
+  it('共通サンプルに版種・基準日を被せられる(applyTemplateAttributes と併用)', () => {
+    const out = applyTemplateAttributes(buildSampleData(sampleCommon, undefined, '510037'), ATTRS);
     const report = out.report as Record<string, unknown>;
     expect(report.editionType).toBe('交付版');
     expect(report.baseDate).toBe('2024年7月10日');
     expect((out.fund as Record<string, unknown>).code).toBe('510037');
   });
 
-  it('attributes 無しでは従来どおり共通ダミーのまま(呼び出し互換)', () => {
-    const out = buildSampleData(undefined, '510037');
-    expect((out.report as Record<string, unknown>).editionType).toBe(
-      (sampleCommon.report as Record<string, unknown>).editionType,
-    );
-  });
-
   it('fund.navChange は number(テンプレの符号分岐 `>= 0` が動く型)', () => {
-    const out = buildSampleData(undefined, '510037');
+    const out = buildSampleData(sampleCommon, undefined, '510037');
     expect(typeof (out.fund as Record<string, unknown>).navChange).toBe('number');
+  });
+});
+
+describe('生成器の骨組みの変数が、基準日の無いテンプレのサンプルで埋まる', () => {
+  // 骨組みは 2 か所: server の偽の生成器(Python の書式なので `{{{{ }}}}` と `{{% %}}` を
+  // 元の Jinja へ戻して読む)と local モードの defaultSkeleton。どちらもテキストとして読む。
+  const sources = [
+    fs
+      .readFileSync(
+        path.resolve(__dirname, '../../server/scripts/fake_generate_template.py'),
+        'utf8',
+      )
+      .replaceAll('{{{{', '{{')
+      .replaceAll('}}}}', '}}')
+      .replaceAll('{{%', '{%')
+      .replaceAll('%}}', '%}'),
+    fs.readFileSync(path.resolve(__dirname, '../../web/src/api/local/store.ts'), 'utf8'),
+  ];
+  it.each(sources.map((s, i) => [i, s] as const))('骨組み %s', (_i, src) => {
+    const loopVars = new Set([...src.matchAll(/\{%\s*for\s+(\w+)\s+in/g)].map((m) => m[1]));
+    const sample = applyTemplateAttributes(buildSampleData(sampleCommon, undefined, '510037'), {
+      editionType: '全体版',
+    });
+    for (const [, expr] of src.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) {
+      const [head, ...rest] = expr.split('.');
+      if (loopVars.has(head)) continue;
+      const v = rest.reduce<unknown>(
+        (o, k) => (o as Record<string, unknown> | undefined)?.[k],
+        sample[head],
+      );
+      expect(v, expr).not.toBeUndefined();
+      expect(String(v), expr).not.toBe('');
+    }
   });
 });

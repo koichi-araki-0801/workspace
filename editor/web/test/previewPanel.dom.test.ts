@@ -322,4 +322,18 @@ describe('PreviewPanel — postMessage クライアント', () => {
     expect(fb.style.display).toBe('none');
     wrapper.unmount();
   });
+
+  it('会社コードを自己完結化へ渡す(会社フォルダの画像の照合に使う)', async () => {
+    const { selfContainPreviewDoc } = await import('../src/lib/previewSelfContain');
+    const spy = selfContainPreviewDoc as ReturnType<typeof vi.fn>;
+    spy.mockClear();
+    const wrapper = mount(PreviewPanel, {
+      props: { html: '<p>c</p>', companyCode: 'SMTAM' },
+      attachTo: document.body,
+    });
+    deliver({ type: 'editor:preview-ready' }, frameWindow(wrapper));
+    await flushPromises();
+    expect(spy).toHaveBeenCalledWith('<p>c</p>', undefined, { companyCode: 'SMTAM' });
+    wrapper.unmount();
+  });
 });

@@ -7,7 +7,10 @@
  *
  * 編集 UI はここへ集約し、サイズ・配置 / 余白 / 改ページ / 修正履歴を
  * 「折りたたみ式セクション」(タブにしない)として縦積み表示する。
- * 幾何の編集ロジック(数値 clamp・配置・改ページ)も本コンポーネントが持つ。
+ * 幾何の編集ロジック(数値 clamp・配置・改ページ)も本コンポーネントが持つ。前後の改ページは
+ * inline style ではなくパーツの前後の区切り(`div.pagebreak`)の挿入・削除なので、`apply` ではなく
+ * `pagebreak` で知らせる(`partBreak.ts`)。区切りの帯そのものを選んでいるときは、幾何も改ページも
+ * 持たないので編集の段を出さない(帯は Delete で消す)。
  *
  * 折りたたみの初期状態は「編集許可」(`editMode` = `useTemplateEditor.ts` の `allowEdit`)に
  * 連動: 許可 ON で編集セクションのみ展開し履歴は畳む、OFF で逆(閲覧時は履歴を主役)。連動は
@@ -41,17 +44,23 @@ import { Tooltip } from '@/components/ui/overlays';
 import StepperInput from '@/components/ui/StepperInput.vue';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { type Align, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
+import { type Align, alignForWidth, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
 import InspectorSection from './InspectorSection.vue';
+import type { BreakEdge } from './partBreak';
 import type { SelectedInfo } from './useGrapes';
 
 const props = defineProps<{
   selected: SelectedInfo | null;
   part: PartCatalogItem | null;
   geom: LayoutGeom | null;
+  /**
+   * 選んだ要素が属するパーツの前後に改ページがあるか。null は区切りを置けない選択(固めた範囲の
+   * 包みなど)で、前後の改ページを押せなくする。
+   */
+  partBreak: { before: boolean; after: boolean } | null;
   history: PartHistoryEntry[];
   /** 全パーツ横断表示(未選択時)で各履歴行のパーツを示すラベル(`partKey` → `ページN・パーツM`)。 */
-  partLabels?: Map<string, string>;
+  partLabels: Map<string, string>;
   /** 右ペインの表示(プロパティ / コメント)。切替の状態は `EditorView` が持つ。 */
   paneTab: 'props' | 'comments';
   /** 未対応コメントの件数(切替タブのバッジ)。 */
@@ -61,10 +70,11 @@ const props = defineProps<{
   canDown: boolean;
 }>();
 
-// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeom` / `moveSelected` /
+// 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeomEdit` / `setPartBreak` / `moveSelected` /
 // `resetGeom` / `deletePart`)へそのまま委譲する。
 const emit = defineEmits<{
   apply: [Partial<LayoutGeom>];
+  pagebreak: [{ edge: BreakEdge; on: boolean }];
   move: [-1 | 1];
   reset: [];
   del: [];
@@ -113,7 +123,7 @@ const reflectBadge = computed(
 const historySpansParts = computed(() => new Set(props.history.map((h) => h.partKey)).size > 1);
 /** 履歴行のパーツラベル。マップに無い(削除済み)パーツは控えめに示す。 */
 function partLabelOf(partKey: string): string {
-  return props.partLabels?.get(partKey) ?? '削除済みパーツ';
+  return props.partLabels.get(partKey) ?? '削除済みパーツ';
 }
 
 // ── 1. 折りたたみ状態 ──
@@ -154,34 +164,53 @@ const ALIGN_LABEL: Record<Align, string> = {
   right: '右寄せ',
   stretch: '全幅',
 };
+// 横の配置の切替ボタン(幅 < 100% のときだけ出る 3 択。`stretch` は幅 100% の状態なので含めない)。
+const ALIGN_BUTTONS = [
+  { value: 'left', icon: AlignLeft },
+  { value: 'center', icon: AlignCenter },
+  { value: 'right', icon: AlignRight },
+] as const;
 const alignLabel = computed(() => (props.geom ? ALIGN_LABEL[props.geom.align] : ''));
 
-// 改ページの 3 項目(編集 toggle / 表示のみの読み取り行で共有)。
+// 改ページの 3 項目(編集 toggle / 表示のみの読み取り行で共有)。前後は区切りの状態
+// (`partBreak`)、「ページ内で分割しない」は inline style の幾何(`geom`)から読む。
 const PB_ITEMS = [
-  { key: 'pageBreakBefore', icon: ArrowUpToLine, label: '前で改ページ' },
-  { key: 'pageBreakAfter', icon: ArrowDownToLine, label: '後で改ページ' },
+  { key: 'before', icon: ArrowUpToLine, label: '前で改ページ' },
+  { key: 'after', icon: ArrowDownToLine, label: '後で改ページ' },
   { key: 'keepTogether', icon: SplitSquareVertical, label: 'ページ内で分割しない' },
 ] as const;
+type PbKey = (typeof PB_ITEMS)[number]['key'];
+
+function pbOn(key: PbKey): boolean {
+  return key === 'keepTogether' ? !!props.geom?.keepTogether : !!props.partBreak?.[key];
+}
+
+function pbDisabled(key: PbKey): boolean {
+  return key !== 'keepTogether' && !props.partBreak;
+}
 
 function setAlign(align: Align) {
   if (props.editMode && canAlign()) emit('apply', { align });
 }
 
-function togglePB(key: 'pageBreakBefore' | 'pageBreakAfter' | 'keepTogether') {
-  if (props.editMode && props.geom) emit('apply', { [key]: !props.geom[key] } as Partial<LayoutGeom>);
+function togglePB(key: PbKey) {
+  if (!props.editMode || !props.geom) return;
+  if (key === 'keepTogether') emit('apply', { keepTogether: !props.geom.keepTogether });
+  else if (props.partBreak) emit('pagebreak', { edge: key, on: !props.partBreak[key] });
 }
 
 function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) {
   if (!props.geom) return;
-  let n = Math.round(Number(raw));
+  // `Number('')` は 0 になり下限へ丸められてしまうため、空 / 空白は非数値として扱う。
+  const t = raw.trim();
+  let n = t === '' ? Number.NaN : Math.round(Number(t));
   if (Number.isNaN(n)) n = props.geom[key];
   n = key === 'widthPct' ? clampWidthPct(n) : clampMarginMm(n);
   num[key] = String(n);
   // 値が動いていない確定(入力欄を focus して blur しただけ)では emit しない。emit すると
   // 編集していないのに draft が生成され、`pushUndo` で Redo スタックまで消える。
   if (key === 'widthPct') {
-    const align: Align =
-      n >= WIDTH_PCT_MAX ? 'stretch' : props.geom.align === 'stretch' ? 'left' : props.geom.align;
+    const align: Align = alignForWidth(n, WIDTH_PCT_MAX, props.geom.align);
     if (n === props.geom.widthPct && align === props.geom.align) return;
     emit('apply', { widthPct: n, align });
   } else {
@@ -293,6 +322,8 @@ const PB_CLASS =
       </div>
 
       <div class="flex-1 overflow-y-auto">
+        <!-- 区切りの帯を選んでいるときは、幾何と改ページの段を出さない -->
+        <template v-if="!selected.isPagebreak">
         <!-- ── サイズ・配置 ── -->
         <InspectorSection v-model:open="open.size" label="サイズ・配置" :icon="Table" class="border-b" body-class="px-4 pb-3">
           <div class="ins-row">
@@ -313,19 +344,9 @@ const PB_CLASS =
           <div v-if="canAlign()" class="ins-row">
             <span class="text-muted-foreground">横の配置</span>
             <div v-if="editMode" class="flex gap-0.5">
-              <Tooltip text="左寄せ">
-                <Button variant="ghost" aria-label="左寄せ" :aria-pressed="geom.align === 'left'" :class="cn(SEG_CLASS, geom.align === 'left' && ON_CLASS)" @click="setAlign('left')">
-                  <AlignLeft class="h-[15px] w-[15px]" />
-                </Button>
-              </Tooltip>
-              <Tooltip text="中央">
-                <Button variant="ghost" aria-label="中央" :aria-pressed="geom.align === 'center'" :class="cn(SEG_CLASS, geom.align === 'center' && ON_CLASS)" @click="setAlign('center')">
-                  <AlignCenter class="h-[15px] w-[15px]" />
-                </Button>
-              </Tooltip>
-              <Tooltip text="右寄せ">
-                <Button variant="ghost" aria-label="右寄せ" :aria-pressed="geom.align === 'right'" :class="cn(SEG_CLASS, geom.align === 'right' && ON_CLASS)" @click="setAlign('right')">
-                  <AlignRight class="h-[15px] w-[15px]" />
+              <Tooltip v-for="opt in ALIGN_BUTTONS" :key="opt.value" :text="ALIGN_LABEL[opt.value]">
+                <Button variant="ghost" :aria-label="ALIGN_LABEL[opt.value]" :aria-pressed="geom.align === opt.value" :class="cn(SEG_CLASS, geom.align === opt.value && ON_CLASS)" @click="setAlign(opt.value)">
+                  <component :is="opt.icon" class="h-[15px] w-[15px]" />
                 </Button>
               </Tooltip>
             </div>
@@ -378,24 +399,26 @@ const PB_CLASS =
               v-for="it in PB_ITEMS"
               :key="it.key"
               variant="ghost"
-              :class="cn(PB_CLASS, geom[it.key] && ON_CLASS)"
+              :class="cn(PB_CLASS, pbOn(it.key) && ON_CLASS)"
+              :disabled="pbDisabled(it.key)"
               @click="togglePB(it.key)"
             >
               <component :is="it.icon" class="h-[15px] w-[15px]" />
               <span class="flex-1 text-left">{{ it.label }}</span>
-              <span class="pb-state">{{ geom[it.key] ? 'ON' : 'OFF' }}</span>
+              <span class="pb-state">{{ pbOn(it.key) ? 'ON' : 'OFF' }}</span>
             </Button>
           </template>
           <template v-else>
             <div v-for="it in PB_ITEMS" :key="it.key" class="pb-readonly">
               <component :is="it.icon" class="h-[15px] w-[15px]" />
               <span class="flex-1 text-left">{{ it.label }}</span>
-              <span class="pb-state" :class="geom[it.key] ? 'text-primary' : 'text-muted-foreground'">
-                {{ geom[it.key] ? 'ON' : 'OFF' }}
+              <span class="pb-state" :class="pbOn(it.key) ? 'text-primary' : 'text-muted-foreground'">
+                {{ pbOn(it.key) ? 'ON' : 'OFF' }}
               </span>
             </div>
           </template>
         </InspectorSection>
+        </template>
 
         <!-- ── 修正履歴 ── -->
         <InspectorSection

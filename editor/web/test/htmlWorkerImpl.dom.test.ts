@@ -6,12 +6,15 @@
 // jsdom 既定経路と linkedom 経路の出力一致で担保する。
 import { describe, expect, it } from 'vitest';
 import { buildHtmlDiff, type HtmlDiff } from '@/features/compare/htmlBlockDiff';
+import { rtComment } from '@/lib/jinjaAttrs';
 import { toTemplate } from '@/lib/jinjaMask';
 import { htmlWorkerImpl } from '@/workers/htmlWorkerImpl';
 
-const css = '.page { page-break-after: always; }';
-const page = (n: number, body: string) => `<section class="page" id="p${n}">${body}</section>`;
-const build = (pages: string[]) => `<!doctype html><html><body>${pages.join('')}</body></html>`;
+// 改ページは根の直下の `div.pagebreak` で表す。CSS は判定に使わないが、Worker の契約どおり渡す。
+const css = '.pagebreak { break-after: page; }';
+const page = (n: number, body: string) => `<section id="p${n}">${body}</section>`;
+const build = (pages: string[]) =>
+  `<!doctype html><html><body>${pages.join('<div class="pagebreak"></div>')}</body></html>`;
 
 // linkedom は table の暗黙 `<tbody>` を補わない(browser/jsdom は補う)。この差は比較画面の
 // 表示専用 HTML にのみ現れ、保存/PDF には出ず描画も同一なので、パリティ比較では `tbody`
@@ -48,28 +51,36 @@ describe('htmlWorkerImpl linkedom parity', () => {
     ]);
     const viaJsdom = buildHtmlDiff(before, after, css, css);
     const viaLinkedom = htmlWorkerImpl.buildHtmlDiff(before, after, css, css);
+    // linkedom(`Node` グローバルが無い)でも区切りで 3 ページに分かれ、区切りはパーツに
+    // 数えない。パーツの文書全体のキーも持つ。
+    expect(viaLinkedom.pages).toHaveLength(3);
+    expect(viaLinkedom.pages.map((p) => p.blocks.map((b) => b.partKey))).toEqual([
+      ['p0#1'],
+      ['p1#1'],
+      ['p2#1'],
+    ]);
     // changedPageCount や status 分類は完全一致、表示 HTML は tbody 正規化後に一致。
     expect(viaLinkedom.changedPageCount).toBe(viaJsdom.changedPageCount);
     expect(stripTbody(viaLinkedom)).toEqual(stripTbody(viaJsdom));
   });
 
   it('toTemplate: jsdom と linkedom で復元結果が一致', () => {
-    // chip span(data-jinja)・loop clone・opaque を含む編集用 HTML。
+    // 範囲の印(o / x / c)・テンプレートの行・2 回目以降の繰り返し・チップを含む編集用 HTML。
+    const chip = (src: string, label: string) =>
+      `<span data-gjs-type="jinja-var" data-jinja="${btoa(src)}">${label}</span>`;
     const editable =
       '<table><tbody>' +
-      '<tr data-jinja-open="' +
-      btoa('{% for r in rows %}') +
-      '" data-jinja-close="' +
-      btoa('{% endfor %}') +
-      '"><td><span data-gjs-type="jinja-var" data-jinja="' +
-      btoa('{{ r.name }}') +
-      '">名前</span></td></tr>' +
-      '<tr data-jinja-loop-clone><td><span data-gjs-type="jinja-var" data-jinja="' +
-      btoa('{{ r.name }}') +
-      '">名前2</span></td></tr>' +
+      rtComment({ kind: 'o', id: 1, payload: '{% for r in rows %}' }) +
+      `<tr data-jinja-loop-row=""><td>${chip('{{ r.name }}', '名前')}</td></tr>` +
+      rtComment({ kind: 'x', id: 1 }) +
+      `<tr><td>${chip('{{ r.name }}', '名前2')}</td></tr>` +
+      rtComment({ kind: 'c', id: 1, payload: '{% endfor %}' }) +
       '</tbody></table>';
     const viaJsdom = toTemplate(editable, { asFragment: true });
     const viaLinkedom = htmlWorkerImpl.toTemplate(editable, { asFragment: true });
+    expect(viaJsdom).toBe(
+      '<table><tbody>{% for r in rows %}<tr><td>{{ r.name }}</td></tr>{% endfor %}</tbody></table>',
+    );
     expect(viaLinkedom).toEqual(viaJsdom);
   });
 

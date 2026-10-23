@@ -20,6 +20,8 @@
 // (`server/src/security/templateScripts.ts`)が**同じ復号器**を使うため。別実装を持つと
 // 「片方だけ解かない」形の穴が必ず生まれる(このファイルが生まれた原因がそれである)。
 
+import { stripUrlIgnoredChars } from './urlNormalize.js';
+
 const CHAR_TAB = String.fromCharCode(0x09);
 const CHAR_LF = String.fromCharCode(0x0a);
 const CHAR_NBSP = String.fromCharCode(0xa0);
@@ -74,32 +76,15 @@ export function decodeHtmlEntities(value: string): string {
   });
 }
 
-/** URL パーサが位置を問わず取り除く文字(TAB / LF / CR)。 */
-const URL_STRIPPED_CODES = new Set([0x09, 0x0a, 0x0d]);
-
-/** URL パーサが前後で捨てる符号位置の上限(C0 制御文字と空白)。 */
-const URL_EDGE_MAX_CODE = 0x20;
-
 /**
  * HTML 属性から取り出した URL 値を、ブラウザが実際に取りに行く形へ寄せる。
  * 順序が重要で、**復号が先**でなければならない — `&Tab;` を先に解かないと除去できない。
  *
- * 戻り値をそのまま `isSelfContainedUrl` / `resolveServedAssetPath` へ渡すこと。
- * `isSelfContainedUrl` 側は触らない(CSS の値は CSS トークナイザが既にエスケープを解いた
- * 後で渡ってくるので、CSS 側の契約は現状のままで正しい)。
- *
- * 正規表現を使わず走査で書いているのは、制御文字クラスをソースへ直に埋めると編集・整形の
- * たびに壊れる(実際に壊した)ためで、意味は TAB/LF/CR の除去 + 前後の
- * `U+0020` 以下の trim と同じである。
+ * 戻り値をそのまま `isSelfContainedUrl` / `resolveDocAssetPath` へ渡すこと。
+ * URL パーサが外す文字の除去(`stripUrlIgnoredChars`)は `isSelfContainedUrl` も自分で行う
+ * (CSS の値はエスケープを解いた後に同じ文字が残りうる)。ここで先に外すのは、判定だけでなく
+ * 資産のパス解決にも外した後の値を使うため。
  */
 export function normalizeHtmlUrlValue(value: string): string {
-  let out = '';
-  for (const ch of decodeHtmlEntities(value)) {
-    if (!URL_STRIPPED_CODES.has(ch.codePointAt(0) as number)) out += ch;
-  }
-  let start = 0;
-  let end = out.length;
-  while (start < end && (out.codePointAt(start) as number) <= URL_EDGE_MAX_CODE) start++;
-  while (end > start && (out.codePointAt(end - 1) as number) <= URL_EDGE_MAX_CODE) end--;
-  return out.slice(start, end);
+  return stripUrlIgnoredChars(decodeHtmlEntities(value));
 }

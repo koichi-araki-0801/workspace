@@ -10,9 +10,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   assertAnyTemplateId,
+  countAtCapacity,
+  entriesCapacityMessage,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTES_PER_TEMPLATE,
   type NoteStatus,
+  notesCapacityMessage,
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
@@ -67,7 +70,10 @@ export type NoteEntriesMap = Record<string, StoredNoteEntry[]>;
  */
 interface NotesReadResult {
   notes: NoteEntriesMap;
-  /** 実体は在るが読めなかった(サイズ超過・壊れた JSON)。`notes` は空。 */
+  /**
+   * 実体は在るが読めなかった(サイズ超過・壊れた JSON・ENOENT 以外の I/O 失敗)。`notes` は空。
+   * 一過性の失敗(EBUSY / EACCES)もここに入れる — 「無い」と取り違えると書き戻しで全メモが消える。
+   */
   unreadable: boolean;
 }
 
@@ -120,11 +126,20 @@ function withCommentDefaults(
 }
 
 /**
+ * 空のメモ一式。プロトタイプを持たせない — `pathKey` は利用者が決める文字列なので、
+ * `__proto__` / `constructor` のようなキーが `Object.prototype` の値を引いて投稿配列と
+ * 取り違えられたり、代入がプロトタイプの差し替えになって保存から消えたりする。
+ */
+function emptyNotesMap(): NoteEntriesMap {
+  return Object.create(null) as NoteEntriesMap;
+}
+
+/**
  * 保存形式(`pathKey` → 投稿配列)を読む。配列でない値は読み捨てる(この形式の外の値を投稿として
  * 扱わない)。書き込みもこの戻り値から組むので、読み捨てた値は次の書き込みで消える。
  */
 function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
-  const out: NoteEntriesMap = {};
+  const out = emptyNotesMap();
   for (const [key, value] of Object.entries(parsed)) {
     if (!Array.isArray(value)) continue;
     out[key] = value.filter(looksLikeStoredNoteEntry).map(withCommentDefaults);
@@ -134,29 +149,37 @@ function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
 
 async function readNotesResult(templateId: string): Promise<NotesReadResult> {
   const file = fileFor(templateId);
-  const size = await fs
-    .stat(file)
-    .then((s) => s.size)
-    .catch(() => -1);
-  // ファイルが無い = 素直に「メモが無い」。ここだけは degrade ではない。
-  if (size < 0) return { notes: {}, unreadable: false };
-  if (size > MAX_NOTES_FILE_BYTES) return { notes: {}, unreadable: true };
-  const raw = await fs.readFile(file, 'utf8').catch(() => '');
-  if (!raw) return { notes: {}, unreadable: false };
+  const unreadable = (): NotesReadResult => ({ notes: emptyNotesMap(), unreadable: true });
+  const missing = (): NotesReadResult => ({ notes: emptyNotesMap(), unreadable: false });
+  // ENOENT だけが「メモが無い」。それ以外の失敗は「読めなかった」で、空とは区別する。
+  let size: number;
+  try {
+    size = (await fs.stat(file)).size;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? missing() : unreadable();
+  }
+  if (size > MAX_NOTES_FILE_BYTES) return unreadable();
+  let raw: string;
+  try {
+    raw = await fs.readFile(file, 'utf8');
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? missing() : unreadable();
+  }
+  if (!raw) return missing();
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed !== null && typeof parsed === 'object')
       return { notes: normalizeStored(parsed as Record<string, unknown>), unreadable: false };
-    return { notes: {}, unreadable: true };
+    return unreadable();
   } catch {
     // 壊れたメモファイルで編集画面ごと落とさない(メモは注釈で、本体は git 側が正典)。
-    return { notes: {}, unreadable: true };
+    return unreadable();
   }
 }
 
 /**
  * 指定版インスタンスの全メモ(pathKey → StoredNoteEntry[])。**表示用**。
- * 読めない実体(サイズ超過・壊れた JSON)は空として扱い、画面を落とさない。
+ * 読めない実体(サイズ超過・壊れた JSON・I/O 失敗)は空として扱い、画面を落とさない。
  * **この戻り値を書き戻しの入力にしてはならない**(`readNotesStrict` を使う)。
  */
 export async function readNotes(templateId: string): Promise<NoteEntriesMap> {
@@ -174,7 +197,7 @@ export async function readNotesStrict(templateId: string): Promise<NoteEntriesMa
   if (res.unreadable)
     throw validation(
       'このテンプレートのメモファイルを読み取れないため保存できません' +
-        '(サイズ超過または破損)。既存のメモを失わないよう、保存を中止しました。',
+        '(サイズ超過・破損・読み取り失敗)。既存のメモを失わないよう、保存を中止しました。',
     );
   return res.notes;
 }
@@ -209,18 +232,17 @@ export function withNotesLock<T>(templateId: string, fn: () => Promise<T>): Prom
   return withFileLock(fileFor(templateId), fn);
 }
 
-// `MAX_NOTES_PER_TEMPLATE` は shared 正典を再輸出する(web の local 実装と値を共有するため
-// shared へ移した。既存の import 元(本モジュール経由)を壊さないための再輸出)。
-export { MAX_NOTES_PER_TEMPLATE };
-
 /** 件数上限に達しているか(新規キーの追加可否の判定に使う)。 */
 export function notesAtCapacity(notes: NoteEntriesMap, pathKey: string): boolean {
-  return !(pathKey in notes) && Object.keys(notes).length >= MAX_NOTES_PER_TEMPLATE;
+  return (
+    !Object.hasOwn(notes, pathKey) &&
+    countAtCapacity(Object.keys(notes).length, MAX_NOTES_PER_TEMPLATE)
+  );
 }
 
 /** 上限超過時に返す文言(ルート・repo で同じ案内にする)。 */
 export function notesCapacityError(): never {
-  throw validation(`このテンプレートのメモは上限(${MAX_NOTES_PER_TEMPLATE} 件)に達しています`);
+  throw validation(notesCapacityMessage(MAX_NOTES_PER_TEMPLATE));
 }
 
 /**
@@ -229,13 +251,10 @@ export function notesCapacityError(): never {
  * 到達でき、そのテンプレの全メモが保存不能になる。
  */
 export function entriesAtCapacity(entries: readonly StoredNoteEntry[]): boolean {
-  return entries.length >= MAX_NOTE_ENTRIES_PER_PART;
+  return countAtCapacity(entries.length, MAX_NOTE_ENTRIES_PER_PART);
 }
 
 /** 投稿数の上限超過時に返す文言。 */
 export function entriesCapacityError(): never {
-  throw validation(
-    `このパーツのメモは上限(${MAX_NOTE_ENTRIES_PER_PART} 件)に達しています。` +
-      '不要なメモを削除してください。',
-  );
+  throw validation(entriesCapacityMessage(MAX_NOTE_ENTRIES_PER_PART));
 }

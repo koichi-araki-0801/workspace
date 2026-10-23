@@ -158,7 +158,7 @@ async function main(): Promise<void> {
   console.log(`Viewer: ${htmlPath}`);
 
   // 1 件でも生成に失敗したら非 0 で終える。compare.html は失敗も表示するので書き出してから
-  // 落とす。ここが 0 のままだと `npm run batch && npm run batch:diff` の連結で失敗が握り潰され、
+  // 落とす。ここが 0 のままだと `pnpm run batch && pnpm run batch:diff` の連結で失敗が握り潰され、
   // 「生成できなかった」が「差分が無い」と同じ結果に見える。
   if (jsErr > 0) {
     console.error(`[batch] ${jsErr} 件の生成に失敗しました`);

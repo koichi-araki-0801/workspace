@@ -9,8 +9,10 @@ import { useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { confirm } from '@/components/ui/confirm';
+import Input from '@/components/ui/Input.vue';
+import Label from '@/components/ui/Label.vue';
 import Step from '@/components/ui/Step.vue';
-import { toastError, toastSuccess } from '@/components/ui/toast';
+import { toast, toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
 import { cn } from '@/lib/utils';
@@ -34,6 +36,24 @@ const isSeriesFund = computed(() => (info.value?.seriesFunds.length ?? 0) > 0);
 const alreadyCreated = computed(() => info.value?.created === true);
 // 償還ファンドとして作成するか(生成器へのパラメータ)。
 const isRedemption = ref(false);
+const jstDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+// 日本時間の今日。日付入力の上限と、未来日の検査に使う(サーバも同じ検査をする)。画面を開いた
+// まま日付をまたぐと古くなるので、フォーカス時と検査の直前に取り直す。
+const today = ref(jstDate.format(new Date()));
+function refreshToday() {
+  today.value = jstDate.format(new Date());
+}
+// 基準日(空なら送らず、サーバが最新基準日を使う)。
+const baseDate = ref('');
+// 同じ桁数のゼロ埋め文字列なので、文字列の大小がそのまま日付の前後になる。
+const baseDateError = computed(() =>
+  baseDate.value > today.value ? '基準日は今日より後にできません' : '',
+);
 // 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
 const latestResolve = useLatest();
 
@@ -77,8 +97,10 @@ watch(
     method.value = null;
     info.value = null;
     const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
-    if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) return;
+    // 世代は問い合わせないときも進める。前の属性の問い合わせが飛んでいると、その応答が
+    // 後から届いて消したばかりの作成可否を埋め戻すため。
     const isLatest = latestResolve.begin();
+    if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) return;
     const res = await templates.getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType });
     if (!isLatest()) return; // 属性を変え直した後に届いた旧応答は捨てる
     if (isErr(res)) {
@@ -104,8 +126,15 @@ async function create(req: GenerateRequest, successMsg: string) {
   const res = await run(() => templates.create(req));
   if (isErr(res)) return;
   toastSuccess(successMsg);
+  // 組入先のうち既にあるものは取り込まれない。何が飛んだかを知らせる(警告色のトーストは無いので既定色)。
+  const { skipped } = res.value;
+  if (skipped.length > 0) {
+    toast(
+      `組入先の次のテンプレートは既にあるため取り込みませんでした: ${skipped.map((s) => s.templateId).join('、')}`,
+    );
+  }
   // 作成タブの産物は必ず作成経路で開く(`created` query の生成は `editorRoute` に集約する)。
-  router.push(editorRoute(res.value.id, { created: true }));
+  router.push(editorRoute(res.value.meta.id, { created: true }));
 }
 
 /**
@@ -117,7 +146,7 @@ async function recreateConsent(): Promise<{ replaceExisting?: true } | null> {
   const ok = await confirm({
     title: '作業中の内容を捨てて作り直しますか',
     description:
-      '作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
+      '交付版・全体版の両方について、作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
     confirmLabel: '作り直す',
     variant: 'destructive',
   });
@@ -129,16 +158,33 @@ function openInCreateRoute(id: string | undefined) {
   if (id) router.push(editorRoute(id, { created: true }));
 }
 
+/** 基準日が誤りなら知らせて false(入力欄の下にも同じ文言を出している)。 */
+function baseDateOk(): boolean {
+  refreshToday();
+  if (!baseDateError.value) return true;
+  toastError(baseDateError.value);
+  return false;
+}
+
 async function createNew() {
-  const { companyCode, fundCode, editionType } = liveQuery;
-  if (!companyCode || !fundCode || !editionType) {
+  const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
+  if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
+  if (!baseDateOk()) return;
   const consent = await recreateConsent();
   if (!consent) return;
   await create(
-    { companyCode, fundCode, editionType, isRedemption: isRedemption.value, ...consent },
+    {
+      companyCode,
+      rep1CompanyCode,
+      fundCode,
+      editionType,
+      isRedemption: isRedemption.value,
+      ...(baseDate.value ? { baseDate: baseDate.value } : {}),
+      ...consent,
+    },
     'テンプレートを作成しました',
   );
 }
@@ -146,20 +192,23 @@ async function createNew() {
 async function createFromSeries(sourceFundCode: string) {
   if (creating.value || alreadyCreated.value) return; // 連打・作成済みで二重に作らせない
   // コピー元は候補のファンド。作成されるのは Step1 で選んだファンド。
-  const { companyCode, fundCode, editionType } = liveQuery;
-  if (!companyCode || !fundCode || !editionType) {
+  const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
+  if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
+  if (!baseDateOk()) return;
   const consent = await recreateConsent();
   if (!consent) return;
   await create(
     {
       companyCode,
+      rep1CompanyCode,
       fundCode,
       editionType,
       sourceFundCode,
       isRedemption: isRedemption.value,
+      ...(baseDate.value ? { baseDate: baseDate.value } : {}),
       ...consent,
     },
     'シリーズを基にテンプレートを作成しました',
@@ -219,13 +268,30 @@ async function createFromSeries(sourceFundCode: string) {
             <FolderOpen /> 作成中のテンプレートを開く
           </Button>
         </div>
-        <label
-          v-if="canCreate"
-          class="mb-3 flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground"
-        >
-          <Checkbox v-model="isRedemption" />
-          償還ファンドとして作成する
-        </label>
+        <div v-if="canCreate" class="mb-3 flex flex-wrap items-start gap-x-8 gap-y-3">
+          <label class="flex w-fit cursor-pointer items-center gap-2 text-[13px] text-foreground">
+            <Checkbox v-model="isRedemption" />
+            償還ファンドとして作成する
+          </label>
+          <div class="space-y-1">
+            <div class="flex items-center gap-2 text-[13px] text-foreground">
+              <Label for="create-base-date">基準日</Label>
+              <Input
+                id="create-base-date"
+                v-model="baseDate"
+                type="date"
+                :max="today"
+                class="w-[170px]"
+                @focus="refreshToday"
+                :aria-invalid="!!baseDateError"
+              />
+            </div>
+            <p v-if="baseDateError" class="text-[12px] text-destructive">{{ baseDateError }}</p>
+            <p class="text-[12px] text-muted-foreground">
+              空欄なら最新基準日（日本時間の当日。土日は直前の金曜）で作成します
+            </p>
+          </div>
+        </div>
 
         <div :class="cn('flex flex-wrap gap-3', (!canCreate || alreadyCreated) && 'pointer-events-none')">
           <Button

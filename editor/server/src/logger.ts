@@ -128,3 +128,12 @@ export async function auditedRethrow<T>(
     throw e;
   }
 }
+
+/** `inspectSvg` の違反で SVG を配信対象から外したことを警告に残す(`file` は配信ルート相対)。 */
+export function warnSvgRejected(
+  file: string,
+  violations: readonly string[],
+  message: string,
+): void {
+  logger.warn({ type: 'asset.svg_rejected', file, violations }, message);
+}

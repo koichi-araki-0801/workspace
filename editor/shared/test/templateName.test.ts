@@ -3,8 +3,8 @@ import {
   anyTemplateFileName,
   assertTemplateAttributeToken,
   assertTemplateFileName,
+  cssFileNameOf,
   type FilledTemplateAttributes,
-  isValidFundCode,
   isValidTemplateId,
   isValidTemplateToken,
   parseAnyTemplateFileName,
@@ -117,14 +117,11 @@ describe('トークン単位のパス安全性ゲート', () => {
       'AM01_510037_20240710_交付版.html',
     );
     expect(isValidTemplateId('AM01_510037_20240710_交付版')).toBe(true);
-    expect(isValidFundCode('510037')).toBe(true);
+    expect(isValidTemplateToken('510037')).toBe(true);
   });
 
-  it('fundCode の判定はトークン判定と同一(片方だけ緩まない)', () => {
-    for (const token of EVIL_TOKENS) {
-      expect(isValidFundCode(token), token).toBe(isValidTemplateToken(token));
-    }
-    expect(isValidFundCode('510_037')).toBe(false);
+  it('トークンの区切りの `_` は不正と判定する', () => {
+    expect(isValidTemplateToken('510_037')).toBe(false);
   });
 });
 
@@ -158,5 +155,28 @@ describe('テンプレート(3 つ区切り)のファイル名', () => {
 
   it('templateIdFromFileName は形を問わず .html を外す', () => {
     expect(templateIdFromFileName('AM01_510037_交付版.html')).toBe('AM01_510037_交付版');
+  });
+});
+
+describe('cssFileNameOf — 文書 ID からテンプレ単位の CSS 名を導く', () => {
+  it.each([
+    ['SMTAM_110024_2024-05-17_交付版', 'SMTAM_110024_交付版.css'],
+    // 基準日違いの文書は同じ CSS を共有する。
+    ['SMTAM_110024_2024-05-18_交付版', 'SMTAM_110024_交付版.css'],
+    ['SMTAM_110024_交付版', 'SMTAM_110024_交付版.css'],
+    ['AM01_510037_20240710_全体版', 'AM01_510037_全体版.css'],
+  ])('%s → %s', (id, expected) => {
+    expect(cssFileNameOf(id)).toBe(expected);
+  });
+
+  it.each([
+    [''],
+    ['SMTAM_110024'],
+    ['A_1_2024-05-17_交付版_余り'],
+    ['A/B_1_交付版'],
+    ['A_1_交付版 '],
+    ['A_1_..'],
+  ])('規約外 %j は null', (id) => {
+    expect(cssFileNameOf(id)).toBeNull();
   });
 });

@@ -58,3 +58,38 @@ def test_audience_of_tolerates_yaml_bool_value(tmp_path):
     # YAML は `yes` を bool にする。文字列として扱えず落ちるのではなく名前推定へ倒す
     assert md2html.audience_of(src, {"audience": True}) == "spec"
     assert md2html.audience_of(tmp_path / "操作手順書.md", {"audience": True}) == "guide"
+
+
+def _render(md: str) -> str:
+    html_out, _toc = md2html.render_markdown(md, 0, pathlib.Path("."), [], "t.md")
+    return html_out
+
+
+def test_callout_keeps_list_inside():
+    md = "> [!WARN] 決まりが 2 つあります。\n> - 一つ目\n> - **二つ目**\n"
+    out = _render(md)
+    assert out.startswith('<div class="callout callout-WARN">')
+    assert "<ul><li>一つ目</li><li><strong>二つ目</strong></li></ul>" in out
+    assert "決まりが 2 つあります。" in out
+    assert out.endswith("</div>")
+
+
+def test_callout_keeps_code_fence_inside():
+    md = "> [!NOTE] 例:\n>\n> ```\n> a < b\n> ```\n"
+    out = _render(md)
+    assert '<div class="code"><pre><code>a &lt; b</code></pre></div>' in out
+
+
+def test_callout_paragraph_only_is_unchanged():
+    # 段落だけの callout は従来どおり <p> で包まず、複数段落は空白で連結する
+    md = "> [!INFO] 一行目\n> 続き\n>\n> 二段落目\n"
+    out = _render(md)
+    assert out == ('<div class="callout callout-INFO"><span class="callout-tag">INFO</span>'
+                   '一行目 続き 二段落目</div>')
+
+
+def test_render_markdown_shifts_headings_and_collects_toc():
+    html_out, toc = md2html.render_markdown("# 見出し\n", 2, pathlib.Path("."), [], "t.md",
+                                            shift=1)
+    assert html_out == '<h2 id="d2-h1">見出し</h2>'
+    assert toc == [(1, "d2-h1", "見出し")]

@@ -1,22 +1,20 @@
 // =============================================================================
 // input/load.ts — 入力データの取得と正規化
 // -----------------------------------------------------------------------------
-// 入力ソースは 5 系統:
+// 入力ソースは 4 系統:
 //   - sample        : samples.json 内の名前指定
 //   - data          : [name, value][] / {name, value}[] の配列直渡し
 //   - dataJson      : 同形式の JSON 文字列
 //   - xlsx          : Excel ファイル (§1・非同期のみ)
-//   - sql           : SQL Server に SELECT を投げて取得 (input/db.ts 経由・非同期のみ)
-// resolveInputData (同期) は xlsx / sql を扱えない。これらを含めて統一的に扱いたい
-// 場合は resolveInputDataAsync を使う。レンダリング層は外部依存ゼロ方針のため、
-// exceljs 依存は本ファイルへ、msnodesqlv8 (ネイティブ・遅延ロード) は input/db.ts へ隔離する
-// (db を別ファイルに保つのは、テストの module モック境界とネイティブ依存の隔離のため)。
+// resolveInputData (同期) は xlsx を扱えない。xlsx を含めて統一的に扱いたい場合は
+// resolveInputDataAsync を使う。レンダリング層は外部依存ゼロ方針のため、exceljs 依存は
+// 本ファイルへ隔離する。
 // =============================================================================
 
 import fsp from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 
-import { loadDbItems } from './db.js';
+import { cellValueAsNumber, parseDecimalText, rowToItem } from './number.js';
 import samplesData from '../../samples.json' with { type: 'json' };
 import type { Item, Samples } from '../types.js';
 import {
@@ -93,6 +91,19 @@ function unwrapCellValue(value: unknown): unknown {
   return value;
 }
 
+/**
+ * セルがエラー値(`#N/A` / `#DIV/0!` など。数式の結果としてのエラーを含む)ならその表記を、
+ * そうでなければ null を返す。exceljs はエラー値を `{ error: '#N/A' }` で表し、そのまま
+ * 文字列化すると "[object Object]" という名前のスライスとして黙って帳票に載る。
+ */
+function cellErrorText(cell: { value: unknown }): string | null {
+  const v = unwrapCellValue(cell.value);
+  if (typeof v === 'object' && v !== null && 'error' in v) {
+    return String((v as { error: unknown }).error);
+  }
+  return null;
+}
+
 function cellAsText(cell: { value: unknown }): string {
   const v = unwrapCellValue(cell.value);
   if (v == null) return '';
@@ -100,26 +111,13 @@ function cellAsText(cell: { value: unknown }): string {
   return String(v).trim();
 }
 
-/** 桁区切りとして成立するカンマ入り数値(`1,234` / `-1,234,567.89`)。 */
-const GROUPED_NUMBER_RE = /^[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
-
 /**
- * 数値として読めなければ null を返す。カンマは**桁区切りとして成立する位置にある時だけ**
- * 許容する。全カンマを無条件に除去すると `1,23`(小数点にカンマを使う locale の 1.23)が
- * 123 に、`1,2,3` が 123 になり、100 倍の値が無警告で帳票へ載る。読めない値は null にして
- * 呼び出し側の明示エラー(`Non-numeric value at row N`)へ倒す。空白だけのセルも「読めない値」
- * — `Number('   ')` は 0 なので、素通しすると値の欠落が 0.0% のスライスとして帳票に載る。
+ * セルを数値として読む。読めなければ null(規則は `number.ts` の `cellValueAsNumber`。DB 経路と共有)。
+ * 行の読み取りは `rowToItem` が同じ規則で行う。テストから直接検証するために公開する。
+ * @public
  */
 export function cellAsNumber(cell: { value: unknown }): number | null {
-  const v = unwrapCellValue(cell.value);
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-  const text = String(v).trim();
-  if (text === '') return null;
-  const normalized = GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
-  if (normalized.includes(',')) return null;
-  const n = Number(normalized);
-  return Number.isFinite(n) ? n : null;
+  return cellValueAsNumber(unwrapCellValue(cell.value));
 }
 
 interface LoadXlsxOpts {
@@ -170,18 +168,21 @@ async function loadXlsxItems({
   for (let r = startRow; r <= scanEnd; r += 1) {
     const row = ws.findRow(r);
     if (!row) continue;
-    const name = cellAsText(row.getCell(nameCol));
+    const nameCell = row.getCell(nameCol);
     const valueCell = row.getCell(valueCol);
-    const value = cellAsNumber(valueCell);
-    const valueRaw = unwrapCellValue(valueCell.value);
-    const valueIsBlank = valueRaw == null || valueRaw === '';
-
-    if (!name && valueIsBlank) continue;
-    if (!name) throw new Error(`Empty name at row ${r}.`);
-    if (value == null) {
-      throw new Error(`Non-numeric value at row ${r} (got "${cellAsText(valueCell)}").`);
+    for (const [cell, column] of [
+      [nameCell, 'name'],
+      [valueCell, 'value'],
+    ] as const) {
+      const error = cellErrorText(cell);
+      if (error !== null) {
+        throw new Error(`Excel error value ${error} at row ${r} (${column} column).`);
+      }
     }
-    items.push([name, value]);
+    const item = rowToItem(cellAsText(nameCell), unwrapCellValue(valueCell.value), r, () =>
+      cellAsText(valueCell),
+    );
+    if (item) items.push(item);
   }
   if (items.length === 0) {
     throw new Error(`No data rows found in range "${range}" of sheet "${sheet}".`);
@@ -208,15 +209,7 @@ export type ResolveAsyncOpts =
   | { kind: 'sample'; sample: string }
   | { kind: 'data'; data: unknown[] }
   | { kind: 'dataJson'; dataJson: string }
-  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string }
-  | {
-      kind: 'sql';
-      query: string;
-      server?: string;
-      database?: string;
-      nameColumn?: string;
-      valueColumn?: string;
-    };
+  | { kind: 'xlsx'; xlsx: string; sheet: string; range: string };
 
 /**
  * 任意形式の項目リストを {name, value} 配列に正規化する。
@@ -238,28 +231,41 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
     assertLabelXmlSafe(name);
     return name;
   };
-  // 数値化できない値を `Number()` の結果 (NaN) のまま通すと、配置計算は総和 NaN・角度 NaN で
-  // 走り切り、全項目 0.0%・幅ゼロスライスの SVG が例外なしで出る。xlsx 経路 (`loadXlsxItems`)
-  // と同じく、読めない値はここで明示エラーにする(分類: 明示エラー)。
-  // 値の**欠落**(null / undefined / 空文字 / 空白のみ)は NaN にならず 0 になるので、
-  // `Number()` の前に落とす — 素通しすると「0.0% のスライス」として無警告で帳票に載り、
-  // 明示された `0` と区別が付かなくなる(明示の `0` は従来どおり受理する)。
-  const checkValue = (name: string, raw: unknown): number => {
+  // name は文字列か数値だけを受理する。`String()` に任せると null が "null"、真偽値が "true"、
+  // オブジェクトが "[object Object]" という名前のスライスになる。欠落(null / undefined /
+  // 空文字 / 空白のみ)は xlsx / DB 経路の `Empty name at row N` と同じく明示エラーにする。
+  const toName = (raw: unknown, index: number): string => {
     if (raw == null || (typeof raw === 'string' && raw.trim() === ''))
-      throw new Error(`Non-numeric value for "${name}" (got ${JSON.stringify(raw)}).`);
-    const value = Number(raw);
-    if (!Number.isFinite(value))
+      throw new Error(`Empty name at item ${index + 1}.`);
+    if (typeof raw === 'string') return checkName(raw);
+    if (typeof raw === 'number' && Number.isFinite(raw)) return checkName(String(raw));
+    throw new Error(`Invalid name at item ${index + 1} (got ${JSON.stringify(raw)}).`);
+  };
+  // value は有限の数値か、10 進の数値文字列だけを受理する。`Number()` に任せると、読めない値は
+  // NaN のまま配置計算を走り切り(全項目 0.0%・幅ゼロスライスの SVG が例外なしで出る)、
+  // 欠落(null / 空文字 / 空白のみ)・`[]`・`false` は 0 に、`true` は 1 になって、明示された
+  // `0` と区別の付かないスライスとして無警告で帳票に載る(分類: 明示エラー)。
+  const checkValue = (name: string, raw: unknown): number => {
+    const value =
+      typeof raw === 'number'
+        ? Number.isFinite(raw)
+          ? raw
+          : null
+        : typeof raw === 'string'
+          ? parseDecimalText(raw, false)
+          : null;
+    if (value === null)
       throw new Error(`Non-numeric value for "${name}" (got ${JSON.stringify(raw)}).`);
     return value;
   };
-  return rawItems.map((item: unknown): Item => {
+  return rawItems.map((item: unknown, index): Item => {
     if (Array.isArray(item) && item.length >= 2) {
-      const name = checkName(String(item[0]));
+      const name = toName(item[0], index);
       return { name, value: checkValue(name, item[1]) };
     }
     if (typeof item === 'object' && item !== null && 'name' in item && 'value' in item) {
       const obj = item as { name: unknown; value: unknown };
-      const name = checkName(String(obj.name));
+      const name = toName(obj.name, index);
       return { name, value: checkValue(name, obj.value) };
     }
     throw new Error('Each item must be {name, value} or [name, value].');
@@ -296,8 +302,8 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
 }
 
 /**
- * 非同期版: kind ごとに分岐する。xlsx / sql 以外は resolveInputData に同等のオプションで委譲。
- * CLI 等の入口で「Excel・DB もそれ以外も同じ呼び方にしたい」用途向け。
+ * 非同期版: kind ごとに分岐する。xlsx 以外は resolveInputData に同等のオプションで委譲。
+ * CLI 等の入口で「Excel もそれ以外も同じ呼び方にしたい」用途向け。
  */
 export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Item[]> {
   switch (opts.kind) {
@@ -306,16 +312,6 @@ export async function resolveInputDataAsync(opts: ResolveAsyncOpts): Promise<Ite
         path: opts.xlsx,
         sheet: opts.sheet,
         range: opts.range,
-      });
-      return normalizeInputItems(raw);
-    }
-    case 'sql': {
-      const raw = await loadDbItems({
-        query: opts.query,
-        server: opts.server,
-        database: opts.database,
-        nameColumn: opts.nameColumn,
-        valueColumn: opts.valueColumn,
       });
       return normalizeInputItems(raw);
     }

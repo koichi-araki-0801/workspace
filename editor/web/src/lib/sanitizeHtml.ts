@@ -3,11 +3,12 @@
 // =============================================================================
 // テンプレ HTML は「別のユーザが書いたもの」を開く前提で、しかも 2 つの経路でアプリと同一
 // オリジンへ入る。経路ごとに手段が違うため、本ファイルは 2 本の関数を持つ:
-//   1. プレビュー / PDF — `@vivliostyle/core` が本体 document に直接描画するので、文字列を
-//      DOMPurify に通す(`sanitizePreviewHtml`)。
+//   1. プレビュー / PDF — `@vivliostyle/core` が本体 document に直接描画するので、DOM を
+//      DOMPurify に通す(`sanitizePreviewRoot` / `sanitizePdfRoot`)。
 //   2. 編集 canvas — GrapesJS のパーサが作った node ツリーを、component 化される前に
 //      刈り取る(`pruneCanvasActiveContent`)。文字列を再直列化しないのが要点。
 import DOMPurify, { type Config as PurifyConfig } from 'dompurify';
+import { JINJA_TOKEN_RE } from './jinjaAttrs';
 import { sanitizeStyleContent } from './sanitizeCss';
 
 // ── 1. プレビュー / PDF 経路 ──
@@ -54,8 +55,8 @@ function previewPurifyConfig(): PurifyConfig {
 }
 
 /**
- * PDF 経路専用のサニタイズ設定。**プレビュー用との差は 2 つだけ**で、それ以外の
- * DOMPurify の防御(`on*` 属性・`javascript:` URL・`<object>`/`<embed>` 等の危険要素・
+ * PDF 経路専用のサニタイズ設定。残すものは次の 1・2 と、`<meta charset>`・`<script>` の
+ * `defer` / `async`(下に書く)だけで、それ以外の DOMPurify の防御(`on*` 属性・`javascript:` URL・`<object>`/`<embed>` 等の危険要素・
  * mXSS 対策)はそのまま効かせる。
  *
  *   1. `<script>` を残す — テンプレの JS は開発者が生成時に埋め込む**正当なコンテンツ**で
@@ -74,21 +75,23 @@ function previewPurifyConfig(): PurifyConfig {
  *      殺さないためで、「ディスクの CSS も当てる」ためではない。両方当てると、
  *      下書きで削除した規則がディスク側の旧 CSS から復活し、プレビューと PDF が食い違う。
  *
- * `<base>` と `<meta>` は落としたままにする。`<base>` は相対 URL の解決先を丸ごと別
- * オリジンへ向け替えられ(= 1 と 2 の前提そのものを壊す)、`<meta http-equiv>` は
- * 宣言的リフレッシュで遷移を起こす。
+ * `<base>` は落としたままにする。相対 URL の解決先を丸ごと別オリジンへ向け替えられる
+ * (= 1 と 2 の前提そのものを壊す)。`<meta>` は `charset` 属性だけを持つものに限って残し
+ * (文字コードの宣言。`sanitizePdfRoot` の hook)、ほかは落とす — `<meta http-equiv>` は宣言的
+ * リフレッシュで遷移を起こす。`<script>` の `defer` / `async` は実行の順序を決める属性で、
+ * 落とすとテンプレ JS の動きが変わるので残す。
  *
- * プレビュー経路(`assemblePreviewDocument` → `previewPurifyConfig`)との差は `<link>` の
- * 扱いだけ。プレビューも隔離 iframe(`PreviewPanel.vue`)の中で動かすため script を残す。
+ * プレビュー経路(`assemblePreviewDocument` → `previewPurifyConfig`)との差は `<link>`・
+ * `<meta charset>`・`defer` / `async` の扱いだけ。プレビューも隔離 iframe(`PreviewPanel.vue`)の中で動かすため script を残す。
  */
 function pdfPurifyConfig(): PurifyConfig {
   return {
     WHOLE_DOCUMENT: true,
-    ADD_TAGS: ['style', 'script', 'link'],
-    // `link` の `rel`/`href`/`type` と `script` の `src`/`type` を通す。URL 値は DOMPurify の
-    // `ALLOWED_URI_REGEXP` が引き続き検査し、`javascript:` 等は落ちる。
-    ADD_ATTR: ['style', 'rel', 'href', 'src', 'type', 'as', 'media'],
-    FORBID_TAGS: ['base', 'meta'],
+    ADD_TAGS: ['style', 'script', 'link', 'meta'],
+    // `link` の `rel`/`href`/`type`、`script` の `src`/`type`/`defer`/`async`、`meta` の `charset` を
+    // 通す。URL 値は DOMPurify の `ALLOWED_URI_REGEXP` が引き続き検査し、`javascript:` 等は落ちる。
+    ADD_ATTR: ['style', 'rel', 'href', 'src', 'type', 'as', 'media', 'defer', 'async', 'charset'],
+    FORBID_TAGS: ['base'],
   };
 }
 
@@ -169,25 +172,40 @@ export function appendPreviewStyle(
 }
 
 /**
- * テンプレ HTML(レンダリング済み)をサニタイズした文書文字列を返す。`<script>`・イベント
- * ハンドラ属性・`javascript:`/`data:` 等の危険な URL を除去しつつ、レポートの構造と CSS は保つ。
- *
- * ⚠ この戻り値へ後段で正規表現を当ててはならない(冒頭の不変則)。加工が要るなら
- * `sanitizePreviewRoot` で DOM を受け取り、DOM の上で加工してから `serializePreviewRoot` する。
- */
-export function sanitizePreviewHtml(html: string): string {
-  return serializePreviewRoot(sanitizePreviewRoot(html));
-}
-
-/**
- * PDF ビルドへ送る HTML をサニタイズし、**DOM のまま**返す(`pdfPurifyConfig` を見よ)。
- * script と link を残すのがプレビュー用との差で、他の防御は同じだけ効いている。
+ * PDF ビルドへ送る HTML をサニタイズし、**DOM のまま**返す。プレビュー用との差は
+ * `pdfPurifyConfig` を見よ。
  */
 export function sanitizePdfRoot(html: string): Element {
-  return DOMPurify.sanitize(html, {
+  return pdfPurifier().sanitize(html, {
     ...pdfPurifyConfig(),
     RETURN_DOM: true,
   }) as unknown as Element;
+}
+
+/**
+ * `charset` 属性だけを持つ `<meta>` か。`http-equiv` や `content` を併せ持つものは(属性を
+ * 削って残すのではなく)要素ごと落とす。
+ */
+function isCharsetOnlyMeta(el: Element): boolean {
+  return el.attributes.length === 1 && el.hasAttribute('charset');
+}
+
+let pdfPurifierInstance: ReturnType<typeof DOMPurify> | undefined;
+
+/**
+ * PDF 経路専用の DOMPurify インスタンス。`<meta>` を `charset` だけのものに絞る hook を持つ。
+ * hook はインスタンスに載るので、プレビュー用などほかの `DOMPurify.sanitize` には効かない。
+ */
+function pdfPurifier(): ReturnType<typeof DOMPurify> {
+  if (pdfPurifierInstance === undefined) {
+    const purifier = DOMPurify(window);
+    purifier.addHook('uponSanitizeElement', (node, data) => {
+      if (data.tagName === 'meta' && !isCharsetOnlyMeta(node as Element))
+        node.parentNode?.removeChild(node);
+    });
+    pdfPurifierInstance = purifier;
+  }
+  return pdfPurifierInstance;
 }
 
 // ── 2. 編集 canvas(GrapesJS パーサ)経路 ──
@@ -454,12 +472,12 @@ const ALLOWED_GJS_ATTR = 'data-gjs-type';
 /** `PruneReport` に積む上限。攻撃入力で件数が爆発してもログ/通知が壊れないようにする。 */
 const REPORT_LIMIT = 20;
 
-export interface PruneOptions {
+interface PruneOptions {
   /** 通してよい `data-gjs-type` の値。`jinjaComponents` の `JINJA_COMPONENT_TYPE_SET` を渡す。 */
   allowedGjsTypes: ReadonlySet<string>;
 }
 
-export interface PruneReport {
+interface PruneReport {
   /** 落とした要素名(重複あり・`REPORT_LIMIT` で打ち切り)。 */
   droppedElements: string[];
   /** 落とした属性名(同上)。 */
@@ -499,7 +517,7 @@ function isAllowedUrlValue(value: string): boolean {
   // 無条件で通す」とすると `{{''}}javascript:alert(1)` が通る(実測)。トークンを
   // 空へ潰してから判定し、残りが危険なスキームを名乗るなら落とす
   // (サーバ側の `security/templateScripts.ts` の `isInertUrl` と同じ形)。
-  const stripped = normalized.replace(/\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}|\{#[\s\S]*?#\}/g, '');
+  const stripped = normalized.replace(JINJA_TOKEN_RE, '');
   if (stripped !== normalized) return stripped === '' || isAllowedUrlValue(stripped);
   const lower = normalized.toLowerCase();
   if (lower.startsWith('#')) return true;

@@ -99,7 +99,7 @@ export function assertOracleSync(): void {
     const detail = mismatches.map((m) => `    - ${m}`).join('\n');
     throw new Error(
       `verify オラクルのメトリクス定数/文字幅が本体と乖離しています:\n${detail}\n` +
-        '  → 定数は verify/oracle_sync.ts を config.ts に合わせ、幅は `npm run gen:widths` で' +
+        '  → 定数は verify/oracle_sync.ts を config.ts に合わせ、幅は `pnpm run gen:widths` で' +
         ' src/glyph_advance/ を再生成してください。',
     );
   }

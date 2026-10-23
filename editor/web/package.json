@@ -23,7 +23,7 @@
     "comlink": "^4.4.2",
     "dompurify": "^3.4.14",
     "font-awesome": "4.7.0",
-    "grapesjs": "^0.23.6",
+    "grapesjs": "0.23.6",
     "js-beautify": "^1.15.4",
     "linkedom": "^0.18.13",
     "nunjucks": "^3.2.4",

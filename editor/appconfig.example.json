@@ -8,7 +8,7 @@
   },
   "python": {
     "script": "server/scripts/fake_generate_template.py",
-    "timeoutMs": 30000
+    "timeoutMs": 300000
   },
   "pdf": {
     "executableBrowser": ""

@@ -11,12 +11,23 @@
 // =============================================================================
 
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
+// @ts-expect-error -- .mjs のビルド補助に型定義は無い
+import { installLayout } from '../scripts/install-layout.mjs';
 import { SEA_ASSET_KEYS } from '../src/runtime/seaRuntime.js';
 
 const require = createRequire(import.meta.url);
@@ -37,6 +48,27 @@ describe('exe 同梱物の固定値', () => {
     const sha = createHash('sha256').update(readFileSync(hbWasmPath)).digest('hex');
     expect(sha).toBe(pins.hbSubsetWasmSha256);
   });
+
+  it('msnodesqlv8 の版が pin と一致する', () => {
+    expect(require('msnodesqlv8/package.json').version).toBe(pins.msnodesqlv8);
+  });
+
+  // pin は Windows x64 / Node 24 用の公式 prebuild のハッシュなので、照合できるのはその .node が
+  // 置かれている Windows 端末だけ。Linux の CI ではインストールスクリプトを止めているため .node が
+  // 無い。exe のビルドはこの端末種でしか行わず、build-exe.mjs のアサート D も同じ照合をする。
+  const driverPath = join(
+    dirname(require.resolve('msnodesqlv8/package.json')),
+    'build',
+    'Release',
+    'sqlserverv8.node',
+  );
+  it.skipIf(process.platform !== 'win32' || !existsSync(driverPath))(
+    'Windows ではネイティブドライバの SHA256 が pin と一致する',
+    () => {
+      const sha = createHash('sha256').update(readFileSync(driverPath)).digest('hex');
+      expect(sha).toBe(pins.sqlserverv8NodeSha256);
+    },
+  );
 });
 
 describe('subset-font の外部参照が shim の前提どおりであること', () => {
@@ -58,14 +90,36 @@ describe('subset-font の外部参照が shim の前提どおりであること'
   });
 });
 
+describe('msnodesqlv8 のドライバ読み込みが shim の前提どおりであること', () => {
+  const pkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
+  const libDir = join(pkgDir, 'lib');
+
+  it('ネイティブドライバの require は lib/util.js の 1 箇所だけ', () => {
+    // 0 箇所なら読み方が変わって plugin が空振りし、2 箇所以上なら差し替え漏れが出る。
+    const hits = readdirSync(libDir)
+      .filter((f) => f.endsWith('.js'))
+      .flatMap((f) =>
+        (
+          readFileSync(join(libDir, f), 'utf8').match(
+            /require\(\s*['"][^'"]*sqlserverv8\.node['"]\s*\)/g,
+          ) ?? []
+        ).map(() => f),
+      );
+    expect(hits).toEqual(['util.js']);
+  });
+});
+
 describe('SEA アセットのキー一覧', () => {
   it('seaRuntime の許可リストと build-exe.mjs の assets が一致する', () => {
-    // 片方だけ増やすと実行時に許可リストで弾かれる(= 配布してから気づく)。
+    // 片方だけ増やすと実行時に許可リストで弾かれる(= 配布してから気づく)。DB ドライバは
+    // --no-db でなければ seaAssets へ後から足すので、そのキーも拾う。
     const buildSrc = readFileSync(join(root, 'scripts', 'build-exe.mjs'), 'utf8');
     const block = buildSrc.match(/const seaAssets = \{([\s\S]*?)\n\};/);
     expect(block).not.toBeNull();
     const keys = [...(block?.[1] ?? '').matchAll(/^\s*'([^']+)':/gm)].map((m) => m[1]);
-    expect(new Set(keys)).toEqual(new Set(SEA_ASSET_KEYS));
+    const dbKey = buildSrc.match(/const DB_DRIVER_ASSET = '([^']+)';/)?.[1];
+    expect(dbKey).toBe('sqlserverv8.node');
+    expect(new Set([...keys, dbKey])).toEqual(new Set(SEA_ASSET_KEYS));
   });
 
   it('埋め込む実ファイルが揃っている', () => {
@@ -91,28 +145,34 @@ describe('sidecar を復活させないこと', () => {
   it('ビルドが dist-exe へ fonts/ や node_modules/ を作らない', () => {
     // 配布物に sidecar が居ると、署名の外にある書き換え可能なファイルを実行時に読む経路が
     // 戻る。ビルドスクリプトに install / ディレクトリコピーを足させない。
-    expect(buildCode).not.toMatch(/npm install/);
+    expect(buildCode).not.toMatch(/\bnpm\s+install\b/);
     expect(buildCode).not.toMatch(/cpSync\s*\(/);
     expect(buildCode).not.toMatch(/execSync\s*\(/);
   });
 
   it('subset-font を external にしない(= バンドルへ取り込む)', () => {
-    const external = buildCode.match(/external:\s*\[([^\]]*)\]/);
+    // `external: noDb ? [...] : []` のように条件式になっているので、その行全体を見る。
+    const external = buildCode.match(/external:([^\n]*)/);
     expect(external).not.toBeNull();
     expect(external?.[1]).not.toContain('subset-font');
   });
 });
 
-describe('ビルド入口スクリプト(scripts/*.ps1 / *.bat)が lockfile 無視の install をしないこと', () => {
-  // README が「ダブルクリック入口」として案内する build-exe.bat → build-exe.ps1 は、
-  // コード署名鍵を持つ端末で走る。lockfile を消してから範囲指定のまま `npm` の install を
-  // すると、レジストリへ差し込まれた新版の lifecycle script がその端末で実行される
-  // (npm は pnpm の `allowBuilds` に相当する既定の抑止を持たない)。上の sidecar ガードは
-  // build-exe.mjs 本文しか読まないので、運用が実際に使う .ps1 経路が検査の外に残らないよう
-  // scripts/ 配下の全 .ps1 / .bat へ同じ禁止語を機械強制する(.bat は現状 .ps1 ランチャの
-  // 薄いラッパのみだが、直接 npm を書く変種が今後増えても同じ検査に自動で乗る)。
-  // 禁止語 denylist には限界がある(`npm i` のような変種は通る)。主防御はここではなく
-  // `verify-dist.ps1` の配布物閉包検査で、本検査はビルド端末側の入口を狭める補助。
+describe('依存を npm で入れる経路を持たないこと', () => {
+  // 依存は pnpm-lock.yaml どおりに pnpm で入れる。npm の lock や overrides、npm を呼ぶ入口が
+  // あると、pnpm の検査(開発機・CI)の外で別の版を掴む経路が残る(実際に別環境で subset-font 2.9 を
+  // 掴んで exe のビルドが止まった)。
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+
+  it('package-lock.json が無い', () => {
+    expect(existsSync(join(root, 'package-lock.json'))).toBe(false);
+  });
+
+  it('package.json に npm だけが読む overrides が無い', () => {
+    expect(pkg.overrides).toBeUndefined();
+    expect(pkg['//overrides']).toBeUndefined();
+  });
+
   const ps1Files = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.ps1'));
   const batFiles = readdirSync(join(root, 'scripts')).filter((f) => f.endsWith('.bat'));
   // PowerShell のコメント(`<# ... #>` ブロックと行頭 `#`)を落として実コードだけを見る。
@@ -130,39 +190,55 @@ describe('ビルド入口スクリプト(scripts/*.ps1 / *.bat)が lockfile 無�
       .join('\n');
 
   it('走査対象の .ps1 / .bat が存在する(空なら検査自体が空振りしている)', () => {
-    expect(ps1Files.length).toBeGreaterThan(0);
     expect(ps1Files).toContain('build-exe.ps1');
-    expect(batFiles.length).toBeGreaterThan(0);
     expect(batFiles).toContain('build-exe.bat');
   });
 
-  const checkNoUnsafeInstall = (name: string, code: string): void => {
-    // `npm install` は「その時点のレジストリ最新で解決 + script 実行」の複合で、
-    // どちらの性質も署名端末では受け入れられない。
-    expect(code).not.toMatch(/npm\s+install\b/i);
-    // lockfile の削除(や再生成)は integrity 固定の無効化と等価。コミット済みを正とする。
-    expect(code).not.toMatch(/package-lock/i);
-    // npm ci を呼ぶなら lifecycle script の一律不実行までセットで。
-    for (const m of code.matchAll(/npm\s+ci\b[^\n]*/gi)) {
-      expect(m[0], `${name}: ${m[0]}`).toContain('--ignore-scripts');
-    }
-  };
-
   for (const name of ps1Files) {
-    it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
-      checkNoUnsafeInstall(
-        name,
-        stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8')),
-      );
+    it(`${name}: npm / npx を呼ばない`, () => {
+      const code = stripPsComments(readFileSync(join(root, 'scripts', name), 'utf8'));
+      expect(code).not.toMatch(/\bnp[mx]\b/i);
     });
   }
 
   for (const name of batFiles) {
-    it(`${name}: npm install / lockfile 削除を含まず、npm ci は --ignore-scripts 付き`, () => {
-      checkNoUnsafeInstall(
-        name,
-        stripBatComments(readFileSync(join(root, 'scripts', name), 'utf8')),
-      );
+    it(`${name}: npm / npx を呼ばない`, () => {
+      const code = stripBatComments(readFileSync(join(root, 'scripts', name), 'utf8'));
+      expect(code).not.toMatch(/\bnp[mx]\b/i);
     });
   }
+
+  it('build-exe.ps1 は DB 機能を外さない(--no-db を固定で付けない)', () => {
+    const code = stripPsComments(readFileSync(join(root, 'scripts', 'build-exe.ps1'), 'utf8'));
+    expect(code).toMatch(/build-exe\.mjs/);
+    expect(code).not.toMatch(/--no-db/);
+  });
+});
+
+describe('npm で入れ直された node_modules を見分けること', () => {
+  // npm はリンクではなく実体のフォルダで入れる。pnpm は `node_modules/<名前>` をストアへのリンク
+  // (Windows ではジャンクション)にする。build-exe.mjs はこの差で npm の構成を見つけて止める。
+  const tmp = mkdtempSync(join(tmpdir(), 'pie-chart-layout-'));
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it('リンクなら pnpm、実体のフォルダなら npm、無ければ missing', () => {
+    const real = join(tmp, 'real');
+    mkdirSync(join(real, 'node_modules', 'subset-font'), { recursive: true });
+    expect(installLayout(real)).toBe('npm');
+
+    const linked = join(tmp, 'linked');
+    mkdirSync(join(linked, 'node_modules'), { recursive: true });
+    symlinkSync(
+      join(real, 'node_modules', 'subset-font'),
+      join(linked, 'node_modules', 'subset-font'),
+      'junction',
+    );
+    expect(installLayout(linked)).toBe('pnpm');
+
+    expect(installLayout(join(tmp, 'none'))).toBe('missing');
+  });
+
+  it('このリポジトリの pie-chart は pnpm の構成', () => {
+    expect(installLayout(root)).toBe('pnpm');
+  });
 });

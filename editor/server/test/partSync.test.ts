@@ -57,6 +57,18 @@ describe('extractSyncParts', () => {
     expect(parts.map((p) => p.partId)).toEqual(['a']);
   });
 
+  it('raw text の中のタグを読まず、`</name` の直後が名前の終わりのときだけ閉じる', () => {
+    const html = doc(
+      // 長さの変わる大文字(`İ`)の後でも閉じタグの位置がずれない。
+      'İİ<SCRIPT>"<div data-part-id="ghost">"</scriptx></SCRIPT >',
+      '<title><div data-part-id="t"></div></title>',
+      part('a', 'A'),
+    );
+    const parts = extractSyncParts(html);
+    expect(parts.map((p) => p.partId)).toEqual(['a']);
+    expect(parts[0].html).toBe(part('a', 'A'));
+  });
+
   it('同一 partId の複数出現は #n で区別する', () => {
     const parts = extractSyncParts(doc(part('a', '1'), part('a', '2')));
     expect(parts.map((p) => p.key)).toEqual(['a#1', 'a#2']);
@@ -288,5 +300,220 @@ describe('ペア側先行変更の記録と解消', () => {
 
     expect(reverse.applied).toEqual(['a#1']);
     expect(reverse.state.parts['a#1'].conflict).toBeUndefined();
+  });
+});
+
+describe('computePairSync — ペア側で削除したパーツ', () => {
+  // 同期したことのあるパーツがペア側に無いのは、ペア側で意図して消したということ。相手側の
+  // 承認のたびに挿入し直すと、消した編集が黙って戻る。挿入せず、競合として人間へ返す。
+  const defs = { a: '同期', b: '同期' } as const;
+  const both = doc(part('a', 'A'), part('b', 'B'));
+  const state = () => baselineOf(both, defs);
+  const pairDeleted = doc(part('a', 'A'));
+
+  it('同期したことのあるパーツがペア側に無ければ挿入せず、ペア側削除を記録する', () => {
+    const r = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    expect(r.changed).toBe(false);
+    expect(r.targetHtml).toBe(pairDeleted);
+    expect(r.applied).toEqual([]);
+    expect(r.state.parts['b#1'].conflict).toEqual({
+      kind: 'ペア側削除',
+      detectedAt: '2026-08-02T00:00:00.000Z',
+      deletedIn: '全体版',
+    });
+    expect(r.state.parts['b#1'].lastSynced).toBe(state().parts['b#1'].lastSynced);
+    expect(r.skipped).toContainEqual({
+      partKey: 'b#1',
+      reason: 'ペア側で削除済み(自動では戻さない)',
+    });
+    expect(r.stateChanged).toBe(true);
+  });
+
+  it('source も変わっていればペア側削除・ソース変更として記録する', () => {
+    const src = doc(part('a', 'A'), part('b', 'B2'));
+    const r = run({ sourceHtml: src, targetHtml: pairDeleted, state: state() }, defs);
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['b#1'].conflict).toMatchObject({
+      kind: 'ペア側削除・ソース変更',
+      deletedIn: '全体版',
+    });
+    expect(r.state.parts['b#1'].lastSynced).toBe(state().parts['b#1'].lastSynced);
+    expect(r.skipped).toContainEqual({
+      partKey: 'b#1',
+      reason: 'ペア側で削除済み・ソース側は変更あり(要判断)',
+    });
+  });
+
+  it('同期したことの無いパーツは今までどおり挿入する', () => {
+    const r = run({ sourceHtml: both, targetHtml: pairDeleted }, defs);
+    expect(r.applied).toEqual(['b#1']);
+    expect(r.state.parts['b#1'].conflict).toBeUndefined();
+  });
+
+  it('同じ状況で再度承認しても検出時刻を上書きしない(状態は動かない)', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const again = run(
+      {
+        sourceHtml: both,
+        targetHtml: pairDeleted,
+        state: first.state,
+        now: '2026-09-09T00:00:00.000Z',
+      },
+      defs,
+    );
+    expect(again.state.parts['b#1'].conflict).toEqual(first.state.parts['b#1'].conflict);
+    expect(again.stateChanged).toBe(false);
+  });
+
+  it('ペア側に同じ内容で戻せば同期済みになり競合が消える', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const restored = run({ sourceHtml: both, targetHtml: both, state: first.state }, defs);
+    expect(restored.state.parts['b#1']).toEqual({ lastSynced: state().parts['b#1'].lastSynced });
+    expect(restored.stateChanged).toBe(true);
+  });
+
+  it('ペア側を前回同期の内容で戻し、source が変わっていれば転写して同期済みにする', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const src = doc(part('a', 'A'), part('b', 'B2'));
+    const r = run({ sourceHtml: src, targetHtml: both, state: first.state }, defs);
+    expect(r.applied).toEqual(['b#1']);
+    expect(r.targetHtml).toBe(src);
+    expect(r.state.parts['b#1'].conflict).toBeUndefined();
+  });
+
+  it('両方から消えれば状態から消える', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const r = run({ sourceHtml: pairDeleted, targetHtml: pairDeleted, state: first.state }, defs);
+    expect(r.state.parts['b#1']).toBeUndefined();
+    expect(r.stateChanged).toBe(true);
+  });
+
+  it('ペア側に無いまま source の変化の有無が変われば種類を付け替え、検出時刻を取り直す', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const later = '2026-09-09T00:00:00.000Z';
+    const changed = run(
+      {
+        sourceHtml: doc(part('a', 'A'), part('b', 'B2')),
+        targetHtml: pairDeleted,
+        state: first.state,
+        now: later,
+      },
+      defs,
+    );
+    expect(changed.state.parts['b#1'].conflict).toEqual({
+      kind: 'ペア側削除・ソース変更',
+      detectedAt: later,
+      deletedIn: '全体版',
+    });
+    expect(changed.stateChanged).toBe(true);
+    // source を前回同期の内容へ戻せば、また「ペア側削除」へ付け替わる。
+    const back = run(
+      {
+        sourceHtml: both,
+        targetHtml: pairDeleted,
+        state: changed.state,
+        now: '2026-10-10T00:00:00.000Z',
+      },
+      defs,
+    );
+    expect(back.state.parts['b#1'].conflict).toEqual({
+      kind: 'ペア側削除',
+      detectedAt: '2026-10-10T00:00:00.000Z',
+      deletedIn: '全体版',
+    });
+  });
+
+  it('ペア側に別の内容で戻せば両側変更へ移る(削除の種類を持ち越さない)', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const later = '2026-09-09T00:00:00.000Z';
+    const r = run(
+      {
+        sourceHtml: doc(part('a', 'A'), part('b', 'B2')),
+        targetHtml: doc(part('a', 'A'), part('b', 'T')),
+        state: first.state,
+        now: later,
+      },
+      defs,
+    );
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['b#1'].conflict).toEqual({ kind: '両側変更', detectedAt: later });
+  });
+
+  it('ペア側に別の内容で戻し source が変わっていなければペア側先行へ移る', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const later = '2026-09-09T00:00:00.000Z';
+    const r = run(
+      {
+        sourceHtml: both,
+        targetHtml: doc(part('a', 'A'), part('b', 'T')),
+        state: first.state,
+        now: later,
+      },
+      defs,
+    );
+    expect(r.state.parts['b#1'].conflict).toEqual({ kind: 'ペア側先行', detectedAt: later });
+  });
+
+  it('削除した側が入れ替われば、同じ種類でも削除した版種と検出時刻を取り直す', () => {
+    // 全体版で消した記録が残ったまま、全体版が戻して交付版が消し、全体版が承認された。
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const later = '2026-09-09T00:00:00.000Z';
+    const r = run(
+      {
+        sourceEdition: '全体版',
+        targetEdition: '交付版',
+        sourceHtml: both,
+        targetHtml: pairDeleted,
+        state: first.state,
+        now: later,
+      },
+      defs,
+    );
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['b#1'].conflict).toEqual({
+      kind: 'ペア側削除',
+      detectedAt: later,
+      deletedIn: '交付版',
+    });
+    expect(r.stateChanged).toBe(true);
+  });
+
+  it('削除した版種を持たない古い記録は、版種を付けて記録し直す', () => {
+    const base = state();
+    const old: PairSyncState = {
+      ...base,
+      parts: {
+        ...base.parts,
+        'b#1': {
+          lastSynced: base.parts['b#1'].lastSynced,
+          conflict: { kind: 'ペア側削除', detectedAt: '2026-01-01T00:00:00.000Z' },
+        },
+      },
+    };
+    const r = run({ sourceHtml: both, targetHtml: pairDeleted, state: old }, defs);
+    expect(r.changed).toBe(false);
+    expect(r.state.parts['b#1']).toEqual({
+      lastSynced: base.parts['b#1'].lastSynced,
+      conflict: { kind: 'ペア側削除', detectedAt: '2026-08-02T00:00:00.000Z', deletedIn: '全体版' },
+    });
+    expect(r.stateChanged).toBe(true);
+  });
+
+  it('逆方向の承認(ペア側が source)では記録を持ち越す', () => {
+    const first = run({ sourceHtml: both, targetHtml: pairDeleted, state: state() }, defs);
+    const reverse = run(
+      {
+        sourceEdition: '全体版',
+        targetEdition: '交付版',
+        sourceHtml: pairDeleted,
+        targetHtml: both,
+        state: first.state,
+        now: '2026-09-09T00:00:00.000Z',
+      },
+      defs,
+    );
+    expect(reverse.changed).toBe(false);
+    expect(reverse.state.parts['b#1']).toEqual(first.state.parts['b#1']);
+    expect(reverse.stateChanged).toBe(false);
   });
 });

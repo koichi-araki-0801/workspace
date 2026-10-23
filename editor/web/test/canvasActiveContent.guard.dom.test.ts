@@ -120,7 +120,10 @@ describe('pruneCanvasActiveContent — prop チャネル(data-gjs-*)', () => {
     // 型を足したときに `addType` と刈り取りの片方だけが更新される事故を落とす。
     expect([...JINJA_COMPONENT_TYPE_SET].sort()).toEqual([
       'jinja-comment',
+      'jinja-frozen',
+      'jinja-frozen-svg',
       'jinja-math',
+      'jinja-rawtext',
       'jinja-script',
       'jinja-stmt',
       'jinja-var',
@@ -220,7 +223,7 @@ describe('pruneCanvasActiveContent — 要素と属性の許可リスト', () =>
       class: 'chart',
       style: 'width:10mm',
       'data-part-id': 'p1',
-      'data-jinja-open': 'e3sgZm9yIH19',
+      'data-jinja-loop-row': '',
     });
     const link = el('A', { href: '{{ fund.url }}', title: 'javascript: の解説' });
     expect(keptTags(img, link)).toEqual(['IMG', 'A']);
@@ -229,7 +232,7 @@ describe('pruneCanvasActiveContent — 要素と属性の許可リスト', () =>
       class: 'chart',
       style: 'width:10mm',
       'data-part-id': 'p1',
-      'data-jinja-open': 'e3sgZm9yIH19',
+      'data-jinja-loop-row': '',
     });
     // URL 属性以外(`title`)は本文でしかないので、字面が一致しても触らない。
     expect(link.attributes).toEqual({ href: '{{ fund.url }}', title: 'javascript: の解説' });

@@ -5,7 +5,7 @@
 // GrapesJS の選択と 1 ページ表示のページ送りまで届くかは実機でしか分からない。ここで押さえる。
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor, selectPart } from './helpers';
+import { login, openEditor, partLocator, selectPart } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -13,7 +13,7 @@ test.use({ viewport: { width: 1440, height: 900 } });
 
 async function addComment(page: Page, partIndex: number, text: string): Promise<void> {
   const frame = page.frameLocator('iframe.gjs-frame');
-  const part = frame.locator('.page > *').nth(partIndex);
+  const part = partLocator(frame).nth(partIndex);
   await part.waitFor({ state: 'visible', timeout: 30_000 });
   await selectPart(frame, part);
   // 選択が右ペインへ反映されると入力欄が有効になる(未選択時は disabled)。
@@ -31,8 +31,8 @@ test('コメント一覧は検索・状態で絞り込め、行クリックで�
   // 吹き出しはページへ常に重ねて出る仕様(表計算ソフトのセルコメントと同じ)なので、直前に
   // 開いた吹き出しがすぐ下のパーツを覆い、そこへのクリックを吸収してしまう。2 件目は
   // 1 件目より前方(canvas 上で上側)の index を選び、吹き出しの被覆を避ける。
-  await addComment(page, 4, '表紙の日付');
-  await addComment(page, 1, '要約の数値');
+  await addComment(page, 1, '表紙の日付');
+  await addComment(page, 0, '要約の数値');
 
   const rows = page.locator('[data-comment-row]');
   await expect(rows).toHaveCount(2);

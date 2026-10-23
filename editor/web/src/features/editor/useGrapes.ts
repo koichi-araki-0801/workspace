@@ -6,39 +6,68 @@
 // `wireGrapesEvents` へ、zoom/フィットは `useZoomFit.ts` へ、ページ境界 guide は
 // `usePageGuides.ts` へ、選択枠 rect / メモ目印は `useCanvasMarkers.ts` へ委譲する。
 
+import { DOC_DIR, type SampleData } from '@editor/shared';
 import grapesjs, {
   type Component,
   type ComponentDefinition,
   type Editor,
   type ParsedNode,
 } from 'grapesjs';
-import { ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
+import { splitNestedFontFaces } from '@/lib/cssCarry';
+import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
+import {
+  cssRuleBreakSelector,
+  findElementizingChips,
+  findIgnoredInlineBreaks,
+  findUncountedBreaks,
+  isElementlessPage,
+  type PageSplit,
+  pageHead,
+} from '@/lib/pageBreaks';
+import { rafOnce } from '@/lib/rafOnce';
 import { summarizeExternalCssRefs } from '@/lib/sanitizeCss';
 import { pruneCanvasActiveContent } from '@/lib/sanitizeHtml';
-import { attachFundImages, type FundImageLayer, registerFundImageView } from './fundImageLayer';
+import {
+  BODY_STYLE_TYPE,
+  bodyStyleCssTexts,
+  bodyStyleParserHtml,
+  containsBodyStyle,
+  registerBodyStyleComponent,
+} from './bodyStyle';
+import { canvasRoot } from './canvasGeometry';
+import {
+  attachFundImages,
+  type FundImageLayer,
+  type FundImageLayerOptions,
+  registerFundImageView,
+} from './fundImageLayer';
 import { type FundImageContext, resolveFundImageSrc } from './fundImages';
 import { type GrapesCallbacks, wireGrapesEvents } from './grapesEvents';
+import { insertTarget } from './insertTarget';
 import {
   JINJA_COMPONENT_TYPE_SET,
   jinjaChipCanvasCss,
   registerJinjaComponents,
 } from './jinjaComponents';
+import { PAGEBREAK_TYPE, pagebreakCanvasCss, registerPagebreakComponent } from './pagebreakCanvas';
+import { clampPageIndex, markPages, PV_ATTR, pageViewCss } from './pageView';
+import { type PageWarningFacts, pagebreakCssDefinedIn } from './pageWarnings';
 import {
-  clampPageIndex,
-  enumeratePageEls,
-  PV_ATTR,
-  pageViewCss,
-  strayDirectChildren,
-} from './pageView';
+  type BreakEdge,
+  PAGEBREAK_HTML,
+  type PartBreakState,
+  partBreakState,
+  planBreakToggle,
+} from './partBreak';
+import { splitRootPages } from './partKey';
 import { redlineCanvasCss } from './redline/redlineCss';
+import { createFinishTextEdit } from './textEditFinish';
 import { useCanvasMarkers } from './useCanvasMarkers';
 import { usePageGuides } from './usePageGuides';
 import { useZoomFit } from './useZoomFit';
-
-// 分離前からの import 元互換(zoom 定数の正典は `useZoomFit`)。
-export { ZOOM_STEP } from './useZoomFit';
 
 /**
  * `parse:html:root` の刈り取りトーストを黙らせる間だけ立つフラグ(`parseHtmlQuiet`)。
@@ -47,6 +76,22 @@ export { ZOOM_STEP } from './useZoomFit';
  * もう一度通すため、抑止しないと同じ通知が二重に出て 2 通目は宛先の無い警告になる。
  */
 let quietParse = false;
+
+/**
+ * 本文の断片を明示の `<body>` で包む。文書の枠(doctype / html / head / body)で始まる入力は
+ * GrapesJS が文書として扱うので触らない。
+ */
+function wrapFragmentInBody(html: string): string {
+  return /^\s*<(?:!doctype|html|head|body)[\s>]/i.test(html) ? html : `<body>${html}</body>`;
+}
+
+/** ページの分け方が同じ要素の並びか(ページごとに要素の同一性で比べる)。 */
+function samePages(a: readonly HTMLElement[][], b: readonly HTMLElement[][]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((page, i) => page.length === b[i].length && page.every((el, j) => el === b[i][j]))
+  );
+}
 
 /** `useGrapes` の推論戻り値型が参照するため export が必要(TS4058 回避)。 @public */
 export interface GrapesContainers {
@@ -88,11 +133,41 @@ export interface SelectedInfo {
   id: string;
   name: string;
   isJinja: boolean;
+  /** 改ページの区切り(`div.pagebreak`)の部品か。Inspector は幾何と改ページの段を出さない。 */
+  isPagebreak?: boolean;
   /** parts catalog から挿入された `Component` の場合の catalog part id。 */
   partId?: string;
 }
 
-export function useGrapes() {
+interface UseGrapesOptions {
+  /** ファンド別画像が配信されるかの確認(`fundImageLayer.ts` の `inspect`)。省略時は問い合わせない。 */
+  inspectFundImages?: FundImageLayerOptions['inspect'];
+}
+
+/** inline style マップ 2 つが同じ property 集合・同じ値かを判定する。 */
+function sameStyleMap(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ak = Object.keys(a);
+  if (ak.length !== Object.keys(b).length) return false;
+  return ak.every((k) => a[k] === b[k]);
+}
+
+/**
+ * `comp` の inline style へパッチを当てる(`''` 値は該当プロパティを除去)。結果が現在の style と
+ * 同一なら何もしない。変えたら true。通知(`change`・再計測)は呼び出し側が行う。
+ */
+function patchStyle(comp: Component, patch: Record<string, string>): boolean {
+  const cur = comp.getStyle() as Record<string, string>;
+  const next: Record<string, string> = { ...cur };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === '') delete next[k];
+    else next[k] = v;
+  }
+  if (sameStyleMap(cur, next)) return false;
+  comp.setStyle(next);
+  return true;
+}
+
+export function useGrapes(options: UseGrapesOptions = {}) {
   const editor = shallowRef<Editor>();
   const selected = ref<SelectedInfo | null>(null);
   // canvas で inline text 編集(RTE)中か。GrapesJS は iframe のキー入力を親 document へ
@@ -115,17 +190,76 @@ export function useGrapes() {
   // 反映し直す(load で iframe body が差し替わるため)。
   let varsHighlight = false;
 
-  // ファンド別画像の文脈(本文の種類とファンドコード)。`setFundImageContext` が差し替え、
-  // 差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
-  let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null };
+  // ファンド別画像の文脈(本文の種類・ファンドコード・会社コード)。
+  // `setFundImageContext` が差し替え、差し替え層(`fundImageLayer.ts`)と image view の拡張が読む。
+  let fundImageContext: FundImageContext = { mode: 'filled', fundCode: null, companyCode: null };
   let fundImages: FundImageLayer | null = null;
-  /** 値入り本文に `{{ … }}` 入りの画像参照が残っているか(編集画面の警告用)。 */
-  const fundImageWarning = ref(false);
+  /** 最後に読み込んだテンプレの CSS(本文の `<style>` が増減したときの複製の作り直しに使う)。 */
+  let templateCss = '';
+  /**
+   * 最後に読み込んだ CSS から取り出した入れ子の `@font-face`(`@/lib/cssCarry`)。GrapesJS には
+   * 渡さず、canvas の複製と `getCss` の末尾へ原文のまま運ぶ。読み込みのたびに入れ替わり、開いて
+   * いる間は変わらない(編集の対象にならない)。
+   */
+  let carriedCss: string[] = [];
+  /** 最後に読み込んだ CSS から `carriedCss` を除いたもの(GrapesJS へ渡した CSS)。 */
+  let templateRestCss = '';
+  /** `load` の入れ替え中(部品の追加・削除のたびに複製を作り直さない)。 */
+  let replacing = false;
+  /** Jinja を含む `<style>` を canvas 用に描画するサンプル。作成タブだけが渡す(`setStyleSample`)。 */
+  let styleSample: SampleData | null = null;
+  /** canvas の画像参照の警告(`{{` の残る参照・配信されない参照・会社フォルダ不一致)。 */
+  const imageWarnings = ref<string[]>([]);
 
   // ── ページ送り(1 ページだけ表示)の状態。判定は `pageView.ts` の純粋関数に委譲する ──
-  /** 現在 canvas に在るページ要素(`body > .page`、無ければ `[body]`)の cache。 */
-  const pageEls = shallowRef<HTMLElement[]>([]);
-  /** ページ総数(= `pageEls.length`)。 */
+  /**
+   * ページごとのパーツ(根の直下の要素を `@/lib/pageBreaks` の `splitPages` で分けたもの。区切りの
+   * 要素は含まない)の cache。canvas が未描画の間は空配列。
+   */
+  const pageBlocks = shallowRef<HTMLElement[][]>([]);
+  /** 数えた区切りの要素(`splitPages` の `breakEls`)。ページ線を帯の上端に引くために使う。 */
+  const pageBreakEls = shallowRef<HTMLElement[]>([]);
+  /** 各区切りが置かれるページ(`splitPages` の `breakPages`)。白紙のページの線と挿入先に使う。 */
+  const pageBreakPages = shallowRef<number[]>([]);
+  /** 数えていない改ページ指定の数(`findUncountedBreaks`。ページ数がプレビューとずれうる警告用)。 */
+  const uncountedBreakCount = ref(0);
+  /** 印刷では効かない inline の改ページ指定の数(`findIgnoredInlineBreaks`。区切りへの置き換えを促す)。 */
+  const ignoredInlineBreakCount = ref(0);
+  /**
+   * テンプレの CSS か本文の `<style>` に `.pagebreak` の改ページ指定があるか。CSS の解析は重いので、
+   * ページを数えるたびではなく CSS の複製を作り直すとき(読み込み・`<style>` の増減)に判定する。
+   */
+  const pagebreakCssOk = ref(false);
+  /**
+   * 数えない CSS の規則の改ページ指定の例のセレクタ(`cssRuleBreakSelector`)。`pagebreakCssOk` と
+   * 同じく、CSS の複製を作り直すときに判定する。
+   */
+  const cssRuleBreak = ref<string | null>(null);
+  /** 根の直下の、描画で要素になりうるチップの数(`findElementizingChips`)。 */
+  const elementizingChipCount = ref(0);
+  /** 改ページの警告の材料。旧形式のキーとアンカーの差し込みは、キーを数える呼び出し側が足す。 */
+  const pageBreakFacts = computed<Omit<PageWarningFacts, 'legacyKeys' | 'jinjaAnchors'>>(() => ({
+    uncounted: uncountedBreakCount.value,
+    ignoredInline: ignoredInlineBreakCount.value,
+    counted: pageBreakEls.value.length,
+    cssDefined: pagebreakCssOk.value,
+    cssRuleBreak: cssRuleBreak.value,
+    elementizingChips: elementizingChipCount.value,
+  }));
+  /**
+   * 今のページ(と選択)で新しいパーツを挿入できるか(`insertTarget.ts`)。次の区切りが固めた範囲の
+   * 包みの中にあるときだけ false。canvas が未描画の間は true(挿入自体が何もしない)。
+   */
+  const canInsertPart = computed(() => {
+    void revision.value;
+    void pageBlocks.value;
+    void pageBreakEls.value;
+    void selected.value;
+    const wrapper = editor.value?.getWrapper();
+    const target = wrapper ? insertTargetAt(wrapper, editor.value?.getSelected()) : null;
+    return target === null || target.kind !== 'blocked';
+  });
+  /** ページ総数(= `pageBlocks.length`)。 */
   const pageCount = ref(0);
   /** 表示中ページの 0 起点 index。 */
   const currentPageIndex = ref(0);
@@ -160,7 +294,6 @@ export function useGrapes() {
   //    同名で分配し、既存の呼び出し側(grapesEvents 配線・ページ送り・return)を無改修に保つ ──
   const markers = useCanvasMarkers({
     editor,
-    pageEls,
     currentPageIndex,
     singlePageMode,
     getContainer: () => containerEl,
@@ -190,8 +323,14 @@ export function useGrapes() {
     markers.refreshNoteMarkers();
     refreshBubbleAnchorNow();
   }
-  const guides = usePageGuides({ editor, afterGuides: refreshOverlayMarkers });
-  const { pageGuides, recomputeBreakEls, refreshPageGuides } = guides;
+  const guides = usePageGuides({
+    editor,
+    pageBlocks,
+    breakEls: pageBreakEls,
+    breakPages: pageBreakPages,
+    afterGuides: refreshOverlayMarkers,
+  });
+  const { pageGuides, refreshPageGuides } = guides;
   const zoomFit = useZoomFit({
     editor,
     getContainer: () => containerEl,
@@ -222,56 +361,67 @@ export function useGrapes() {
     canMoveDown.value = i < parent.components().length - 1;
   }
 
-  // break 収集 / guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
+  // guide 算出は usePageGuides.ts、メモ目印は useCanvasMarkers.ts が担う。
 
-  /** page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。 */
+  /** 数え直し済みの現在のページ分け(`recomputePages` の結果)。 */
+  function currentSplit(): PageSplit<HTMLElement> {
+    return {
+      pages: pageBlocks.value,
+      breakEls: pageBreakEls.value,
+      breakPages: pageBreakPages.value,
+    };
+  }
+
+  /**
+   * page-view style に現在の可視制御 CSS を流し込む(他ページを `display:none` に)。要素の無い
+   * 白紙のページを表示しているときは白紙のページの帯も出す。
+   */
   function applyPageVisibility(): void {
     if (!pageViewStyleEl) return;
+    const split = currentSplit();
     pageViewStyleEl.textContent = pageViewCss(
       currentPageIndex.value,
       pageCount.value,
       singlePageMode.value,
+      isElementlessPage(split, currentPageIndex.value),
     );
   }
 
   /**
-   * canvas のページ要素を列挙し直し、`PV_ATTR` マーカーを生 DOM へ付け直す。content 変更で
-   * `.page` が増減しても追従できるよう、`recomputeBreakEls` と同じく content/load/変更時に呼ぶ。
+   * canvas のページを数え直し、`PV_ATTR` マーカーを生 DOM へ付け直す。区切りの増減に追従できる
+   * よう、content/load/変更時に呼ぶ。赤入れの装飾を置き直した後も
+   * 呼ぶ(`refreshPageMarks`) — 根の直下に置かれた削除要素に印が無いと、全ページに出続ける。
    * マーカーは `el.setAttribute`(生 DOM 直書き)で付け、Component モデルには載せない —
    * `editor.getHtml()` はモデルから再生成するため保存内容(getHtml/getCss)を汚さない。
    *
-   * 列挙の起点は `Canvas.getBody()`(= iframe `<body>`)ではなく GrapesJS の wrapper 要素。
-   * GrapesJS は body 直下に `[data-gjs-type=wrapper]` を 1 段挟み、ページ要素(`.page`)は
-   * その配下に来る。body.children では wrapper しか拾えず `enumeratePageEls` が `.page` を
-   * 0 件と判定してしまうため、content root を wrapper にする(未描画の早期タイミングだけ
-   * body へフォールバック。`load` の `requestAnimationFrame` / `load` イベントで確定する)。
+   * 根は `Canvas.getBody()`(= iframe `<body>`)ではなく GrapesJS の wrapper 要素。GrapesJS は
+   * body 直下に `[data-gjs-type=wrapper]` を 1 段挟み、本文の要素はその配下に来る。wrapper が
+   * まだ描かれていなければ数えない(`load` の `requestAnimationFrame` / `load` イベントで確定する)。
    */
   function recomputePages(): void {
-    const root = editor.value?.getWrapper()?.getEl() ?? editor.value?.Canvas.getBody();
+    const root = canvasRoot(editor);
     if (!root) {
-      pageEls.value = [];
+      pageBlocks.value = [];
+      pageBreakEls.value = [];
+      pageBreakPages.value = [];
+      uncountedBreakCount.value = 0;
+      ignoredInlineBreakCount.value = 0;
+      elementizingChipCount.value = 0;
       pageCount.value = 0;
       return;
     }
-    // 旧マーカーを一掃してから、新しい列挙結果へ index を振り直す。
-    for (const el of Array.from(root.querySelectorAll<HTMLElement>(`[${PV_ATTR}]`))) {
-      el.removeAttribute(PV_ATTR);
-    }
-    const els = enumeratePageEls(root);
-    els.forEach((el, i) => {
-      el.setAttribute(PV_ATTR, String(i));
-    });
-    pageEls.value = els;
-    pageCount.value = els.length;
+    const split = splitRootPages(root);
+    markPages(root, split);
+    // 中身が同じなら差し替えない。赤入れの再計算のたびに呼ぶので、参照だけ変えると `pageBlocks`
+    // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
+    if (!samePages(pageBlocks.value, split.pages)) pageBlocks.value = split.pages;
+    pageBreakEls.value = split.breakEls;
+    pageBreakPages.value = split.breakPages;
+    uncountedBreakCount.value = findUncountedBreaks(root).length;
+    ignoredInlineBreakCount.value = findIgnoredInlineBreaks(root).length;
+    elementizingChipCount.value = findElementizingChips(root).length;
+    pageCount.value = split.pages.length;
     currentPageIndex.value = clampPageIndex(currentPageIndex.value, pageCount.value);
-    // 防御的措置: wrapper 直下に `.page` でない孤立要素が生じても全ページ重複しないよう、
-    // 現在ページと同じ `PV_ATTR` を付けて「現在ページの一部」として扱う(`strayDirectChildren`)。
-    // root が body フォールバック(`.page` 0 件 / `els===[root]`)のときは付けない(全体が 1 ページ)。
-    if (pageCount.value > 0 && els[0] !== root) {
-      for (const el of strayDirectChildren(root)) {
-        el.setAttribute(PV_ATTR, String(currentPageIndex.value));
-      }
-    }
     applyPageVisibility();
   }
 
@@ -293,23 +443,29 @@ export function useGrapes() {
     // 1 ページ表示なので scrollTop=0 で現在ページ先頭に揃う。スクロールは外側 `.gjs-cv-canvas`
     // へ移ったため、iframe document に加えてそちらの scrollTop も 0 へ戻す(背の高いページを送った
     // 直後でも当該ページ先頭が見えるように)。
-    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
-    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    resetCanvasScroll();
     // 再レイアウト後に overlay/guide を測り直す(`setZoom` と同手法)。`updateScrollMode` も
     // 併せて呼ぶ: ページごとに高さが異なると(content がページ実寸を超える等)送り先で
     // 収まり判定が変わり、縦中央寄せ/上揃えの出し分けが要るため。
+    remeasureNextFrame(updateScrollMode);
+  }
+
+  /** iframe document と外側 `.gjs-cv-canvas` のスクロールを先頭へ戻す。 */
+  function resetCanvasScroll(): void {
+    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
+    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+  }
+
+  /**
+   * 再レイアウト後(次フレーム)に選択枠と guide を測り直し、続けて `extra` を呼ぶ。`extra` は
+   * 測り直しの後に走る(縦配置の出し分け `updateScrollMode` やスクロール比率)。
+   */
+  function remeasureNextFrame(extra?: () => void): void {
     requestAnimationFrame(() => {
       refreshRect();
       refreshPageGuides();
-      updateScrollMode();
+      extra?.();
     });
-  }
-
-  function nextPage(): void {
-    goToPage(currentPageIndex.value + 1);
-  }
-  function prevPage(): void {
-    goToPage(currentPageIndex.value - 1);
   }
 
   /** 外側スクロール量から縦位置比率(0..1)を測り直す(`PageRail` のつまみ位置用)。 */
@@ -329,15 +485,12 @@ export function useGrapes() {
   function scrollToPage(i: number): void {
     const idx = clampPageIndex(i, pageCount.value);
     currentPageIndex.value = idx;
-    const el = pageEls.value[idx];
+    // ページの先頭の要素へ送る(区切りの帯は前のページの末尾に属する)。白紙のページは帯へ送る。
+    const el = pageHead(currentSplit(), idx);
     if (!cvScrollEl || !el) return;
     const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
     cvScrollEl.scrollTop += delta;
-    requestAnimationFrame(() => {
-      refreshRect();
-      refreshPageGuides();
-      updateScrollFraction();
-    });
+    remeasureNextFrame(updateScrollFraction);
   }
 
   /** 1 ページ表示の ON/OFF を切り替える(OFF で全ページ連続スクロールへ戻る)。 */
@@ -348,8 +501,7 @@ export function useGrapes() {
     // 座標が旧レイアウトのまま残る。ON 化時のみ隠れたページの選択を外し、スクロールを先頭へ戻して
     // 再レイアウト後に縦配置(`ret-canvas-fits`)と guide/選択枠を測り直す(`goToPage`/`setZoom` と同手法)。
     if (on) deselectIfHidden();
-    editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
-    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    resetCanvasScroll();
     requestAnimationFrame(() => {
       updateScrollMode();
       refreshRect();
@@ -400,6 +552,9 @@ export function useGrapes() {
       selectorManager: { componentFirst: true },
       layerManager: { appendTo: c.layers },
       assetManager: { custom: true },
+      // 本文の `<style>` は既定のパーサが取り除くので、その前に原文を運ぶ部品の置き場へ
+      // 差し替える(`bodyStyle.ts`)。
+      parser: { parserHtml: bodyStyleParserHtml },
       // GrapesJS 既定の cssIcons(cdnjs Font Awesome の <link>)を空にし、CDN から
       // 何も取得させない。layer/toolbar icon が使う FA glyph は main.ts の
       // `import 'font-awesome/...'` で代わりにローカル同梱している。
@@ -436,6 +591,13 @@ export function useGrapes() {
     // 刈り取りは**許可リスト**で、通す `data-gjs-type` の値は `jinjaComponents` が
     // `addType` する型と同一の配列由来にする(片方だけ更新される事故を構造的に消す)。
     // 落とした件数は利用者へ出す — 黙って消すと「保存したら中身が減っていた」事故になる。
+    // GrapesJS は本文の断片を `DOMParser` へ素のまま渡して `body` を取る。HTML の構文規則では、
+    // 最初の要素・文字より前のコメントは body ではなく文書の直下へ置かれるため、本文の先頭の
+    // コメントが読み込みで消える。値入り HTML の往復の印はコメントなので、先頭がブロックの本文は
+    // 保存で原文へ戻せなくなる。明示の `<body>` の中で解析させ、先頭のコメントを body に留める。
+    ed.on('parse:html:before', (opts: { input: string }) => {
+      opts.input = wrapFragmentInBody(opts.input);
+    });
     ed.on('parse:html:root', ({ root }: { root: ParsedNode }) => {
       const report = pruneCanvasActiveContent(root, { allowedGjsTypes: JINJA_COMPONENT_TYPE_SET });
       if (quietParse || report.droppedCount === 0) return;
@@ -447,6 +609,12 @@ export function useGrapes() {
     });
 
     registerJinjaComponents(ed);
+    registerBodyStyleComponent(ed);
+    registerPagebreakComponent(ed);
+    // 本文の `<style>` を足した・消したら canvas の複製を作り直す(`load` は自分で作り直す)。
+    ed.on('component:add component:remove', (comp: Component) => {
+      if (!replacing && containsBodyStyle(comp)) syncCanvasCssCopy();
+    });
 
     // ファンド別画像は属性を書き換えず、canvas 専用の `<style>` で差す(`fundImageLayer.ts`)。
     // 対象の `<img>` で GrapesJS の代替画像処理が `src` を差し替えるとセレクタが外れるので、
@@ -456,9 +624,10 @@ export function useGrapes() {
       getContext: () => fundImageContext,
       onImagesReady: scheduleLayoutRecompute,
       onCanvasResize: scheduleLayoutRecompute,
-      onWarningChange: (on) => {
-        fundImageWarning.value = on;
+      onWarningsChange: (messages) => {
+        imageWarnings.value = messages;
       },
+      inspect: options.inspectFundImages,
     });
 
     // GrapesJS 既定の keymap(`core:undo`=⌘z / `core:redo` / `core:component-delete`=
@@ -470,19 +639,18 @@ export function useGrapes() {
     wireGrapesEvents(ed, {
       selected,
       selectedRect,
-      revision,
-      zoom,
       editing,
       refreshRect,
       refreshMove,
       refreshPageGuides,
       recomputeLayout,
+      notifyLayoutChanged,
       applyInitialZoom: () => setZoom(initialZoom),
       onCanvasLoad,
       toInfo,
       isLocked: () => locked,
       isApplyingLockState: () => applyingLockState,
-      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}\n${redlineCanvasCss}`,
+      canvasCss: `${jinjaChipCanvasCss}\n${a4CanvasCss}\n${redlineCanvasCss}\n${pagebreakCanvasCss}`,
       callbacks,
     });
 
@@ -507,6 +675,7 @@ export function useGrapes() {
         if (pending) return;
         pending = true;
         requestAnimationFrame(() => {
+          // 先に下ろす。測り直しが投げても次の scroll を受け付けられる。
           pending = false;
           refreshRect();
           refreshPageGuides();
@@ -522,41 +691,40 @@ export function useGrapes() {
   // setZoom / updateScrollMode / fitToView は useZoomFit.ts が担う。
 
   /**
-   * content/構成が変わった後の「全部測り直す」正典。  /**
    * content/構成が変わった後の「全部測り直す」正典。順序厳守:
-   * `recomputeBreakEls`(break 集合更新) → `refreshPageGuides`(その集合を読む) →
-   * `recomputePages`(.page 列挙) → `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
+   * `recomputePages`(ページの数え直し) → `refreshPageGuides`(そのページの境目を読む) →
+   * `updateScrollMode`(body 高さ変化で縦配置を出し分け)。
    * body 高さ/ページ構成を変える全経路(GrapesJS イベント・`load`・`patchSelectedStyle`)が
    * これを呼ぶことで、`ret-canvas-fits` や guide が旧レイアウトの値に取り残されるのを防ぐ。
    */
   function recomputeLayout(): void {
-    recomputeBreakEls();
-    refreshPageGuides();
     recomputePages();
+    refreshPageGuides();
     updateScrollMode();
   }
 
   /**
-   * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する薄ラッパ。`patchSelectedStyle` の
-   * geom ハンドルは mousemove ごとにライブ適用されるため、毎回 `recomputeBreakEls`(全要素
-   * `getComputedStyle` = O(n))を同期実行すると drag がジャンクする。`grapesEvents.ts` の
-   * `scheduleHeavyRecompute` と同型(あちらは GrapesJS イベント駆動、こちらは setStyle が
-   * イベントを出さない programmatic 経路用)。editor 破棄後の保留フレームは各関数の null ガードで no-op。
+   * `recomputeLayout` を rAF で 1 フレーム 1 回へ集約する。GrapesJS のイベント(`grapesEvents.ts`)
+   * も `setStyle` 経由の programmatic 経路(`patchSelectedStyle`)も、重い再計測(ページの数え直しと
+   * 全 guide の測位)が高頻度で要求されるので、予約をここ 1 本に束ねて 1 フレームに 2 回走らせない。
+   * editor 破棄後の保留フレームは各関数の null ガードで no-op。
    */
-  let layoutScheduled = false;
-  function scheduleLayoutRecompute(): void {
-    if (layoutScheduled) return;
-    layoutScheduled = true;
-    requestAnimationFrame(() => {
-      layoutScheduled = false;
-      recomputeLayout();
-    });
+  const scheduleLayoutRecompute = rafOnce(recomputeLayout);
+
+  /**
+   * layout に効く変更の通知。revision を進め、選択枠は即時(ライブ値ラベルの体感応答)、
+   * break/guide/ページ列挙/縦配置は次フレームへ集約して測り直す。`callbacks.change` は呼ばない。
+   */
+  function notifyLayoutChanged(): void {
+    revision.value++;
+    refreshRect();
+    scheduleLayoutRecompute();
   }
 
   /**
    * canvas の編集可否を切り替える。`on` が false のとき canvas は read-only:
    * `Component` は選択可のまま(inspector が機能する)だが text 編集や drag は不可。
-   * jinja の `Component` は各自の既定値を保つ。
+   * jinja の `Component` は自身も子孫も各自の既定値を保つ。
    */
   function setEditable(on: boolean): void {
     locked = !on;
@@ -568,13 +736,20 @@ export function useGrapes() {
     // draft 経路に入る)。適用中フラグで `fireChange` に濾させる(同期ループなので確実)。
     applyingLockState = true;
     try {
-      ed.getWrapper()?.onAll((c) => {
+      // jinja の部品は自身も子孫も触らない。固めた要素の子孫は `init` で選択・編集・移動を
+      // 止めてあり(`jinjaComponents.ts` の `lockDescendants`)、ここで切り替えると読み込み直後や
+      // Undo / Redo のたびに固定が外れる。本文の `<style>` の置き場も同じで、動かすと
+      // `<style>` の位置(= 規則の効く順序)が変わるため、定義どおり移動・編集させない。
+      const visit = (c: Component): void => {
         const type = String(c.get('type') ?? '');
-        if (type.startsWith('jinja-')) return; // jinja の locked 挙動は保つ
+        if (type.startsWith('jinja-') || type === BODY_STYLE_TYPE) return;
         c.set('editable', on);
         c.set('draggable', on);
         c.set('selectable', true);
-      });
+        c.components().forEach(visit);
+      };
+      const wrapper = ed.getWrapper();
+      if (wrapper) visit(wrapper);
     } finally {
       applyingLockState = false;
     }
@@ -615,13 +790,6 @@ export function useGrapes() {
     editor.value?.getSelected()?.remove();
   }
 
-  /** inline style マップ 2 つが同じ property 集合・同じ値かを判定する。 */
-  function sameStyleMap(a: Record<string, string>, b: Record<string, string>): boolean {
-    const ak = Object.keys(a);
-    if (ak.length !== Object.keys(b).length) return false;
-    return ak.every((k) => a[k] === b[k]);
-  }
-
   /** 現在の選択の inline style マップ(未選択時は空)。 */
   function selectedStyle(): Record<string, string> {
     return (editor.value?.getSelected()?.getStyle() ?? {}) as Record<string, string>;
@@ -630,27 +798,19 @@ export function useGrapes() {
   /**
    * 選択へ inline-style パッチを適用する(`''` 値は該当プロパティを除去)。結果が現在の
    * style と同一なら何もしない — `callbacks.change` は autosave の起点なので、値の動かない
-   * 適用まで通すと編集していないのに draft が生成される。
+   * 適用まで通すと編集していないのに draft が生成される。変えたら true を返す(呼び出し側が
+   * 無変更の操作で Undo と修正履歴を積まないため)。
    */
-  function patchSelectedStyle(patch: Record<string, string>): void {
+  function patchSelectedStyle(patch: Record<string, string>): boolean {
     const comp = editor.value?.getSelected();
-    if (!comp) return;
-    const cur = comp.getStyle() as Record<string, string>;
-    const next: Record<string, string> = { ...cur };
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === '') delete next[k];
-      else next[k] = v;
-    }
-    if (sameStyleMap(cur, next)) return;
-    comp.setStyle(next);
+    if (!comp || !patchStyle(comp, patch)) return false;
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
     // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時
     // (ライブ値ラベルの体感応答)、break/guide/ページ列挙/縦配置は幅・余白変更で動くため
     // `scheduleLayoutRecompute` で次フレームへ集約する(ハンドル drag の連続適用を間引く)。
-    revision.value++;
-    refreshRect();
-    scheduleLayoutRecompute();
+    notifyLayoutChanged();
     callbacks.change?.();
+    return true;
   }
 
   function toInfo(comp: Component): SelectedInfo {
@@ -660,58 +820,125 @@ export function useGrapes() {
       id: comp.getId(),
       name: (comp.get('name') as string) || comp.get('tagName') || 'element',
       isJinja: typeof type === 'string' && type.startsWith('jinja-'),
+      isPagebreak: type === PAGEBREAK_TYPE,
       partId: typeof partId === 'string' ? partId : undefined,
     };
   }
 
-  /**
-   * 現在表示中ページ(`.page`)の Component を返す(`.page` が 1 件も無ければ undefined)。
-   * `wrapper.components()` から `.page` Component を毎回ライブに filter し、
-   * `currentPageIndex` 番目(範囲外は末尾フォールバック、`clampPageIndex` と整合)を返す。
-   *
-   * `pageEls`(生 DOM キャッシュ)との `getEl() === pageEl` 同一性照合にはしない。
-   * GrapesJS の `getEl()` は描画済みでないと有効でなく、`load`/再レイアウト/`fireChange` の
-   * 再描画で `pageEls` が detach すると照合が外れて undefined を返し、`insertPart` が
-   * wrapper 直下 append にフォールバック → 孤立要素が全ページ重複する。
-   * Component を class で直接引くことで stale な生 DOM 参照に依存しない。
-   * (`components()` のイテレーション順は DOM 子順と一致するため index 参照してよい。)
-   */
-  function currentPageComponent(): Component | undefined {
-    const wrapper = editor.value?.getWrapper();
-    if (!wrapper) return undefined;
-    const pages = wrapper
-      .components()
-      .filter((c: Component) => c.getEl?.()?.classList?.contains('page'));
-    if (pages.length === 0) return undefined;
-    return pages[currentPageIndex.value] ?? pages[pages.length - 1];
+  /** `comp` を含む根の直下の component(wrapper 自身・wrapper の外なら undefined)。 */
+  function topLevelOf(wrapper: Component, comp: Component | undefined): Component | undefined {
+    let top = comp;
+    while (top?.parent() && top.parent() !== wrapper) top = top.parent();
+    return top?.parent() === wrapper ? top : undefined;
   }
 
   /**
-   * catalog part の HTML を挿入する。挿入先は「現在ページの `.page` 配下」に限定する:
-   * ページ内の要素を選択中ならその直後へ、そうでなければ(選択なし / `.page` 自身を選択)
-   * 現在ページの末尾へ append する。wrapper 直下へ落とすと `.page` の兄弟=どのページにも
-   * 属さない孤立要素になり、ページ可視制御(`data-pv-idx`)の対象外として全ページに
-   * 出続けるため、それを避ける。`.page` を持たない fallback 時のみ wrapper へ。
+   * `comp` が属するパーツ(根の直下)の前後の改ページの状態(`partBreak.ts` の `partBreakState`)。
+   * 区切りを置けないもの(区切り自身・固めた範囲の包み・未描画)は null。
    */
-  function insertPart(content: string, partId: string): void {
+  function partBreakOf(comp: Component | undefined): PartBreakState | null {
+    const wrapper = editor.value?.getWrapper();
+    const root = wrapper?.getEl();
+    const el = wrapper ? topLevelOf(wrapper, comp)?.getEl() : undefined;
+    return root && el ? partBreakState(el, root) : null;
+  }
+
+  /**
+   * `comp` が属するパーツの前(後ろ)の改ページを ON / OFF する。ON は区切りを 1 つ置き、OFF は
+   * 隣の区切りと inline の該当の宣言を消す(何をするかは `partBreak.ts` の `planBreakToggle`)。
+   * 変えたら true。状態が変わらない・区切りを置けないときは何もせず false(呼び出し側が Undo を
+   * 積まないため)。
+   *
+   * 区切りの削除・inline の宣言の削除・挿入をこの 1 回の呼び出しで行い、変更の通知も 1 回にする。
+   * Undo は呼び出し側が操作の前に積む 1 つの snapshot で、ここでの変更をまとめて戻す。区切りの
+   * 要素 → component の照合は `insertIndex` と同じく、呼んだ時点の `getEl()` で行う。
+   */
+  function setPartBreak(comp: Component | undefined, edge: BreakEdge, on: boolean): boolean {
+    const wrapper = editor.value?.getWrapper();
+    const root = wrapper?.getEl();
+    const top = wrapper ? topLevelOf(wrapper, comp) : undefined;
+    const el = top?.getEl();
+    if (!wrapper || !root || !top || !el) return false;
+    const plan = planBreakToggle(el, root, edge, on);
+    if (!plan) return false;
+    for (const br of plan.remove) {
+      wrapper
+        .components()
+        .find((c: Component) => c.getEl() === br)
+        ?.remove();
+    }
+    if (plan.stripProps.length > 0) {
+      patchStyle(top, Object.fromEntries(plan.stripProps.map((k) => [k, ''])));
+    }
+    if (plan.insert) {
+      const i = top.index();
+      wrapper.append(PAGEBREAK_HTML, { at: plan.insert === 'before' ? i : i + 1 });
+    }
+    revision.value++;
+    scheduleLayoutRecompute();
+    callbacks.change?.();
+    return true;
+  }
+
+  /**
+   * 今のページ(と選択)の挿入先(`insertTarget.ts`)。canvas が未描画で根が無ければ null。
+   * `canInsertPart` と `insertIndex` が同じ手順で決める。
+   */
+  function insertTargetAt(
+    wrapper: Component,
+    sel: Component | undefined,
+  ): ReturnType<typeof insertTarget> | null {
+    const root = wrapper.getEl();
+    if (!root) return null;
+    return insertTarget(root, currentPageIndex.value, topLevelOf(wrapper, sel)?.getEl());
+  }
+
+  /**
+   * 新しいパーツの挿入先(wrapper の `components()` の中の index)。挿入できなければ null。位置の
+   * 決め方は `insertTarget.ts` の `insertTarget`。位置は呼んだ時点の DOM を数え直して決め、要素 →
+   * component は同じ時点の `getEl()` で照合する。キャッシュ(`pageBlocks`)の要素は再描画で入れ
+   * 替わっていることがあり、照合が外れると別のページへ落ちる。照合できなければ挿入しない(null)。
+   * 照合が外れうるのは DOM から読んだ境目の要素(`before`)だけで、選び直しても同じ境目に行き着く
+   * ので、求め直さない。本文の末尾へ入れると、別のページへ黙って落ちる。
+   */
+  function insertIndex(wrapper: Component, sel: Component | undefined): number | null {
+    const comps = wrapper.components();
+    const target = insertTargetAt(wrapper, sel);
+    if (!target) return comps.length;
+    if (target.kind === 'blocked') return null;
+    if (target.kind === 'end') return comps.length;
+    const i = comps.findIndex((c: Component) => c.getEl() === target.el);
+    if (i < 0) return null;
+    return target.kind === 'after' ? i + 1 : i;
+  }
+
+  /**
+   * catalog part の HTML を、現在ページの範囲の末尾(`insertIndex`)へ根の直下のパーツとして
+   * 挿入し、選択する。挿入したパーツが今のページに入らないことがある(inline の `break-after` の
+   * 後ろは次のページ、要素の無い白紙のページでは次のページの先頭の直前 = 前のページの末尾)。
+   * 1 ページ表示では隠れたパーツを選んだままにしないよう、数え直してそのページへ送る。
+   * 挿入できないページ(`canInsertPart` が false)と、挿入先を照合できないとき(`insertIndex`)は
+   * 何もしない。挿入したかを返す(呼び出し側が、挿入しなかったときに Undo と修正履歴を積まない
+   * ため)。
+   */
+  function insertPart(content: string, partId: string): boolean {
     const ed = editor.value;
-    if (!ed) return;
-    const wrapper = ed.getWrapper();
-    const sel = ed.getSelected();
-    const parent = sel?.parent();
-    // 選択要素が「現在ページの `.page` 子孫」のときだけ、その直後へ挿入する。選択が現在ページ外
-    // (再描画で選択が別ページ要素へずれた等)を指す場合は別ページ/孤立要素直下へ落ちうるため、
-    // 現在ページ判定(`deselectIfHidden` と同型)で弾き、`currentPageComponent` 経由へ回す。
-    const owner = sel?.getEl?.()?.closest?.(`[${PV_ATTR}]`) as HTMLElement | null;
-    const selInCurrentPage = owner?.getAttribute(PV_ATTR) === String(currentPageIndex.value);
-    const added =
-      sel && parent && parent !== wrapper && selInCurrentPage
-        ? parent.append(content, { at: sel.index() + 1 })
-        : (currentPageComponent() ?? wrapper)?.append(content);
+    const wrapper = ed?.getWrapper();
+    if (!ed || !wrapper) return false;
+    const at = insertIndex(wrapper, ed.getSelected());
+    if (at === null) return false;
+    const added = wrapper.append(content, { at });
     const root = Array.isArray(added) ? added[0] : added;
     // catalog id を付与し、後の canvas 選択から docs を引けるようにする
     root?.addAttributes?.({ 'data-part-id': partId });
-    if (root) ed.select(root); // prototype 同様、挿入した part を選択する
+    if (!root) return false;
+    recomputePages();
+    const page = root.getEl()?.getAttribute(PV_ATTR);
+    if (singlePageMode.value && page != null && Number(page) !== currentPageIndex.value) {
+      goToPage(Number(page));
+    }
+    ed.select(root); // prototype 同様、挿入した part を選択する
+    return true;
   }
 
   /**
@@ -723,6 +950,38 @@ export function useGrapes() {
   function setVarsHighlight(on: boolean): void {
     varsHighlight = on;
     editor.value?.Canvas.getBody()?.classList.toggle('jinja-vars-highlight', on);
+  }
+
+  /**
+   * canvas 専用の CSS の複製を作り直す(`canvasCssAssets.ts`)。テンプレの CSS の url()(フォント・
+   * 背景画像)は canvas では解けないので配信 URL へ直した複製を置き、本文の `<style>` は canvas に
+   * 元の規則が無いので全規則を複製する(参照は文書の位置を基準に解く)。どちらも canvas 専用の
+   * `<style>` に置くので保存内容(getHtml / getCss)には載らない。中に Jinja を含む `<style>` は
+   * 原文を運ぶチップ(レイヤーには見え、消せる)で、作成タブでは `toFilled` と同じサンプルで描画
+   * した規則を同じく複製する。描画できないものは複製せず、チップはそのまま残す。改ページの警告の
+   * CSS 由来の事実(`.pagebreak` の指定の有無・数えない規則)もここで判定する。
+   */
+  function syncCanvasCssCopy(): void {
+    const texts = bodyStyleCssTexts(editor.value?.getWrapper(), styleSample);
+    pagebreakCssOk.value = pagebreakCssDefinedIn(templateCss, texts);
+    cssRuleBreak.value = cssRuleBreakSelector([templateCss, ...texts]);
+    fundImages?.setCss([
+      ...texts.map((text) => ({ css: text, from: DOC_DIR, whole: true })),
+      // 運んだ `@font-face` は GrapesJS が canvas に描かないので、本文の `<style>` と同じく丸ごと
+      // 複製する。
+      ...carriedCss.map((text) => ({ css: text, from: TEMPLATE_CSS_FROM, whole: true })),
+      { css: templateRestCss, from: TEMPLATE_CSS_FROM },
+    ]);
+  }
+
+  /**
+   * Jinja を含む本文の `<style>` を canvas で効かせるためのサンプルを設定する。作成タブだけが
+   * `toFilled` と同じサンプルを渡し、編集タブ(値入りの本文で、チップを持たない)は null。
+   * `load` より前に呼ぶ(呼んだ時点の canvas の複製も作り直す)。
+   */
+  function setStyleSample(sample: SampleData | null): void {
+    styleSample = sample;
+    syncCanvasCssCopy();
   }
 
   /**
@@ -747,21 +1006,33 @@ export function useGrapes() {
     if (!ed) return false;
     const refs = summarizeExternalCssRefs(css);
     if (refs !== null) {
-      toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
+      // quiet の読み込み(確定版の形を測るだけ)では拒むだけにする。呼び出し側は false を見て
+      // 測るのをやめ、利用者が開いた本文はこのあと通常の読み込みで同じ検査を通る。
+      if (!opts.quiet)
+        toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
       return false;
     }
-    // `quiet` は刈り取りのトーストだけを抑止する(刈り取り自体は通常どおり)。確定版の正規形を
+    // `quiet` は通知だけを抑止する(拒否・刈り取り自体は通常どおり)。確定版の正規形を
     // 取るための読み込みで使う — 本文の読み込みで同じ通知が出るため、二重に出すと誤解を招く。
     quietParse = !!opts.quiet;
+    replacing = true;
     try {
       ed.setComponents(bodyEditableHtml);
     } finally {
       quietParse = false;
+      replacing = false;
     }
-    ed.setStyle(css);
+    // 複製を `setStyle` より先に作り直す。canvas が描かれていれば、元の規則が canvas に入るより
+    // 前に複製が置かれている(`fundImageLayer.ts`)。
+    templateCss = css;
+    const split = splitNestedFontFaces(css);
+    carriedCss = split.carried;
+    templateRestCss = split.rest;
+    syncCanvasCssCopy();
+    ed.setStyle(split.rest);
     // setComponents/setStyle 直後は iframe DOM が未描画で、`component:add` の `fireChange`
-    // から走る `recomputePages` が `.page` を拾えず `[body]` フォールバック(`pageCount=1`)に
-    // 落ちる。その結果ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
+    // から走る `recomputePages` が wrapper の要素を引けず、ページを数えられない。その結果
+    // ページャ(`singlePageMode && pageCount > 1`)が出ない。再レイアウト後に
     // 測り直してページ数 / 境界 guide を確定させる(`goToPage` と同じ `requestAnimationFrame`)。
     requestAnimationFrame(() => {
       recomputeLayout();
@@ -822,6 +1093,16 @@ export function useGrapes() {
    * `getCss()` を呼ぶ**同期呼び出しの間だけ** `avoidInlineStyle` を立ててミラーを生成元で
    * 止め、`finally` で必ず戻す(他の経路 — `patchSelectedStyle` 等 — は非同期に挟まらないので
    * 影響しない)。
+   *
+   * `keepUnusedStyles` も立てる。既定の GrapesJS は、文書のどの要素も使っていない単純な
+   * セレクタの規則を書き出さない。CSS はテンプレ単位のファイルで基準日をまたいで共有するので、
+   * この文書で使っていない規則(別の基準日の文書が使う規則、最後の要素を消したクラスの規則)を
+   * 落とすと、承認でファイルからもペアの CSS からも消える。下書き・申請・CSS の baseline は
+   * すべてここを通すので、どれも同じ「全規則」の形になる。
+   *
+   * 読み込んだ CSS の入れ子の `@font-face` は GrapesJS に通していないので、包み直した原文を末尾へ
+   * 足す(`@/lib/cssCarry`)。下書き・申請・CSS の baseline・確定版の正規形はすべてここを通るので、
+   * 足す場所はここ 1 か所。
    */
   function getCss(): string {
     const ed = editor.value;
@@ -830,7 +1111,10 @@ export function useGrapes() {
     const prev = cfg.avoidInlineStyle;
     cfg.avoidInlineStyle = true;
     try {
-      return ed.getCss() ?? '';
+      const out = ed.getCss({ keepUnusedStyles: true }) ?? '';
+      return carriedCss.length === 0
+        ? out
+        : [out, ...carriedCss].filter((s) => s !== '').join('\n');
     } finally {
       cfg.avoidInlineStyle = prev;
     }
@@ -848,6 +1132,15 @@ export function useGrapes() {
   function onTextEditEnd(cb: (changed: boolean) => void): void {
     callbacks.textEnd = cb;
   }
+
+  /**
+   * テキスト編集中なら閉じて、入力がモデルへ反映されるまで待つ(`textEditFinish.ts`)。Undo 可能な
+   * 操作は `beginUndo` の前にこれを待ち、追記を自分の 1 手へ混ぜない。閉じたかどうかを返し、
+   * 閉じられなかったら操作を取りやめたことを知らせる。
+   */
+  const finishTextEdit = createFinishTextEdit(() => editor.value, {
+    onStuck: (message) => toast(message, 'error'),
+  });
 
   /** canvas の drag-reorder が開始 — undo 用 snapshot を取る好機。 */
   function onReorderStart(cb: () => void): void {
@@ -887,7 +1180,7 @@ export function useGrapes() {
     bubbleAnchor,
     setNoteKeys,
     refreshBubbleAnchor,
-    pageEls,
+    pageBlocks,
     pageCount,
     currentPageIndex,
     singlePageMode,
@@ -898,14 +1191,20 @@ export function useGrapes() {
     load,
     setVarsHighlight,
     setFundImageContext,
-    fundImageWarning,
+    setStyleSample,
+    imageWarnings,
+    pageBreakFacts,
+    canInsertPart,
     parseHtmlQuiet,
     insertPart,
+    partBreakOf,
+    setPartBreak,
     getBodyHtml,
     getCss,
     onChange,
     onTextEditStart,
     onTextEditEnd,
+    finishTextEdit,
     onReorderStart,
     onReorderEnd,
     onCanvasDblClick,
@@ -915,11 +1214,11 @@ export function useGrapes() {
     setEditable,
     goToPage,
     scrollToPage,
-    nextPage,
-    prevPage,
     setSinglePageMode,
     refreshRect,
     refreshPageGuides,
+    remeasureNextFrame,
+    refreshPageMarks: recomputePages,
     updateScrollMode,
     startMove,
     moveSelected,

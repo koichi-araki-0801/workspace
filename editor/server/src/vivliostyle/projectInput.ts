@@ -1,7 +1,6 @@
 // =============================================================================
 // projectInput.ts — アップロード zip から vivliostyle プロジェクトを安全に展開する
 // =============================================================================
-import crypto from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -9,10 +8,12 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { isAppError, validation } from '@editor/shared';
 import StreamZip from 'node-stream-zip';
-import { config, envPositiveNumber } from '../config.js';
+import { envPositiveNumber } from '../config.js';
 import { assertProjectDirHasNoExternalRefs } from '../security/externalRefs.js';
+import { mapLimit } from '../util/mapLimit.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import { isConfigFileName, parseProjectConfig, type SafeProjectConfig } from './projectConfig.js';
+import { makeWorkDir } from './workDir.js';
 
 /** アップロード zip から展開した vivliostyle プロジェクト。 */
 interface ExtractedProject {
@@ -23,6 +24,11 @@ interface ExtractedProject {
    * (ファイルパスは渡さない)。config 同梱が無ければ undefined でクエリ `?entry=` 経路。
    */
   config?: SafeProjectConfig;
+  /**
+   * CLI へ渡す `cwd`。config の置き場(入れ子のフォルダに置いた zip ではそのフォルダ)で、
+   * config 内の相対パスはここを基準に検証済み。config が無ければ `dir`。
+   */
+  cwd: string;
   /** 書き出したファイル数。 */
   fileCount: number;
   /**
@@ -179,33 +185,6 @@ const COMPRESSION_RATIO_FLOOR_BYTES = 8 * 1024 * 1024;
 export const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]+:/;
 
 /**
- * `items` を最大 `limit` 並列で `task` に通す(順序不問)。最初の失敗で reject し、以降の
- * 未着手分は走らせない(走行中タスクは完了を待つ)。外部依存(p-limit 等)を増やさないための
- * 最小実装。
- */
-async function mapLimit<T>(
-  items: T[],
-  limit: number,
-  task: (item: T) => Promise<unknown>,
-): Promise<void> {
-  let next = 0;
-  let failed = false;
-  const run = async (): Promise<void> => {
-    while (next < items.length && !failed) {
-      const i = next;
-      next += 1;
-      try {
-        await task(items[i]);
-      } catch (e) {
-        failed = true;
-        throw e;
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, run));
-}
-
-/**
  * zip エントリ名を `root` 配下の安全な絶対パスへ解決する。
  * 絶対パス・Windows ドライブレター・`..` トラバーサルを拒否し、悪意あるアーカイブが
  * 展開ディレクトリの外へ書き込めないようにする(zip-slip)。
@@ -227,7 +206,7 @@ export function safeEntryPath(root: string, name: string): string {
 }
 
 /**
- * クエリ `entry` を展開ディレクトリ配下の絶対パスへ解決する(`buildProjectPdf` /
+ * クエリ `entry` を展開ディレクトリ配下の絶対パスへ解決する(`buildProjectInSlot` /
  * `previewManager.start` へ渡す前の唯一の関所)。
  *
  * vivliostyle CLI は `input` を `upath.resolve(cwd, input)` で解くだけで封じ込めを見ず、
@@ -393,8 +372,7 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
   // materialize(`archive.entries()`)の**前**に申告値で足切りする。
   assertDeclaredEntryCount(zip);
 
-  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  const dir = path.join(config.tmpDir, `vivlio-${stamp}`);
+  const dir = makeWorkDir('vivlio');
   const zipPath = `${dir}.zip`;
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(zipPath, zip);
@@ -438,8 +416,11 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
       // 各 entry stream は明示 position(`fs.read` の position 引数)で読み、共有 fd の現在
       // 位置に依存しないため互いに干渉しない(node-stream-zip `EntryDataReaderStream`)。
       const budget: ExtractBudget = { remaining: extractByteBudget(zip.length) };
-      await mapLimit(targets, EXTRACT_CONCURRENCY, (t) =>
-        extractEntry(archive, t.entry, t.dest, budget),
+      await mapLimit(
+        targets,
+        EXTRACT_CONCURRENCY,
+        (t) => extractEntry(archive, t.entry, t.dest, budget),
+        { stopOnError: true },
       );
       fileCount = targets.length;
     } finally {
@@ -466,9 +447,13 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     if (configPaths.length > 1) {
       throw validation('vivliostyle.config.json が複数あります。1 つにしてください');
     }
+    // config 内の相対パスは CLI が `cwd` 基準で解くので、検証も CLI へ渡す `cwd` と同じ
+    // config の置き場を基準にする。展開ルートで検証して `cwd` も展開ルートにすると、
+    // `proj/` に置いた config の `"theme":"style.css"` が `proj/style.css` に届かない。
+    const cwd = configPaths.length === 1 ? path.dirname(configPaths[0]) : dir;
     const parsed =
       configPaths.length === 1
-        ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), dir)
+        ? parseProjectConfig(await fs.readFile(configPaths[0], 'utf8'), cwd)
         : undefined;
     // ⚠ zip 経路には `docAssets.stageDocAssets` を**掛けない**(コードを読んで確認した
     // 上での判断)。zip は外部クライアントが送ってくる自己完結のプロジェクトで、CSS も
@@ -487,7 +472,7 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     // build 入口の `assertNoDocumentExternalRefs` では掴まらず、展開直後が唯一の関所になる
     // (build も project プレビューもこのディレクトリを見る)。
     await assertProjectDirHasNoExternalRefs(dir);
-    return { dir, config: parsed, fileCount, docBase: parsed?.base ?? DEFAULT_DOC_BASE };
+    return { dir, config: parsed, cwd, fileCount, docBase: parsed?.base ?? DEFAULT_DOC_BASE };
   } catch (e) {
     // 中途展開のディレクトリを決して漏らさない(例: zip-slip エントリ拒否時)。
     await cleanupProject(dir);

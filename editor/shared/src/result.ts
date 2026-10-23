@@ -21,6 +21,9 @@ export const isErr = <T, E>(r: Result<T, E>): r is Err<E> => !r.ok;
 export const map = <T, U, E>(r: Result<T, E>, f: (value: T) => U): Result<U, E> =>
   r.ok ? ok(f(r.value)) : r;
 
-/** `Result` を返すステップを連結する。最初のエラーで短絡する。 */
+/**
+ * `Result` を返すステップを連結する。最初のエラーで短絡する。テストから直接検証するために
+ * 公開する。
+ */
 export const andThen = <T, U, E>(r: Result<T, E>, f: (value: T) => Result<U, E>): Result<U, E> =>
   r.ok ? f(r.value) : r;

@@ -31,8 +31,13 @@ import { Loader2 } from '@lucide/vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { logError } from '@/lib/appError';
 import { selfContainPreviewDoc } from '@/lib/previewSelfContain';
+import { RENDER_HOST_BOOT_TIMEOUT_MS } from '@/lib/renderHostClient';
 
-const props = defineProps<{ html: string }>();
+const props = defineProps<{
+  html: string;
+  /** テンプレ ID の会社コード(会社フォルダの画像の照合用。不明なら会社フォルダは埋めない)。 */
+  companyCode?: string | null;
+}>();
 
 /** 親(上部バー)へ渡すページ送り/ズーム状態のスナップショット。 */
 const emit = defineEmits<{
@@ -67,12 +72,7 @@ const nav = ref<PreviewHostState>({
 // 子の boot 完了。未完了の間に届いた文書は保留し、ready 受信時に送る。
 const hostReady = ref(false);
 
-/**
- * 子から `ready` も状態通知も来ない場合の保険。ホストページの配信失敗(認証切れ・
- * バンドル欠落)やブラウザの sandbox 制約など、子が沈黙する形の失敗は親からは
- * 区別できないため、時間で切ってフォールバック表示へ倒す。
- */
-const HOST_BOOT_TIMEOUT_MS = 15_000;
+// 子から `ready` も状態通知も来ない場合の保険の期限は `RENDER_HOST_BOOT_TIMEOUT_MS`(理由はそちら)。
 /** 組版が終わらない場合のローダー強制解除。 */
 const RENDER_LOADER_FAILSAFE_MS = 30_000;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;
@@ -135,7 +135,7 @@ function sendDoc() {
   // テンプレ JS・フォントは**親のここで**文書へ埋めてから渡す(`previewSelfContain.ts`)。
   // 失敗時は原文のまま送る = 認証オフ環境なら子の相対参照が今までどおり解決される。
   // 加工は表示境界限定で、申請へ保存される `previewDoc`/`filledHtml` には触れない。
-  void selfContainPreviewDoc(props.html)
+  void selfContainPreviewDoc(props.html, undefined, { companyCode: props.companyCode ?? null })
     .catch(() => props.html)
     .then((html) => {
       if (seq !== sendSeq || !hostReady.value || useFallback.value) return;
@@ -197,7 +197,7 @@ function onFrameLoad() {
   bootTimer = setTimeout(() => {
     bootTimer = null;
     if (!hostReady.value) fallback('ビューアの起動確認が取れませんでした');
-  }, HOST_BOOT_TIMEOUT_MS);
+  }, RENDER_HOST_BOOT_TIMEOUT_MS);
 }
 
 const send = (cmd: PreviewCommand, page?: number) => {

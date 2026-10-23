@@ -14,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   COMPARE_RENDER_ERROR,
   createCompareService,
+  renderReviewPair,
 } from '@/features/compare/services/compareService';
 
 // 実際の描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では
@@ -21,7 +22,7 @@ import {
 // **向こう側**にあたる nunjucks 実装を直に噛ませる。隔離クライアント自体の契約
 // (発信元検証・保留・id 対応付け・期限)は `renderHostClient.test.ts` が固定する。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 
@@ -52,19 +53,22 @@ describe('CompareService.renderVersionHtml', () => {
     const templates = {
       getTemplate: vi.fn(async () =>
         ok({
-          meta: { attributes: { fundCode: '510037' } },
+          meta: { id: 'AM01_510037_20240710_kr', attributes: { fundCode: '510037' } },
           html: '<p>{{ fund.name }}</p>',
           css: '.base{}',
           filled: '',
         }),
       ),
-      getSampleData: vi.fn(async () => ok({ fund: { name: '原本ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: '原本ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const history = {} as HistoryRepository;
 
     const svc = createCompareService(templates, history);
     const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
 
+    expect(templates.getSampleData).toHaveBeenCalledWith('AM01_510037_20240710_kr');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.html).toContain('原本ファンド');
@@ -99,7 +103,7 @@ describe('CompareService.renderVersionHtml', () => {
       getTemplate: vi.fn(async () =>
         ok({ meta: { attributes: { fundCode: '510037' } }, html: '{% if %}', css: '', filled: '' }),
       ),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:t');
@@ -117,7 +121,9 @@ describe('CompareService.renderVersionHtml', () => {
           filled: '<p>値入り {{ fund.name }}</p>',
         }),
       ),
-      getSampleData: vi.fn(async () => ok({ fund: { name: '原本ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: '原本ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
@@ -131,7 +137,7 @@ describe('CompareService.renderVersionHtml', () => {
       getSnapshot: vi.fn(async () => ok(snapshot)),
     } as unknown as HistoryRepository;
     const templates = {
-      getSampleData: vi.fn(async () => ok({ fund: { name: 'x' } })),
+      getSampleData: vi.fn(async () => ok({ sample: { fund: { name: 'x' } }, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, history);
     const res = await svc.renderVersionHtml('eh-1');
@@ -143,7 +149,9 @@ describe('CompareService.renderVersionHtml', () => {
 
 describe('CompareService.renderTemplateBody', () => {
   it("origin='edit' の本文は描画を通さずそのまま返す", async () => {
-    const templates = { getSampleData: vi.fn(async () => ok({})) } as unknown as TemplateRepository;
+    const templates = {
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
+    } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderTemplateBody('<p>{{ raw }}</p>', '.c{}', '510037', 'edit');
     expect(isOk(res) && res.value).toEqual({ html: '<p>{{ raw }}</p>', css: '.c{}' });
@@ -152,17 +160,25 @@ describe('CompareService.renderTemplateBody', () => {
 
   it("origin='create' の本文はサンプル値で描画する", async () => {
     const templates = {
-      getSampleData: vi.fn(async () => ok({ fund: { name: '作成ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: '作成ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
-    const res = await svc.renderTemplateBody('<p>{{ fund.name }}</p>', '.c{}', '510037', 'create');
+    const res = await svc.renderTemplateBody(
+      '<p>{{ fund.name }}</p>',
+      '.c{}',
+      'AM01_510037_交付版',
+      'create',
+    );
+    expect(templates.getSampleData).toHaveBeenCalledWith('AM01_510037_交付版');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.html).toContain('作成ファンド');
   });
 
   it('描画に失敗したら安全な文言を返す', async () => {
     const templates = {
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderTemplateBody('{% if %}', '', '510037', 'create');
@@ -220,18 +236,36 @@ describe('CompareService.listCandidates', () => {
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       // 確定版数 + 現行版 1。確定版ゼロの c も 1 版になり比較対象に出る。
-      expect(res.value.map((c) => [c.meta.id, c.versionCount])).toEqual([
+      expect(res.value.map((c) => [c.meta.id, c.selectableVersionCount])).toEqual([
         ['a', 3],
         ['b', 2],
         ['c', 1],
       ]);
-      // 各候補は版リスト(現行版込み)を持ち、先頭が現行版 baseline、長さは versionCount に一致。
+      // 各候補は版リスト(現行版込み)を持ち、先頭が現行版 baseline、長さは selectableVersionCount に一致。
       for (const c of res.value) {
-        expect(c.versions).toHaveLength(c.versionCount);
+        expect(c.versions).toHaveLength(c.selectableVersionCount);
         expect(c.versions[0].historyId).toBe(`baseline:${c.meta.id}`);
       }
       // a は現行版(最新)の後に確定版(新しい順) a2,a1 が続く。
       expect(res.value[0].versions.map((v) => v.historyId)).toEqual(['baseline:a', 'a2', 'a1']);
+    }
+  });
+
+  it('selectableVersionCount は確定保存の回数 + 現行版 1(確定版 0 件なら 1、2 件なら 3)', async () => {
+    const templates = {
+      listTemplates: vi.fn(async () => ok([meta('x'), meta('y')])),
+    } as unknown as TemplateRepository;
+    const history = {
+      listVersions: vi.fn(async (id: string) =>
+        ok(id === 'y' ? [version('y2', 'y'), version('y1', 'y')] : []),
+      ),
+    } as unknown as HistoryRepository;
+
+    const res = await createCompareService(templates, history).listCandidates({});
+
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.map((c) => c.selectableVersionCount)).toEqual([1, 3]);
     }
   });
 
@@ -251,7 +285,7 @@ describe('CompareService.listCandidates', () => {
     if (isOk(res)) {
       expect(res.value).toHaveLength(1);
       expect(res.value[0].meta.id).toBe('d');
-      expect(res.value[0].versionCount).toBe(1);
+      expect(res.value[0].selectableVersionCount).toBe(1);
     }
   });
 
@@ -327,5 +361,48 @@ describe('CompareService delegation', () => {
     );
     const res = await svc.listVersions('tpl-1');
     expect(isErr(res)).toBe(true);
+  });
+});
+
+describe('renderReviewPair', () => {
+  const input = { templateId: 't', html: '<p>a</p>', css: '.a{}' };
+  const mk = (before: ReturnType<typeof vi.fn>) => ({
+    renderTemplateBody: vi.fn(async () => ok({ html: '<p>A</p>', css: '.A{}' })),
+    renderVersionHtml: before,
+  });
+
+  it('edit は申請版と baseline の現行版を組にする', async () => {
+    const before = vi.fn(async () => ok({ html: '<p>B</p>', css: '.B{}' }));
+    const svc = mk(before);
+    const res = await renderReviewPair(svc, { ...input, origin: 'edit' });
+    expect(res).toEqual(
+      ok({
+        before: { html: '<p>B</p>', css: '.B{}' },
+        after: { html: '<p>A</p>', css: '.A{}' },
+      }),
+    );
+    expect(before).toHaveBeenCalledWith('baseline:t');
+  });
+
+  it('create は現行版を取りに行かず、空の before(css は申請版)にする', async () => {
+    const before = vi.fn();
+    const res = await renderReviewPair(mk(before), { ...input, origin: 'create' });
+    expect(before).not.toHaveBeenCalled();
+    expect(res).toEqual(
+      ok({ before: { html: '', css: '.A{}' }, after: { html: '<p>A</p>', css: '.A{}' } }),
+    );
+  });
+
+  it('現行版の取得失敗は空の before で続行し、申請版の失敗は err を返す', async () => {
+    const failing = vi.fn(async () => err(notFound('x')));
+    const res = await renderReviewPair(mk(failing), { ...input, origin: 'edit' });
+    expect(res).toEqual(
+      ok({ before: { html: '', css: '.A{}' }, after: { html: '<p>A</p>', css: '.A{}' } }),
+    );
+    const bad = {
+      renderTemplateBody: vi.fn(async () => err(notFound('y'))),
+      renderVersionHtml: failing,
+    };
+    expect(isErr(await renderReviewPair(bad, { ...input, origin: 'edit' }))).toBe(true);
   });
 });

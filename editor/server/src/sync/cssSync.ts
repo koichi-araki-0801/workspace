@@ -1,0 +1,154 @@
+// =============================================================================
+// cssSync.ts — ペア同期の CSS 転写(純関数)。転写の結果と競合の持ち越しを決める
+// =============================================================================
+// 規則の分割と転写は `@editor/shared` の `foldedCssRuleTexts` / `mergeCssRuleChangesFromBaseline` が
+// 正典で、ここは「承認 1 回ぶんの転写結果」と「同期状態ファイルへ残す競合」を組み立てるだけを持つ。
+// I/O は `pairSyncService.ts`。
+
+import {
+  canonicalCssRuleKeys,
+  foldedCssRuleTexts,
+  isValidAnyTemplateId,
+  mergeCssRuleChangesFromBaseline,
+  parseAnyTemplateFileName,
+  sameCssRule,
+  templatePairKey,
+} from '@editor/shared';
+
+/**
+ * CSS の競合の記録先のペアキー。CSS はテンプレ単位で基準日をまたいで共有するので、値入り HTML の
+ * 承認でもテンプレのペアキー(`会社_ファンド`)の状態ファイルに記録する。基準日ごとに分けると、
+ * 同じ CSS の競合がある基準日の画面にしか出ず、他の基準日の承認では持ち越しも解消もされない。
+ */
+export function cssSyncPairKey(templateId: string): string | null {
+  if (!isValidAnyTemplateId(templateId)) return null;
+  const a = parseAnyTemplateFileName(`${templateId}.html`);
+  if (!a) return null;
+  return templatePairKey({
+    companyCode: a.companyCode,
+    fundCode: a.fundCode,
+    editionType: a.editionType,
+  });
+}
+
+/** CSS 規則 1 つの未解決の競合(ペア側が版種固有に直してあり、転写を止めた規則)。 */
+export interface CssRuleConflict {
+  ruleKey: string;
+  detectedAt: string;
+  /** 規則を相手側の規則と照合できず転写を止めたとき `照合不可`。 */
+  kind?: '照合不可';
+  /** 変更を持っていた側(転写元)の版種。 */
+  sourceEdition?: string;
+}
+
+interface CssSyncInput {
+  /** 承認の直前の source の CSS(ファイルの原文)。ペア側の規則が手つかずかの照合に使う。 */
+  base: string;
+  /**
+   * 確定版の CSS を編集画面が読み込んだ直後の形(`next` と同じ書き出し)。変わった規則は
+   * これと `next` の差で見る — 原文と `next` を直に比べると、GrapesJS の書き直し(一括指定の
+   * 展開・色の正規化・url の引用符)まで変更に見える。
+   */
+  baseline: string;
+  /** 承認の直後の source の CSS。 */
+  next: string;
+  /** ペア側の今の CSS。 */
+  target: string;
+  /** 状態ファイルに残っていた未解決の競合。 */
+  prev: readonly CssRuleConflict[];
+  now: string;
+  /** 承認した側(転写元)の版種。照合不可の競合に記録し、次の承認の向きを見分けるのに使う。 */
+  sourceEdition: string;
+}
+
+interface CssSyncResult {
+  /** 承認で CSS が変わったか(`baseline !== next`)。 */
+  ran: boolean;
+  /** ペアへ書く CSS。書く必要が無ければ null。 */
+  css: string | null;
+  /** 写した規則のキー。 */
+  applied: string[];
+  /** この承認で競合として飛ばした規則のキー。 */
+  skipped: string[];
+  /** 状態ファイルへ残す未解決の競合(過去分の持ち越し込み)。 */
+  conflicts: CssRuleConflict[];
+  conflictsChanged: boolean;
+}
+
+/**
+ * 状態ファイルの競合のキーを今の正規化へ読み替える。今のキーとして両版のどちらかにあるキーは
+ * そのまま使う — 読み替えは冪等でない形(大文字の at-keyword の文など)を変えてしまい、どちらの
+ * 版にも無いキーになって「両版に無い = 解消」で黙って消えるため。1 件が並びの分割で複数になれば
+ * 各件が元の `detectedAt` を引き継ぎ、同じキーが重なれば検出の早い方を残す。
+ */
+function canonicalConflicts(
+  prev: readonly CssRuleConflict[],
+  current: (key: string) => boolean,
+): CssRuleConflict[] {
+  const byKey = new Map<string, CssRuleConflict>();
+  for (const c of prev) {
+    const keys = current(c.ruleKey) ? [c.ruleKey] : canonicalCssRuleKeys(c.ruleKey);
+    for (const ruleKey of keys) {
+      const seen = byKey.get(ruleKey);
+      if (seen === undefined || c.detectedAt < seen.detectedAt)
+        byKey.set(ruleKey, { ...c, ruleKey });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** 書式の違い(`sameCssRule` の正規化)を除いて同じ規則か。両方に無ければ同じ、片方だけに無ければ違う。 */
+function sameRuleAt(a: string | undefined, b: string | undefined): boolean {
+  return a === undefined || b === undefined ? a === b : sameCssRule(a, b);
+}
+
+export function computeCssSync(input: CssSyncInput): CssSyncResult {
+  const ran = input.baseline !== input.next;
+  const merge = ran
+    ? mergeCssRuleChangesFromBaseline(input.base, input.baseline, input.next, input.target)
+    : null;
+  const css = merge !== null && merge.css !== input.target ? merge.css : null;
+
+  // 競合が解けたか(両版の規則が一致したか、両方から消えたか)は転写後の姿で判定する。
+  // 解消の操作(専用 API)は持たず、本文の競合と同じく「次の承認で一致していれば消える」。
+  // 比べるのは next(編集画面の書き出し = GrapesJS の形)とペア側のファイルなので、ペア側が
+  // 外部ツールの原文のままだと、意味が同じでも一致しない。消えるのは両版とも編集画面の書き出しの
+  // 形になったとき — つまりペア側も編集画面を通して承認された後(書式の差は `sameCssRule` が吸収)。
+  // キーは転写と同じ形(重複を畳んだもの)で引く。
+  const source = foldedCssRuleTexts(input.next);
+  const after = foldedCssRuleTexts(css ?? input.target);
+  const unresolved = (key: string): boolean => !sameRuleAt(source.get(key), after.get(key));
+
+  const prev = canonicalConflicts(input.prev, (key) => source.has(key) || after.has(key));
+
+  // 照合不可(ペア側の原文をそのキーで引けない)は、同じ向きの承認ではペア側が原文の形のまま
+  // なので、ペア側にキーが無い間は一致を判定できず残す。ペア側がキーを持つようになった(編集画面を
+  // 通って書き出し形になった)か、逆向きの承認(両版とも書き出し形)なら、普通の判定で決める。
+  const pending = (c: CssRuleConflict): boolean =>
+    c.kind === '照合不可' && c.sourceEdition === input.sourceEdition && !after.has(c.ruleKey);
+  const kept = prev.filter((c) => pending(c) || unresolved(c.ruleKey));
+  const keptKeys = new Set(kept.map((c) => c.ruleKey));
+  const fresh: CssRuleConflict[] = (merge?.conflicts ?? [])
+    .filter((key) => unresolved(key) && !keptKeys.has(key))
+    .map((ruleKey) => ({ ruleKey, detectedAt: input.now }));
+  // 照合不可は転写しなかった事実そのものが競合なので、`unresolved` を通さずに記録する
+  // (削除の照合不可は両版に無いので、通すと記録されないまま消えたはずの規則がペア側に残る)。
+  const unmatched: CssRuleConflict[] = (merge?.unmatched ?? [])
+    .filter((key) => !keptKeys.has(key) && !fresh.some((c) => c.ruleKey === key))
+    .map((ruleKey) => ({
+      ruleKey,
+      detectedAt: input.now,
+      kind: '照合不可',
+      sourceEdition: input.sourceEdition,
+    }));
+  const conflicts = [...kept, ...fresh, ...unmatched];
+
+  return {
+    ran,
+    css,
+    applied: merge?.applied ?? [],
+    skipped: [...(merge?.conflicts ?? []), ...(merge?.unmatched ?? [])],
+    conflicts,
+    conflictsChanged: JSON.stringify(conflicts) !== JSON.stringify(input.prev),
+  };
+}

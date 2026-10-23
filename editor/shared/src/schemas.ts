@@ -77,12 +77,14 @@ export const TemplateId = z
  */
 export const TemplateAttributes = z
   .object({
-    companyCode: z.string().meta({ description: '委託会社コード' }),
+    companyCode: z
+      .string()
+      .meta({ description: '委託会社(ファイル名の会社コード = Rep1 の委託会社略称)' }),
     fundCode: z.string().meta({ description: 'ファンドコード' }),
     baseDate: z.string().optional().meta({
       description:
-        '基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
-      example: '20240710',
+        '基準日(yyyymmdd または yyyy-mm-dd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
+      example: '2024-05-17',
     }),
     editionType: z.string().meta({ description: '版種' }),
   })
@@ -103,12 +105,22 @@ export const Template = z
   .object({
     meta: TemplateMeta,
     html: z.string().meta({ description: 'Jinja2 生 HTML(タグ保持)' }),
-    css: z.string().meta({ description: 'fundCode ごとの共有 CSS' }),
+    css: z.string().meta({
+      description: 'テンプレ単位の CSS(css/<会社>_<ファンド>_<版種>.css。基準日違いの文書で共有)',
+    }),
     filled: z.string().meta({
       description:
         'エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。' +
         '静的な fill が無ければ空で、エディタは都度描画にフォールバックする',
     }),
+    cssMissing: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。' +
+          'あれば付けない。生成直後(pending)は pending の CSS ファイルが無いとき true',
+      }),
   })
   .meta({ id: 'Template' });
 
@@ -128,6 +140,22 @@ export const TemplateDraft = z
 export const SampleData = z
   .record(z.string(), z.unknown())
   .meta({ id: 'SampleData', description: 'プレビュー用サンプルデータ(任意の JSON)' });
+
+export const SampleDataResult = z
+  .object({
+    sample: SampleData,
+    warnings: z.array(z.string()).meta({
+      description: '共通サンプルの合成で見つかった問題(キーの重複・壊れた行)。無ければ空',
+    }),
+  })
+  .meta({ id: 'SampleDataResult' });
+
+export const TemplateValues = z
+  .object({
+    found: z.boolean().meta({ description: '値ファイル(json)があったか。無ければ false' }),
+    values: SampleData.meta({ description: '値ファイルの中身。found が false なら空' }),
+  })
+  .meta({ id: 'TemplateValues' });
 
 // ── 3. Users / auth — ユーザと認証 ──
 
@@ -278,6 +306,9 @@ export const CreateHistoryEntry = z
       .string()
       .optional()
       .meta({ description: 'シリーズから作成したときのコピー元ファンドコード' }),
+    requestedFundCode: z.string().optional().meta({
+      description: '組入先として取り込んだときの、作成画面で選んだファンドのコード',
+    }),
   })
   .meta({ id: 'CreateHistoryEntry' });
 
@@ -288,7 +319,7 @@ export const PartHistoryEntry = z
     templateId: z.string(),
     partKey: z.string().meta({
       description:
-        '版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネント' +
+        '版を跨いで安定なパーツ構造キー(文書全体でのアンカー#通し番号)。GrapesJS のコンポーネント' +
         'id は再採番され不安定なため構造キーで紐づける',
     }),
     user: z.string(),
@@ -312,8 +343,15 @@ export const RecordPdfExportRequest = z
 /** (server 専用) パーツ変更の記録ボディ。`templateId` はパスから取る。 */
 export const RecordPartChangeRequest = z
   .object({
-    partKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    partKey: z
+      .string()
+      .min(1)
+      .meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     change: z.string(),
+    id: z
+      .uuid()
+      .optional()
+      .meta({ description: '履歴 1 件の id(web が採番。重複表示の除去に使う)' }),
   })
   .meta({ id: 'RecordPartChangeRequest' });
 
@@ -376,7 +414,6 @@ export const ReviewRequestMeta = z
     id: z.string(),
     templateId: z.string(),
     attributes: TemplateAttributes,
-    fundCode: z.string(),
     origin: ReviewOrigin,
     status: ReviewStatus,
     submittedBy: z.string(),
@@ -406,8 +443,11 @@ export const SubmitReviewBody = z
     templateId: TemplateId,
     html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
-    fundCode: z.string().min(1),
     filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
+    cssBaseline: z.string().max(MAX_DOCUMENT_CSS_CHARS).optional().meta({
+      description:
+        '確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす',
+    }),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
     }),
@@ -446,6 +486,23 @@ export const PairSyncSummary = z
     skipped: z
       .array(z.object({ partKey: z.string(), reason: z.string() }))
       .meta({ description: '転写しなかったパーツと理由(競合・初期差分・未判断など)' }),
+    // 保存済みの承認結果(この欄が無い)も読めるよう既定を空にする。
+    valueWarnings: z
+      .array(z.object({ partKey: z.string(), reason: z.string() }))
+      .default([])
+      .meta({
+        description:
+          '写したが値を確かめてほしいパーツと理由(写し元の値のまま写した・写し先の値が欠けた)',
+      }),
+    css: z
+      .object({
+        applied: z.array(z.string()).meta({ description: 'ペアの CSS へ写した規則のキー' }),
+        conflicts: z
+          .array(z.string())
+          .meta({ description: 'ペア側が承認前と違うため写さなかった規則のキー' }),
+      })
+      .nullable()
+      .meta({ description: 'CSS の転写結果。承認で CSS が変わらなかったときは null' }),
     error: z.string().nullable().meta({ description: '同期処理自体の失敗理由。正常時は null' }),
   })
   .meta({ id: 'PairSyncSummary' });
@@ -463,10 +520,19 @@ export const NoteMasterReflectSummary = z
 
 /**
  * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
- * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」か
+ * 停止して人間の判断を待っているパーツと CSS 規則。競合の解消は「両版の内容を一致させる」か
  * 「先行変更した側を承認して逆方向の転写を走らせる」ことで次回承認時に自動で消える
  * (専用の解消 API は持たない)。
  */
+/** ペア同期でパーツ 1 件に記録する競合の種類。状態ファイルの検査と API 応答で共有する。 */
+export const PAIR_PART_CONFLICT_KINDS = [
+  '初期差分',
+  '両側変更',
+  'ペア側先行',
+  'ペア側削除',
+  'ペア側削除・ソース変更',
+] as const;
+
 export const PairSyncStatus = z
   .object({
     pairTemplateId: z
@@ -478,11 +544,49 @@ export const PairSyncStatus = z
       .array(
         z.object({
           partKey: z.string(),
-          kind: z.enum(['初期差分', '両側変更', 'ペア側先行']),
+          kind: z.enum(PAIR_PART_CONFLICT_KINDS),
           detectedAt: z.string(),
+          deletedIn: z
+            .string()
+            .optional()
+            .meta({ description: 'ペア側削除系の競合で、パーツを消した側の版種(交付版 / 全体版)' }),
         }),
       )
       .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
+    valueChecks: z
+      .array(
+        z.object({
+          partKey: z.string(),
+          reasons: z
+            .array(z.string())
+            .meta({ description: '値を確かめてほしい理由(利用者向けの文)' }),
+          detectedAt: z.string(),
+        }),
+      )
+      .meta({
+        description:
+          'ペアから写したパーツのうち、この版で値を確かめてほしいもの(写し元の値のまま写した・' +
+          '値が欠けて空欄で写した)。そのパーツが次に描き直されるか、この版で直して承認されると消える',
+      }),
+    cssConflicts: z
+      .array(
+        z.object({
+          ruleKey: z.string(),
+          detectedAt: z.string(),
+          kind: z
+            .enum(['照合不可'])
+            .optional()
+            .meta({ description: '規則を相手側の規則と照合できず転写を止めたときの種類' }),
+          sourceEdition: z
+            .string()
+            .optional()
+            .meta({ description: '変更を持っていた側(転写元)の版種' }),
+        }),
+      )
+      .meta({
+        description:
+          '未解決の CSS 規則の競合(ペア側が版種固有に直してある、または照合できず転写を止めた規則)',
+      }),
   })
   .meta({ id: 'PairSyncStatus' });
 
@@ -490,9 +594,10 @@ export const PairSyncStatus = z
 export const ApproveReviewResult = z
   .object({
     meta: TemplateMeta,
-    staleWarning: z
-      .boolean()
-      .meta({ description: '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)' }),
+    staleWarning: z.boolean().meta({
+      description:
+        '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意。CSS は基準日をまたいで共有されるため、他の基準日の承認による変更も含む)',
+    }),
     sync: PairSyncSummary.nullable()
       .optional()
       .meta({ description: 'ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落' }),
@@ -592,6 +697,14 @@ export const PartCatalogItem = z
     masterReflectDefault: PartMasterReflectDefault.nullable()
       .optional()
       .meta({ description: '注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)' }),
+    targetEdition: z.string().nullable().optional().meta({
+      description:
+        '対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める',
+    }),
+    companyCode: z.string().nullable().optional().meta({
+      description:
+        '対象の委託会社コード(Rep1 と同じ値)。null/欠落 = 未設定。一覧の絞り込みだけに使い、全社共通の意味は持たない',
+    }),
   })
   .meta({ id: 'PartCatalogItem' });
 
@@ -601,6 +714,15 @@ export const PartClassificationQuery = z.object({
   majorClass: z.string().optional(),
   middleClass: z.string().optional(),
   minorClass: z.string().optional(),
+  editionType: z
+    .string()
+    .optional()
+    .meta({ description: 'テンプレートの版種。指定時は対象版種が空か一致するパーツだけ' }),
+  companyCode: z
+    .string()
+    .max(32)
+    .optional()
+    .meta({ description: '委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)' }),
 });
 
 /** コメントの状態。返信は親と同じ値を持ち、切り替えは親投稿にだけ許す。 */
@@ -615,7 +737,7 @@ export const PartNoteEntry = z
   .object({
     id: z.string().meta({ description: '投稿 ID(UUID)' }),
     templateId: z.string().meta({ description: '投稿が属する版インスタンス ID' }),
-    pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    pathKey: z.string().meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     content: z.string().meta({ description: '投稿本文' }),
     createdAt: z.string(),
     createdBy: z.string(),
@@ -639,7 +761,7 @@ export const AddNoteRequest = z
       .string()
       .min(1)
       .max(MAX_NOTE_PATH_KEY_CHARS)
-      .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+      .meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
     replyTo: z
       .string()
@@ -689,7 +811,8 @@ export const FundOption = z
 export const SeriesFundOption = FundOption.extend({
   hasTemplate: z.boolean().meta({
     description:
-      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか',
+      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)が交付版・' +
+      '全体版の両方にあるか(生成は両版をコピーするので、片方だけでは選べない)',
   }),
 }).meta({ id: 'SeriesFundOption' });
 
@@ -726,12 +849,22 @@ export const CreatableQuery = z.object({
   editionType: z.string().min(1),
 });
 
-/** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
+/**
+ * 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。1 回の作成で、選んだファンドの
+ * 交付版・全体版と組入先を取り込む。
+ */
 export const GenerateRequest = z
   .object({
-    companyCode: z.string().min(1),
+    companyCode: z.string().min(1).meta({ description: '会社(Rep1 の委託会社略称)' }),
+    rep1CompanyCode: z.string().min(1).max(32).meta({
+      description:
+        'Rep1 の委託会社コード。サーバは companyCode と同じ会社の組であることを Rep1 で確かめてから生成器へ渡す',
+    }),
     fundCode: z.string().min(1),
-    editionType: z.string().min(1),
+    editionType: z
+      .string()
+      .min(1)
+      .meta({ description: '作成後に開く版(交付版・全体版のどちらか)。生成は両版とも行う' }),
     sourceFundCode: z.string().optional().meta({
       description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)',
     }),
@@ -739,14 +872,46 @@ export const GenerateRequest = z
       .boolean()
       .optional()
       .meta({ description: '償還ファンドとして作成(生成器へパラメータとして渡す)' }),
-    replaceExisting: z.boolean().optional().meta({
-      description:
-        '同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409',
-    }),
+    baseDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .meta({
+        description: '生成器へ渡す基準日(YYYY-MM-DD)。空なら最新基準日。今日(日本時間)より後は不可',
+      }),
+    replaceExisting: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '選んだファンドの両版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。' +
+          '組入先には効かない',
+      }),
   })
   .meta({ id: 'GenerateRequest' });
 
-export const GenerateResult = z.object({ template: Template }).meta({ id: 'GenerateResult' });
+/** 生成器が書いたが取り込まなかった組入先の 1 版。別のファンドから作られた作業を消さないため。 */
+export const GenerateSkipped = z
+  .object({
+    templateId: z.string(),
+    reason: z.enum(['created', 'pendingReview', 'inProgress']).meta({
+      description:
+        'created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある / ' +
+        'inProgress: 下書きか pending/ がある',
+    }),
+  })
+  .meta({ id: 'GenerateSkipped' });
+
+/** 生成の結果。`template` は作成後に開く版(`GenerateRequest.editionType`)。 */
+export const GenerateResult = z
+  .object({
+    template: Template,
+    importedIds: z.array(z.string()).meta({
+      description: '取り込んだテンプレートの id(選んだファンドの交付版・全体版、組入先の順)',
+    }),
+    skipped: z.array(GenerateSkipped).meta({ description: '取り込まなかった組入先' }),
+  })
+  .meta({ id: 'GenerateResult' });
 
 export const SaveDraftRequest = z
   .object({
@@ -769,7 +934,10 @@ export const BuildInlineRequest = z
       .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
-    singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
+    singleDoc: z.boolean().optional().meta({
+      description:
+        '受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)',
+    }),
   })
   .meta({ id: 'BuildInlineRequest' });
 
@@ -799,6 +967,38 @@ export const BuildMergeRequest = z
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
   })
   .meta({ id: 'BuildMergeRequest' });
+
+/** 画像の確認 API が 1 回に受け付ける参照の上限(1 文書の画像は実物で数枚〜十数枚)。 */
+export const MAX_FUND_ASSET_INSPECT_REFS = 50;
+
+/** 画像の参照 1 件。`dir` は会社フォルダ(`images/` 直下なら null)。 */
+export const FundAssetRef = z
+  .object({
+    dir: z.string().max(255).nullable().meta({ description: '会社フォルダ(直下なら null)' }),
+    file: z.string().max(255).meta({ description: 'ファイル名' }),
+  })
+  .meta({ id: 'FundAssetRef' });
+
+/** 画像が配信されるかの確認(配信ルートと同じ判定。ファイルの中身は返さない)。 */
+export const FundAssetInspectRequest = z
+  .object({ refs: z.array(FundAssetRef).max(MAX_FUND_ASSET_INSPECT_REFS) })
+  .meta({ id: 'FundAssetInspectRequest' });
+
+/**
+ * 1 件の判定。`missing` は配信対象外(存在しない・経路が不正・許可外の拡張子)をまとめたもので、
+ * どれに当たったかは返さない — 画像の置き場の外にある名前の有無を確かめる手段にしない。
+ */
+export const FundAssetInspectResult = FundAssetRef.extend({
+  status: z.enum(['ok', 'missing', 'svg_rejected']),
+  violations: z
+    .array(z.string())
+    .optional()
+    .meta({ description: '`svg_rejected` のときだけ。SVG の検査の違反の文言' }),
+}).meta({ id: 'FundAssetInspectResult' });
+
+export const FundAssetInspectResponse = z
+  .object({ results: z.array(FundAssetInspectResult) })
+  .meta({ id: 'FundAssetInspectResponse' });
 
 /** (server 専用) ライブプレビューセッションの公開メタデータ(サーバ内部情報は露出しない)。 */
 export const PreviewSession = z

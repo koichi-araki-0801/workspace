@@ -2,6 +2,7 @@
 // review.test.ts — 承認ワークフローのスキーマ拡張(保留・変更概要)の検証
 // =============================================================================
 import { describe, expect, it } from 'vitest';
+import { duplicateReviewMessage, formatDateTimeYmdHm } from '../src/domain/review.js';
 import { ReviewRequestMeta, ReviewStatus, SubmitReviewBody } from '../src/schemas.js';
 
 const baseMeta = {
@@ -13,7 +14,6 @@ const baseMeta = {
     baseDate: '20240710',
     editionType: '交付版',
   },
-  fundCode: '510037',
   origin: 'edit',
   status: 'pending',
   submittedBy: 'editor1',
@@ -53,12 +53,25 @@ describe('SubmitReviewBody', () => {
       templateId: 'AM01_510037_20240710_交付版',
       html: '<p>x</p>',
       css: '',
-      fundCode: '510037',
       origin: 'edit',
     };
     expect(SubmitReviewBody.parse(body).changedSummary).toBeUndefined();
     expect(() =>
       SubmitReviewBody.parse({ ...body, changedSummary: { count: -1, names: [] } }),
     ).toThrow();
+  });
+});
+
+describe('formatDateTimeYmdHm / duplicateReviewMessage', () => {
+  it('現地時刻のゼロ埋め YYYY/MM/DD HH:mm にする', () => {
+    const d = new Date(2026, 0, 2, 3, 4);
+    expect(formatDateTimeYmdHm(d.toISOString())).toBe('2026/01/02 03:04');
+  });
+
+  it('重複申請の文言は申請日時と「作りませんでした」を含む', () => {
+    const d = new Date(2026, 11, 31, 23, 59);
+    expect(duplicateReviewMessage(d.toISOString())).toBe(
+      '同じ内容の確定保存申請が既に承認待ちです（2026/12/31 23:59に申請）。新しい申請は作りませんでした。',
+    );
   });
 });

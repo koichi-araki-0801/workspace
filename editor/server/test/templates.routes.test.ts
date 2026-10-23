@@ -35,6 +35,7 @@ process.env.DATA_ROOT = path.join(root, 'data');
 process.env.GIT_REPO_DIR = path.join(root, 'data');
 process.env.TEMPLATES_DIR = path.join(root, 'data', 'templates');
 process.env.FILLED_DIR = path.join(root, 'data', 'filled');
+process.env.JSON_DIR = path.join(root, 'data', 'json');
 process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.DRAFTS_DIR = path.join(root, 'data', 'drafts');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
@@ -101,7 +102,7 @@ describe('templates.routes', () => {
       '<html><body><p>{{ fund.name }}</p></body></html>',
       'utf8',
     );
-    fs.writeFileSync(path.join(root, 'data', 'css', '510037.css'), 'body{}', 'utf8');
+    fs.writeFileSync(path.join(root, 'data', 'css', 'AM01_510037_交付版.css'), 'body{}', 'utf8');
     app = await buildApp();
   });
   afterAll(async () => {
@@ -273,7 +274,7 @@ describe('templates.routes', () => {
     expect(none.json()).toEqual([]);
   });
 
-  it('GET /templates/:id と /funds/:fundCode/sample-data', async () => {
+  it('GET /templates/:id と /templates/:id/sample-data', async () => {
     const t = await app.inject({
       method: 'GET',
       url: `/templates/${encodeURIComponent(ID)}`,
@@ -291,13 +292,55 @@ describe('templates.routes', () => {
         })
       ).statusCode,
     ).toBe(404);
-    const s = await app.inject({
+    // 3 区切り・4 区切りのどちらの ID でも、共通サンプルに Rep1 の実名が被さる。
+    for (const id of ['AM01_110024_20251117_交付版', 'AM01_110024_交付版']) {
+      const s = await app.inject({
+        method: 'GET',
+        url: `/templates/${encodeURIComponent(id)}/sample-data`,
+        headers: as('editor'),
+      });
+      expect(s.statusCode).toBe(200);
+      expect(s.json().sample.fund).toMatchObject({
+        code: '110024',
+        name: '高金利ソブリンオープン',
+      });
+      expect(s.json().warnings).toEqual([]);
+    }
+  });
+
+  it('GET /templates/:id/values: 200 / 無ければ found false / 3 区切りと不正な ID は 400 / 未ログインは 401', async () => {
+    fs.mkdirSync(process.env.JSON_DIR as string, { recursive: true });
+    fs.writeFileSync(
+      path.join(process.env.JSON_DIR as string, `${ID}.json`),
+      JSON.stringify({ fund: { code: '510037' } }),
+      'utf8',
+    );
+    const get = (id: string, headers?: Record<string, string>) =>
+      app.inject({ method: 'GET', url: `/templates/${encodeURIComponent(id)}/values`, headers });
+    const ok = await get(ID, as('editor'));
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ found: true, values: { fund: { code: '510037' } } });
+    const none = await get('AM01_999999_20240710_交付版', as('editor'));
+    expect(none.statusCode).toBe(200);
+    expect(none.json()).toEqual({ found: false, values: {} });
+    expect((await get('AM01_510037_交付版', as('editor'))).statusCode).toBe(400);
+    expect((await get('AM01_..', as('editor'))).statusCode).toBe(400);
+    expect((await get(ID)).statusCode).toBe(401);
+  });
+
+  it('GET /templates/:id/sample-data: 不正な ID は 400、旧 /funds/:fundCode/sample-data は 404', async () => {
+    const bad = await app.inject({
+      method: 'GET',
+      url: `/templates/${encodeURIComponent('AM01_..')}/sample-data`,
+      headers: as('editor'),
+    });
+    expect(bad.statusCode).toBe(400);
+    const old = await app.inject({
       method: 'GET',
       url: '/funds/110024/sample-data',
       headers: as('editor'),
     });
-    expect(s.statusCode).toBe(200);
-    expect(s.json().fund.name).toBe('高金利ソブリンオープン');
+    expect(old.statusCode).toBe(404);
   });
 
   it('PUT /templates/:id/draft: body の templateId が URL と違えば 400、一致すれば 204 で drafts に書く。GET は保存内容、DELETE は 204 で消す', async () => {
@@ -362,6 +405,8 @@ describe('templates.routes', () => {
       pairTemplateId: 'AM01_510037_全体版',
       pairExists: false,
       conflicts: [],
+      valueChecks: [],
+      cssConflicts: [],
     });
   });
 });

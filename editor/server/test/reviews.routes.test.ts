@@ -89,7 +89,6 @@ d('review workflow (HTTP routes)', () => {
         templateId,
         html,
         css: '.x{}',
-        fundCode: templateId.split('_')[1],
         origin: 'edit',
       },
     });
@@ -118,7 +117,7 @@ d('review workflow (HTTP routes)', () => {
       method: 'POST',
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
-      payload: { html: '<p>x</p>', css: '', fundCode: '611111', origin: 'edit' },
+      payload: { html: '<p>x</p>', css: '', origin: 'edit' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -136,7 +135,7 @@ d('review workflow (HTTP routes)', () => {
       method: 'POST',
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
-      payload: { templateId, html: '<p>x</p>', css: '', fundCode: '611111', origin: 'edit' },
+      payload: { templateId, html: '<p>x</p>', css: '', origin: 'edit' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -233,6 +232,38 @@ d('review workflow (HTTP routes)', () => {
       headers: asUser('approver1', 'approver'),
     });
     expect(approver.statusCode).toBe(200);
+  });
+
+  it('GET /review-requests/:reqId は cssBaseline を返さない(承認画面は使わない。保存はする)', async () => {
+    fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+    const templateId = 'AM01_678888_20250101_交付版';
+    fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+    const sub = await app.inject({
+      method: 'POST',
+      url: '/review-requests',
+      headers: asUser('editor1', 'editor'),
+      payload: { templateId, html: '<p>x</p>', css: '.x{}', cssBaseline: '.x{}', origin: 'edit' },
+    });
+    expect(sub.statusCode).toBe(200);
+    const reqId = sub.json().id;
+    expect(fs.readFileSync(path.join(tmp, 'reviews', reqId, 'baseline.css'), 'utf8')).toBe('.x{}');
+    const got = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(got.statusCode).toBe(200);
+    expect(got.json()).not.toHaveProperty('cssBaseline');
+    expect(got.json().css).toBe('.x{}');
+  });
+
+  it('POST: 同じ人の同じ内容の 2 回目は 409 で、body.code は REVIEW_DUPLICATE', async () => {
+    const tplId = 'AM01_633333_20250101_交付版';
+    const first = await submit(asUser('editor1', 'editor'), tplId, '<p>重複 HTTP</p>');
+    expect(first.statusCode).toBe(200);
+    const second = await submit(asUser('editor1', 'editor'), tplId, '<p>重複 HTTP</p>');
+    expect(second.statusCode).toBe(409);
+    expect(second.json().code).toBe('REVIEW_DUPLICATE');
   });
 
   it('POST approve: 決定済みの申請は 409', async () => {
@@ -350,10 +381,9 @@ d('review workflow (HTTP routes)', () => {
     expect(res.statusCode).toBe(404);
   });
 
-  // `review.submit` 監査イベントの failure 分岐。`submitReview` は帰属検査
-  // (`attrs.fundCode !== req.fundCode`)を承認側(`applyConfirmedWrite`)と同条件で申請の入口にも
-  // 掛けており、通してしまうと精査者のキューに「承認できない申請」が積まれる。
-  it('templateId とファンドが食い違う申請は 400 で、監査の failure 経路を通る', async () => {
+  // `review.submit` 監査イベントの failure 分岐。作成タブの申請に値入り HTML の id(4 つ区切り)を
+  // 渡すと入口で 400 になる。
+  it('経路と id の形が合わない申請は 400 で、監査の failure 経路を通る', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/review-requests',
@@ -362,8 +392,7 @@ d('review workflow (HTTP routes)', () => {
         templateId: 'AM01_611111_20250101_交付版',
         html: '<p>x</p>',
         css: '',
-        fundCode: '999999',
-        origin: 'edit',
+        origin: 'create',
       },
     });
     expect(res.statusCode).toBe(400);

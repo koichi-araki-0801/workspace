@@ -2,8 +2,8 @@
 // sea_packaging.test.ts — 配布 exe が「外部に何も見に行かない」ことの実機検査
 // -----------------------------------------------------------------------------
 // 既定では **skip**(exe ビルドを伴い数分かかるため)。有効化は次の 2 手順:
-//   1. node scripts/build-exe.mjs --allow-unsigned   # dist-exe/pie-chart.exe を作る
-//   2. PIECHART_SEA_TEST=1 npx vitest run test/sea_packaging.test.ts
+//   1. node scripts/build-exe.mjs   # dist-exe/pie-chart.exe を作る
+//   2. PIECHART_SEA_TEST=1 pnpm exec vitest run test/sea_packaging.test.ts
 //
 // 主張するのは **迂回入力で失敗しないこと** ではなく、迂回入力が**何の影響も与えない**こと。
 // 具体的には、exe の隣・1 つ上・2 つ上に偽 `node_modules/subset-font` と偽 `fonts/` を置いて
@@ -12,7 +12,7 @@
 // 落ちて出力が肥大する)= 退行検出器として正しく機能する。
 // =============================================================================
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   cpSync,
@@ -62,14 +62,8 @@ describe.skipIf(!enabled)('配布 exe の閉包(PIECHART_SEA_TEST=1 のときだ
     if (work) rmSync(work, { recursive: true, force: true });
   });
 
-  it('配布物は exe と .cer と OFL と SIGNING-INFO だけ(sidecar が無い)', () => {
-    const allowed = new Set([
-      'pie-chart.exe',
-      'pie-chart',
-      'pie-chart-codesign.cer',
-      'OFL-BIZUDPGothic.txt',
-      'SIGNING-INFO.txt',
-    ]);
+  it('未署名の配布物は exe と OFL の 2 点だけ(sidecar が無い)', () => {
+    const allowed = new Set(['pie-chart.exe', 'pie-chart', 'OFL-BIZUDPGothic.txt']);
     const entries = readdirRecursive(join(root, 'dist-exe'));
     const unexpected = entries.filter((e) => e.isDir || !allowed.has(e.name));
     expect(unexpected.map((e) => e.path)).toEqual([]);
@@ -134,23 +128,51 @@ describe.skipIf(!enabled)('配布 exe の閉包(PIECHART_SEA_TEST=1 のときだ
     expect(sha256(out)).toBe(sha256(join(work, 'dev.svg')));
   });
 
-  it('exe 版の DB 入力は非対応として非ゼロ終了する', () => {
-    const solo = join(work, 'solo');
-    let failed = false;
-    let out = '';
-    try {
-      const args = ['one', '--sql', 'SELECT a, b FROM t', '--output-file', join(work, 'sql.svg')];
-      execFileSync(join(solo, 'pie-chart.exe'), args, {
-        cwd: solo,
-        stdio: 'pipe',
-        encoding: 'utf8',
+  const runDirRoot = join(tmpdir(), 'pie-chart-db');
+
+  it('db-check はドライバを読み込めて、実行ごとのフォルダを残さない', () => {
+    const exe = join(work, 'solo', 'pie-chart.exe');
+    const out = execFileSync(exe, ['db-check'], { stdio: 'pipe', encoding: 'utf8' });
+    expect(out).toMatch(/\[db-check\] load: OK/);
+    const runDir = /\[db-check\] extract: OK — (.+)/.exec(out)?.[1]?.trim();
+    expect(runDir).toBeDefined();
+    expect(existsSync(runDir as string)).toBe(false);
+    expect(out).toMatch(/\[db-check\] cleanup: OK/);
+  });
+
+  it('2 つ同時に動かしても、互いのフォルダを消さずに両方成功する', async () => {
+    const exe = join(work, 'solo', 'pie-chart.exe');
+    const run = () =>
+      new Promise<{ code: number | null; out: string }>((done) => {
+        const child = spawn(exe, ['db-check'], { stdio: 'pipe' });
+        let out = '';
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (c: string) => (out += c));
+        child.on('close', (code) => done({ code, out }));
       });
-    } catch (err) {
-      failed = true;
-      out = String((err as { stderr?: string }).stderr ?? '');
+    const [a, b] = await Promise.all([run(), run()]);
+    expect(a.code).toBe(0);
+    expect(b.code).toBe(0);
+    expect(a.out).toMatch(/load: OK/);
+    expect(b.out).toMatch(/load: OK/);
+  });
+
+  it('起動時に、終わったプロセスのフォルダは消し、生きているプロセスのフォルダは残す', () => {
+    mkdirSync(runDirRoot, { recursive: true });
+    // PID 2^30 は使われていない。process.pid(このテストランナー)は生きている。
+    const dead = join(runDirRoot, `${2 ** 30}-zzzzzz`);
+    const alive = join(runDirRoot, `${process.pid}-yyyyyy`);
+    mkdirSync(dead, { recursive: true });
+    mkdirSync(alive, { recursive: true });
+    try {
+      const exe = join(work, 'solo', 'pie-chart.exe');
+      execFileSync(exe, ['list'], { stdio: 'pipe' });
+      expect(existsSync(dead)).toBe(false);
+      expect(existsSync(alive)).toBe(true);
+    } finally {
+      rmSync(dead, { recursive: true, force: true });
+      rmSync(alive, { recursive: true, force: true });
     }
-    expect(failed).toBe(true);
-    expect(out).toMatch(/not available in the packaged executable/);
   });
 });
 

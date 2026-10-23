@@ -59,6 +59,41 @@ describe('履歴 JSONL の上限', () => {
     expect(cur.trim()).toBe(JSON.stringify({ at: 'after-rotate' }));
   });
 
+  it('上限ちょうどで同時に追記しても、繰り上げた世代を消さない(ローテーションは 1 回だけ)', async () => {
+    const h = await importHistory();
+    await fs.mkdir(path.join(tmpRoot, 'history'), { recursive: true });
+    await fs.writeFile(historyFile('pdf'), 'x'.repeat(h.MAX_HISTORY_BYTES), 'utf8');
+    // 競合の窓を確実に開く: 2 本目のサイズ確認は「上限超過」を見た状態のまま、1 本目が
+    // 現行ファイルを `pdf.1.jsonl` へ繰り上げ終えるまで返さない。
+    const realStat = fs.stat.bind(fs);
+    const realRename = fs.rename.bind(fs);
+    let rotated!: () => void;
+    const rotatedOnce = new Promise<void>((r) => {
+      rotated = r;
+    });
+    let statCalls = 0;
+    const statSpy = vi.spyOn(fs, 'stat').mockImplementation(async (p, ...rest) => {
+      const st = await realStat(p, ...(rest as []));
+      if (p === historyFile('pdf') && ++statCalls === 2) await rotatedOnce;
+      return st;
+    });
+    const renameSpy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      await realRename(from, to);
+      if (to === historyFile('pdf', 1)) rotated();
+    });
+    try {
+      await Promise.all([h.appendHistory('pdf', { at: 'a' }), h.appendHistory('pdf', { at: 'b' })]);
+    } finally {
+      rotated();
+      statSpy.mockRestore();
+      renameSpy.mockRestore();
+    }
+    // 直列化しないと 2 本ともローテーションし、後の 1 本が `pdf.1.jsonl`(繰り上げた直後の
+    // 世代)を消して、まだ短い現行ファイルで置き換える。
+    expect((await fs.stat(historyFile('pdf', 1))).size).toBe(h.MAX_HISTORY_BYTES);
+    expect((await h.readHistory<{ at: string }>('pdf')).map((e) => e.at)).toEqual(['b', 'a']);
+  });
+
   it('ローテーションの rename 失敗は追記を止めないが、警告として表に出す', async () => {
     // ログ置き場がネットワーク上のときは他クライアントの共有違反で rename が落ちる。
     // 黙って握りつぶすとローテーションが効かないままファイルが読み窓を超えて太る

@@ -61,7 +61,7 @@ describe('materializeMergeProject', () => {
     const { dir, config: mergeConfig } = await materializeMergeProject(docs, 'A4');
     created.push(dir);
 
-    expect(mergeConfig.entry).toEqual(['doc-000.html', 'doc-001.html']);
+    expect(mergeConfig.entry).toEqual(['doc/doc-000.html', 'doc/doc-001.html']);
     expect(mergeConfig.size).toBe('A4');
     // 実行可能な config をリポジトリから消した(CLI へは `configData` で渡す)。ここが
     // 戻ると「config はオブジェクトでしか CLI へ渡らない」不変則が破れる。
@@ -73,12 +73,12 @@ describe('materializeMergeProject', () => {
       expect(existsSync(path.join(dir, name)), name).toBe(false);
     }
 
-    const doc0 = await fs.readFile(path.join(dir, 'doc-000.html'), 'utf8');
+    const doc0 = await fs.readFile(path.join(dir, 'doc', 'doc-000.html'), 'utf8');
     expect(doc0).toContain('body{margin:0}');
     expect(doc0).toContain('counter(page)');
     expect(doc0).toContain('一');
     // css 無しの文書にも通しページ番号 CSS だけは必ず載る。
-    const doc1 = await fs.readFile(path.join(dir, 'doc-001.html'), 'utf8');
+    const doc1 = await fs.readFile(path.join(dir, 'doc', 'doc-001.html'), 'utf8');
     expect(doc1).toContain(MERGE_PAGE_COUNTER_CSS.slice(0, 20));
   });
 
@@ -88,7 +88,7 @@ describe('materializeMergeProject', () => {
     ];
     const { dir } = await materializeMergeProject(docs);
     created.push(dir);
-    const doc = await fs.readFile(path.join(dir, 'doc-000.html'), 'utf8');
+    const doc = await fs.readFile(path.join(dir, 'doc', 'doc-000.html'), 'utf8');
     expect(doc).not.toContain('counter-reset');
   });
 
@@ -109,7 +109,7 @@ describe('materializeMergeProject', () => {
     // 失敗時に vivlio-merge-* の残骸が tmpDir に残らない。
     const added = (await listMergeDirs()).filter((n) => !before.has(n));
     for (const n of added) {
-      expect(existsSync(path.join(config.tmpDir, n, 'doc-000.html'))).toBe(false);
+      expect(existsSync(path.join(config.tmpDir, n, 'doc', 'doc-000.html'))).toBe(false);
     }
   });
 });

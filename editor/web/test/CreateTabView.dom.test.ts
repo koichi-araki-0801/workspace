@@ -10,21 +10,26 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPOS_KEY } from '@/api/repositories';
 import CreateTabView from '@/features/templates/CreateTabView.vue';
+import CreateFundSelect from '@/features/templates/components/CreateFundSelect.vue';
 
-const { routeQuery, router, confirmMock } = vi.hoisted(() => {
+const { routeQuery, router, confirmMock, toastMock } = vi.hoisted(() => {
   const routeQuery: Record<string, unknown> = {};
   const router = {
     currentRoute: { value: { query: {} as Record<string, unknown> } },
     replace: vi.fn(() => Promise.resolve()),
     push: vi.fn(() => Promise.resolve()),
   };
-  return { routeQuery, router, confirmMock: vi.fn(async () => true) };
+  return { routeQuery, router, confirmMock: vi.fn(async () => true), toastMock: vi.fn() };
 });
 vi.mock('vue-router', () => ({
   useRoute: () => ({ query: routeQuery }),
   useRouter: () => router,
 }));
-vi.mock('@/components/ui/toast', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
+vi.mock('@/components/ui/toast', () => ({
+  toast: toastMock,
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+}));
 vi.mock('@/components/ui/confirm', () => ({ confirm: confirmMock }));
 
 const COMPANIES: CompanyOption[] = [
@@ -55,6 +60,8 @@ function mountWith(info: CreatableInfo) {
           css: '',
           filled: '',
         },
+        importedIds: [ID],
+        skipped: [],
       }),
     ),
   };
@@ -77,6 +84,7 @@ beforeEach(() => {
   for (const k of Object.keys(routeQuery)) delete routeQuery[k];
   router.push.mockClear();
   confirmMock.mockReset();
+  toastMock.mockClear();
   confirmMock.mockResolvedValue(true);
   localStorage.clear();
   setActivePinia(createPinia());
@@ -139,6 +147,116 @@ describe('CreateTabView', () => {
     });
   });
 
+  it('作り直しの確認文は交付版・全体版の両方を捨てることを伝える', async () => {
+    const { w } = mountWith({ created: false, inProgressId: ID, seriesFunds: [] });
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description:
+          '交付版・全体版の両方について、作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。',
+      }),
+    );
+  });
+
+  it('生成の要求に Rep1 の会社コードを載せる', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(templates.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ rep1CompanyCode: 'R-AM01' }),
+    );
+  });
+
+  it('基準日は空欄が既定で、空のままなら要求に baseDate を載せない', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    const input = w.find('input[type="date"]');
+    expect(input.exists()).toBe(true);
+    expect((input.element as HTMLInputElement).value).toBe('');
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(templates.generate).toHaveBeenCalledWith(expect.not.objectContaining({ baseDate: '' }));
+    expect(templates.generate.mock.calls[0][0]).not.toHaveProperty('baseDate');
+  });
+
+  it('基準日を入れると、要求にその値を載せる', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    await w.find('input[type="date"]').setValue('2026-10-01');
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(templates.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ baseDate: '2026-10-01' }),
+    );
+  });
+
+  it('基準日の入力欄は日本時間の今日を max にする', async () => {
+    const { w } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    expect(w.find('input[type="date"]').attributes('max')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('今日より後の基準日は誤りを出し、生成しない', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    await w.find('input[type="date"]').setValue('2999-01-01');
+    expect(w.text()).toContain('基準日は今日より後にできません');
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(templates.generate).not.toHaveBeenCalled();
+  });
+
+  it('開いたまま日本時間の日付が変わっても、新しい今日までの基準日を受け付ける', async () => {
+    // Date だけ偽装する(flushPromises が使うタイマーは本物のまま)。
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-22T14:00:00Z'));
+      const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+      await settle();
+      vi.setSystemTime(new Date('2026-10-22T15:30:00Z'));
+      await w.find('input[type="date"]').setValue('2026-10-23');
+      await buttonNamed(w, '属性から新規作成')?.trigger('click');
+      await settle();
+      expect(templates.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ baseDate: '2026-10-23' }),
+      );
+      expect(w.find('input[type="date"]').attributes('max')).toBe('2026-10-23');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('取り込まなかった組入先があれば、飛ばした id を並べて知らせる', async () => {
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    const first = await templates.generate();
+    templates.generate.mockResolvedValueOnce(
+      ok({
+        ...(first as { value: object }).value,
+        skipped: [
+          { templateId: 'AM01_510003_交付版', reason: 'created' },
+          { templateId: 'AM01_510155_全体版', reason: 'pendingReview' },
+        ],
+      }) as never,
+    );
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(toastMock).toHaveBeenCalledWith(
+      '組入先の次のテンプレートは既にあるため取り込みませんでした: AM01_510003_交付版、AM01_510155_全体版',
+    );
+  });
+
+  it('飛ばした組入先が無ければ、その通知は出さない', async () => {
+    const { w } = mountWith({ created: false, seriesFunds: [] });
+    await settle();
+    await buttonNamed(w, '属性から新規作成')?.trigger('click');
+    await settle();
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
   it('作成済みでも作成中でもなければ、確認せずに生成し「開く」ボタンは出ない', async () => {
     const { w, templates } = mountWith({ created: false, seriesFunds: [] });
     await settle();
@@ -150,5 +268,36 @@ describe('CreateTabView', () => {
     expect(templates.generate).toHaveBeenCalledWith(
       expect.not.objectContaining({ replaceExisting: true }),
     );
+  });
+
+  it('問い合わせ中に属性が欠けたら、前の属性の作成可否が後から届いても反映しない', async () => {
+    let release: (v: unknown) => void = () => {};
+    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    templates.getCreatableInfo.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }) as never,
+    );
+    await settle();
+    const select = w.findComponent(CreateFundSelect);
+    select.vm.$emit('update', {
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: '510099',
+      editionType: '交付版',
+    });
+    await settle();
+    select.vm.$emit('update', {
+      companyCode: 'AM01',
+      rep1CompanyCode: 'R-AM01',
+      fundCode: undefined,
+      editionType: undefined,
+    });
+    await settle();
+    release(ok({ created: false, seriesFunds: SERIES }));
+    await settle();
+    // 前の属性(510099)のシリーズ候補で「シリーズから作成」カードが現れない。
+    expect(buttonNamed(w, '既存のシリーズを元に作成')).toBeUndefined();
   });
 });

@@ -1,8 +1,8 @@
 // =============================================================================
 // htmlExternalRefs.ts — HTML の属性が「文書の外へ取りに行く」参照かを判定する
 // =============================================================================
-// テンプレは CSS・フォント・JS を **同梱資産への相対パス**(`css/…` `css/fonts/…` `js/…`)で
-// 参照する。これは正当どころか必須で、遮断してはならない。遮断すべきなのは
+// 文書は CSS・JS・画像を **文書の置き場から見た相対パス**(`../css/…` `../js/…` `../images/…`)で
+// 参照する(論理配置は `resolveDocAssetPath`)。これは正当どころか必須で、遮断してはならない。遮断すべきなのは
 // **オリジン外への絶対参照**(`https://…` / `//host` / 許可外 `data:`)だけである。
 //
 // つまり「外部参照要素を要素名で落とす」という方針は誤りである。`<link>` を無条件に
@@ -16,7 +16,7 @@
 // 出す**ため(`cssExternalRefs.ts` 冒頭の解説と同じ理由)。web の検査は唯一の関門ではない。
 
 import { isSelfContainedUrl } from './cssExternalRefs.js';
-import { normalizeHtmlUrlValue } from './htmlEntities.js';
+import { decodeHtmlEntities, normalizeHtmlUrlValue } from './htmlEntities.js';
 
 /**
  * 要素ごとの「取得(fetch)を起こす URL 属性」。ここに載る属性だけを外部参照検査に掛ける。
@@ -119,32 +119,92 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset', 'archive']);
  * 掛かる)。`http-equiv` が `refresh` のときだけ、HTML 仕様の refresh 値の構文
  * (時間 → 区切り → 任意の `url=` → URL)で切り出す。`url=` を省いた
  * `content="0;https://evil/"` も仕様上ナビゲートするので同じ経路で拾う。
+ *
+ * `http-equiv` の比較も `content` の切り出しも、ブラウザが見る**文字参照を解いた値**で行う
+ * (`&#114;efresh` や `0&#59;url=` で隠せないように)。属性は**最初の 1 つだけ**を採る
+ * (HTML の字句解析は 2 つ目以降の同名属性を捨てる)。
+ *
+ * 戻り値は**復号済み**の URL(呼び出し側で再度 `decodeHtmlEntities` を通さないこと)。
+ * 再度復号すると `&amp;#104;ttps://…` のように 1 段だけ隠した文字参照が余計に解けて、
+ * ブラウザが解く形と食い違う。TAB/LF/CR の除去と前後の trim だけは呼び出し側で行う。
  */
 function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): string | undefined {
-  let isRefresh = false;
+  let httpEquiv: string | undefined;
   let content: string | undefined;
   for (const a of attrs) {
     const name = a.name.toLowerCase();
-    if (name === 'http-equiv' && a.value.trim().toLowerCase() === 'refresh') isRefresh = true;
-    if (name === 'content') content = a.value;
+    if (name === 'http-equiv' && httpEquiv === undefined) httpEquiv = a.value;
+    if (name === 'content' && content === undefined) content = a.value;
   }
-  if (!isRefresh || content === undefined) return undefined;
-  const m = /^\s*[0-9.]*\s*[;,]?\s*(?:url\s*=\s*)?([\s\S]*)$/i.exec(content);
-  const raw = (m?.[1] ?? '').trim();
-  // 値は引用符で囲まれることがある(`content="0;url='https://evil/'"`)。
-  const unquoted =
-    (raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))
-      ? raw.slice(1, -1)
-      : raw;
-  return unquoted === '' ? undefined : unquoted;
+  if (httpEquiv === undefined || content === undefined) return undefined;
+  if (decodeHtmlEntities(httpEquiv).trim().toLowerCase() !== 'refresh') return undefined;
+  const url = refreshUrlPart(decodeHtmlEntities(content)).trim();
+  return url === '' ? undefined : url;
+}
+
+/**
+ * refresh の値から URL 部分を、HTML 仕様の refresh の手順どおりに切り出す。
+ *
+ * `url` の字は 1 つずつ照合し、合わない字が来たら**戻らずに**引用符の手順へ進む。照合済みの字は
+ * 捨てるので、`0;url https://evil/` や `0;ur'https://evil/'` もブラウザは `https://evil/` へ
+ * 遷移する。「`url=` があれば除く」という正規表現では、`=` の無い形を相対参照と見誤る。
+ *
+ * 引用符の手順: 先頭が引用符なら 1 文字飛ばし、同じ引用符が後にあればそこで切る(無ければ末尾
+ * まで)。閉じ引用符の後ろの余りや閉じ忘れでも、ブラウザは URL として辿る。
+ *
+ * 空白には仕様の ASCII 空白より広い `\s` を使い、時間の欠落や区切りの不正でも打ち切らない。
+ * どちらもブラウザより多くの値を URL として拾う側(誤検知側)へ倒すためである。
+ */
+function refreshUrlPart(s: string): string {
+  const skipSpaces = (from: number): number => {
+    let j = from;
+    while (j < s.length && /\s/.test(s[j])) j++;
+    return j;
+  };
+  // `url` → 空白 → `=` → 空白。途中で合わなければ、その位置から引用符の手順へ進む。
+  const afterKeyword = (from: number): number => {
+    let j = from;
+    for (const c of 'url') {
+      if (s[j]?.toLowerCase() !== c) return j;
+      j++;
+    }
+    j = skipSpaces(j);
+    return s[j] === '=' ? skipSpaces(j + 1) : j;
+  };
+  let i = skipSpaces(0);
+  while (i < s.length && /[0-9.]/.test(s[i])) i++;
+  i = skipSpaces(i);
+  if (s[i] === ';' || s[i] === ',') i++;
+  i = afterKeyword(skipSpaces(i));
+  const quote = s[i];
+  if (quote !== '"' && quote !== "'") return s.slice(i);
+  const rest = s.slice(i + 1);
+  const close = rest.indexOf(quote);
+  return close === -1 ? rest : rest.slice(0, close);
+}
+
+/**
+ * 複数の URL を詰めた属性値(`srcset` の `url 1x, url 2x` など)を候補に分ける。既定はカンマで
+ * 区切った各候補の先頭(URL)だけを返し、後ろの `1x` / `480w`(記述子)は捨てる。
+ * `allTokens` は空白で区切った語をすべて候補にする(`archive` は空白区切りでも URL を並べるので、
+ * 関所は記述子まで候補に含めて見落としを無くす)。`includeWhole` は値そのものも先頭に残す
+ * (資産を拾う側が、値全体を 1 つの参照として解く形も取りこぼさないため)。
+ */
+export function splitSrcsetUrls(
+  value: string,
+  opts: { includeWhole?: boolean; allTokens?: boolean } = {},
+): string[] {
+  const parts = value.split(',').map((part) => part.trim());
+  const tokens = opts.allTokens
+    ? parts.flatMap((part) => part.split(/\s+/))
+    : parts.map((part) => part.split(/\s+/)[0] ?? '');
+  const urls = tokens.filter((u) => u !== '');
+  return opts.includeWhole ? [value, ...urls] : urls;
 }
 
 function splitCandidateUrls(attrName: string, value: string): string[] {
   if (!MULTI_URL_ATTRS.has(attrName)) return [value];
-  return value
-    .split(',')
-    .flatMap((part) => part.trim().split(/\s+/))
-    .filter((u) => u !== '');
+  return splitSrcsetUrls(value, { allTokens: true });
 }
 
 /**
@@ -163,8 +223,11 @@ export function findExternalRefsInTag(
   const found: string[] = [];
   if (tagName.toLowerCase() === 'meta') {
     const refresh = metaRefreshUrl(attrs);
-    if (refresh !== undefined && !isSelfContainedUrl(normalizeHtmlUrlValue(refresh))) {
-      found.push(`<meta http-equiv="refresh" content="…${refresh}">`);
+    // `refresh` は復号済みなので、`&` を `&amp;` へ戻してから正規化し、復号を二重にしない。
+    const refreshUrl =
+      refresh === undefined ? undefined : normalizeHtmlUrlValue(refresh.replaceAll('&', '&amp;'));
+    if (refreshUrl !== undefined && !isSelfContainedUrl(refreshUrl)) {
+      found.push(`<meta http-equiv="refresh" content="…${refreshUrl}">`);
     }
   }
   const watched = fetchUrlAttrsFor(tagName);
@@ -179,39 +242,132 @@ export function findExternalRefsInTag(
   return found;
 }
 
+/** 論理ルートでの文書の置き場(1 段下)。文書の相対参照はここを基準に解く。 */
+export const DOC_DIR = 'doc';
+
 /**
- * 相対 URL を「配信ルート相対のパス」へ正規化する。配信ルート配下へ解決できない形
- * (絶対 URL・scheme 相対・ルート絶対 `/…`・`..` でルート外へ出る形)は `undefined`。
- *
- * 呼び出し側はこの戻り値を「実際に配置した資産の集合」と突き合わせる。つまり
- * `<link href>` / `<script src>` を残してよいかは **配信ルート配下に実体があるか**で
- * 決まり、要素名では決まらない(本ファイル冒頭の方針)。
+ * 論理ルートでのファンド別画像の置き場(参照を解いた論理パスの先頭)。サーバの配置・配信と web の
+ * 判定が同じ名前を使う。
  */
-export function resolveServedAssetPath(url: string): string | undefined {
-  // 判定も解決も**ブラウザが実際に取りに行く形**で行う(`htmlEntities.ts`)。生値のままだと
-  // `&#104;ttps://evil/x` が「相対参照」として配信ルート配下へ解決されうる。
-  const v = normalizeHtmlUrlValue(url);
-  if (v === '' || !isSelfContainedUrl(v)) return undefined;
+export const FUND_IMAGES_DIR = 'images';
+
+/** 論理ルートでの共通フォントの置き場(テンプレの CSS からは `url(fonts/…)` と書かれる)。 */
+export const DOC_FONTS_DIR = 'css/fonts';
+
+/**
+ * ファンド別画像の拡張子 → MIME。web の判定・data URI 化とサーバの配信の Content-Type が同じ表を
+ * 使う(片方だけ広げると、取りに行っても 404 になる参照を作る)。`Map` なのは、利用者入力の拡張子で
+ * `Object.prototype` を引かないため。
+ */
+export const IMAGE_MIME: ReadonlyMap<string, string> = new Map([
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+]);
+
+/**
+ * フォントの拡張子 → MIME。web が data URI にするとき(`cssExternalRefs.ts` の data: 許可リストに
+ * 収まる形)と、サーバのプレビューホストの Content-Type が同じ表を使う。
+ */
+export const FONT_MIME: Readonly<Record<string, string>> = {
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+};
+
+/** scheme 付き(`data:` やドライブ指定 `C:` を含む)の形。資産のパスにはならない。 */
+const SCHEME_PREFIX_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+
+/**
+ * 正規化済みの URL 値からパス部分を取り出して百分率復号する。配信ルート配下のパスに
+ * なりえない形(外部参照・ルート絶対・空・復号不能)は `undefined`。
+ *
+ * 区切りと相対指定は**復号前の字面**で確定する。`%2F` `%5C` `%2e%2e` は区切りや `..` として
+ * 働かせず(ブラウザも同じ扱い)、そうなる形は `undefined` にする。
+ */
+function decodedPathOf(value: string): string | undefined {
+  if (value === '' || !isSelfContainedUrl(value)) return undefined;
   // 断片・クエリは配信対象の識別に関与しない。
-  const pathOnly = v.split(/[?#]/, 1)[0];
+  const pathOnly = value.split(/[?#]/, 1)[0];
   if (pathOnly === '' || pathOnly.startsWith('/')) return undefined;
-  let decoded: string;
   try {
-    decoded = decodeURIComponent(pathOnly);
+    const parts: string[] = [];
+    for (const raw of pathOnly.split('/')) {
+      const seg = decodeURIComponent(raw);
+      if (seg.includes('/') || seg.includes('\\')) return undefined;
+      if ((seg === '.' || seg === '..') && seg !== raw) return undefined;
+      parts.push(seg);
+    }
+    return parts.join('/');
   } catch {
     return undefined; // 復号不能は fail closed
   }
+}
+
+/**
+ * 復号済みのパスを `base`(ルート相対のセグメント列)の下で解く。ルートより上へ出る形と
+ * NUL・`\` を含む形は `undefined`。
+ */
+function resolveSegments(base: readonly string[], decoded: string): string[] | undefined {
   if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
-  const segments: string[] = [];
+  const segments = [...base];
   for (const seg of decoded.split('/')) {
     if (seg === '' || seg === '.') continue;
     if (seg === '..') {
-      // ルートより上へ出る形は配信ルート配下に解決できない。
       if (segments.length === 0) return undefined;
       segments.pop();
       continue;
     }
     segments.push(seg);
   }
-  return segments.length === 0 ? undefined : segments.join('/');
+  return segments;
+}
+
+/**
+ * **復号済みのルート引数**(Fastify が 1 回百分率復号して渡す値)を配信ルート相対のパスとして
+ * 検める。文書の URL 値ではないので、文字参照の復号・`?` `#` での切断・百分率復号はしない
+ * (`a#b.svg` は字面の名前で、`%41` も `A` ではなく字面の名前)。もう一度解くと `#` で切れて
+ * 別のファイルを探し、`100%.png` は復号不能で落ち、二重符号化が区切りや `..` へ化ける。
+ *
+ * 拒む形は `resolveSegments` と同じ NUL・`\`・空に加え、空・`.`・`..` のセグメント、ルート絶対、
+ * scheme やドライブ指定(`C:`)で始まる形。ルートの引数は正規化済みの名前で来るので、正規化で
+ * 形が変わる入力はどこを指すかを推測せずに拒む。戻り値は入力と同じ文字列。
+ */
+export function resolveServedRoutePath(decoded: string): string | undefined {
+  if (decoded === '' || SCHEME_PREFIX_RE.test(decoded)) return undefined;
+  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
+  const segments = decoded.split('/');
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  return segments.join('/');
+}
+
+/** 参照元ファイルの論理パスから、相対参照の基準になるディレクトリのセグメント列を作る。 */
+function baseSegmentsOf(from: string): string[] | undefined {
+  if (from === DOC_DIR) return [DOC_DIR];
+  const segments = resolveSegments([], from);
+  return segments === undefined || segments.length === 0 ? undefined : segments.slice(0, -1);
+}
+
+/**
+ * 文書または CSS 等からの相対参照を、論理ルート相対のパスへ解く。
+ *
+ * 文書は「論理ルートの 1 段下(`doc/<文書>.html`)」にあるものとして解く。`from` が `'doc'` なら
+ * 文書から、それ以外は参照元ファイルの論理パス(例 `css/A_1_交付版.css`)から見た相対になる。
+ * 結果が `doc/` 配下になる参照(文書直下基準の `css/x.css` など)は資産の置き場を指さないので
+ * `undefined` にする。ルート外・絶対・scheme 付き・`data:` も `undefined`。
+ *
+ * 綴りの扱い: クエリ・断片は落とす。百分率符号化は区間ごとに復号し、`%2F` `%5C` `%2e%2e` の
+ * ように区切りや `..` になる形は `undefined`。大文字小文字は変えない(照合側の責務)。
+ */
+export function resolveDocAssetPath(url: string, from: string): string | undefined {
+  const base = baseSegmentsOf(from);
+  if (base === undefined) return undefined;
+  const decoded = decodedPathOf(normalizeHtmlUrlValue(url));
+  if (decoded === undefined || SCHEME_PREFIX_RE.test(decoded)) return undefined;
+  const segments = resolveSegments(base, decoded);
+  if (segments === undefined || segments.length === 0) return undefined;
+  if (segments[0].toLowerCase() === DOC_DIR) return undefined;
+  return segments.join('/');
 }

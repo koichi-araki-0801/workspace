@@ -7,9 +7,9 @@
 // 2 版は隔離 iframe(`lib/renderHostClient.ts`)で完全な HTML へレンダリングしたものを
 // 受け取り、ブラウザ内でパースする。ここが触るのは**描画済み文字列**だけで、テンプレ式の
 // 評価は行わない(だから同一オリジンの inert document で読んでよい)。
-// 各ドキュメントを明示的な `page-break-before/after: always` マーカー
-// (editor が `geom.ts` 経由で書き出すものと同一)で A4 の `page` に分割し、page 内では
-// `<body>` 直下の子要素である top-level の `block` に整列する。
+// 各ドキュメントを `<body>` 直下の `<div class="pagebreak">` と、直下の要素の inline の改ページ
+// 指定で `page` に分割し(判定は `lib/pageBreaks.ts` の `splitPages`。canvas・承認タブと共有)、
+// page 内では `<body>` 直下の子要素である top-level の `block`(区切りの要素は除く)に整列する。
 //
 // 整列した block のうち中身が変わったものは、ブロック全体を塗るのではなく **ツリーを
 // 再帰的に降りて**変わった部分だけを着色する(粒度を細かくするのが目的):
@@ -19,15 +19,23 @@
 //     語句(緑)・削除された語句(赤)だけを `<span>` で包む。
 // これにより「どの文字が変わったか」までハイライトでき、変更 block 数も数えられる。
 
-import { rawKey } from '@/lib/blockKey';
+import { occurrenceKeys, rawKey } from '@/lib/blockKey';
 import { defaultHtmlParser, type HtmlParser } from '@/lib/htmlParser';
+import { randomHex } from '@/lib/newId';
+import { inlineBreak, pageItems, splitPages } from '@/lib/pageBreaks';
 import { styleTag } from '@/lib/sanitizeCss';
 
 export type BlockStatus = 'same' | 'changed' | 'added' | 'removed';
 
 interface DiffBlock {
-  /** 2 版で同じ block を整列させるための安定キー。 */
+  /** 2 版で同じ block を整列させるための安定キー(ページの中での `<アンカー>#<出現順>`)。 */
   key: string;
+  /**
+   * メモ・修正履歴と同じパーツのキー(文書全体での `<アンカー>#<通し番号>`)。after 側に
+   * ある block は after の文書、removed の block は before の文書で数える。整列には使わない
+   * (ページの外のずれを整列へ持ち込まないため、整列は `key` で行う)。
+   */
+  partKey: string;
   status: BlockStatus;
   /** このパーツだけの着色済み before マークアップ(added パーツでは空)。承認画面のパーツ行用。 */
   beforeHtml: string;
@@ -55,9 +63,9 @@ export interface DiffPage {
 export interface HtmlDiff {
   pages: DiffPage[];
   changedPageCount: number;
-  /** 比較元(before)を `page-break` で分割した総ページ数(アライン UI の選択範囲に使う)。 */
+  /** 比較元(before)を改ページで分割した総ページ数(アライン UI の選択範囲に使う)。 */
   beforePageCount: number;
-  /** 比較先(after)を `page-break` で分割した総ページ数。 */
+  /** 比較先(after)を改ページで分割した総ページ数。 */
   afterPageCount: number;
   /** どこか 1 ページでも粗い差分へ落ちたか(画面全体の注記を出すかの判断に使う)。 */
   coarse: boolean;
@@ -136,9 +144,7 @@ export function hasCoarseDiff(...htmls: string[]): boolean {
  * ソース順で決まり、レイヤの守りが働かない)。名前を知られなければこの経路が消える。
  */
 function diffLayerName(): string {
-  const buf = new Uint8Array(8);
-  crypto.getRandomValues(buf);
-  return `d${Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  return `d${randomHex(8)}`;
 }
 
 /**
@@ -236,7 +242,15 @@ function parseBody(html: string, parse: HtmlParser): HTMLElement {
  */
 export const MAX_TOP_LEVEL_BLOCKS = 5_000;
 
-function topLevelBlocks(body: HTMLElement): { blocks: HTMLElement[]; truncated: boolean } {
+interface TopLevel {
+  /** body 直下の要素と、地の文を包んだ合成 `span` を文書順に並べたもの。 */
+  blocks: HTMLElement[];
+  /** `blocks` のうち地の文を包んだ合成 `span`(改ページの判定とパーツのキーから外す)。 */
+  texts: Set<HTMLElement>;
+  truncated: boolean;
+}
+
+function topLevelBlocks(body: HTMLElement): TopLevel {
   // `body.children`(要素のみ)ではなく `body.childNodes` を走る。**要素だけを内容とみなす**と、
   // `<body>` 直下の地の文(テキストノード)がどのパーツにも現れず、打ち切り警告も立たないまま
   // 確定書込へ verbatim で通る(承認者が見ていない可視本文の承認)。ノード種を数え上げず、
@@ -245,6 +259,7 @@ function topLevelBlocks(body: HTMLElement): { blocks: HTMLElement[]; truncated: 
   // 見た目だけで、確定される本文=`review.html` は変わらない)。空白のみのノードは従来どおり無視。
   const doc = body.ownerDocument;
   const all: HTMLElement[] = [];
+  const texts = new Set<HTMLElement>();
   for (const node of Array.from(body.childNodes)) {
     if (isElement(node)) {
       all.push(node);
@@ -252,214 +267,15 @@ function topLevelBlocks(body: HTMLElement): { blocks: HTMLElement[]; truncated: 
       const span = doc.createElement('span');
       span.textContent = node.textContent;
       all.push(span);
+      texts.add(span);
     }
   }
   // 打ち切ったことは**必ず戻り値で申告する**。捨てた分は差分にもページにも現れないのに、
   // 承認が通れば確定書込は本文を全文書く — 承認者が見ていない領域が本番へ入る。
   // 語句 LCS の degrade(`coarse`)が常に表へ出るのと同じ扱いに揃える。
   return all.length > MAX_TOP_LEVEL_BLOCKS
-    ? { blocks: all.slice(0, MAX_TOP_LEVEL_BLOCKS), truncated: true }
-    : { blocks: all, truncated: false };
-}
-
-/**
- * クラス由来の改ページを拾うための、CSS から抽出した page-break セレクタ。実テンプレは
- * `.page { page-break-after: always }` のように改ページを **CSS クラス**で表すため、
- * インライン `style` だけ見ると分割を取りこぼす(editor 側 `recomputeBreakEls` は
- * `getComputedStyle` で拾えている)。
- */
-interface BreakSelectors {
-  before: string[];
-  after: string[];
-}
-const NO_BREAK_SELECTORS: BreakSelectors = { before: [], after: [] };
-
-// 宣言ブロック内で `which` 方向の改ページを `always`/`page` に設定しているか。`auto`
-// (例: `.page:last-child { page-break-after: auto }`)は改ページではないので拾わない。
-function declHasBreak(decls: string, which: 'before' | 'after'): boolean {
-  return (
-    new RegExp(`page-break-${which}\\s*:\\s*(always|page)`).test(decls) ||
-    new RegExp(`(^|[^-])break-${which}\\s*:\\s*(always|page)`).test(decls)
-  );
-}
-
-/**
- * CSS テキストを走査し、改ページを設定しているルールの **セレクタ列**を方向別に集める。
- * `el.matches(selector)` で top-level block 側を判定するために使う。
- *
- * 正規表現 `/([^{}]+)\{([^{}]*)\}/g` は波括弧を含まない入力に対して開始位置ごとに末尾まで
- * 舐め直す二次になる(実測 160KB = 13 秒・800KB で 5 分超)。**カーソル単調前進**の走査で
- * 書く — 前進は `indexOf` か 1 文字進みだけで、決して戻さない(戻す実装を書いた
- * 瞬間に二次が復活する)。閉じない `{` は入力末尾で打ち切る(例外にしない)。
- *
- * `@media` / `@supports` / `@layer` / `@container` は**条件付きグループ規則**で中身は通常の
- * スタイル規則なので、深さを 1 段下げて同じループで収集する。
- * `@media print { .p { page-break-after: always } }` の `.p` も改ページ対象で、
- * 読み飛ばすと承認画面のページ分割が変わる(= 差分の
- * ページ対応が変わる)。`@page` / `@font-face` / `@keyframes` は中身が宣言かマージン
- * ボックスなので従来どおりブロックごと飛ばす。
- */
-const CONDITIONAL_GROUP_AT_RULES = ['@media', '@supports', '@layer', '@container'];
-
-function extractBreakSelectors(css: string | undefined): BreakSelectors {
-  if (!css) return NO_BREAK_SELECTORS;
-  const out: BreakSelectors = { before: [], after: [] };
-  const lower = css.toLowerCase();
-  const n = lower.length;
-  let i = 0;
-  while (i < n) {
-    const open = lower.indexOf('{', i);
-    if (open < 0) break;
-    // グループ規則の閉じ `}` を跨いだ位置から読み始めることがあるので、prelude は最後の
-    // `}` より後ろだけを採る(素朴な `[^{}]+` 抽出と同じ範囲になる)。
-    const rawPrelude = lower.slice(i, open);
-    const afterBrace = rawPrelude.lastIndexOf('}');
-    const prelude = (afterBrace < 0 ? rawPrelude : rawPrelude.slice(afterBrace + 1)).trim();
-    const close = lower.indexOf('}', open + 1);
-    if (close < 0) break;
-    const nested = lower.indexOf('{', open + 1);
-    if (prelude.startsWith('@') && nested >= 0 && nested < close) {
-      if (CONDITIONAL_GROUP_AT_RULES.some((at) => prelude.startsWith(at))) {
-        // 中身は通常のスタイル規則。カーソルをブロックの内側へ進めるだけ(単調前進は保つ)。
-        i = open + 1;
-        continue;
-      }
-      // それ以外の入れ子 at-rule はブロックごと飛ばす。
-      let depth = 1;
-      let p = open + 1;
-      while (p < n && depth > 0) {
-        const nextOpen = lower.indexOf('{', p);
-        const nextClose = lower.indexOf('}', p);
-        if (nextClose < 0) break;
-        if (nextOpen >= 0 && nextOpen < nextClose) {
-          depth++;
-          p = nextOpen + 1;
-        } else {
-          depth--;
-          p = nextClose + 1;
-        }
-      }
-      i = p > open ? p : n;
-      continue;
-    }
-    if (prelude && !prelude.startsWith('@')) {
-      const decls = lower.slice(open + 1, close);
-      if (declHasBreak(decls, 'before')) out.before.push(prelude);
-      if (declHasBreak(decls, 'after')) out.after.push(prelude);
-    }
-    i = close + 1;
-  }
-  return out;
-}
-
-/**
- * `el.matches()` に回すセレクタ本数の上限。照合コストは「直下要素数 x セレクタ数」で、
- * linkedom は呼び出しごとにセレクタをコンパイルする(1 コール 1〜2.5 マイクロ秒)ため
- * B=S=20,000 で 500〜2,000 秒規模になる。単純セレクタ(`.cls` / `#id` / `tag`)は集合
- * 照合へ落とすので上限を消費せず、実テンプレがこの上限に当たることはまずない。
- */
-export const MAX_COMPLEX_SELECTORS = 32;
-
-/** 事前に単純セレクタを集合へ落としたもの。残りだけ `el.matches()` に回す。 */
-interface CompiledBreaks {
-  classes: Set<string>;
-  ids: Set<string>;
-  tags: Set<string>;
-  complex: string[];
-  /** 複合セレクタが上限を超えて切り捨てられたか(UI へ出すための degrade 印)。 */
-  truncated: boolean;
-}
-
-/** 単純セレクタ = クラス / ID / タグ 1 つだけ。これらは集合照合で O(1) に落とせる。 */
-const SIMPLE_SELECTOR_RE = /^(?:\.([a-z0-9_-]+)|#([a-z0-9_-]+)|([a-z][a-z0-9]*))$/;
-
-function compileBreaks(selectors: string[]): CompiledBreaks {
-  const compiled: CompiledBreaks = {
-    classes: new Set(),
-    ids: new Set(),
-    tags: new Set(),
-    complex: [],
-    truncated: false,
-  };
-  for (const raw of selectors) {
-    // `.a, .b` のようなセレクタ列は個々に分けてから単純判定する。
-    for (const sel of raw.split(',')) {
-      const one = sel.trim();
-      if (!one) continue;
-      const m = SIMPLE_SELECTOR_RE.exec(one);
-      if (m?.[1]) compiled.classes.add(m[1]);
-      else if (m?.[2]) compiled.ids.add(m[2]);
-      else if (m?.[3]) compiled.tags.add(m[3]);
-      else if (compiled.complex.length < MAX_COMPLEX_SELECTORS) compiled.complex.push(one);
-      else compiled.truncated = true;
-    }
-  }
-  return compiled;
-}
-
-// 不正セレクタ(`:last-child` 等は有効だが、CSS には matches が解さない記法も混じり得る)で
-// `el.matches` が throw しても分割判定を止めないようガードする。
-function matchesAny(el: HTMLElement, breaks: CompiledBreaks): boolean {
-  if (breaks.tags.has(el.tagName.toLowerCase())) return true;
-  if (el.id && breaks.ids.has(el.id.toLowerCase())) return true;
-  if (breaks.classes.size > 0) {
-    for (const cls of el.classList) {
-      if (breaks.classes.has(cls.toLowerCase())) return true;
-    }
-  }
-  for (const sel of breaks.complex) {
-    try {
-      if (el.matches(sel)) return true;
-    } catch {
-      /* ignore invalid selector */
-    }
-  }
-  return false;
-}
-
-/** 方向別にコンパイル済みのセレクタ。`paginate` の呼び出し 1 回につき 1 度だけ作る。 */
-interface CompiledBreakSelectors {
-  before: CompiledBreaks;
-  after: CompiledBreaks;
-}
-
-function compileBreakSelectors(sels: BreakSelectors): CompiledBreakSelectors {
-  return { before: compileBreaks(sels.before), after: compileBreaks(sels.after) };
-}
-
-// インライン `style` 属性の改ページ、または CSS クラス由来の改ページセレクタへの一致。
-function hasBreak(
-  el: HTMLElement,
-  which: 'before' | 'after',
-  sels: CompiledBreakSelectors,
-): boolean {
-  const style = (el.getAttribute('style') ?? '').toLowerCase();
-  return (
-    new RegExp(`page-break-${which}\\s*:\\s*always`).test(style) ||
-    new RegExp(`(^|[^-])break-${which}\\s*:\\s*(always|page)`).test(style) ||
-    matchesAny(el, sels[which])
-  );
-}
-
-/** top-level の block を、明示的な page-break マーカーで page にグループ化する。 */
-function paginate(
-  blocks: HTMLElement[],
-  rawSels: BreakSelectors,
-): { pages: HTMLElement[][]; truncated: boolean } {
-  // セレクタのコンパイルは要素ごとではなく 1 回だけ(ここが B x S の S を潰す点)。
-  const sels = compileBreakSelectors(rawSels);
-  const pages: HTMLElement[][] = [[]];
-  for (const el of blocks) {
-    let cur = pages[pages.length - 1];
-    if (hasBreak(el, 'before', sels) && cur.length > 0) {
-      pages.push([]);
-      cur = pages[pages.length - 1];
-    }
-    cur.push(el);
-    if (hasBreak(el, 'after', sels)) pages.push([]);
-  }
-  if (pages.length > 1 && pages[pages.length - 1].length === 0) pages.pop();
-  return { pages, truncated: sels.before.truncated || sels.after.truncated };
+    ? { blocks: all.slice(0, MAX_TOP_LEVEL_BLOCKS), texts, truncated: true }
+    : { blocks: all, texts, truncated: false };
 }
 
 // ── 3. ノードの整列キー ───────────────────────────────────────────────────
@@ -491,17 +307,14 @@ function unitKey(n: Node): string {
 
 /** 親の中で重複するキーを出現順で一意化する("#text#1", ".row#2")。 */
 function keyedUnits(parent: Node): { key: string; node: Node }[] {
-  const seen = new Map<string, number>();
-  return childUnits(parent).map((node) => {
-    const base = unitKey(node);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return { key: `${base}#${n}`, node };
-  });
+  const units = childUnits(parent);
+  const keys = occurrenceKeys(units.map(unitKey));
+  return units.map((node, i) => ({ key: keys[i], node }));
 }
 
 // ── 4. 正規化と同一判定 ───────────────────────────────────────────────────
-function collapse(text: string | null): string {
+/** 空白の違いだけを差分にしない正規化(連続する空白を 1 つにして前後を落とす)。 */
+export function collapse(text: string | null | undefined): string {
   return (text ?? '').replace(/\s+/g, ' ').trim();
 }
 
@@ -531,7 +344,7 @@ export function tokenize(text: string): string[] {
 export type DiffOp = { type: 'same' | 'del' | 'ins'; text: string };
 
 /** 語句 diff の結果。`coarse` は面積上限で語句単位を諦めたかどうか。 */
-export interface TokenDiff {
+interface TokenDiff {
   ops: DiffOp[];
   coarse: boolean;
 }
@@ -785,13 +598,8 @@ function diffElement(before: HTMLElement, after: HTMLElement, flags: DiffFlags):
 
 // ── 7. top-level block の整列と分類 ───────────────────────────────────────
 function keyedBlocks(page: HTMLElement[]): { key: string; el: HTMLElement }[] {
-  const seen = new Map<string, number>();
-  return page.map((el) => {
-    const base = rawKey(el);
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return { key: `${base}#${n}`, el };
-  });
+  const keys = occurrenceKeys(page.map(rawKey));
+  return page.map((el, i) => ({ key: keys[i], el }));
 }
 
 interface RenderedBlock {
@@ -865,17 +673,21 @@ function fastSamePage(
   index: number,
   beforePage: HTMLElement[],
   afterPage: HTMLElement[],
+  parts: PartIndex,
 ): DiffPage | null {
   const beforeHtml = joinOuter(beforePage);
   const afterHtml = joinOuter(afterPage);
   if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) return null;
   // 無変更ページなので各パーツの before/after は同一 outerHTML。承認画面の「変更なしも表示」用。
-  const blocks: DiffBlock[] = keyedBlocks(afterPage).map((b, qi) => ({
+  const keyed = keyedBlocks(afterPage);
+  const labelOf = partLabels(index, keyed, [], parts);
+  const blocks: DiffBlock[] = keyed.map((b) => ({
     key: b.key,
+    partKey: parts.keys.get(b.el) ?? b.key,
     status: 'same',
     beforeHtml: b.el.outerHTML,
     afterHtml: b.el.outerHTML,
-    label: `ページ${index + 1}・パーツ${qi + 1}`,
+    label: labelOf.get(b.key) ?? `ページ${index + 1}`,
     coarse: false,
   }));
   return {
@@ -889,11 +701,40 @@ function fastSamePage(
   };
 }
 
+/**
+ * 「ページN・パーツM」の採番(`partLabelMap` と同じ数え方): after(現行)側の DOM 順を 1..N で
+ * 優先し、after に無い removed パーツは N+1 以降を before 側の DOM 順で振る。removed に before
+ * 側の index をそのまま使うと after 側の別パーツと同名になり、承認画面で削除対象を取り違える。
+ * パーツに数えない block(`<style>`・地の文)には番号を振らない(呼び出し側は `ページN` を出す)。
+ */
+function partLabels(
+  index: number,
+  after: { key: string; el: HTMLElement }[],
+  before: { key: string; el: HTMLElement }[],
+  parts: PartIndex,
+): Map<string, string> {
+  const labelOf = new Map<string, string>();
+  const afterKeys = new Set(after.map((b) => b.key));
+  let seq = 0;
+  for (const b of after) {
+    if (parts.attached.has(b.el)) continue;
+    seq++;
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${seq}`);
+  }
+  for (const b of before) {
+    if (afterKeys.has(b.key) || parts.attached.has(b.el)) continue;
+    seq++;
+    labelOf.set(b.key, `ページ${index + 1}・パーツ${seq}`);
+  }
+  return labelOf;
+}
+
 function diffPage(
   index: number,
   beforePage: HTMLElement[],
   afterPage: HTMLElement[],
   budget: LcsBudget,
+  parts: PartIndex,
 ): DiffPage {
   const before = keyedBlocks(beforePage);
   const after = keyedBlocks(afterPage);
@@ -907,24 +748,16 @@ function diffPage(
     ...after.map((b) => b.key),
     ...before.filter((b) => !afterMap.has(b.key)).map((b) => b.key),
   ];
-  // 「ページN・パーツM」採番(`partLabelMap` と同思想): after(現行)側 DOM 順を 1..N で優先し、
-  // after に無い removed パーツは N+1 以降を before 側 DOM 順で振る。removed に before 側
-  // index をそのまま使うと after 側の別パーツと同名になり、承認画面で削除対象を取り違える。
-  const labelOf = new Map<string, string>();
-  after.forEach((b, qi) => {
-    labelOf.set(b.key, `ページ${index + 1}・パーツ${qi + 1}`);
-  });
-  let removedSeq = after.length;
-  for (const b of before) {
-    if (labelOf.has(b.key)) continue;
-    removedSeq++;
-    labelOf.set(b.key, `ページ${index + 1}・パーツ${removedSeq}`);
-  }
+  const labelOf = partLabels(index, after, before, parts);
   for (const key of keys) {
-    const r = renderBlock(beforeMap.get(key), afterMap.get(key), budget);
+    const bEl = beforeMap.get(key);
+    const aEl = afterMap.get(key);
+    const r = renderBlock(bEl, aEl, budget);
     rendered.set(key, r);
+    const el = aEl ?? bEl;
     blocks.push({
       key,
+      partKey: (el && parts.keys.get(el)) ?? key,
       status: r.status,
       beforeHtml: r.beforeHtml,
       afterHtml: r.afterHtml,
@@ -946,15 +779,93 @@ function diffPage(
   };
 }
 
-/** HTML を `page-break`(インライン `style` + CSS クラス由来)で top-level page 群へ分割する。 */
+/**
+ * ページ分けとパーツの番号に数える要素(`pageItems`。`<style>` と地の文の合成 `span` を除く)
+ * だけを `splitPages` で分け、残り(付き従う block)をそのページへ戻す。承認タブ
+ * (`reviews/services/reviewCompareDocs.ts`)は同じ `pageItems` でページを数え、その番号を
+ * ここの `diff.pages` の番号と突き合わせるので、付き従う block がページを作ったりずらしたり
+ * してはいけない。付き従う block は差分には出す(保存される内容で、承認者が見る必要がある)。
+ * 直前の要素が区切り(または inline の `after` を持つパーツ)なら次の要素(パーツか区切り)の
+ * ページへ、そうでなければ直前のパーツのページへ入れる(canvas の `markPages` と同じ)。区切りは
+ * 置かれたページ(`breakPages`)で数えるので、区切りの間の付き従う block は白紙のページに入る。
+ * 前後に要素が無ければ最寄りのページへ入れる。
+ */
+function splitTopLevel(blocks: HTMLElement[], attached: Set<HTMLElement>): HTMLElement[][] {
+  const split = splitPages(blocks.filter((el) => !attached.has(el)));
+  const { pages } = split;
+  if (attached.size === 0) return pages;
+  const pageOf = new Map<HTMLElement, number>();
+  pages.forEach((page, i) => {
+    for (const el of page) pageOf.set(el, i);
+  });
+  const breaks = new Set(split.breakEls);
+  split.breakEls.forEach((el, i) => {
+    pageOf.set(el, split.breakPages[i]);
+  });
+  const out: HTMLElement[][] = pages.map(() => []);
+  let cur = 0;
+  let broken = false;
+  let held: HTMLElement[] = [];
+  for (const el of blocks) {
+    const page = pageOf.get(el);
+    if (attached.has(el)) {
+      if (broken) held.push(el);
+      else out[cur].push(el);
+    } else if (page !== undefined) {
+      cur = page;
+      out[cur].push(...held);
+      held = [];
+      // 区切りの要素はパーツに数えない(差分の block にしない)。
+      if (breaks.has(el)) {
+        broken = true;
+      } else {
+        out[cur].push(el);
+        broken = inlineBreak(el, 'after');
+      }
+    }
+  }
+  out[cur].push(...held);
+  return out;
+}
+
+/** before/after の両文書ぶんの、block の要素ごとの情報。 */
+interface PartIndex {
+  /** 文書全体のキー(`DiffBlock.partKey`)。 */
+  keys: Map<HTMLElement, string>;
+  /** パーツに数えない付き従う block(`<style>`・地の文の合成 `span`)。 */
+  attached: Set<HTMLElement>;
+}
+
+function newPartIndex(): PartIndex {
+  return { keys: new Map(), attached: new Set() };
+}
+
+/**
+ * HTML を改ページで top-level page 群へ分割し、各 block の文書全体のキーと、パーツに数えない
+ * block を `parts` へ書く。キーは `@/lib/blockKey` の `occurrenceKey(part, 全パーツ)` と同じ値
+ * だが、パーツごとに全パーツを走査すると直下要素数の二乗になるので、出現順の数え上げを 1 回で
+ * 済ませる。付き従う block(`pageItems` に入らない要素と地の文)は、パーツのアンカーと重ならない
+ * 別の名前(`#attached` / `#text`)で数える。`rawKey` で数えると、パーツと同じクラスを持つ
+ * `<style class="a">` が `.a` の番号を進め、canvas と承認タブ(`partKey.ts`)とキーが食い違う。
+ */
 function paginateDoc(
   html: string,
-  css: string | undefined,
   parse: HtmlParser,
+  parts: PartIndex,
 ): { pages: HTMLElement[][]; truncated: boolean } {
   const top = topLevelBlocks(parseBody(html, parse));
-  const paged = paginate(top.blocks, extractBreakSelectors(css));
-  return { pages: paged.pages, truncated: top.truncated || paged.truncated };
+  const counted = new Set(pageItems(top.blocks.filter((el) => !top.texts.has(el))));
+  const attached = new Set(top.blocks.filter((el) => !counted.has(el)));
+  const pages = splitTopLevel(top.blocks, attached);
+  const flat = pages.flat();
+  const keys = occurrenceKeys(
+    flat.map((el) => (top.texts.has(el) ? '#text' : attached.has(el) ? '#attached' : rawKey(el))),
+  );
+  flat.forEach((el, i) => {
+    if (attached.has(el)) parts.attached.add(el);
+    parts.keys.set(el, keys[i]);
+  });
+  return { pages, truncated: top.truncated };
 }
 
 /** ペア配列の各 page を diff する共通本体。`buildHtmlDiff`/`buildHtmlDiffAligned` の合流点。 */
@@ -963,6 +874,7 @@ function diffPairs(
   afterPages: HTMLElement[][],
   pairs: PagePair[],
   truncated: boolean,
+  parts: PartIndex,
 ): HtmlDiff {
   const pages: DiffPage[] = [];
   // DP セル予算は文書ペア単位。ページごとに作り直すと「上限直下のページを並べる」形で
@@ -973,7 +885,7 @@ function diffPairs(
     const bp = before == null ? [] : (beforePages[before] ?? []);
     const ap = after == null ? [] : (afterPages[after] ?? []);
     // 無変更ページは高速パスでスキップ、変わったページのみ精密 diff に回す。
-    pages.push(fastSamePage(i, bp, ap) ?? diffPage(i, bp, ap, budget));
+    pages.push(fastSamePage(i, bp, ap, parts) ?? diffPage(i, bp, ap, budget, parts));
   }
   return {
     pages,
@@ -987,41 +899,45 @@ function diffPairs(
 
 /**
  * 2 つのレンダリング済み HTML ドキュメント間の page/細粒度差分を構築する(固定 i↔i 対応)。
- * `cssBefore`/`cssAfter` を渡すと、`.page { page-break-after: always }` のような
- * CSS クラス由来の改ページも分割に反映する(省略時はインライン `style` のみで分割)。
+ * `_cssBefore`/`_cssAfter` は改ページの判定に使わない(改ページは `<body>` 直下の
+ * `div.pagebreak` と inline の指定だけで決める)。引数は Worker の契約と呼び出し側を
+ * 動かさないために残している。
  */
 export function buildHtmlDiff(
   beforeHtml: string,
   afterHtml: string,
-  cssBefore?: string,
-  cssAfter?: string,
+  _cssBefore?: string,
+  _cssAfter?: string,
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const before = paginateDoc(beforeHtml, cssBefore, parse);
-  const after = paginateDoc(afterHtml, cssAfter, parse);
+  const parts = newPartIndex();
+  const before = paginateDoc(beforeHtml, parse, parts);
+  const after = paginateDoc(afterHtml, parse, parts);
   // 恒等 pairs(i↔i、範囲外側は null)で合流。出力は従来と不変。
   const pageCount = Math.max(before.pages.length, after.pages.length);
   const pairs: PagePair[] = Array.from({ length: pageCount }, (_, i) => ({
     before: i < before.pages.length ? i : null,
     after: i < after.pages.length ? i : null,
   }));
-  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated);
+  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated, parts);
 }
 
 /**
  * `buildHtmlDiff` の対応付けをユーザー指定の `pairs` で駆動する版。比較画面でページを
  * ずらして「指定ページ同士」を並べるのに使う。`pairs` の各要素が結果の 1 ページに対応し、
  * `before`/`after` がそのページに置くソースページ index(`null` は対応なし)。
+ * `_cssBefore`/`_cssAfter` は `buildHtmlDiff` と同じく改ページの判定に使わない。
  */
 export function buildHtmlDiffAligned(
   beforeHtml: string,
   afterHtml: string,
-  cssBefore: string | undefined,
-  cssAfter: string | undefined,
+  _cssBefore: string | undefined,
+  _cssAfter: string | undefined,
   pairs: PagePair[],
   parse: HtmlParser = defaultHtmlParser,
 ): HtmlDiff {
-  const before = paginateDoc(beforeHtml, cssBefore, parse);
-  const after = paginateDoc(afterHtml, cssAfter, parse);
-  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated);
+  const parts = newPartIndex();
+  const before = paginateDoc(beforeHtml, parse, parts);
+  const after = paginateDoc(afterHtml, parse, parts);
+  return diffPairs(before.pages, after.pages, pairs, before.truncated || after.truncated, parts);
 }

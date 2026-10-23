@@ -7,8 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { sampleCommon } from '@editor/shared';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { SprocClient } from '../src/db/sproc.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-template-repo-filled-'));
@@ -24,6 +23,7 @@ const JINJA_ONLY_ID = 'AM01_510037_全体版';
 const BOTH_ID = 'AM01_110024_20251117_交付版';
 const SKELETON_ID = 'AM01_510124_交付版';
 const SKELETON_PENDING_ID = 'AM01_510155_交付版';
+const NO_COMPANY_ID = '510037_20240710_交付版';
 
 describe('templateRepo と filled/', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
@@ -40,7 +40,10 @@ describe('templateRepo と filled/', () => {
     );
     fs.writeFileSync(path.join(tmp, 'templates', `${BOTH_ID}.html`), '<p>{{ y }}</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'filled', `${BOTH_ID}.html`), '<p>値入り 110024</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', '510037.css'), '.a{}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'AM01_510037_交付版.css'), '.a{}', 'utf8');
+    // 会社コードの無い 3 つ区切り(ファンド_基準日_版種)。3 つ区切りはテンプレートの形なので
+    // 会社=510037・ファンド=20240710 と読めてしまうが、値入り HTML ではない。
+    fs.writeFileSync(path.join(tmp, 'filled', `${NO_COMPANY_ID}.html`), '<p>会社なし</p>', 'utf8');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     fs.writeFileSync(path.join(tmp, 'templates', `${SKELETON_ID}.html`), '<p>{{ s }}</p>', 'utf8');
@@ -69,12 +72,29 @@ describe('templateRepo と filled/', () => {
     });
   });
 
-  it('pending/ にしか無いテンプレートは draft で返り、一覧にも基準日なしの draft で出る', async () => {
+  it('pending/ にしか無いテンプレート(基準日なし)は取得できるが、編集タブの一覧と候補には出ない', async () => {
     const t = await repo.getTemplate(SKELETON_PENDING_ID);
     expect(t.meta.status).toBe('draft');
-    const row = (await repo.listTemplates({})).find((m) => m.id === SKELETON_PENDING_ID);
+    const ids = (await repo.listTemplates({})).map((m) => m.id);
+    expect(ids).not.toContain(SKELETON_PENDING_ID);
+    const opts = await repo.getDropdownOptions({ companyCode: 'AM01' }, 'edit');
+    expect(opts.fundCodes).not.toContain('510155');
+  });
+
+  it('filled/ の 3 つ区切り(ファンド_基準日_版種 など)は一覧にも候補にも出ない', async () => {
+    const ids = (await repo.listTemplates({})).map((m) => m.id);
+    expect(ids).not.toContain(NO_COMPANY_ID);
+    for (const scope of ['edit', 'published'] as const) {
+      const opts = await repo.getDropdownOptions({}, scope);
+      expect(opts.companyCodes).not.toContain('510037');
+    }
+  });
+
+  it('pending/ の基準日つき(4 つ区切り)は編集タブの一覧に draft で出る', async () => {
+    const { writePending } = await import('../src/files/pendingFiles.js');
+    await writePending('AM01_510999_20240711_交付版', '<p>生成直後</p>', '');
+    const row = (await repo.listTemplates({})).find((m) => m.id === 'AM01_510999_20240711_交付版');
     expect(row?.status).toBe('draft');
-    expect(row?.attributes.baseDate).toBeUndefined();
   });
 
   it('基準日で絞った一覧と候補に、基準日を持たない行は混ざらない', async () => {
@@ -101,6 +121,45 @@ describe('templateRepo と filled/', () => {
     expect(t.filled).toBe('<p>値入り 510037</p>');
     expect(t.css).toBe('.a{}');
     expect(t.meta.status).toBe('published');
+  });
+
+  it('全体版(テンプレ)は交付版の CSS を読まない(版種ごとに別の CSS)', async () => {
+    const t = await repo.getTemplate(JINJA_ONLY_ID);
+    expect(t.css).toBe('');
+  });
+
+  it('CSS ファイルが見つからなければ cssMissing=true、あれば付けない', async () => {
+    // FILLED_ID は css/AM01_510037_交付版.css がある。BOTH_ID(AM01_110024_…)は CSS が無い。
+    expect((await repo.getTemplate(FILLED_ID)).cssMissing).toBeUndefined();
+    expect((await repo.getTemplate(BOTH_ID)).cssMissing).toBe(true);
+    // テンプレート(3 つ区切り)の確定版も同じ。
+    expect((await repo.getTemplate(JINJA_ONLY_ID)).cssMissing).toBe(true);
+  });
+
+  it('中身が空の CSS ファイルは「ある」(cssMissing を付けない)', async () => {
+    fs.writeFileSync(path.join(tmp, 'css', 'AM01_510124_交付版.css'), '', 'utf8');
+    try {
+      const t = await repo.getTemplate(SKELETON_ID);
+      expect(t.css).toBe('');
+      expect(t.cssMissing).toBeUndefined();
+    } finally {
+      fs.rmSync(path.join(tmp, 'css', 'AM01_510124_交付版.css'));
+    }
+  });
+
+  it('pending の CSS が空のファイルとしてあれば cssMissing を付けない', async () => {
+    expect((await repo.getTemplate(SKELETON_PENDING_ID)).cssMissing).toBeUndefined();
+  });
+
+  it('pending の CSS ファイルが無ければ cssMissing=true で css は空', async () => {
+    fs.rmSync(path.join(tmp, 'pending', `${SKELETON_PENDING_ID}.css`));
+    try {
+      const t = await repo.getTemplate(SKELETON_PENDING_ID);
+      expect(t.cssMissing).toBe(true);
+      expect(t.css).toBe('');
+    } finally {
+      fs.writeFileSync(path.join(tmp, 'pending', `${SKELETON_PENDING_ID}.css`), '', 'utf8');
+    }
   });
 
   it('filled/ と templates/ の両方にあれば filled/ が勝つ', async () => {
@@ -134,44 +193,148 @@ describe('templateRepo と filled/', () => {
   });
 });
 
-describe('getSampleData と parseFundMaster の分岐', () => {
+describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
   let createTemplateRepo: typeof import('../src/repositories/templateRepo.js').createTemplateRepo;
-  let createSprocClient: typeof import('../src/db/sproc.js').createSprocClient;
+  const ID = 'AM01_510037_20240710_交付版';
 
   beforeAll(async () => {
     ({ createTemplateRepo } = await import('../src/repositories/templateRepo.js'));
-    ({ createSprocClient } = await import('../src/db/sproc.js'));
   });
 
-  /** サンプルデータ sproc の `データJSON` 列だけを差し替える最小 sproc。 */
-  const sprocWithSampleJson = (json: string | null): SprocClient =>
-    createSprocClient(async () => [{ データJSON: json }]);
+  const COMMON = [
+    { 共通サンプルID: 1, データJSON: JSON.stringify({ fund: { name: '共通名', nav: 1 }, a: 1 }) },
+    { 共通サンプルID: 2, データJSON: JSON.stringify({ b: 2 }) },
+  ];
 
-  it('company が欠けたマスタは未収録ファンド扱い(placeholder のまま)', async () => {
-    const repo = createTemplateRepo(sprocWithSampleJson(JSON.stringify({ fund: { name: 'x' } })));
-    const sample = await repo.getSampleData('999999');
-    // if 条件が false になり `buildSampleData(undefined, ...)` へ落ちるので、
-    // 共通ダミー(`sampleCommon`)の placeholder がそのまま出る。
-    expect(sample.fund.name).toBe(sampleCommon.fund.name);
+  /** 共通一覧・委託会社一覧・ファンド一覧を固定で返す最小 sproc。`rep1Throws` で Rep1 側だけ落とす。 */
+  const sprocOf = (opts: {
+    common?: Record<string, unknown>[];
+    companies?: Record<string, unknown>[];
+    funds?: Record<string, unknown>[];
+    rep1Throws?: boolean;
+  }): SprocClient => ({
+    async callSproc<T>(_proc: string, op: string): Promise<T[]> {
+      if (op === '共通一覧') return (opts.common ?? COMMON) as T[];
+      if (opts.rep1Throws) throw new Error('rep1 down');
+      if (op === '委託会社一覧') return (opts.companies ?? []) as T[];
+      if (op === 'ファンド一覧') return (opts.funds ?? []) as T[];
+      return [];
+    },
   });
 
-  it('nickname が無ければ空文字で補う', async () => {
+  const COMPANIES = [
+    { 委託会社コード: '00001', 委託会社名: '他社', 委託会社略称: 'ZZ99' },
+    { 委託会社コード: '00002', 委託会社名: '実委託会社', 委託会社略称: 'am01  ' },
+  ];
+  const FUNDS = [
+    { ファンドコード: '510001', ファンド名: '別ファンド' },
+    { ファンドコード: '510037', ファンド名: '実ファンド' },
+  ];
+
+  it('共通一覧を合成し、Rep1 の委託会社名・ファンド名を被せる', async () => {
+    const repo = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: FUNDS }));
+    const { sample, warnings } = await repo.getSampleData(ID);
+    expect(warnings).toEqual([]);
+    // 略称は末尾空白・大小を無視して引く。company.code は Rep1 の綴りでなくファイル名の会社コード。
+    expect(sample).toEqual({
+      fund: { name: '実ファンド', nav: 1, code: '510037' },
+      company: { code: 'AM01', name: '実委託会社' },
+      a: 1,
+      b: 2,
+    });
+  });
+
+  it('3 区切り(基準日なし)の ID でも引ける', async () => {
+    const repo = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: FUNDS }));
+    const { sample } = await repo.getSampleData('AM01_510037_交付版');
+    expect(sample.fund).toMatchObject({ code: '510037', name: '実ファンド' });
+  });
+
+  it('Rep1 で見つからなければ共通値のまま返す(ファンドコードだけ被せる)', async () => {
+    const repo = createTemplateRepo(sprocOf({ companies: [] }));
+    expect((await repo.getSampleData(ID)).sample).toEqual({
+      fund: { name: '共通名', nav: 1, code: '510037' },
+      company: { code: 'AM01' },
+      a: 1,
+      b: 2,
+    });
+    // 会社は見つかるがファンドが無いときは、会社名だけ被さる。
+    const noFund = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: [] }));
+    const r = (await noFund.getSampleData(ID)).sample;
+    expect(r.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+    expect(r.company).toMatchObject({ name: '実委託会社' });
+  });
+
+  it('Rep1 の取得が失敗しても共通値を返す', async () => {
+    const { logger } = await import('../src/logger.js');
+    const warn = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
+    try {
+      const repo = createTemplateRepo(sprocOf({ rep1Throws: true }));
+      const { sample, warnings } = await repo.getSampleData(ID);
+      expect(warnings).toEqual([]);
+      expect(sample.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+      expect(sample.company).toEqual({ code: 'AM01' });
+      // 握りつぶさず、Rep1 障害として気づけるようログに残す。
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ companyAbbr: 'AM01', fundCode: '510037' }),
+        expect.any(String),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('合成の warnings をそのまま返す', async () => {
     const repo = createTemplateRepo(
-      sprocWithSampleJson(
-        JSON.stringify({
-          fund: { name: 'ニックネーム無し' },
-          company: { code: 'AM01', name: '会社' },
-        }),
-      ),
+      sprocOf({
+        common: [
+          { 共通サンプルID: 1, データJSON: JSON.stringify({ k: 1 }) },
+          { 共通サンプルID: 2, データJSON: JSON.stringify({ k: 2 }) },
+          { 共通サンプルID: 3, データJSON: '{broken' },
+        ],
+      }),
     );
-    const sample = await repo.getSampleData('510037');
-    expect(sample.fund.name).toBe('ニックネーム無し');
-    expect(sample.fund.nickname).toBe('');
+    const { sample, warnings } = await repo.getSampleData(ID);
+    expect(sample.k).toBe(1);
+    expect(warnings).toHaveLength(2);
   });
 
-  it('壊れた JSON は例外を投げずマスタ無し扱いにする', async () => {
-    const repo = createTemplateRepo(sprocWithSampleJson('{not valid json'));
-    const sample = await repo.getSampleData('999999');
-    expect(sample.fund.code).toBe('999999');
+  it('行が無ければ fund.code と company.code だけの sample', async () => {
+    const repo = createTemplateRepo(sprocOf({ common: [] }));
+    expect((await repo.getSampleData(ID)).sample).toEqual({
+      fund: { code: '510037' },
+      company: { code: 'AM01' },
+    });
+  });
+
+  it('ID が不正なら validation', async () => {
+    const repo = createTemplateRepo(sprocOf({}));
+    await expect(repo.getSampleData('../evil')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(repo.getSampleData('AM01')).rejects.toMatchObject({ kind: 'validation' });
+  });
+});
+
+describe('config.sampleOverlay の差し替え', () => {
+  it('被せ先のパスは config.sampleOverlay に従う', async () => {
+    const { config } = await import('../src/config.js');
+    const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
+    const saved = { ...config.sampleOverlay };
+    Object.assign(config.sampleOverlay, { fundCode: 'x.code', fundName: 'x.name' });
+    try {
+      const repo = createTemplateRepo({
+        async callSproc<T>(_proc: string, op: string): Promise<T[]> {
+          if (op === '委託会社一覧') {
+            return [{ 委託会社コード: '1', 委託会社名: '社', 委託会社略称: 'AM01' }] as T[];
+          }
+          if (op === 'ファンド一覧') return [{ ファンドコード: '510037', ファンド名: 'F' }] as T[];
+          return [];
+        },
+      });
+      expect((await repo.getSampleData('AM01_510037_交付版')).sample).toMatchObject({
+        x: { code: '510037', name: 'F' },
+      });
+    } finally {
+      Object.assign(config.sampleOverlay, saved);
+    }
   });
 });

@@ -16,11 +16,11 @@
 
 ## pdf-to-svg（生成元: python-tools `f298d36`）
 
-`C:\Users\caads\python-tools\pdf-to-svg` の `test/fixtures/*.pdf` を、GUI を使わず変換関数
+python-tools のクローン先の `pdf-to-svg` にある `test/fixtures/*.pdf` を、GUI を使わず変換関数
 `page_to_svg`（既定の書き出し用設定）で SVG にした。python-tools の作業ツリーは変更しない。
 
 ```bash
-cd C:/Users/caads/python-tools/pdf-to-svg
+cd <python-tools のクローン先>/pdf-to-svg
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src py -3.13 -W ignore -c "
 import sys, glob, os
 from engine.pdf_engine import load_document

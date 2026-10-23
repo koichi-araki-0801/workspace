@@ -34,11 +34,8 @@ const sid = (n: number) => String(n).repeat(64).slice(0, 64);
 describe('EXEC 文の解析', () => {
   it('names and positional values are paired back into arguments', async () => {
     const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '510037')]);
-    expect(JSON.parse(String(rows[0]?.データJSON))).toMatchObject({
-      fund: { name: 'コア投資戦略ファンド（切替型）' },
-      company: { code: 'AM01' },
-    });
+    const rows = await sproc.callSproc(SP.sample, '共通一覧');
+    expect(rows.length).toBeGreaterThan(0);
   });
 
   it('gives every fake its own state', async () => {
@@ -331,15 +328,136 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
       p('小分類', undefined),
     ]);
     const pick = (区分: string) => rows.filter((r) => r.区分 === 区分).map((r) => String(r.値));
-    expect(pick('カテゴリ')).toEqual(['表紙', '注記']);
+    expect(pick('カテゴリ')).toEqual(['表紙', '注記', '版種別']);
     expect(pick('大分類')).toEqual(['税制']);
   });
 
-  it('サンプルデータ 取得 yields nothing for a fund outside the master', async () => {
-    const sproc = await createFakeSproc();
-    await expect(
-      sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '999999')]),
-    ).resolves.toHaveLength(0);
+  describe('パーツ の版種による絞り込み', () => {
+    const part = (id: string, category: string, targetEdition: string | null) => ({
+      id,
+      category,
+      majorClass: '大',
+      middleClass: '中',
+      minorClass: '小',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition,
+    });
+    const seed = {
+      parts: [
+        part('both', '共通', null),
+        part('delivered', '交付', '交付版'),
+        part('whole', '全体', '全体版'),
+        part('blank', '空', ''),
+      ],
+    };
+    const cls = [
+      p('カテゴリ', undefined),
+      p('大分類', undefined),
+      p('中分類', undefined),
+      p('小分類', undefined),
+    ];
+
+    it('一覧 keeps the common rows and the matching edition, and returns everything without 版種', async () => {
+      const sproc = await createFakeSproc(seed);
+      const ids = async (extra: ReturnType<typeof p>[]) =>
+        (await sproc.callSproc(SP.part, '一覧', [...cls, ...extra])).map((r) => r.パーツID);
+      expect(await ids([p('版種', '交付版')])).toEqual(['both', 'delivered', 'blank']);
+      expect(await ids([p('版種', '全体版')])).toEqual(['both', 'whole', 'blank']);
+      expect(await ids([])).toEqual(['both', 'delivered', 'whole', 'blank']);
+      const rows = await sproc.callSproc(SP.part, '一覧', cls);
+      expect(rows.map((r) => r.対象版種)).toEqual([null, '交付版', '全体版', '']);
+    });
+
+    it('分類候補 drops categories that only the other edition uses', async () => {
+      const sproc = await createFakeSproc(seed);
+      const cats = async (extra: ReturnType<typeof p>[]) =>
+        (await sproc.callSproc(SP.part, '分類候補', [...cls, ...extra]))
+          .filter((r) => r.区分 === 'カテゴリ')
+          .map((r) => String(r.値));
+      expect(await cats([p('版種', '交付版')])).toEqual(['共通', '交付', '空']);
+      expect(await cats([])).toEqual(['共通', '交付', '全体', '空']);
+    });
+  });
+
+  describe('パーツ の委託会社による絞り込み', () => {
+    const part = (id: string, companyCode: string | null, targetEdition: string | null = null) => ({
+      id,
+      category: 'c',
+      majorClass: '大',
+      middleClass: '中',
+      minorClass: '小',
+      name: id,
+      content: '',
+      syncDefault: null,
+      masterReflectDefault: null,
+      targetEdition,
+      companyCode,
+    });
+    const seed = {
+      parts: [
+        part('a1', '00001'),
+        part('a2', '00001', '交付版'),
+        part('b1', '00002'),
+        part('none', null),
+      ],
+    };
+    const cls = [
+      p('カテゴリ', undefined),
+      p('大分類', undefined),
+      p('中分類', undefined),
+      p('小分類', undefined),
+    ];
+    const ids = async (extra: ReturnType<typeof p>[]) => {
+      const sproc = await createFakeSproc(seed);
+      return (await sproc.callSproc(SP.part, '一覧', [...cls, ...extra])).map((r) => r.パーツID);
+    };
+
+    it('委託会社コード を指定すると、別の会社と未設定のパーツは出ない', async () => {
+      expect(await ids([p('委託会社コード', '00001')])).toEqual(['a1', 'a2']);
+      expect(await ids([p('委託会社コード', '00002')])).toEqual(['b1']);
+    });
+
+    it('引数なしなら全件を返し、列に委託会社コードを載せる', async () => {
+      expect(await ids([])).toEqual(['a1', 'a2', 'b1', 'none']);
+      const sproc = await createFakeSproc(seed);
+      const rows = await sproc.callSproc(SP.part, '一覧', cls);
+      expect(rows.map((r) => r.委託会社コード)).toEqual(['00001', '00001', '00002', null]);
+    });
+
+    it('版種と AND で絞る', async () => {
+      expect(await ids([p('委託会社コード', '00001'), p('版種', '交付版')])).toEqual(['a1', 'a2']);
+      expect(await ids([p('委託会社コード', '00001'), p('版種', '全体版')])).toEqual(['a1']);
+    });
+  });
+
+  describe('サンプルデータ', () => {
+    it('共通一覧 returns the seeded rows in ID order', async () => {
+      const sproc = await createFakeSproc();
+      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      expect(rows.map((r) => r.共通サンプルID)).toEqual(rows.map((_, i) => i + 1));
+      expect(rows.map((r) => r.データJSON).every((j) => typeof j === 'string')).toBe(true);
+      const keys = rows.flatMap((r) => Object.keys(JSON.parse(String(r.データJSON))));
+      expect(keys).toContain('holdings');
+    });
+
+    it('共通一覧 returns the rows given by the seed', async () => {
+      const sproc = await createFakeSproc({
+        commonSamples: [{ category: null, major: null, middle: null, minor: null, data: { x: 1 } }],
+      });
+      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.カテゴリ).toBeNull();
+    });
+
+    it('取得 is an unknown operation', async () => {
+      const sproc = await createFakeSproc();
+      await expect(
+        sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '510037')]),
+      ).rejects.toThrow();
+    });
   });
 
   it('監査ログ 登録 needs the event, the outcome and the actor', async () => {

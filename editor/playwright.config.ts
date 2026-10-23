@@ -8,8 +8,9 @@ const webUrl = `http://localhost:${E2E_REST_WEB_PORT}`;
  * Fastify サーバの待受。`127.0.0.1` で書くのは、このサーバが `HOST=127.0.0.1` で待つため
  * (`localhost` は環境により `::1` へ解決されて到達しない)。ポートは e2e サーバ側と同じ
  * 定数から引き、ヘルスチェック先と proxy 先が別々にずれる形を作らない。
- * ルート `package.json` の `check-ports.mjs 24680 24681` は**既定値**の事前検査なので、
- * `E2E_REST_PORT` / `E2E_REST_WEB_PORT` を env で変えるときは呼び出し側が引数も変える。
+ * ルート `package.json` の `check-ports.mjs 24680 24681 24682` は**既定値**の事前検査なので、
+ * `E2E_REST_PORT` / `E2E_REST_WEB_PORT` / `E2E_REST_CONTROL_PORT` を env で変えるときは
+ * 呼び出し側が引数も変える。
  */
 const apiUrl = `http://127.0.0.1:${E2E_REST_PORT}`;
 

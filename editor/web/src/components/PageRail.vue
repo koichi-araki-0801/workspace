@@ -7,7 +7,7 @@
 // 1 個だけにする。親が relative なコンテナの右端へ絶対配置する想定。移動ロジックは親に委ね、
 // 確定ページを `go`(1 起点)で通知する(presentational)。複数ページ時のみ親が出す。
 import { computed, ref } from 'vue';
-import { fractionToPage, pageToFraction } from './pageNav';
+import { clampPage, fractionToPage, pageToFraction } from './pageNav';
 
 const props = withDefaults(
   defineProps<{
@@ -79,7 +79,7 @@ function onLeave(): void {
 }
 /** 上下キー/Home/End でのキーボード操作(端は clamp)。 */
 function key(target: number): void {
-  emit('go', Math.min(Math.max(target, 1), props.pageCount));
+  emit('go', clampPage(target, props.pageCount));
 }
 </script>
 

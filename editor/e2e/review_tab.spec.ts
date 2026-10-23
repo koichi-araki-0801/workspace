@@ -5,7 +5,7 @@
 // 決着後に同じ画面へ留まることを実機で固定する。
 import type { FrameLocator, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor, selectPart, submitOnce } from './helpers';
+import { login, openEditor, pagePartLocator, selectPart, submitOnce } from './helpers';
 
 const SEED_ID = 'AM01_510037_20240710_交付版';
 
@@ -16,8 +16,11 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
 }) => {
   // 組版を 2 面走らせる重いテストで、並列負荷下では既定 30s を超えるため他の重い spec と同じ 120s にする。
   test.setTimeout(120_000);
+  // 同じ人が同じ本文を 2 回申請すると、2 回目は重複(409 `REVIEW_DUPLICATE`)として断られる。
+  // 承認待ちを 2 件作るために申請者を分ける — 重複の判定は申請者ごとなので、本文は同じでよい。
   await login(page, 'admin');
   await submitOnce(page, SEED_ID);
+  await login(page, 'editor');
   await submitOnce(page, SEED_ID);
 
   await login(page, 'approver');
@@ -98,12 +101,7 @@ test('承認タブの行クリックで見た目比較が該当ページ(2 ペ�
   // 連続表示へ切り替えてから対象パーツを選ぶ。
   await page.getByRole('button', { name: '全ページを連続表示' }).click();
   await page.locator('[data-pane-tab="comments"]').click();
-  const secondPagePart = page
-    .frameLocator('iframe.gjs-frame')
-    .locator('.page')
-    .nth(1)
-    .locator('> *')
-    .first();
+  const secondPagePart = pagePartLocator(page.frameLocator('iframe.gjs-frame'), 1).first();
   await addCanvasComment(page, secondPagePart, COMMENT_TEXT);
   await submitOnce(page, SEED_ID);
 

@@ -1,4 +1,4 @@
-import { err, ok, unauthorized } from '@editor/shared';
+import { err, ok, type Result, unauthorized } from '@editor/shared';
 import { mount } from '@vue/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent } from 'vue';
@@ -17,6 +17,15 @@ function host(save: Parameters<typeof useAutosave>[0], debounceMs?: number) {
   });
   const wrapper = mount(Comp);
   return { api, wrapper };
+}
+
+/** 外から解決する Promise。保存の途中に別の出来事を挟むために使う。 */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
 }
 
 afterEach(() => {
@@ -253,5 +262,148 @@ describe('useAutosave', () => {
     // (例外が出ないことだけでは、誤って保存を走らせる実装を捕まえられない)。
     await vi.advanceTimersByTimeAsync(1600);
     expect(save).not.toHaveBeenCalled();
+  });
+  it('保存中に来た変更は完了後に保存し直し、その間の flush はそこまで待つ', async () => {
+    vi.useFakeTimers();
+    const d1 = deferred<Result<void>>();
+    const save = vi
+      .fn<() => Promise<Result<void>>>()
+      .mockReturnValueOnce(d1.promise)
+      .mockResolvedValue(ok(undefined));
+    const { api } = host(save, 800);
+
+    api.trigger();
+    await vi.advanceTimersByTimeAsync(800); // 1 回目の保存開始
+    expect(save).toHaveBeenCalledTimes(1);
+    api.trigger(); // 保存中の変更
+    expect(api.state.value).toBe('saving');
+    const f = api.flush();
+    d1.resolve(ok(undefined));
+    await expect(f).resolves.toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(api.state.value).toBe('saved');
+    expect(api.pending.value).toBe(false);
+  });
+
+  it('保存中の変更のタイマーが保存中に切れても、変更は失われない', async () => {
+    vi.useFakeTimers();
+    const d1 = deferred<Result<void>>();
+    const save = vi
+      .fn<() => Promise<Result<void>>>()
+      .mockReturnValueOnce(d1.promise)
+      .mockResolvedValue(ok(undefined));
+    const { api } = host(save, 800);
+
+    api.trigger();
+    await vi.advanceTimersByTimeAsync(800);
+    api.trigger();
+    await vi.advanceTimersByTimeAsync(800); // 保存中にタイマーが切れる(保存は重ねない)
+    expect(save).toHaveBeenCalledTimes(1);
+    d1.resolve(ok(undefined));
+    await api.settled();
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(api.state.value).toBe('saved');
+    await vi.advanceTimersByTimeAsync(1600); // 残ったタイマーで 3 回目が走らない
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it('失敗したら flush は false を返し、再度の flush(再試行)で保存し直す', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const save = vi
+      .fn<() => Promise<Result<void>>>()
+      .mockResolvedValueOnce(err(unauthorized('だめ')))
+      .mockResolvedValue(ok(undefined));
+    const { api } = host(save, 800);
+
+    api.trigger();
+    await expect(api.flush()).resolves.toBe(false);
+    expect(api.state.value).toBe('error');
+    await expect(api.flush()).resolves.toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(api.state.value).toBe('saved');
+  });
+
+  it('保存済みのあとに編集すると saved から idle へ下ろす。error は下ろさない', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ok1 = host(
+      vi.fn(async () => ok(undefined)),
+      800,
+    ).api;
+    ok1.trigger();
+    await ok1.flush();
+    expect(ok1.state.value).toBe('saved');
+    ok1.trigger();
+    expect(ok1.state.value).toBe('idle');
+
+    const ng = host(
+      vi.fn(async () => err(unauthorized('だめ'))),
+      800,
+    ).api;
+    ng.trigger();
+    await ng.flush();
+    expect(ng.state.value).toBe('error');
+    ng.trigger();
+    expect(ng.state.value).toBe('error');
+  });
+
+  it('flush は保存するものが無ければ true を返す', async () => {
+    const save = vi.fn(async () => ok(undefined));
+    const { api } = host(save, 800);
+    await expect(api.flush()).resolves.toBe(true);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('cancel は実行中の保存を止めないが、次の周回をさせない', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const d1 = deferred<Result<void>>();
+    const save = vi
+      .fn<() => Promise<Result<void>>>()
+      .mockReturnValueOnce(d1.promise)
+      .mockResolvedValue(ok(undefined));
+    const { api } = host(save, 800);
+
+    api.trigger();
+    const f = api.flush();
+    api.trigger();
+    api.cancel();
+    d1.resolve(ok(undefined));
+    await expect(f).resolves.toBe(true);
+    expect(save).toHaveBeenCalledTimes(1);
+
+    // 失敗した保存の途中で cancel したら、破棄した変更を再試行の対象へ戻さない。
+    const d2 = deferred<Result<void>>();
+    const save2 = vi.fn<() => Promise<Result<void>>>().mockReturnValueOnce(d2.promise);
+    const b = host(save2, 800).api;
+    b.trigger();
+    const g = b.flush();
+    b.cancel();
+    d2.resolve(err(unauthorized('だめ')));
+    await expect(g).resolves.toBe(false);
+    await expect(b.flush()).resolves.toBe(true);
+    expect(save2).toHaveBeenCalledTimes(1);
+  });
+
+  it('settled は保存し直しまで含めて待つ', async () => {
+    const d1 = deferred<Result<void>>();
+    const d2 = deferred<Result<void>>();
+    const save = vi
+      .fn<() => Promise<Result<void>>>()
+      .mockReturnValueOnce(d1.promise)
+      .mockReturnValueOnce(d2.promise);
+    const { api } = host(save, 800);
+
+    api.trigger();
+    void api.flush();
+    api.trigger();
+    let done = false;
+    const waited = api.settled().then(() => {
+      done = true;
+    });
+    d1.resolve(ok(undefined));
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(done).toBe(false);
+    d2.resolve(ok(undefined));
+    await waited;
+    expect(done).toBe(true);
   });
 });

@@ -35,6 +35,16 @@ export const PREVIEW_HOST_BASE = '/preview-host';
  */
 export const PREVIEW_HOST_URL = `/api${PREVIEW_HOST_BASE}/index.html`;
 
+/**
+ * 論理ルート相対パス(1 回復号済み)→ プレビューホストの資産 URL(同一オリジンで cookie が付く)。
+ * セグメントごとに符号化し直す。そのまま繋ぐと `#` `?` で URL が切れ、`%2e%2e` はブラウザの URL
+ * 解析で `..` と扱われる。対の無いサロゲートは `encodeURIComponent` が `URIError` を投げるので、
+ * 呼び出し側がその参照だけ諦める。
+ */
+export function previewHostAssetUrl(rel: string): string {
+  return `/api${PREVIEW_HOST_BASE}/${rel.split('/').map(encodeURIComponent).join('/')}`;
+}
+
 /** 親 → 子: 組版する文書を渡す(`html` は完成済みのプレビュー文書文字列)。 */
 export const PREVIEW_MSG_DOC = 'editor:preview-doc';
 

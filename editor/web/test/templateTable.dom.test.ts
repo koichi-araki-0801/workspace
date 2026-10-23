@@ -26,7 +26,7 @@ function mountTable(actionDisabled: boolean) {
   return mount(TemplateTable, {
     props: { rows: [row], action: 'create', actionDisabled },
     // ファンド名の解決は repository 注入が要る。ここの関心はボタンの活性なので差し替える。
-    global: { stubs: { FundCodeName: true } },
+    global: { stubs: { FundCodeName: true, CompanyCodeLabel: true } },
   });
 }
 
@@ -60,9 +60,12 @@ describe('TemplateTable の基準日の列(回帰網)', () => {
     };
     const w = mount(TemplateTable, {
       props: { rows: [skeleton], action: 'edit' },
-      global: { stubs: { FundCodeName: true } },
+      global: { stubs: { FundCodeName: true, CompanyCodeLabel: true } },
     });
-    expect(w.findAll('thead th').map((th) => th.text())).toContain('基準日');
+    const heads = w.findAll('thead th').map((th) => th.text());
+    expect(heads).toContain('基準日');
+    expect(heads).toContain('委託会社');
+    expect(heads).not.toContain('委託会社コード');
     expect(w.text()).not.toContain('undefined');
   });
 });

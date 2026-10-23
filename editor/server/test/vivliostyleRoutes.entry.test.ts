@@ -47,7 +47,7 @@ vi.mock('../src/vivliostyle/build.js', () => ({
   },
   buildInlinePdf: async () => Buffer.from('%PDF-1.4 fake'),
   buildMergedPdf: async () => Buffer.from('%PDF-1.4 fake'),
-  prepareInlineDoc: async () => ({ dir: '', entry: '' }),
+  prepareInlineDoc: async () => ({ dir: '', config: { entry: [], base: '/vivliostyle' } }),
 }));
 
 /** `extractProjectZip` を呼んだ時点で枠の内側だったか(呼び出しごとに 1 件)。 */

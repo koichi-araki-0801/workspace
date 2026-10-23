@@ -2,8 +2,8 @@
 // filter_bar_layout.spec.ts — 絞り込みバーの placeholder が入力欄に収まること
 // =============================================================================
 // `FormField` の幅は離散トークンで、`SearchFilters` の placeholder は項目名を含む
-// (「委託会社コードを入力/選択」)。トークンが足りないと入力欄の中で文字が見切れ、
-// 「委託会社コードを入力/選」のように読めなくなる。列数の一番多い比較タブ(5 列)は
+// (最長は「ファンドコードを入力/選択」)。トークンが足りないと入力欄の中で文字が見切れ、
+// 「ファンドコードを入力/選」のように読めなくなる。列数の一番多い比較タブ(5 列)は
 // 同時に「フィールド行が折り返さない」ことも確かめる。
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
@@ -39,7 +39,7 @@ async function placeholderFits(page: Page) {
 test('編集タブ: placeholder が入力欄に収まる', async ({ page }) => {
   await login(page);
   await page.goto('/edit', { waitUntil: 'commit' });
-  await page.getByText('委託会社コード').first().waitFor();
+  await page.getByText('ファンドコード').first().waitFor();
   const fields = await placeholderFits(page);
   expect(fields.length).toBeGreaterThanOrEqual(2);
   for (const f of fields)
@@ -49,7 +49,7 @@ test('編集タブ: placeholder が入力欄に収まる', async ({ page }) => {
 test('比較タブ: 5 列でも placeholder が収まり、フィールド行が折り返さない', async ({ page }) => {
   await login(page);
   await page.goto('/compare', { waitUntil: 'commit' });
-  await page.getByText('委託会社コード').first().waitFor();
+  await page.getByText('ファンドコード').first().waitFor();
 
   const fields = await placeholderFits(page);
   expect(fields.length).toBeGreaterThanOrEqual(2);
@@ -60,7 +60,7 @@ test('比較タブ: 5 列でも placeholder が収まり、フィールド行が
   // 折り返していないこと(= 上端が 1 種類)を見る。ボタン行は常に次行なので除く。
   const rows = await page.evaluate(() => {
     const labels = Array.from(document.querySelectorAll('label'));
-    const target = labels.find((l) => (l.textContent ?? '').includes('委託会社コード'));
+    const target = labels.find((l) => (l.textContent ?? '').includes('ファンドコード'));
     const row = target?.closest('div')?.parentElement;
     if (!row) return -1;
     const tops = Array.from(row.children)
@@ -76,7 +76,7 @@ test('比較タブ: 5 列でも placeholder が収まり、フィールド行が
 test('編集タブ: 検索・クリアがフィールドと同じ行に並ぶ', async ({ page }) => {
   await login(page);
   await page.goto('/edit', { waitUntil: 'commit' });
-  await page.getByText('委託会社コード').first().waitFor();
+  await page.getByText('ファンドコード').first().waitFor();
   const sameRow = await page.evaluate(() => {
     const button = Array.from(document.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === '検索',

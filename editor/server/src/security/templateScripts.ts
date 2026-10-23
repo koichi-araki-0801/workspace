@@ -41,8 +41,29 @@
 // 再提案する場合は `test/templateScripts.test.ts` の
 // 「描画前テンプレ特有の隠し方」を先に読むこと。
 // なお `parse5` は現状 server の依存に無く、追加はオフライン重量物バンドルの再生成を伴う。
+//
+// ── ほかの走査器と 1 本にしない理由 ──
+// 同じ理由で、PDF 経路(`vivliostyle/inlineCss.ts`)や申請の関所(`@editor/shared` の
+// `editingMarkers.ts`)の走査器とも共通化しない。ここは描画前の Jinja を読み、コメントの中まで
+// 走査し、raw text は `script` / `style` だけ、タグ内の Jinja を読み飛ばし、作業量の予算で打ち切った
+// ら拒否する。どれもほかの走査器とは違う倒し方である(設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。
+// 共有するのは、ブラウザと同じ答えになるべき部品だけ: `@editor/shared` の `html/htmlLex.ts`(空白・
+// 英字・タグ名の終わり)と `html/rawText.ts` の `findRawTextEnd`(予算は `scanned` でここが数える)。
+// 属性の読み取りは共有の `readAttr` を使わない。タグ内の Jinja を属性の手前で読み飛ばすのと、
+// `=` で始まる名前を空名として捨てる(`<a =x>` は単位を作らない)現行の単位列を保つため。
 
-import { decodeHtmlEntities, findExternalRefsInCss, forbidden } from '@editor/shared';
+import {
+  asciiLower,
+  decodeHtmlEntities,
+  findExternalRefsInCss,
+  findRawTextEnd,
+  forbidden,
+  isAsciiAlpha,
+  isHtmlSpace,
+  isTagNameEnd,
+  jinjaCloserOf,
+  MARKER_ATTRS,
+} from '@editor/shared';
 
 // ── 1. round-trip 用に退避された属性の復号 ──
 
@@ -52,11 +73,11 @@ import { decodeHtmlEntities, findExternalRefsInCss, forbidden } from '@editor/sh
  * (ラベル)は信用できないので、照合前に必ず復号した実体へ展開する。
  */
 const ENCODED_ATTRS = [
-  'data-opaque',
-  'data-jinja',
-  'data-jinja-block',
-  'data-jinja-open',
-  'data-jinja-close',
+  MARKER_ATTRS.opaque,
+  MARKER_ATTRS.jinja,
+  MARKER_ATTRS.jinjaBlock,
+  MARKER_ATTRS.jinjaOpen,
+  MARKER_ATTRS.jinjaClose,
 ] as const;
 
 const ENCODED_ATTR_RE = new RegExp(
@@ -65,22 +86,34 @@ const ENCODED_ATTR_RE = new RegExp(
 );
 
 // チップの中に更にチップが入る形(復号結果がまた base64 属性を含む)を想定して繰り返す。
-// 上限を置くのは、自己参照する入力で無限ループさせないため(超えた分は展開せず、
-// 展開しきれなかった入力は基準側と一致しないので拒否側に倒れる)。
+// 上限を置くのは、自己参照する入力で無限ループさせないため。超えた分は展開しない代わりに
+// 単位列の末尾へ `SCAN_INCOMPLETE_UNIT` を積み、照合は拒否側へ倒す。上限の先を黙って
+// 捨てると、そこへ何を足しても単位列が変わらず、基準と一致したまま照合を通ってしまう。
 const MAX_DECODE_DEPTH = 4;
 
 /**
  * 走査に費やしてよい総バイト数の予算。入力サイズ上限(申請本文の契約上限 4 MiB)だけでは、
  * 閉じない `{{` や `<style>` の反復が開始位置ごとに末尾まで舐め直す二次爆発を止められない
  * (4 MiB 未満の入力で数百 GB 規模の走査になりうる)。走査系はこの予算を減算し、尽きたら
- * 走査を打ち切る。打ち切られた入力は単位列が基準と一致しないので申請は拒否側へ倒れる
- * (fail closed)。正当なテンプレの走査コスト(入力長の数倍)を十分上回る値にしてある。
+ * 走査を打ち切る。打ち切った入力は `SCAN_INCOMPLETE_UNIT` を積んで照合を拒否側へ倒す
+ * (fail closed)。打ち切りの先は基準側でも走査されないので、単位列の一致だけでは差分を
+ * 検出できない。正当なテンプレの走査コスト(入力長の数倍)を十分上回る値にしてある。
  */
 const MAX_SCAN_BYTES = 64 * 1024 * 1024;
+
+/**
+ * 走査を上限(深さ・作業量予算)で打ち切ったことを表す単位。入力の一部が単位抽出から
+ * 外れたことを示し、`assertTemplateScriptsUnchanged` は提出側にこれがあれば基準との
+ * 一致に関わらず拒否する。基準側も同じ上限に達する形では、上限の先の差分が両側から
+ * 等しく消えて単位列が一致してしまうため、一致比較だけには任せない。
+ */
+const SCAN_INCOMPLETE_UNIT = 'scan-incomplete';
 
 /** 走査中に共有する可変の作業量予算。`collectExecutableUnits` が 1 回作って配る。 */
 interface ScanBudget {
   remaining: number;
+  /** 深さの上限で展開・再走査を打ち切ったか。予算切れは `remaining` で判る。 */
+  truncated: boolean;
 }
 
 function decodeBase64(value: string): string | null {
@@ -140,18 +173,10 @@ export function expandEncodedChips(html: string): string {
 
 // ── 2. HTML 実体参照の復号 ──
 
-/**
- * 属性値・CSS 値の比較前に実体参照を解く。`javascript&#58;alert(1)` や
- * `&lt;script&gt;` のように、パーサが解いてから解釈するものを解かずに比べると
- * 「基準に無い実行面」を実体参照の衣で通せる。
- *
- * 実装は `@editor/shared` の `decodeHtmlEntities` **1 本**に寄せる。ここに私有の複製を
- * 置いていた版では、外部参照ゲート(`security/externalRefs.ts` が呼ぶ
- * `findExternalRefsInTag`)が復号を**しない**まま判定しており、`&#104;ttps://evil/x` は
- * 不変性照合には掛かるのに 400 ゲートは素通りする、という非対称ができていた。
- * 復号器が 1 つなら、その形の食い違いを構造的に作れない。
- */
-const decodeEntities = decodeHtmlEntities;
+// 属性値・CSS 値は比較前に `@editor/shared` の `decodeHtmlEntities` で実体参照を解く。
+// `javascript&#58;alert(1)` や `&lt;script&gt;` のように、パーサが解いてから解釈するものを解かずに
+// 比べると「基準に無い実行面」を実体参照の衣で通せる。外部参照ゲート(`security/externalRefs.ts`
+// の `findExternalRefsInTag`)と復号器を共有するので、両者の判定が実体参照の形で食い違わない。
 
 // ── 3. 許可リスト ──
 
@@ -281,7 +306,7 @@ const INERT_ELEMENTS = new Set([
  * しか単位化しないと単位ゼロで通ってしまう。`style` は CSS 参照の抽出が要るので
  * ここへ残したまま、中身をマークアップとしても走査する形にしてある。
  */
-const RAW_TEXT_ELEMENTS = new Set(['script', 'style']);
+const SCRIPT_SCAN_RAW_TEXT: ReadonlySet<string> = new Set(['script', 'style']);
 
 /**
  * 能動性を持たない属性。ここに**無い**属性は単位になる。`on*`(既知/未知を問わず)・
@@ -436,25 +461,17 @@ interface ParsedTag {
 }
 
 /**
- * **タグ名**の終端文字。仕様のタグ名状態が実際に終端する文字だけを並べる。
+ * **属性名**の終端文字。属性名状態はタグ名と違い `=` でも終わる。
  *
- * `=` を入れてはならない。タグ名状態は空白・`/`・`>` でしか終わらず、`=` は
+ * **タグ名**の終端は `@editor/shared` の `isTagNameEnd`(空白・`/`・`>`)で、こちらとは別に持つ。
+ * タグ名に `=` を入れてはならない。タグ名状態は空白・`/`・`>` でしか終わらず、`=` は
  * 普通のタグ名文字なので、`<style=x>` の要素名はブラウザにとって `style=x` という**未知要素**
  * であり、中身は raw text にならず通常マークアップとして解析される(実 Chromium で
  * `<style=x><img src=x onerror=…>` の onerror 発火を確認)。ここに `=` があると走査器だけが
  * 要素名を `style` と読み、`</style` まで読み飛ばして内側が単位ゼロになる。
- *
- * **属性名の終端は別集合**(`ATTR_NAME_TERMINATORS`)。属性名状態は `=` でも終わるため、
  * 2 つを同じ集合で兼ねると片方が必ず間違う。
  */
-const TAG_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>']);
-
-/** **属性名**の終端文字。属性名状態はタグ名と違い `=` でも終わる。 */
 const ATTR_NAME_TERMINATORS = new Set([' ', '\t', '\n', '\r', '\f', '/', '>', '=']);
-
-function isSpace(c: string): boolean {
-  return c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f';
-}
 
 /** 「タグの開始に見える `<`」の字面。読み飛ばし幅がこれを跨がないよう縛るのに使う。 */
 const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
@@ -477,9 +494,8 @@ const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
  * ので影響を受けない。
  */
 function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
-  const open = text.slice(at, at + 2);
-  const close = open === '{{' ? '}}' : open === '{%' ? '%}' : open === '{#' ? '#}' : null;
-  if (close === null) return -1;
+  const close = jinjaCloserOf(text.slice(at, at + 2));
+  if (close === undefined) return -1;
   const e = text.indexOf(close, at + 2);
   // 閉じ記号を探して走った距離を予算から引く(閉じない `{{` が末尾まで舐める分をここで数える)。
   budget.remaining -= (e < 0 ? text.length : e) - at;
@@ -488,42 +504,25 @@ function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
 }
 
 /**
- * raw text 要素(`script` / `style`)の終了タグの `<` 位置を返す(無ければ `-1`)。
+ * raw text 要素(`script` / `style`)の終了タグの `<` 位置を返し(無ければ `-1`)、探すのに読んだ
+ * 分を予算から引く。終わりの規則は `@editor/shared` の `findRawTextEnd`(`inlineCss.ts` などと共有)。
  *
  * `</script` の前方一致だけでは足りない。HTML のトークナイザは終了タグ名の直後が
  * 空白 / `/` / `>` のときにだけ終了タグとみなすので、`</scriptx>` は**本文の一部**である。
  * 前方一致で切ると `<script>init()</scriptx>/;evil()</script>` の本文を
  * `init()` と読み、基準と一致させたまま `evil()` を確定テンプレへ通してしまう。
- * 判定は `inlineCss.ts` の `findRawTextEnd` と同じ規則(片方だけ緩めない)。
  *
- * ⚠ `lower`(= `text` 全体の小文字化コピー)は**呼び出し側が 1 回だけ作って渡す**。
- * ここで `text.toLowerCase()` すると script/style 1 つにつき入力全体のコピーを
+ * ⚠ `lower`(= `text` 全体を `asciiLower` で小文字にしたコピー)は**呼び出し側が 1 回だけ作って
+ * 渡す**。`toLowerCase` で作ると `İ` が 2 単位に伸びて位置がずれ、閉じタグの後ろの本物のタグを
+ * 見落とす。ここで入力全体を小文字にすると script/style 1 つにつき入力全体のコピーを
  * 作り、`collectInto` は `scanOpenTags` と `rawTextOf` の双方から呼ぶので要素あたり
  * 概ね 2 コピーになる。`'<style></style>'` の反復を `POST /api/review-requests` に
  * 載せるだけで、`submitReview` 冒頭の同期区間がイベントループを恒久停止させる。
- * `inlineCss.findRawTextEnd` と同じ欠陥で、直すときは両方直すこと。
  */
-function rawTextEnd(
-  text: string,
-  lower: string,
-  name: string,
-  from: number,
-  budget: ScanBudget,
-): number {
-  const needle = `</${name}`;
-  let i = from;
-  while (i < lower.length) {
-    const at = lower.indexOf(needle, i);
-    if (at === -1) {
-      budget.remaining -= lower.length - i; // 終了タグを探して末尾まで舐めた分を数える
-      return -1;
-    }
-    budget.remaining -= at - i + needle.length;
-    const after = text[at + needle.length];
-    if (after === undefined || isSpace(after) || after === '/' || after === '>') return at;
-    i = at + needle.length;
-  }
-  return -1;
+function rawTextEnd(lower: string, name: string, from: number, budget: ScanBudget): number {
+  const { at, scanned } = findRawTextEnd(lower, name, from);
+  budget.remaining -= scanned; // 終了タグを探して読んだ分(見つからなければ末尾まで)を数える
+  return at;
 }
 
 /**
@@ -563,18 +562,18 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
       i = end <= lt ? len : end;
       continue;
     }
-    if (!/[a-zA-Z]/.test(next)) {
+    if (!isAsciiAlpha(next)) {
       i = lt + 1;
       continue;
     }
     let p = lt + 1;
-    while (p < len && !TAG_NAME_TERMINATORS.has(text[p] as string)) p++;
+    while (p < len && !isTagNameEnd(text[p])) p++;
     const name = text.slice(lt + 1, p).toLowerCase();
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
     while (p < len) {
       if (budget.remaining <= 0) break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
-      while (p < len && (isSpace(text[p] as string) || text[p] === '/')) p++;
+      while (p < len && (isHtmlSpace(text[p]) || text[p] === '/')) p++;
       if (p >= len) break;
       if (text[p] === '>') {
         p++;
@@ -593,11 +592,11 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
       const nameStart = p;
       while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) p++;
       const attrName = text.slice(nameStart, p).toLowerCase();
-      while (p < len && isSpace(text[p] as string)) p++;
+      while (p < len && isHtmlSpace(text[p])) p++;
       let value = '';
       if (text[p] === '=') {
         p++;
-        while (p < len && isSpace(text[p] as string)) p++;
+        while (p < len && isHtmlSpace(text[p])) p++;
         const quote = text[p];
         if (quote === '"' || quote === "'") {
           const e = text.indexOf(quote, p + 1);
@@ -605,7 +604,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
           p = e < 0 ? len : e + 1;
         } else {
           const vs = p;
-          while (p < len && !isSpace(text[p] as string) && text[p] !== '>') p++;
+          while (p < len && !isHtmlSpace(text[p]) && text[p] !== '>') p++;
           value = text.slice(vs, p);
         }
       }
@@ -613,8 +612,8 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
     }
     yield { at: lt, contentAt: p, name, attrs, jinja };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
-    if (RAW_TEXT_ELEMENTS.has(name)) {
-      const close = rawTextEnd(text, lower, name, p, budget);
+    if (SCRIPT_SCAN_RAW_TEXT.has(name)) {
+      const close = rawTextEnd(lower, name, p, budget);
       i = close < 0 ? len : close + name.length + 2;
     } else {
       i = p > lt ? p : lt + 1;
@@ -624,7 +623,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
 
 /** raw text 要素の内容(終了タグが無ければ EOF まで)。終端規則は `rawTextEnd` と共有する。 */
 function rawTextOf(text: string, lower: string, tag: ParsedTag, budget: ScanBudget): string {
-  const close = rawTextEnd(text, lower, tag.name, tag.contentAt, budget);
+  const close = rawTextEnd(lower, tag.name, tag.contentAt, budget);
   return close < 0 ? text.slice(tag.contentAt) : text.slice(tag.contentAt, close);
 }
 
@@ -636,7 +635,7 @@ function collapse(value: string): string {
 
 function normalizedAttrs(attrs: readonly ParsedAttr[]): string {
   return [...attrs]
-    .map((a) => `${a.name}=${collapse(decodeEntities(a.value))}`)
+    .map((a) => `${a.name}=${collapse(decodeHtmlEntities(a.value))}`)
     .sort()
     .join(' ');
 }
@@ -658,8 +657,8 @@ function stripJinjaTokens(s: string): string {
   let i = 0;
   const n = s.length;
   while (i < n) {
-    if (s[i] === '{' && (s[i + 1] === '{' || s[i + 1] === '%' || s[i + 1] === '#')) {
-      const close = s[i + 1] === '{' ? '}}' : s[i + 1] === '%' ? '%}' : '#}';
+    const close = s[i] === '{' ? jinjaCloserOf(s.slice(i, i + 2)) : undefined;
+    if (close !== undefined) {
       const e = s.indexOf(close, i + 2);
       if (e < 0) break; // 閉じないトークン: 以降は捨てる
       i = e + 2; // 閉じるトークンは丸ごと飛ばす(indexOf は前進のみ = 全体で線形)
@@ -692,7 +691,7 @@ function isInertUrlLiteral(decoded: string): boolean {
  * トークンを空文字へ潰した残りにも同じ判定を掛け、どちらかが活性なら単位化する。
  */
 function isInertUrl(value: string): boolean {
-  const decoded = decodeEntities(value);
+  const decoded = decodeHtmlEntities(value);
   if (!isInertUrlLiteral(decoded)) return false;
   const stripped = stripJinjaTokens(decoded);
   return stripped === decoded || isInertUrlLiteral(stripped);
@@ -707,7 +706,7 @@ function isInertUrl(value: string): boolean {
  * 形が構造的に作れない。
  */
 function pushCssUnits(css: string, at: number, out: PositionedUnit[]): void {
-  for (const ref of findExternalRefsInCss(decodeEntities(css))) {
+  for (const ref of findExternalRefsInCss(decodeHtmlEntities(css))) {
     out.push({ at, seq: out.length, unit: `css-ref:${collapse(ref)}` });
   }
 }
@@ -722,10 +721,15 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
   // depth は「チップ復号の入れ子」と「<style> 本文の再走査」の両方を数える。閉じない
   // `<style>` の反復は残り全体を本文として同じ深さで再走査させるため、深さでも止める
   // (byte 予算と二段で、総走査バイト数・スタック深さの双方を入力長に対して線形に保つ)。
-  if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) return;
+  if (html === '') return;
+  if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) {
+    budget.truncated = true;
+    return;
+  }
   const { text, payloads } = splitEncodedChips(html);
-  // 小文字化コピーは走査 1 回につき 1 つ(`rawTextEnd` の注意書きを見よ)。予算からも引く。
-  const lower = text.toLowerCase();
+  // 小文字化コピーは走査 1 回につき 1 つで、位置がずれない `asciiLower` で作る(`rawTextEnd` の
+  // 注意書きを見よ)。予算からも引く。
+  const lower = asciiLower(text);
   budget.remaining -= text.length;
   for (const tag of scanOpenTags(text, lower, budget)) {
     if (tag.name === 'script') {
@@ -750,7 +754,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       // 単位化だけでは能動属性を拾えず、`</style` まで読み飛ばした範囲が単位ゼロになる。
       // HTML 名前空間では実行されない字面まで拾うが、過剰包含は基準側にも同じだけ現れるので
       // 害にならない(ファイル冒頭の方針どおり)。同じ理由で `title` / `textarea` は
-      // `RAW_TEXT_ELEMENTS` から外してある。
+      // `SCRIPT_SCAN_RAW_TEXT` から外してある。
       // ⚠ 深さを 1 段下げて再走査する。閉じない `<style>` は本文＝残り全体になり、その中の
       // `<style>` がまた残り全体を本文にする…と同じ深さで再帰して二次爆発したため。
       collectInto(body, out, depth + 1, budget);
@@ -760,7 +764,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
           out.push({
             at: tag.at,
             seq: out.length,
-            unit: `attr:style.${a.name}=${collapse(decodeEntities(a.value))}`,
+            unit: `attr:style.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
           });
         }
       }
@@ -781,7 +785,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
         out.push({
           at: tag.at,
           seq: out.length,
-          unit: `attr:${tag.name}.${a.name}=${collapse(decodeEntities(a.value))}`,
+          unit: `attr:${tag.name}.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
         });
         continue;
       }
@@ -789,7 +793,7 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
         out.push({
           at: tag.at,
           seq: out.length,
-          unit: `url:${tag.name}.${a.name}=${collapse(decodeEntities(a.value))}`,
+          unit: `url:${tag.name}.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
         });
       }
       if (a.name === 'style') pushCssUnits(a.value, tag.at, out);
@@ -800,7 +804,10 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       out.push({ at: tag.at, seq: out.length, unit: `jinja-attr:${tag.name}|${collapse(j)}` });
     }
   }
-  if (depth >= MAX_DECODE_DEPTH) return;
+  if (depth >= MAX_DECODE_DEPTH) {
+    if (payloads.length > 0) budget.truncated = true;
+    return;
+  }
   for (const p of payloads) {
     if (budget.remaining <= 0) return;
     const nested: PositionedUnit[] = [];
@@ -815,8 +822,12 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
  */
 export function collectExecutableUnits(html: string): string[] {
   const out: PositionedUnit[] = [];
-  collectInto(html, out, 0, { remaining: MAX_SCAN_BYTES });
-  return out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
+  const budget: ScanBudget = { remaining: MAX_SCAN_BYTES, truncated: false };
+  collectInto(html, out, 0, budget);
+  const units = out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
+  // 予算切れは `scanOpenTags` の途中打ち切りも含むので、残量で判定する。
+  if (budget.truncated || budget.remaining <= 0) units.push(SCAN_INCOMPLETE_UNIT);
+  return units;
 }
 
 // ── 6. 照合 ──
@@ -826,7 +837,7 @@ function unitsEqual(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /** 照合失敗時にユーザーへ返す文言。経路(申請/承認/転写)を問わず同じ案内にする。 */
-export const SCRIPT_IMMUTABLE_MESSAGE =
+const SCRIPT_IMMUTABLE_MESSAGE =
   '実行コード・外部参照は編集できません。変更が必要なら開発者へ依頼してください';
 
 /**
@@ -847,7 +858,7 @@ export function assertTemplateScriptsUnchanged(
 ): void {
   const before = collectExecutableUnits(baselineHtml);
   const after = collectExecutableUnits(submittedHtml);
-  if (unitsEqual(before, after)) return;
+  if (unitsEqual(before, after) && !after.includes(SCAN_INCOMPLETE_UNIT)) return;
   throw forbidden(
     `${SCRIPT_IMMUTABLE_MESSAGE} (テンプレート=${context.templateId})`,
     // 差分の中身はユーザーへ出さない(攻撃者への手掛かりになる)。ログにだけ残す。

@@ -70,6 +70,18 @@ export function templateIdFromFileName(fileName: string): string {
   return fileName.replace(/\.html$/, '');
 }
 
+/**
+ * 文書 ID(値入り HTML の 4 つ区切り / テンプレートの 3 つ区切り)から、テンプレ単位の CSS 名
+ * `<会社>_<ファンド>_<版種>.css` を導く。基準日違いの文書は同じ CSS を共有する(承認による
+ * CSS の変更が同じテンプレの他の基準日にも効く)。規約外・安全でない ID は null。
+ */
+export function cssFileNameOf(templateId: string): string | null {
+  if (!isValidAnyTemplateId(templateId)) return null;
+  const a = parseAnyTemplateFileName(`${templateId}.html`);
+  if (!a) return null;
+  return `${a.companyCode}_${a.fundCode}_${a.editionType}.css`;
+}
+
 // ── 交付版⇄全体版 ペア解決 ──
 // 同一の会社/ファンド/基準日で版種だけが異なる 2 テンプレートを「ペア」と呼び、確定保存の
 // 承認直後にパーツ単位の自動同期(server の `sync/partSync.ts`)を掛ける。版種は自由文字列の
@@ -132,6 +144,12 @@ export function formatBaseDate(baseDate: string): string {
 // 一元定義し、I/O 層の入口で強制する。`node:path` に依存しないのは web からも使うため。
 
 /**
+ * Windows の予約デバイス名(拡張子付きを含む)。`CON.html` もデバイスとして扱われ、lstat が装置として
+ * 成功しうるので、実体に触れる前に名前で落とす。サーバの画像の配信ルートも同じ表で落とす。
+ */
+export const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+
+/**
  * 単一のファイル名セグメントとして安全か。パス区切り・`..`・制御文字に加え、Windows で
  * 特別扱いされる字面(ドライブ指定子 `:`・ワイルドカード・末尾ドット/空白)も落とす。
  */
@@ -144,7 +162,7 @@ function isSafeFileNameSegment(s: string): boolean {
   // 末尾のドット/空白は Windows が黙って落とすため、検査をすり抜けた別名になりうる。
   if (s !== s.trim() || s.endsWith('.')) return false;
   // Windows の予約デバイス名は拡張子付き(`CON.html`)でもデバイスとして扱われる。
-  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i.test(s)) return false;
+  if (WINDOWS_RESERVED_RE.test(s)) return false;
   return true;
 }
 
@@ -189,14 +207,6 @@ export function isValidAnyTemplateId(templateId: string): boolean {
 }
 
 /**
- * ファンドコードが単一セグメントとして安全か。要求はファイル名規約の 1 トークンと同一なので
- * `isValidTemplateToken` へ委譲する(判定を 2 本持つと片方だけが緩む)。
- */
-export function isValidFundCode(fundCode: string): boolean {
-  return isValidTemplateToken(fundCode);
-}
-
-/**
  * ペアキー(`templatePairKey` の形。テンプレートは `companyCode_fundCode`、値入り HTML は
  * `companyCode_fundCode_baseDate`)が全体・トークン単位ともに安全か。`syncFiles.ts` が
  * `sync/<pairKey>.json` へ連結する前の検査に使う。
@@ -228,14 +238,6 @@ export function assertAnyTemplateId(templateId: string): string {
     throw validation(`不正なテンプレート id です: ${templateId}`);
   }
   return templateId;
-}
-
-/** `isValidFundCode` に通らなければ `validation` を投げ、通れば入力をそのまま返す。 */
-export function assertFundCode(fundCode: string): string {
-  if (!isValidFundCode(fundCode)) {
-    throw validation(`不正なファンドコードです: ${fundCode}`);
-  }
-  return fundCode;
 }
 
 /**

@@ -3,7 +3,7 @@
 // ReviewNoticeBar.vue — 精査画面の技術的警告を業務語 1 行へ集約する通知バー
 // =============================================================================
 // 旧画面はバナー 4 種(truncated / printOnlyCss / cssChanged / 行打ち切り)が個別に並び、
-// 「ファンド共通 CSS」「語句単位の着色」等の実装語彙が承認者(事務担当者)へ直接出ていた。
+// 「テンプレの CSS」「語句単位の着色」等の実装語彙が承認者(事務担当者)へ直接出ていた。
 // 本コンポーネントは全種を「⚠ 画面だけでは確認しきれない変更が N 件」の 1 行へ束ね、
 // 展開で業務語の説明を出す。**該当項目を v-if で消すのは条件そのものが偽のときだけ**で、
 // 真である限り DOM に常在させる(折りたたみは表示状態のみ) — 設計正典「承認者が見る画面の
@@ -13,6 +13,12 @@ import { computed } from 'vue';
 
 const props = defineProps<{
   cssChanged: boolean;
+  /**
+   * 書式(CSS)が同じテンプレの基準日違いの文書と共有されている申請か(値入り HTML の申請)。
+   * CSS はテンプレ単位なので、ある基準日の承認が他の基準日の見た目も変える。承認者はその基準日の
+   * 文書しか見ていないので、効く範囲を言葉で補う。
+   */
+  sharedAcrossBaseDates: boolean;
   cssBefore: string;
   cssAfter: string;
   printOnlyCss: boolean;
@@ -44,11 +50,14 @@ const count = computed(
     </summary>
     <ol class="mt-2 space-y-3">
       <li v-if="cssChanged" data-notice-item class="border-t border-amber-200 pt-2">
-        <p class="font-medium">このファンドの書式設定も変更されています</p>
+        <p class="font-medium">このテンプレートの書式設定も変更されています</p>
+        <p v-if="sharedAcrossBaseDates" data-shared-base-dates class="mt-1 font-medium">この CSS は同じテンプレの他の基準日にも効きます</p>
         <p class="mt-1 text-xs text-amber-800">
-          文字の大きさ・色・配置などの決まりが変更されました。このファンドの
-          <strong>他の版種（全体版など）の見た目にも影響する</strong>可能性があります。
+          文字の大きさ・色・配置などの決まりが変更されました。
           左右の見た目比較に差がないか、特に注意して確認してください。
+        </p>
+        <p class="mt-1 text-xs text-amber-800">
+          ペアの版種（交付版⇔全体版）にも、ペア側で個別に直していない書式は承認のときに写ります。
         </p>
         <details class="mt-1 text-xs">
           <summary class="cursor-pointer text-amber-900 underline">

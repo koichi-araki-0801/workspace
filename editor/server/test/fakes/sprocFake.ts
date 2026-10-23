@@ -16,6 +16,10 @@
 // 状態はすべて `createFakeQuery` のクロージャに閉じるので、フェイクを 2 つ作れば 2 つの
 // 独立した DB になる(モジュール変数を持たない)。
 import type { UserRole } from '@editor/shared';
+import {
+  COMMON_SAMPLE_SEED_ROWS,
+  type CommonSampleSeedRow,
+} from '../../scripts/commonSampleSeed.js';
 import { hashPassword } from '../../src/auth/password.js';
 import { createSprocClient, type QueryFn, type Row, type SprocClient } from '../../src/db/sproc.js';
 import { SP } from '../../src/db/sprocNames.js';
@@ -53,11 +57,17 @@ export interface FakePartSeed {
   content: string;
   syncDefault: string | null;
   masterReflectDefault: string | null;
+  /** null = 両版共通。 */
+  targetEdition: string | null;
+  /** 省略・null = 未設定(委託会社を指定した一覧には出ない)。 */
+  companyCode?: string | null;
 }
 export interface FakeSeed {
   users?: readonly FakeUserSeed[];
   funds?: readonly FakeFundSeed[];
   parts?: readonly FakePartSeed[];
+  /** 共通サンプルの行(ID は並び順の 1 始まり)。省略時は `COMMON_SAMPLE_SEED_ROWS`。 */
+  commonSamples?: readonly CommonSampleSeedRow[];
 }
 
 // 自己承認は職務分掌で拒否されるので、申請者と承認者は別人が要る。パスワードはユーザー名と
@@ -72,7 +82,7 @@ export const DEFAULT_USERS: readonly FakeUserSeed[] = [
   { username: 'admin', displayName: '管理 次郎', role: 'admin', password: 'admin' },
 ];
 
-// ファンドマスタが無いと `parseFundMaster` が undefined を返し、画面のファンド名が空になる。
+// ファンドマスタが無いと Rep1 の実名を被せられず、差し込むファンド名が共通サンプルの値のままになる。
 // コードは `editor/web/src/api/fixtures/sample/*.json` と一致させる(dataRoot 側の seed が
 // 同じファンドのテンプレートを置くため)。
 export const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
@@ -118,6 +128,8 @@ export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
 ];
 
 // 既定は「未判断」= ペア同期も次回反映もしない。承認フローで機械転写が勝手に走らない側へ倒す。
+// 既定のパーツは既定ファンドの Rep1 委託会社コード(`R-AM01`)のもの。パーツ一覧は委託会社で
+// 絞るので、コードが無いと e2e で一覧が空になる。
 const DEFAULT_PARTS: readonly FakePartSeed[] = [
   {
     id: 'p-cover-title',
@@ -129,6 +141,8 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     content: '<h1>運用報告書</h1>',
     syncDefault: null,
     masterReflectDefault: null,
+    targetEdition: null,
+    companyCode: 'R-AM01',
   },
   {
     id: 'p-note-tax',
@@ -140,6 +154,65 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     content: '<p>税制は変更される場合があります。</p>',
     syncDefault: null,
     masterReflectDefault: null,
+    targetEdition: null,
+    companyCode: 'R-AM01',
+  },
+  {
+    id: 'p-guide-delivery',
+    category: '版種別',
+    majorClass: '案内',
+    middleClass: '見出し',
+    minorClass: '交付版',
+    name: '交付版専用の案内',
+    content: '<p>交付版だけの案内文</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: '交付版',
+    companyCode: 'R-AM01',
+  },
+  {
+    id: 'p-guide-whole',
+    category: '版種別',
+    majorClass: '案内',
+    middleClass: '見出し',
+    minorClass: '全体版',
+    name: '全体版専用の案内',
+    content: '<p>全体版だけの案内文</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: '全体版',
+    companyCode: 'R-AM01',
+  },
+  // Jinja を含むパーツ。名前と内容は local の `fixtures/parts.json` の同じパーツに揃え、
+  // 挿入時の描画を確かめる e2e が local / rest のどちらでも同じ名前で選べるようにする。
+  {
+    id: 'part-cover-title',
+    category: '表紙',
+    majorClass: '表紙ヘッダー',
+    middleClass: 'ファンド名',
+    minorClass: '標準',
+    name: 'ファンド名タイトル',
+    content:
+      '<p class="cover-category">{{ fund.category }}</p><h1 class="cover-title">{{ fund.name }}</h1>' +
+      '<p class="cover-alias">（愛称：{{ fund.nickname }}）</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: null,
+    companyCode: 'R-AM01',
+  },
+  // 他社のパーツ。AM01 のテンプレートの一覧には出ない。
+  {
+    id: 'part-am02-cover-company',
+    category: '表紙',
+    majorClass: '表紙右側',
+    middleClass: '会社名・住所',
+    minorClass: '会社名',
+    name: '委託会社名（AM02 様式）',
+    content: '<p class="sign">{{ company.name }}　代表取締役</p>',
+    syncDefault: null,
+    masterReflectDefault: null,
+    targetEdition: null,
+    companyCode: 'R-AM02',
   },
 ];
 
@@ -206,6 +279,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
   const notes = new Map<string, NoteRow>();
   const funds = new Map<string, FakeFundSeed>();
   const parts = [...(seed.parts ?? DEFAULT_PARTS)];
+  const commonSamples = [...(seed.commonSamples ?? COMMON_SAMPLE_SEED_ROWS)];
   // 台帳の IDENTITY 相当。一覧の並び(作成順・注記内部ID順)がここから出る。
   let order = 0;
 
@@ -426,17 +500,27 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     const major = optText(a, '大分類');
     const middle = optText(a, '中分類');
     const minor = optText(a, '小分類');
+    const edition = optText(a, '版種');
+    const company = optText(a, '委託会社コード');
+    // sproc と同じ条件: 版種の指定が無いか、対象版種が NULL・空文字列(両版共通)か一致する行だけ。
+    // 委託会社は全社共通の扱いが無く、指定時は一致する行だけ。
+    const visible = parts.filter(
+      (q) =>
+        (!edition || !q.targetEdition || q.targetEdition === edition) &&
+        (!company || q.companyCode === company),
+    );
     if (op === '分類候補') {
       const out: Row[] = [];
       const push = (区分: string, 値: string) => {
         if (!out.some((r) => r.区分 === 区分 && r.値 === 値)) out.push({ 区分, 値 });
       };
-      for (const q of parts) push('カテゴリ', q.category);
-      for (const q of parts) if (!category || q.category === category) push('大分類', q.majorClass);
-      for (const q of parts)
+      for (const q of visible) push('カテゴリ', q.category);
+      for (const q of visible)
+        if (!category || q.category === category) push('大分類', q.majorClass);
+      for (const q of visible)
         if ((!category || q.category === category) && (!major || q.majorClass === major))
           push('中分類', q.middleClass);
-      for (const q of parts)
+      for (const q of visible)
         if (
           (!category || q.category === category) &&
           (!major || q.majorClass === major) &&
@@ -447,7 +531,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     }
 
     if (op === '一覧') {
-      return parts
+      return visible
         .filter(
           (q) =>
             (!category || q.category === category) &&
@@ -469,28 +553,26 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
           更新者: null,
           同期既定: q.syncDefault,
           次回反映既定: q.masterReflectDefault,
+          対象版種: q.targetEdition,
+          委託会社コード: q.companyCode ?? null,
         }));
     }
 
     throw sqlError(50000, '未知の @操作 です(パーツ)');
   }
 
-  function sampleOp(op: string, a: Args): Row[] {
-    if (op === '取得') {
-      const code = text(a, 'ファンドコード');
-      if (!code) throw sqlError(50000, 'ファンドコード が必要です');
-      const f = funds.get(code);
-      // `parseFundMaster` が読む形。欠けるとファンド名が空になる。
-      return f
-        ? [
-            {
-              データJSON: JSON.stringify({
-                fund: { name: f.name, nickname: f.nickname },
-                company: { code: f.companyCode, name: f.companyName },
-              }),
-            },
-          ]
-        : [];
+  function sampleOp(op: string): Row[] {
+    if (op === '共通一覧') {
+      return commonSamples
+        .map((r, i) => ({
+          共通サンプルID: i + 1,
+          カテゴリ: r.category,
+          大分類: r.major,
+          中分類: r.middle,
+          小分類: r.minor,
+          データJSON: JSON.stringify(r.data),
+        }))
+        .sort((x, y) => x.共通サンプルID - y.共通サンプルID);
     }
     throw sqlError(50000, '未知の @操作 です(サンプルデータ)');
   }
@@ -563,7 +645,7 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
       case SP.part:
         return partOp(op, args);
       case SP.sample:
-        return sampleOp(op, args);
+        return sampleOp(op);
       case SP.noteMaster:
         return noteMasterOp(op, args);
       case SP.audit:

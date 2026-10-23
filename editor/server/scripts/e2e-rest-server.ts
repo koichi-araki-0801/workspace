@@ -8,9 +8,10 @@
 // 作り直して使う。パス定数は `e2e-rest-paths.ts`、seed 本体は `e2e-rest-seed.ts` 側に置き、
 // 本ファイルは何も export しない。
 
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { E2E_REST_DATA_ROOT, E2E_REST_PORT } from './e2e-rest-paths.js';
+import { E2E_REST_CONTROL_PORT, E2E_REST_DATA_ROOT, E2E_REST_PORT } from './e2e-rest-paths.js';
 import { seedDataRoot } from './e2e-rest-seed.js';
 
 async function main(): Promise<void> {
@@ -35,6 +36,24 @@ async function main(): Promise<void> {
   const { createSprocClient } = await import('../src/db/sproc.js');
   const { createFakeQuery } = await import('../test/fakes/sprocFake.js');
   const { startServer } = await import('../src/serve.js');
+
+  // テスト専用の制御ルート。`startServer` は app を返さず、本番の `buildApp` へテスト専用
+  // ルートを足さない方針なので、同じプロセスに別の loopback サーバを立てる(`resetLoginRateLimit`
+  // が触るのは同じモジュールインスタンスの計数)。127.0.0.1 でしか待ち受けないため認証は
+  // 不要のままにする: 受けるのは計数の白紙化だけで、e2e サーバ自体が使い捨てのフェイク環境。
+  const { resetLoginRateLimit } = await import('../src/auth/loginRateLimit.js');
+  const control = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/__e2e/reset-login-limit') {
+      resetLoginRateLimit();
+      res.writeHead(204).end();
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    control.once('error', reject);
+    control.listen(E2E_REST_CONTROL_PORT, '127.0.0.1', resolve);
+  });
 
   await startServer({ sproc: createSprocClient(await createFakeQuery()) });
   console.log(

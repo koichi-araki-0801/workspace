@@ -50,13 +50,16 @@ async function openLongNameEditor(page: Page) {
   await openEditor(page, LONG_NAME_ID);
 }
 
-test('1440px: 長いファンド名でもヘッダが 1 行に収まる', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await openLongNameEditor(page);
-  // この幅では保存状態の文言は出ない(アイコンのみ)。出すと必ず溢れる。
-  await expect(page.locator(`${TOP_BAR} [role="status"] span`).last()).toBeHidden();
-  expect(await headerRows(page, TOP_BAR)).toBe(1);
-});
+// 対応する画面幅の下限は 1400px(本文の最大幅を 1400px 未満へ狭めない、と対で決めた下限)。
+for (const width of [1400, 1440]) {
+  test(`${width}px: 長いファンド名でもヘッダが 1 行に収まる`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openLongNameEditor(page);
+    // この幅では保存状態の文言は出ない(アイコンのみ)。出すと必ず溢れる。
+    await expect(page.locator(`${TOP_BAR} [role="status"] span`).last()).toBeHidden();
+    expect(await headerRows(page, TOP_BAR)).toBe(1);
+  });
+}
 
 test('1600px: 保存状態の文言が出る幅でもヘッダが 1 行に収まる', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });

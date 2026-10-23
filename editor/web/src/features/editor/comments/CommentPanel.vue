@@ -23,6 +23,7 @@ import {
   STATUS_LABEL,
   threadsOf,
 } from './commentFilter';
+import { entryKey, useThreadActions } from './useThreadActions';
 
 /** 削除済みパーツ(カタログ・部品ツリーから消えた `pathKey`)の表示ラベル。`Inspector.vue` の
  * `partLabelOf` と同じ文言に揃える(同じ意味の状態を画面ごとに違う言葉で言わない)。 */
@@ -99,45 +100,27 @@ watch(
 );
 
 // ── 3. 行の展開(返信・解決・編集・削除) ──
-// キーは `id` 単体ではなく `templateId/id` の対で持つ(`NoteBubble.vue` の `entryKey` と同じ
-// 理由。投稿 id の一意性は版インスタンスのファイルの中でだけ約束されている)。
-function entryKey(entry: PartNoteEntry): string {
-  return `${entry.templateId}/${entry.id}`;
-}
-
 const expandedId = ref<string | null>(null);
 const replyDraft = ref('');
-const editingId = ref<string | null>(null);
-const editDraft = ref('');
+const { editingKey, draft: editDraft, startEdit, commitEdit, cancelEdit, requestRemove, toggleStatus } =
+  useThreadActions({
+    update: (e, content) => emit('update', e, content),
+    remove: (e) => emit('remove', e),
+    setStatus: (parent, status) => emit('set-status', parent, status),
+    replyCountOf: (parent) => threads.value.find((t) => t.parent.id === parent.id)?.replies.length ?? 0,
+    confirm,
+  });
 
 function toggle(t: CommentThread): void {
   const key = entryKey(t.parent);
   expandedId.value = expandedId.value === key ? null : key;
   replyDraft.value = '';
-  editingId.value = null;
+  cancelEdit();
 }
 function submitReply(t: CommentThread): void {
   if (replyDraft.value.trim() === '') return;
   emit('reply', t.parent, replyDraft.value);
   replyDraft.value = '';
-}
-function startEdit(e: PartNoteEntry): void {
-  editingId.value = entryKey(e);
-  editDraft.value = e.content;
-}
-function commitEdit(e: PartNoteEntry): void {
-  if (editDraft.value.trim() !== '') emit('update', e, editDraft.value);
-  editingId.value = null;
-}
-async function requestRemove(e: PartNoteEntry): Promise<void> {
-  const ok = await confirm({
-    title: e.replyTo === null ? 'このコメントを削除しますか？' : 'この返信を削除しますか？',
-    description:
-      e.replyTo === null ? '返信も一緒に削除されます。削除したコメントは元に戻せません。' : '削除した返信は元に戻せません。',
-    confirmLabel: '削除する',
-    variant: 'destructive',
-  });
-  if (ok) emit('remove', e);
 }
 </script>
 
@@ -257,7 +240,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
                 size="sm"
                 variant="outline"
                 data-resolve
-                @click="emit('set-status', t.parent, t.parent.status === 'open' ? 'resolved' : 'open')"
+                @click="toggleStatus(t.parent)"
               >
                 <Check v-if="t.parent.status === 'open'" class="h-3.5 w-3.5" />
                 <RotateCcw v-else class="h-3.5 w-3.5" />
@@ -271,11 +254,11 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
                 <Trash2 class="h-3 w-3" />
               </Button>
             </div>
-            <template v-if="editingId === entryKey(t.parent)">
+            <template v-if="editingKey === entryKey(t.parent)">
               <textarea v-model="editDraft" class="comment-area" rows="3" aria-label="コメント本文の編集" />
               <div class="flex gap-1.5">
                 <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
-                <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
+                <Button size="sm" variant="outline" @click="cancelEdit">取消</Button>
               </div>
             </template>
 
@@ -291,11 +274,11 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
                   <Trash2 class="h-3 w-3" />
                 </Button>
               </div>
-              <template v-if="editingId === entryKey(r)">
+              <template v-if="editingKey === entryKey(r)">
                 <textarea v-model="editDraft" class="comment-area" rows="2" aria-label="返信本文の編集" />
                 <div class="mt-1 flex gap-1.5">
                   <Button size="sm" @click="commitEdit(r)">保存</Button>
-                  <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
+                  <Button size="sm" variant="outline" @click="cancelEdit">取消</Button>
                 </div>
               </template>
               <p v-else class="whitespace-pre-wrap break-words text-[12px]">

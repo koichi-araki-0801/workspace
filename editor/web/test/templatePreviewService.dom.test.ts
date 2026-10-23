@@ -8,19 +8,25 @@ import {
   type Template,
   type TemplateRepository,
 } from '@editor/shared';
+import { createPinia, setActivePinia } from 'pinia';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CSS_BASELINE_MISSING_MSG,
   createTemplatePreviewService,
+  cssBaselineNotice,
+  JINJA_BLOCK_LOSS_MSG,
+  jinjaBlockLossNotice,
   PDF_ERROR_MSG,
 } from '@/features/preview/services/templatePreviewService';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import type { DraftOwner } from '@/lib/draftOwner';
+import { useEditorSessionStore } from '@/stores/editorSession';
 
 // 描画は opaque オリジンの iframe(`lib/renderHostClient.ts`)が行うため jsdom では起動しない。
 // ここで固定したいのは draft 適用・文書組み立て・PDF 送信なので、隔離の向こう側にあたる
 // nunjucks 実装を直に噛ませる(クライアントの契約は `renderHostClient.test.ts`)。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 
@@ -37,7 +43,7 @@ function ownerOf(belongs: boolean): DraftOwner {
 function draftRepos(html: string): TemplateRepository {
   return {
     getTemplate: vi.fn(async () => ok(tpl)),
-    getSampleData: vi.fn(async () => ok({})),
+    getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     getDraft: vi.fn(async () =>
       ok({ templateId: 't1', html, css: '.from-draft{}', savedAt: '', savedBy: '' }),
     ),
@@ -72,11 +78,12 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('builds a preview document from the source file when there is no draft', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
     const res = await svc.loadForPreview('t1');
+    expect(templates.getSampleData).toHaveBeenCalledWith('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.renderError).toBeNull();
@@ -104,11 +111,11 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('returns a validation err when a draft carries an un-restorable Jinja mask', async () => {
     // canvas 入口を素通りした攻撃形の draft(data-opaque に任意 HTML)。toTemplate が
     // 復元段で throw し、それが Result の validation エラーとして届くこと(throw が漏れない)。
-    const { b64encode } = await import('@/lib/jinjaMask');
+    const { b64encodeUtf8: b64encode } = await import('@/lib/jinjaAttrs');
     const enc = b64encode('<img src=x onerror=alert(1)>');
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () =>
         ok({
           templateId: 't1',
@@ -128,7 +135,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('reports a user-facing render error when the template fails to render', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok({ ...tpl, html: '<body>{{ oops</body>' })),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
@@ -163,6 +170,51 @@ describe('TemplatePreviewService.loadForPreview', () => {
     }
   });
 
+  it('下書きが無ければ cssBaseline は申請する css と同じ(CSS は変わっていない)', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
+      getDraft: vi.fn(async () => ok(null)),
+    } as unknown as TemplateRepository;
+    const svc = createTemplatePreviewService(templates, history);
+    const res = await svc.loadForPreview('t1', { editorCssBaseline: '.ignored{}' });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.cssBaseline).toBe(res.value.css);
+  });
+
+  it('下書きがあれば、編集画面が測った baseline を css と同じ整形で返す', async () => {
+    const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
+    const res = await svc.loadForPreview('t1', { editorCssBaseline: '.from-file{}' });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.cssBaseline).toContain('.from-file');
+      // css と同じ整形(`formatCss`)を通す。下書きの CSS が確定版と同じなら文字列も一致する。
+      const same = await svc.loadForPreview('t1', { editorCssBaseline: '.from-draft{}' });
+      if (isOk(same)) expect(same.value.cssBaseline).toBe(same.value.css);
+    }
+  });
+
+  it('下書きがあって編集画面の baseline が無ければ cssBaseline は null', async () => {
+    const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
+    const res = await svc.loadForPreview('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.cssBaseline).toBeNull();
+  });
+
+  it('再読み込み後も sessionStorage の baseline を申請の cssBaseline にする', async () => {
+    sessionStorage.clear();
+    setActivePinia(createPinia());
+    useEditorSessionStore().setCssBaseline('t1', '.from-file{}');
+    setActivePinia(createPinia()); // 再読み込み相当(メモリは空)
+    const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
+    const res = await svc.loadForPreview('t1', {
+      editorCssBaseline: useEditorSessionStore().cssBaselineOf('t1'),
+    });
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) expect(res.value.cssBaseline).toContain('.from-file');
+    sessionStorage.clear();
+  });
+
   it('getSampleData / getDraft の失敗は loadForPreview の結果として返る', async () => {
     const templatesA = {
       getTemplate: vi.fn(async () => ok(tpl)),
@@ -174,7 +226,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
 
     const templatesB = {
       getTemplate: vi.fn(async () => ok(tpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => err(notFound('draft down'))),
     } as unknown as TemplateRepository;
     const resB = await createTemplatePreviewService(templatesB, history).loadForPreview('t1');
@@ -195,7 +247,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
     // `{{ raw }}` は値入り HTML に紛れた地の文。描画を通すと空になる。
     const templates = {
       getTemplate: vi.fn(async () => ok(filledTpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () => ok(null)),
     } as unknown as TemplateRepository;
     const svc = createTemplatePreviewService(templates, history);
@@ -218,7 +270,7 @@ describe('TemplatePreviewService.loadForPreview', () => {
   it('filled が非空のテンプレの下書きは Jinja 復元を通さず filled の本文を差し替える', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(filledTpl)),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
       getDraft: vi.fn(async () =>
         ok({
           templateId: 't1',
@@ -322,5 +374,41 @@ describe('TemplatePreviewService.renderPdf', () => {
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
+  });
+});
+
+describe('cssBaselineNotice', () => {
+  it('下書きがあって baseline が無いときだけ、CSS が写らないことを知らせる', () => {
+    expect(cssBaselineNotice(true, null)).toBe(CSS_BASELINE_MISSING_MSG);
+    expect(CSS_BASELINE_MISSING_MSG).toBe(
+      'このまま申請するとペアの版種へ CSS が写りません。編集画面から開き直してください',
+    );
+    expect(cssBaselineNotice(true, '.a{}')).toBeNull();
+    expect(cssBaselineNotice(false, null)).toBeNull();
+    expect(cssBaselineNotice(false, '.a{}')).toBeNull();
+  });
+});
+
+describe('jinjaBlockLossNotice', () => {
+  const two = '{% if a %}x{% endif %}{% for i in l %}y{% endfor %}';
+
+  it('ブロックの開きが 1 つ減ったときだけ、減った数の一文を返す', () => {
+    expect(jinjaBlockLossNotice(two, '{% if a %}x{% endif %}yy')).toBe(JINJA_BLOCK_LOSS_MSG(1));
+    expect(JINJA_BLOCK_LOSS_MSG(1)).toContain('1 個少なくなっています');
+    expect(jinjaBlockLossNotice(two, 'xy')).toBe(JINJA_BLOCK_LOSS_MSG(2));
+  });
+
+  it('同数でも増えていても足さない', () => {
+    expect(jinjaBlockLossNotice(two, two)).toBeNull();
+    expect(jinjaBlockLossNotice('{% if a %}x{% endif %}', two)).toBeNull();
+  });
+
+  it('申請本文(restored)が字句として読めないときは足さない', () => {
+    expect(jinjaBlockLossNotice(two, '{% if a')).toBeNull();
+    expect(jinjaBlockLossNotice(two, '{{ x')).toBeNull();
+  });
+
+  it('元のテンプレートが字句として読めないときも足さない', () => {
+    expect(jinjaBlockLossNotice('{% if a', 'x')).toBeNull();
   });
 });

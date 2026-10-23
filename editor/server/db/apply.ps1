@@ -9,12 +9,17 @@
 #    powershell -ExecutionPolicy Bypass -File server\db\apply.ps1 -Server <host\instance>
 #    (省略時 Database=usrap)
 #
+#  本番では -SkipSeed を付けて seed/ を流さない。seed は開発・検証用の値(共通サンプルの開発値・
+#  検証用のパーツ・管理ユーザー)で、本番に入れると共通サンプルの行が開発値で埋まり、後で流す
+#  migrate/ の登録が「登録済み」として飛ばしてしまう。
+#
 #  管理ユーザー seed は事前に生成しておく(平文を SQL に残さないため):
 #    corepack pnpm --filter server exec tsx scripts/hash-password.ts <id> <pw> <表示名> admin
 # =============================================================================
 param(
   [Parameter(Mandatory = $true)][string]$Server,
-  [string]$Database = 'usrap'
+  [string]$Database = 'usrap',
+  [switch]$SkipSeed
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path  # server/db
@@ -25,7 +30,8 @@ function Invoke-SqlFile([System.IO.FileInfo]$file) {
   if ($LASTEXITCODE -ne 0) { throw "sqlcmd failed: $($file.Name)" }
 }
 
-foreach ($dir in @('ddl', 'sproc', 'seed')) {
+$dirs = if ($SkipSeed) { @('ddl', 'sproc') } else { @('ddl', 'sproc', 'seed') }
+foreach ($dir in $dirs) {
   $p = Join-Path $root $dir
   if (Test-Path $p) {
     Get-ChildItem -Path $p -Filter *.sql | Sort-Object Name | ForEach-Object { Invoke-SqlFile $_ }

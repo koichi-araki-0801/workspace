@@ -23,16 +23,37 @@ const warn = vi.fn();
  */
 async function loadStage(
   limits: Partial<Record<'VIVLIO_MAX_ASSET_FILES' | 'VIVLIO_MAX_ASSET_BYTES', number>> = {},
-): Promise<(dir: string, opts?: { referenced?: ReadonlySet<string> }) => Promise<Set<string>>> {
+): Promise<(dir: string, opts?: { referenced: ReadonlySet<string> }) => Promise<Set<string>>> {
   vi.resetModules();
   vi.doMock('../src/config.js', () => ({
     config: { cssDir, jsDir, imagesDir },
     envPositiveNumber: (name: string, _v: string | undefined, def: number) =>
       limits[name as keyof typeof limits] ?? def,
   }));
-  vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: { warn },
+    warnSvgRejected: (file: string, violations: string[], message: string) =>
+      warn({ type: 'asset.svg_rejected', file, violations }, message),
+  }));
   const mod = await import('../src/vivliostyle/docAssets.js');
-  return mod.stageDocAssets;
+  // opts を省くと、置き場にある全ファイルを参照された扱いにする(配置の可否だけを見るテスト用)。
+  return async (dir, opts) => mod.stageDocAssets(dir, opts ?? { referenced: await everyRel() });
+}
+
+/** 置き場(css / js / images)配下の全ファイルを、配信ルート相対パスの集合にして返す。 */
+async function everyRel(): Promise<Set<string>> {
+  const out = new Set<string>();
+  const walk = async (abs: string, rel: string): Promise<void> => {
+    const entries = await fs.readdir(abs, { withFileTypes: true }).catch(() => []);
+    for (const e of entries) {
+      if (e.isDirectory()) await walk(path.join(abs, e.name), `${rel}/${e.name}`);
+      else out.add(`${rel}/${e.name}`);
+    }
+  };
+  await walk(cssDir, 'css');
+  await walk(jsDir, 'js');
+  await walk(imagesDir, 'images');
+  return out;
 }
 
 beforeEach(async () => {
@@ -218,7 +239,11 @@ async function loadResolve(): Promise<(rel: string) => Promise<string | undefine
     config: { cssDir, jsDir, imagesDir },
     envPositiveNumber: (_n: string, _v: string | undefined, def: number) => def,
   }));
-  vi.doMock('../src/logger.js', () => ({ logger: { warn } }));
+  vi.doMock('../src/logger.js', () => ({
+    logger: { warn },
+    warnSvgRejected: (file: string, violations: string[], message: string) =>
+      warn({ type: 'asset.svg_rejected', file, violations }, message),
+  }));
   const mod = await import('../src/vivliostyle/docAssets.js');
   return mod.resolveServedAssetSource;
 }
@@ -283,7 +308,7 @@ describe('resolveServedAssetSource — 引けるもの / 引けないもの', ()
 // 全件配置は (a) 単一ファンドのビルドの配信ルートへ他ファンドの CSS が載り、文書が
 // `<link href="css/<他ファンド>.css">` と書けば解決してしまう (b) 共通フォント一式が
 // PDF 1 本ごと・プレビュー起動ごとに丸ごとコピーされる、の 2 つを生む。
-describe('stageDocAssets — referenced を渡すと参照されたものだけ置く', () => {
+describe('stageDocAssets — 参照されたものだけ置く', () => {
   it('他ファンドの CSS は配信ルートへ載らない', async () => {
     await write(path.join(cssDir, '510037.css'), 'p{color:red}');
     await write(path.join(cssDir, '510155.css'), 'p{color:blue}');
@@ -315,22 +340,16 @@ describe('stageDocAssets — referenced を渡すと参照されたものだけ�
     const served = await (await loadStage())(dest, { referenced: new Set(['css/notes.json']) });
     expect(served.size).toBe(0);
   });
-
-  it('referenced 省略は従来どおり全件(zip 展開物のように文書が事前に判らない配信ルート用)', async () => {
-    await write(path.join(cssDir, '510037.css'), 'p{}');
-    await write(path.join(cssDir, '510155.css'), 'p{}');
-    const served = await (await loadStage())(dest);
-    expect(served.size).toBe(2);
-  });
 });
 
 const NS = 'http://www.w3.org/2000/svg';
 const GOOD_SVG = `<svg xmlns="${NS}" width="10" height="10"><rect width="10" height="10"/></svg>`;
 const BAD_SVG = `<svg xmlns="${NS}" onload="alert(1)"><rect width="10" height="10"/></svg>`;
 
-// ── ファンド別画像(images/)──
-// 置き場は別ツールが書くフラットなフォルダ。参照されたものだけ・直下だけ・許可拡張子だけを
-// 置き、SVG は中身を検査して違反を置かない(参照は表示されないまま落ちる)。
+// ── 画像(images/)──
+// 置き場は別ツールが書くフォルダ。参照されたものだけ・直下と 1 段下(会社フォルダ)だけ・
+// 許可拡張子だけを置き、SVG は中身を検査して違反を置かない(参照は表示されないまま落ちる)。
+// 会社フォルダ名は大小文字を区別せずに実フォルダを探し、置く先は参照の綴りにする。
 describe('stageDocAssets — ファンド別画像(images/)', () => {
   it('images 直下の参照された画像だけを置く(他ファンドの画像は載らない)', async () => {
     await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
@@ -342,13 +361,69 @@ describe('stageDocAssets — ファンド別画像(images/)', () => {
     expect([...served].sort()).toEqual(['images/510037_logo.svg', 'images/510037_photo.png']);
   });
 
-  it('サブフォルダと許可外の拡張子は置かない', async () => {
-    await write(path.join(imagesDir, 'sub', '510037_a.svg'), GOOD_SVG);
+  it('1 段下(会社フォルダ)の参照された画像を、参照の綴りで置く(実フォルダ名の大小文字は問わない)', async () => {
+    await write(path.join(imagesDir, 'SMTAM', 'qr.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, 'SMTAM', 'other.svg'), GOOD_SVG);
+    const served = await (await loadStage())(dest, {
+      referenced: new Set(['images/smtam/qr.svg']),
+    });
+    expect([...served]).toEqual(['images/smtam/qr.svg']);
+    expect(await fs.readFile(path.join(dest, 'images', 'smtam', 'qr.svg'), 'utf8')).toBe(GOOD_SVG);
+  });
+
+  it('2 段以上と許可外の拡張子は置かない', async () => {
+    await write(path.join(imagesDir, 'SMTAM', 'deep', 'x.svg'), GOOD_SVG);
     await write(path.join(imagesDir, '510037_a.gif'), 'gif');
     const served = await (await loadStage())(dest, {
-      referenced: new Set(['images/sub/510037_a.svg', 'images/510037_a.gif']),
+      referenced: new Set([
+        'images/SMTAM/deep/x.svg',
+        'images/smtam/deep/x.svg',
+        'images/510037_a.gif',
+      ]),
     });
     expect(served.size).toBe(0);
+  });
+
+  it('末尾が . や空白のセグメント・: を含むセグメントの参照は置かない(Windows で別の実体へ届く形)', async () => {
+    await write(path.join(imagesDir, 'SMTAM', 'x.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, 'a.svg'), GOOD_SVG);
+    const served = await (await loadStage())(dest, {
+      referenced: new Set([
+        'images/smtam./x.svg',
+        'images/smtam /x.svg',
+        'images/a:b.svg',
+        'images/smtam/x.svg:stream',
+        'images/a.svg.',
+        'images/a.svg ',
+      ]),
+    });
+    expect(served.size).toBe(0);
+  });
+
+  it('会社フォルダの違反 SVG は置かずに警告する', async () => {
+    await write(path.join(imagesDir, 'SMTAM', 'bad.svg'), BAD_SVG);
+    const served = await (await loadStage())(dest, {
+      referenced: new Set(['images/smtam/bad.svg']),
+    });
+    expect(served.size).toBe(0);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ file: 'images/smtam/bad.svg' }),
+      expect.any(String),
+    );
+  });
+
+  it('リンク(junction / symlink)の会社フォルダは辿らない', async () => {
+    const outside = path.join(root, 'outside-images');
+    await write(path.join(outside, 'x.svg'), GOOD_SVG);
+    await fs.mkdir(imagesDir, { recursive: true });
+    try {
+      // Windows の junction は権限なしで作れる。他 OS では type は無視され dir symlink になる。
+      await fs.symlink(outside, path.join(imagesDir, 'linked'), 'junction');
+    } catch {
+      return;
+    }
+    const stage = await loadStage();
+    expect((await stage(dest, { referenced: new Set(['images/linked/x.svg']) })).size).toBe(0);
   });
 
   it('違反した SVG は置かずに警告する', async () => {
@@ -389,7 +464,7 @@ describe('stageDocAssets — ファンド別画像(images/)', () => {
     expect(await fs.readFile(path.join(dest, 'images', '510037_logo.svg'), 'utf8')).toBe(GOOD_SVG);
   });
 
-  it('referenced 省略(全件)でも違反 SVG は置かない', async () => {
+  it('全件を参照していても違反 SVG は置かない', async () => {
     await write(path.join(imagesDir, '510037_bad.svg'), BAD_SVG);
     await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
     const served = await (await loadStage())(dest);
@@ -398,14 +473,65 @@ describe('stageDocAssets — ファンド別画像(images/)', () => {
 });
 
 describe('resolveServedAssetSource / isFundImagePath — images/', () => {
-  it('images 直下だけを引き、サブフォルダ・許可外拡張子は引かない', async () => {
+  it('images の直下と 1 段下だけを引き、2 段以上・許可外拡張子は引かない', async () => {
     await write(path.join(imagesDir, '510037_logo.svg'), GOOD_SVG);
     await write(path.join(imagesDir, 'sub', '510037_deep.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, 'sub', 'deeper', 'x.svg'), GOOD_SVG);
     await write(path.join(imagesDir, '510037_anim.gif'), 'gif');
     const resolve = await loadResolve();
     expect(await resolve('images/510037_logo.svg')).toBe(path.join(imagesDir, '510037_logo.svg'));
-    expect(await resolve('images/sub/510037_deep.svg')).toBeUndefined();
+    expect(await resolve('images/sub/510037_deep.svg')).toBe(
+      path.join(imagesDir, 'sub', '510037_deep.svg'),
+    );
+    expect(await resolve('images/sub/deeper/x.svg')).toBeUndefined();
     expect(await resolve('images/510037_anim.gif')).toBeUndefined();
+  });
+
+  it('会社フォルダ名は大小文字を区別せずに実フォルダを探す(ファイル名は区別する)', async () => {
+    await write(path.join(imagesDir, 'SMTAM', 'qr.svg'), GOOD_SVG);
+    const resolve = await loadResolve();
+    expect(await resolve('images/smtam/qr.svg')).toBe(path.join(imagesDir, 'SMTAM', 'qr.svg'));
+    expect(await resolve('images/Smtam/qr.svg')).toBe(path.join(imagesDir, 'SMTAM', 'qr.svg'));
+  });
+
+  it('末尾が . や空白のセグメント・: を含むセグメントは引かない(Windows で別の実体へ届く形)', async () => {
+    await write(path.join(imagesDir, 'SMTAM', 'x.svg'), GOOD_SVG);
+    await write(path.join(imagesDir, 'a.svg'), GOOD_SVG);
+    await write(path.join(cssDir, 'a.css'), 'p{}');
+    await write(path.join(cssDir, 'sub', 'a.css'), 'p{}');
+    // NTFS の代替データストリーム(作れない環境では単に存在しないファイルになる)。
+    await fs.writeFile(path.join(imagesDir, 'a.svg:x.svg'), GOOD_SVG).catch(() => undefined);
+    const resolve = await loadResolve();
+    for (const rel of [
+      'css/sub./a.css',
+      'css/sub /a.css',
+      'images/a.svg:x.svg',
+      'images/smtam./x.svg',
+      'images/smtam /x.svg',
+      'images/SMTAM./x.svg',
+      'images/a:b.svg',
+      'images/smtam/x.svg:stream',
+      'images/a.svg.',
+      'images/a.svg ',
+      'css/a.css.',
+      'css/a.css::$DATA',
+    ]) {
+      expect(await resolve(rel), rel).toBeUndefined();
+    }
+  });
+
+  it('リンク(junction / symlink)の会社フォルダは引かない', async () => {
+    const outside = path.join(root, 'outside-images');
+    await write(path.join(outside, 'x.svg'), GOOD_SVG);
+    await fs.mkdir(imagesDir, { recursive: true });
+    try {
+      await fs.symlink(outside, path.join(imagesDir, 'linked'), 'junction');
+    } catch {
+      return;
+    }
+    const resolve = await loadResolve();
+    expect(await resolve('images/linked/x.svg')).toBeUndefined();
+    expect(await resolve('images/LINKED/x.svg')).toBeUndefined();
   });
 
   it('`\\` や NUL を含むセグメントは引かない(Windows で 1 セグメントのまま下へ降りる入力)', async () => {

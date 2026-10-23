@@ -32,7 +32,7 @@ async function search(q: DropdownQuery) {
   if (isErr(result) || !isLatest()) return;
   rows.value = result.value;
   searched.value = true;
-  // 版数 (確定保存回数) を各テンプレについて集計する (比較画面と同じ計数)。
+  // 版数 = 確定保存の回数(確定版の件数)。比較画面で選べる版は、これに現行版 1 件を足した数。
   const counts: Record<string, number> = {};
   await Promise.all(
     result.value.map(async (m) => {

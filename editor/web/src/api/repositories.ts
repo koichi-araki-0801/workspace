@@ -3,6 +3,7 @@
 // =============================================================================
 import type {
   AuthRepository,
+  FundAssetRepository,
   HistoryRepository,
   NoteRepository,
   PartRepository,
@@ -12,6 +13,7 @@ import type {
 } from '@editor/shared';
 import { type InjectionKey, inject } from 'vue';
 import { localAuthRepo } from './local/authRepo';
+import { localFundAssetRepo } from './local/fundAssetRepo';
 import { localHistoryRepo } from './local/historyRepo';
 import { localNoteRepo } from './local/noteRepo';
 import { localPartRepo } from './local/partRepo';
@@ -19,6 +21,7 @@ import { localReviewRepo } from './local/reviewRepo';
 import { localTemplateRepo } from './local/templateRepo';
 import { localUserRepo } from './local/userRepo';
 import { restAuthRepo } from './rest/authRepo';
+import { restFundAssetRepo } from './rest/fundAssetRepo';
 import { restHistoryRepo } from './rest/historyRepo';
 import { restNoteRepo } from './rest/noteRepo';
 import { restPartRepo } from './rest/partRepo';
@@ -35,6 +38,8 @@ interface Repositories {
   notes: NoteRepository;
   reviews: ReviewRepository;
   users: UserRepository;
+  /** ファンド別画像が配信されるかの確認(警告欄に理由を出すため)。 */
+  fundAssets: FundAssetRepository;
 }
 
 /**
@@ -50,6 +55,7 @@ export const localRepositories: Repositories = {
   notes: localNoteRepo,
   reviews: localReviewRepo,
   users: localUserRepo,
+  fundAssets: localFundAssetRepo,
 };
 
 /**
@@ -64,6 +70,7 @@ export const restRepositories: Repositories = {
   notes: restNoteRepo,
   reviews: restReviewRepo,
   users: restUserRepo,
+  fundAssets: restFundAssetRepo,
 };
 
 /** DI キー。`main.ts` で provide し、テストでは差し替え可能。 */
@@ -84,3 +91,4 @@ export const useHistoryRepo = () => useRepos().history;
 export const useNoteRepo = () => useRepos().notes;
 export const useReviewRepo = () => useRepos().reviews;
 export const useUserRepo = () => useRepos().users;
+export const useFundAssetRepo = () => useRepos().fundAssets;

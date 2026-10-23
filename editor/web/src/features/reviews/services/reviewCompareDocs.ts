@@ -5,19 +5,22 @@
 // 本モジュールは compare サービスが返す本文 HTML + CSS を PreviewPanel が受け取れる
 // 完全文書へ包み、変更ページへマーカーとアンカーを付ける。
 //
-// - マーカーはページ単位。変更のあったページ全体（`.page` 要素）を囲む。複数ページの
-//   テンプレでは複数の `.page` が変更ページ分だけマーク対象になる。
+// - マーカーは変更のあったページの各パーツ(body 直下の要素)に付ける。ページを包む要素は
+//   作らず、区切り(`div.pagebreak`)と `<style>` には付けない。ページの分け方は `pageItems` +
+//   `splitPages` が決める。
 // - マーカーは既存の差分装飾と同じ「CSPRNG レイヤ名のカスケードレイヤ + !important」で
 //   守る(申請者 CSS は同レイヤ名を当てられない限り上書きできない)。`display` は
 //   上書きしない(表セルのレイアウトを壊す)。
 // - ここで作る文書は**表示専用**で、申請へ保存されるバイト列(html/css/filledHtml)には
 //   一切触れない。DOM 経由の再直列化はこの表示境界だけで行う。
-// - 変更ページの粒度は `buildHtmlDiff` の `diff.pages` の index（0 始まり）。実テンプレは
-//   `.page` 1 個 = 1 ページの構成のため、index と `.page` 出現順は直接対応する。
+// - 変更ページの粒度は `buildHtmlDiff` の `diff.pages` の index（0 始まり）。diff 側も同じ
+//   `pageItems` + `splitPages` で数えるため、index と本文のページ順は対応する。
 
-import { REQUEST_CSS_BASE, rebaseCssUrls } from '@editor/shared';
+import { rebaseCssForDoc } from '@editor/shared';
+import { randomHex } from '@/lib/newId';
+import { pageHead, pageItems, splitPages } from '@/lib/pageBreaks';
 
-export interface CompareDocsInput {
+interface CompareDocsInput {
   beforeHtml: string;
   afterHtml: string;
   cssBefore: string;
@@ -35,7 +38,7 @@ export interface CompareDocsInput {
   marker: boolean;
 }
 
-export interface CompareDocs {
+interface CompareDocs {
   beforeDoc: string;
   afterDoc: string;
   /** after 文書内の出現順の**変更ページのみ**のアンカー id(「次の変更箇所へ」の巡回に使う)。 */
@@ -49,7 +52,12 @@ export interface CompareDocs {
   pageAnchors: string[];
 }
 
-/** 文書内の `.page` 要素を出現順に数え、変更ページへ印を、全ページへアンカー id を付ける。 */
+/**
+ * body 直下を `splitPages` でページに分け、変更ページの各パーツへ印を、全ページの先頭の
+ * 要素(`pageHead`)へアンカー id を付ける。白紙のページ(区切りだけのページ)は先頭の要素が
+ * そのページの区切りなので、ジャンプはその区切りの位置へ飛ぶ。印はパーツにだけ付ける(区切りは
+ * 中身が無く、印を付けても見えない)。
+ */
 function annotatePages(
   html: string,
   changedPageIndexes: ReadonlySet<number>,
@@ -58,33 +66,34 @@ function annotatePages(
   const anchorByIndex = new Map<number, string>();
   if (!html.trim()) return { html, anchorByIndex, pageIds: [] };
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const pages = Array.from(doc.querySelectorAll('.page'));
-  // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書が実際に持つ
-  // `.page` 要素数が食い違う場合(CSS の page-break 欠落等でページ分割が潰れた場合)、
-  // index の対応が崩れ「無関係なページ」を変更ページとして誤ってマークしてしまう。
-  // 既存の「.page が 1 つも無い→無印」degrade と同じ考えで、この面のマーク・アンカーを
-  // 安全側(空)へ倒す。
+  const split = splitPages(pageItems(doc.body.children));
+  const { pages } = split;
+  // diff 側が数えたページ数(`beforePageCount`/`afterPageCount`)と、この文書から数えたページ数が
+  // 食い違う場合(CSS の page-break 欠落等)、index の対応が崩れ「無関係なページ」を変更ページ
+  // として誤ってマークしてしまう。この面のマーク・アンカーは安全側(空)へ倒す。
   if (expectedPageCount !== undefined && pages.length !== expectedPageCount) {
     return { html, anchorByIndex, pageIds: [] };
   }
-  const pageIds = pages.map((el, i) => {
+  const pageIds = pages.map((parts, i) => {
+    const head = pageHead(split, i);
+    // 要素の無い本文(文字だけ)は先頭の要素が無い。添字をページに揃えたまま空文字を置き、
+    // ジャンプ先にしない(`ReviewVisualCompare.vue` は空文字を送らない)。
+    if (!head) return '';
     // 既存 id は差分キーの一部でありうるため上書きしない(未設定のときだけ振る)。全ページに
     // 付ける(コメント一覧のページジャンプは変更の有無を問わない)。
-    if (!el.id) el.id = `review-anchor-${i + 1}`;
+    if (!head.id) head.id = `review-anchor-${i + 1}`;
     if (changedPageIndexes.has(i)) {
-      el.setAttribute('data-review-marker', '');
-      anchorByIndex.set(i, el.id);
+      for (const el of parts) el.setAttribute('data-review-marker', '');
+      anchorByIndex.set(i, head.id);
     }
-    return el.id;
+    return head.id;
   });
   return { html: doc.body.innerHTML, anchorByIndex, pageIds };
 }
 
 /** マーカー装飾。レイヤ名は文書ごとに CSPRNG で変え、申請者 CSS からの同名上書きを防ぐ。 */
 function markerCss(): string {
-  const bytes = new Uint8Array(8);
-  crypto.getRandomValues(bytes);
-  const layer = `rvm${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  const layer = `rvm${randomHex(8)}`;
   return [
     `@layer ${layer};`,
     `@layer ${layer} {`,
@@ -100,10 +109,10 @@ function markerCss(): string {
 /** 完全な HTML 文書を組み立てる。マーカー CSS は申請者 CSS より前に出す。 */
 function wrapDoc(bodyHtml: string, css: string, marker: boolean): string {
   const markerBlock = marker ? `<style>${markerCss()}</style>` : '';
-  // 申請者 CSS は css/ 基準で書かれているので、文書へ埋め込む前に 1 回だけ付け替える。
+  // 申請者 CSS は css/ 基準で書かれているので、文書(`doc/`)基準へ 1 回だけ付け替えて埋め込む。
   // マーカーのレイヤ宣言は申請者 CSS より**前**に出す(重要宣言はレイヤ優先順位が逆転する
   // 性質を使うため、先に宣言した側が勝つ)。
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">${markerBlock}<style>${rebaseCssUrls(css, REQUEST_CSS_BASE)}</style></head><body>${bodyHtml}</body></html>`;
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8">${markerBlock}<style>${rebaseCssForDoc(css)}</style></head><body>${bodyHtml}</body></html>`;
 }
 
 export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
@@ -124,7 +133,7 @@ export function buildCompareDocs(input: CompareDocsInput): CompareDocs {
   const anchors = indexes.map(
     (i) => after.anchorByIndex.get(i) ?? (before.anchorByIndex.get(i) as string),
   );
-  // .page が 1 つも無い文書はマーカー無しへ degrade（マークもジャンプも出ない）。
+  // 変更ページが 1 つも解決できない文書はマーカー無しへ degrade（マークもジャンプも出ない）。
   const hasPages = after.anchorByIndex.size > 0 || before.anchorByIndex.size > 0;
   const markerEnabled = input.marker && hasPages;
   // 全ページのジャンプ先は各 index で after 優先、無ければ before から拾う。

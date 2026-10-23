@@ -1,2 +1,3 @@
-# ブランチ push のたび変更領域だけの CI を走らせる(振り分けは scripts/ci-affected.mjs)。
-node scripts/ci-affected.mjs
+# push のたび、git が stdin に渡す push 対象の ref ごとに変更領域だけの CI を走らせる
+# (振り分けは scripts/ci-affected.mjs)。
+node scripts/ci-affected.mjs --pre-push

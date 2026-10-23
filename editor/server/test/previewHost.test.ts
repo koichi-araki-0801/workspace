@@ -14,6 +14,7 @@ import path from 'node:path';
 import helmet from '@fastify/helmet';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { bundleSafeToInline } from '../src/util/inlineBundle.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-preview-host-'));
 // 資産の置き場を temp へ寄せる(`config` は import 時に env を読む)。
@@ -24,8 +25,6 @@ process.env.IMAGES_DIR = path.join(tmp, 'images');
 process.env.AUTH_REQUIRED = 'false';
 
 let app: FastifyInstance;
-/** テストから直接検証するために export された判定(`previewHost.ts`)。 */
-let bundleSafeToInline: (bundle: string) => boolean;
 
 beforeAll(async () => {
   fs.mkdirSync(path.join(tmp, 'js'), { recursive: true });
@@ -41,13 +40,15 @@ beforeAll(async () => {
   // 許可外拡張子。同じ置き場でも配ってはならない。
   fs.writeFileSync(path.join(tmp, 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
   fs.writeFileSync(path.join(tmp, 'css', '510037.css'), 'body{}', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'css', 'A_1_交付版.css'), 'body{}', 'utf8');
+  // URL で意味を持つ字を含むフォント名(ルートの引数は復号済みなので、字面のまま実体を引く)。
+  fs.writeFileSync(path.join(tmp, 'css', 'fonts', 'a#b.woff2'), 'FONT_HASH', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'css', 'fonts', '100%.woff2'), 'FONT_PCT', 'utf8');
   // 配信面の外(dataRoot 直下)。`..` で辿れないことの標的。
   fs.writeFileSync(path.join(tmp, 'outside.js'), 'LEAK', 'utf8');
 
   const { buildCspDirectives } = await import('../src/config.js');
-  const previewHostModule = await import('../src/vivliostyle/previewHost.js');
-  const { previewHostRoutes } = previewHostModule;
-  bundleSafeToInline = previewHostModule.bundleSafeToInline;
+  const { previewHostRoutes } = await import('../src/vivliostyle/previewHost.js');
   app = Fastify();
   app.decorateRequest('user', undefined);
   // `app.ts` と同じ順序: helmet(全域)→ ルート。経路専用 CSP は onSend で上書きする。
@@ -111,6 +112,20 @@ describe('GET /api/preview-host/index.html', () => {
 });
 
 describe('GET /api/preview-host/* — 同梱資産の配信', () => {
+  it('受けるのは論理ルート相対のパス(親が文書基準の参照を解いてから取りに来る)', async () => {
+    const ok = await app.inject({
+      method: 'GET',
+      url: `/api/preview-host/css/${encodeURIComponent('A_1_交付版.css')}`,
+    });
+    expect(ok.statusCode).toBe(200);
+    // 文書基準の形(`../css/…`)をそのまま渡しても論理ルートの外 = 配らない。
+    const raw = await app.inject({
+      method: 'GET',
+      url: `/api/preview-host/doc/..%2F..%2Fcss/${encodeURIComponent('A_1_交付版.css')}`,
+    });
+    expect([400, 404]).toContain(raw.statusCode);
+  });
+
   it('許可リスト配下の資産を配る', async () => {
     const js = await app.inject({ method: 'GET', url: '/api/preview-host/js/app.js' });
     expect(js.statusCode).toBe(200);
@@ -133,6 +148,16 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
       // ルート絶対・絶対 URL(解決器が undefined を返す形)
       '/api/preview-host//etc/passwd',
       '/api/preview-host/https://evil.example/x.js',
+      // 復号済みの引数に残る危険な字(NUL・`\`・ドライブ指定・UNC)
+      '/api/preview-host/js/app.js%00',
+      '/api/preview-host/js%5C..%5C..%5Coutside.js',
+      '/api/preview-host/C%3A/outside.js',
+      '/api/preview-host/%5C%5Chost%5Cshare/outside.js',
+      // 末尾の `.`・空白(Windows で別の名前へ読み替わる)
+      '/api/preview-host/js/app.js.',
+      '/api/preview-host/js/app.js%20',
+      // 二重符号化の `..` は字面の名前として探して無い
+      '/api/preview-host/js/%252e%252e/%252e%252e/outside.js',
     ];
     for (const url of cases) {
       const res = await app.inject({ method: 'GET', url });
@@ -142,10 +167,25 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
     }
   });
 
+  it('# や % を含むフォント名を返す(引数を切らず、もう一度は復号しない)', async () => {
+    for (const [name, body] of [
+      ['a#b.woff2', 'FONT_HASH'],
+      ['100%.woff2', 'FONT_PCT'],
+    ]) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/preview-host/css/fonts/${encodeURIComponent(name)}`,
+      });
+      expect(res.statusCode, name).toBe(200);
+      expect(res.body).toBe(body);
+    }
+  });
+
   it('images/ は配らない(画像の配信経路は /api/fund-assets/images/ の 1 本)', async () => {
     for (const url of [
       '/api/preview-host/images/510037_logo.svg',
       '/api/preview-host/Images/510037_logo.svg',
+      '/api/preview-host/images/smtam/qr.svg',
     ]) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(404);
@@ -182,5 +222,38 @@ describe('GET /api/preview-host/vivliostyle.js', () => {
     // 2 回目は `bundleCache` 命中(読取・IIFE ラップをやり直さない)。同一内容で確かめる。
     const b = await app.inject({ method: 'GET', url: '/api/preview-host/vivliostyle.js' });
     expect(b.body).toBe(a.body);
+  });
+});
+
+describe('GET /api/preview-host/index.html — 内蔵できないバンドルのとき', () => {
+  it('バンドルを内蔵せず <script src> でホストページを組み、その参照先は配信ルートで取れる', async () => {
+    // ページキャッシュはモジュール内にあるので、モジュールごと読み直して判定だけ差し替える。
+    vi.resetModules();
+    vi.doMock('../src/util/inlineBundle.js', () => ({ bundleSafeToInline: () => false }));
+    try {
+      const { previewHostRoutes } = await import('../src/vivliostyle/previewHost.js');
+      const fallback = Fastify();
+      fallback.decorateRequest('user', undefined);
+      fallback.register(previewHostRoutes, { prefix: '/api' });
+      await fallback.ready();
+      try {
+        const page = await fallback.inject({ method: 'GET', url: '/api/preview-host/index.html' });
+        expect(page.statusCode).toBe(200);
+        expect(page.body).toContain('<script src="vivliostyle.js"></script>');
+        expect(page.body).not.toContain('window.Vivliostyle=');
+        // 骨格(boot)は内蔵時と同じ。差し替わるのはバンドルの載せ方だけ。
+        expect(page.body).toContain('editor:preview-doc');
+        const script = await fallback.inject({
+          method: 'GET',
+          url: '/api/preview-host/vivliostyle.js',
+        });
+        expect(script.statusCode).toBe(200);
+        expect(script.body).toContain('window.Vivliostyle=module.exports');
+      } finally {
+        await fallback.close();
+      }
+    } finally {
+      vi.doUnmock('../src/util/inlineBundle.js');
+    }
   });
 });

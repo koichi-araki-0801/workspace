@@ -1,12 +1,13 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildSampleData, type FundMaster, parseTemplateFileName } from '@editor/shared';
+import { parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
-import fundMaster from '../src/api/fixtures/funds.json';
 import { defaultSkeleton } from '../src/api/local/store';
 import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
-import { extractJinjaTokens, toTemplate } from '../src/lib/jinjaMask';
+import { defaultHtmlParser } from '../src/lib/htmlParser';
+import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
+import { fixtureSample } from './helpers/fundSample';
 
 const sample = {
   company: { code: 'AM01', name: 'アセットマネジメント株式会社' },
@@ -59,9 +60,11 @@ describe('toFilled substitutes values for display', () => {
     expect(filled).toContain('トヨタ自動車');
     expect(filled).toContain('ソニーグループ');
     expect(filled).toContain('三菱UFJ');
-    // first row keeps the for/endfor markers; the other two are clones
-    expect((filled.match(/data-jinja-loop-clone/g) ?? []).length).toBe(2);
-    expect(filled).toContain('data-jinja-open=');
+    // 2 行目以降は x の印の後ろの表示専用の行。テンプレートの行(1 行目)にだけ行の印が付く。
+    expect((filled.match(/<!--jinja-rt:x:/g) ?? []).length).toBe(1);
+    expect((filled.match(/data-jinja-loop-row/g) ?? []).length).toBe(1);
+    expect(filled.indexOf('data-jinja-loop-row')).toBeLessThan(filled.indexOf('トヨタ自動車'));
+    expect(filled.indexOf('<!--jinja-rt:x:')).toBeLessThan(filled.indexOf('ソニーグループ'));
   });
 
   it('keeps only the taken branch of an if/else', () => {
@@ -71,7 +74,7 @@ describe('toFilled substitutes values for display', () => {
     );
     expect(filled).toContain('class="up"');
     expect(filled).not.toContain('class="down"');
-    expect(filled).toContain('data-jinja-block=');
+    expect(filled).toContain('<!--jinja-rt:o:');
   });
 });
 
@@ -91,8 +94,6 @@ describe('real report templates round-trip token-for-token', () => {
       if (!attrs) throw new Error(`テンプレ名から属性を取れない fixture: ${file}`);
       return [file, attrs.fundCode] as const;
     });
-  const funds = fundMaster as Record<string, FundMaster>;
-
   it('走査でテンプレ fixture を実際に見つけている(セルフテスト)', () => {
     // 0 件だと以下の `for` が 1 件も it を生まず「常に緑」になるため、下限を固定する。
     expect(templates.length).toBeGreaterThanOrEqual(8);
@@ -101,12 +102,16 @@ describe('real report templates round-trip token-for-token', () => {
   for (const [file, fund] of templates) {
     it(file, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
-      const data = buildSampleData(funds[fund], fund);
+      const data = fixtureSample(fund);
       // Mirror the editor's real path: only the <body> inner is filled, edited,
       // and restored; the <head> is taken verbatim from the source on save.
       const filledBody = getBodyInner(toFilled(raw, data));
       const restoredBody = toTemplate(filledBody, { asFragment: true });
       expect(extractJinjaTokens(restoredBody)).toEqual(extractJinjaTokens(getBodyInner(raw)));
+      // 記号の並びだけでなく、本文の木(本物のコメントを含む)も原文と同じに戻る。
+      expect(normalizeForRoundTrip(restoredBody, defaultHtmlParser)).toBe(
+        normalizeForRoundTrip(getBodyInner(raw), defaultHtmlParser),
+      );
     });
   }
 
@@ -119,10 +124,7 @@ describe('real report templates round-trip token-for-token', () => {
     it(`${file}: 解釈できない/未定義の Jinja 式が無い`, () => {
       const raw = readFileSync(resolve(fixtures, 'templates', file), 'utf8');
       const attrs = parseTemplateFileName(file);
-      const { diagnostics } = toFilledWithDiagnostics(
-        raw,
-        buildSampleData(funds[fund], fund, attrs ?? undefined),
-      );
+      const { diagnostics } = toFilledWithDiagnostics(raw, fixtureSample(fund, attrs ?? undefined));
       expect(diagnostics.unsupported).toEqual([]);
       expect(diagnostics.missing).toEqual([]);
     });
@@ -155,15 +157,13 @@ const GENERATED_SKELETON_BODY = `<div class="page">
 </div>`;
 
 describe('生成スケルトンの参照キーがサンプルで満たされる', () => {
-  const funds = fundMaster as Record<string, FundMaster>;
-
   it('生成器の書きぶり(基準日・前日比の符号分岐): 解釈できない/未定義の Jinja 式が無い', () => {
     const attrs = parseTemplateFileName('AM01_510037_20240710_kr.html');
     expect(attrs).not.toBeNull();
     if (!attrs) return;
     const { diagnostics } = toFilledWithDiagnostics(
       GENERATED_SKELETON_BODY,
-      buildSampleData(funds[attrs.fundCode], attrs.fundCode, attrs),
+      fixtureSample(attrs.fundCode, attrs),
     );
     expect(diagnostics.unsupported).toEqual([]);
     expect(diagnostics.missing).toEqual([]);
@@ -172,7 +172,7 @@ describe('生成スケルトンの参照キーがサンプルで満たされる'
   it('defaultSkeleton(local の新規作成雛形): 解釈できない/未定義の Jinja 式が無い', () => {
     const { diagnostics } = toFilledWithDiagnostics(
       defaultSkeleton(),
-      buildSampleData(undefined, '000000', { editionType: '交付版', baseDate: '20260101' }),
+      fixtureSample('000000', { editionType: '交付版', baseDate: '20260101' }),
     );
     expect(diagnostics.unsupported).toEqual([]);
     expect(diagnostics.missing).toEqual([]);
@@ -228,10 +228,10 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
 
   it('条件式が解釈できなければ false 扱いにして診断へ挙げる', () => {
     const { html, diagnostics } = toFilledWithDiagnostics(
-      `<section>{% if holdings | length %}<p class="up">U</p>{% else %}<p class="down">D</p>{% endif %}</section>`,
+      `<section>{% if holdings | first %}<p class="up">U</p>{% else %}<p class="down">D</p>{% endif %}</section>`,
       sample,
     );
-    expect(diagnostics.unsupported).toEqual(['holdings | length']);
+    expect(diagnostics.unsupported).toEqual(['holdings | first']);
     expect(html).toContain('class="down"');
   });
 
@@ -241,8 +241,8 @@ describe('toFilled は解釈できない式を黙って捨てない', () => {
       sample,
     );
     expect(diagnostics.unsupported).toContain('holdings | reverse');
-    expect(html).not.toContain('data-jinja-loop-clone');
-    expect(html).toContain('data-jinja-open=');
+    expect(html).not.toContain('<!--jinja-rt:x:');
+    expect(html).toContain('data-jinja-loop-row');
   });
 
   it('`toFilled` は解釈できない式をコンソールへ 1 度だけ知らせる', () => {
@@ -268,12 +268,12 @@ describe('toFilled の端', () => {
       holdings: 7,
     });
     const doc = new DOMParser().parseFromString(out, 'text/html');
-    // 残る 1 つは round-trip 用の雛形行(`data-jinja-open`/`close` を運ぶ未 fill の
-    // テンプレート行)で、値入りの行は 1 つも増えない。`not.toContain('<li>')` だと
+    // 残る 1 つは round-trip 用のテンプレートの行(ループ変数なしで描いた行)で、値入りの行は
+    // 1 つも増えない。`not.toContain('<li>')` だと
     // 属性付きの `<li ...>` に素通りされるので、要素数で数える。
     const lis = doc.querySelectorAll('li');
     expect(lis.length).toBe(1);
-    expect(lis[0].hasAttribute('data-jinja-open')).toBe(true);
+    expect(lis[0].hasAttribute('data-jinja-loop-row')).toBe(true);
     expect(out).not.toContain('h.name');
     expect(doc.body.textContent?.trim()).toBe('');
   });
@@ -282,18 +282,112 @@ describe('toFilled の端', () => {
     expect(toFilled('<p>{% set a = 1 %}x</p>', {})).toContain('{% set a = 1 %}');
   });
 
-  it('if は else の有無どちらでも採用枝を展開し、枝が単一要素でなければ生ブロックを残す', () => {
+  it('if は else の有無・枝の形によらず採用枝を見せ、往復で戻る', () => {
     expect(toFilled('{% if ok %}<p>A</p>{% else %}<p>B</p>{% endif %}', { ok: false })).toContain(
       'B',
     );
-    // else 無しで非採用: taken(空文字)は単一要素と判定できないため marker を運べず、
-    // ブロック全体が生のまま残って inline token 化される({% if %}/{% endif %} だけが
-    // チップになり、中の "A" はそのままテキストとして残る)。
-    const noElse = toFilled('{% if ok %}<p>A</p>{% endif %}', { ok: false });
-    expect(noElse).toContain('{% if ok %}');
-    // taken 側(2 要素、開始・終了タグが揃わない)も単一要素ではないので同じ扱い。
-    const raw = '{% if ok %}<p>A</p><div>A2</div>{% endif %}';
-    expect(toFilled(raw, { ok: true })).toContain('{% if ok %}');
+    const cases: Array<[string, Record<string, unknown>]> = [
+      // else 無しで非採用: 印の間は空になり、ブロック全体が開きの印に入る。
+      ['{% if ok %}<p>A</p>{% endif %}', { ok: false }],
+      // 採用した枝が複数要素。
+      ['{% if ok %}<p>A</p><div>A2</div>{% endif %}', { ok: true }],
+    ];
+    for (const [raw, data] of cases) {
+      const back = toTemplate(toFilled(raw, data), { asFragment: true });
+      expect(back).toBe(raw);
+    }
+    expect(toFilled('{% if ok %}<p>A</p>{% endif %}', { ok: false })).not.toContain('<p>A</p>');
+  });
+});
+
+describe('toFilled — 本番パーツが使う構文も描き、原文へ戻る', () => {
+  const roundTrips = (raw: string, data: Record<string, unknown>) => {
+    const { html, diagnostics } = toFilledWithDiagnostics(raw, data);
+    expect(diagnostics.unsupported).toEqual([]);
+    expect(diagnostics.frozen).toEqual([]);
+    expect(toTemplate(html, { asFragment: true })).toBe(raw);
+    return html;
+  };
+
+  it('フィルタ付きの出力はチップになり、値を見せて原文へ戻る', () => {
+    const html = roundTrips(
+      '<p>{{ holdings|length }}件 {{ fund.missing|default("-") }} {{ " x "|trim }}</p>',
+      sample,
+    );
+    expect(html).toContain('>3<');
+    expect(html).toContain('>-<');
+    expect(html).toContain('>x<');
+  });
+
+  it('set の代入は以後のチップの値に効き、渡したサンプルを書き換えない', () => {
+    const data = { ...sample, n: 2 };
+    const html = roundTrips('<p>{% set y = n * 21 %}{{ y }}</p><p>{{ y + 1 }}</p>', data);
+    expect(html).toContain('>42<');
+    expect(html).toContain('>43<');
+    expect(data).not.toHaveProperty('y');
+  });
+
+  it('namespace・loop の属性・selectattr を使うループの行も原文へ戻る', () => {
+    const raw =
+      '{% set ns = namespace(total=0) %}<table><tbody>' +
+      '{% for h in holdings|selectattr("weight") %}{% set ns.total = ns.total + h.weight|int %}' +
+      '<tr><td>{{ loop.index }}{% if not loop.first %}({{ loop.previtem.name }}){% endif %}</td>' +
+      '<td>{{ h.name }}</td></tr>{% endfor %}</tbody></table><p>{{ ns.total }}</p>';
+    const html = roundTrips(raw, sample);
+    expect(html).toMatch(/\(<span [^>]*>トヨタ自動車<\/span>\)/);
+    expect(html).toContain('>12<'); // 5 + 4 + 3
+  });
+
+  it('safe の値は HTML として描き(チップの中に要素ができ)、原文へ戻る', () => {
+    const html = roundTrips('<p>{{ note|safe }}</p>', { note: 'a<br>b' });
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    expect(doc.querySelector('p .jinja-chip br')).not.toBeNull();
+    // safe の無い出力は従来どおりエスケープする。
+    expect(toFilled('<p>{{ note }}</p>', { note: 'a<br>b' })).toContain('a&lt;br&gt;b');
+  });
+
+  it.each([
+    ['コメントの閉じと印', '--><!--jinja-rt:c:1:e3sgeCB9fQ==--><!--'],
+    ['コメントの開き', '<!--'],
+    ['引用符と閉じタグ', '"></span></p><p class="leak">外</p><p>'],
+    ['チップの閉じ', '</span><b>外</b>'],
+    ['偽のチップ', '<span class="jinja-chip jinja-var" data-jinja="e3sgcHduIH19">x</span>'],
+    ['偽の固めた要素', '<div data-gjs-type="jinja-frozen" data-opaque="e3sgcHduIH19">x</div>'],
+  ])('safe の値が%sを含んでも、印とチップの構造を壊さず原文へ戻る', (_, note) => {
+    const raw =
+      '<section><p>{{ note|safe }}</p>{% if ok %}<p title="{{ note|safe }}">A</p>{% endif %}' +
+      '<!-- {{ note|safe }} --></section>';
+    const { html } = toFilledWithDiagnostics(raw, { note, ok: true });
+    expect(toTemplate(html, { asFragment: true })).toBe(raw);
+    const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    // 印は if の開きと閉じの 2 つだけで、値が作った印・チップ・固めた要素は無い。
+    const marks: string[] = [];
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const d = (n as Comment).data;
+      if (d.startsWith('jinja-rt:')) marks.push(d.slice(9, 10));
+    }
+    expect(marks).toEqual(['o', 'c']);
+    expect(doc.querySelectorAll('[data-jinja]').length).toBe(1);
+    expect(doc.querySelectorAll('[data-opaque]').length).toBe(0);
+    expect(doc.querySelector('.leak')).toBeNull();
+  });
+
+  it('許可リストの外の呼び出しは評価しない(prototype の関数に届かず、診断へ挙がる)', () => {
+    const g = globalThis as { __pwnedFill?: number };
+    const attacks = [
+      '{{ range.constructor("globalThis.__pwnedFill = 1")() }}',
+      '{{ fund.name|attr("constructor") }}',
+      '{% set f = namespace.constructor %}{{ f("globalThis.__pwnedFill = 1")() }}',
+      '{{ fund.name.startswith.constructor("globalThis.__pwnedFill = 1")() }}',
+      '{{ holdings|map("constructor")|list }}',
+    ];
+    for (const a of attacks) {
+      const { html, diagnostics } = toFilledWithDiagnostics(`<p>${a}</p>`, sample);
+      expect(diagnostics.unsupported.length, a).toBeGreaterThan(0);
+      expect(html).not.toContain('native code');
+    }
+    expect(g.__pwnedFill).toBeUndefined();
   });
 });
 

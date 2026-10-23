@@ -211,6 +211,38 @@ describe('extractProjectZip', () => {
     expect(b.config).toBeUndefined();
   });
 
+  it('resolves entry and theme of a nested config against the config folder (cwd)', async () => {
+    const nested = await zipOf({
+      'proj/vivliostyle.config.json': '{"entry":"index.html","theme":"style.css"}',
+      'proj/index.html': '<p>x</p>',
+      'proj/style.css': 'p{}',
+    });
+    const project = await extractProjectZip(nested);
+    created.push(project.dir);
+    expect(project.config?.theme).toBe('style.css');
+    expect(project.cwd).toBe(path.join(project.dir, 'proj'));
+  });
+
+  it('keeps cwd at the extraction root when the config sits at the root or is absent', async () => {
+    const atRoot = await extractProjectZip(
+      await zipOf({ 'vivliostyle.config.json': '{"entry":"index.html"}', 'index.html': '<p/>' }),
+    );
+    created.push(atRoot.dir);
+    expect(atRoot.cwd).toBe(atRoot.dir);
+    const none = await extractProjectZip(await zipOf({ 'index.html': '<p/>' }));
+    created.push(none.dir);
+    expect(none.cwd).toBe(none.dir);
+  });
+
+  it('rejects a nested config whose paths climb out of the config folder', async () => {
+    const buf = await zipOf({
+      'proj/vivliostyle.config.json': '{"entry":"index.html","theme":"../style.css"}',
+      'proj/index.html': '<p>x</p>',
+      'style.css': 'p{}',
+    });
+    await expect(extractProjectZip(buf)).rejects.toSatisfy(isAppError);
+  });
+
   // 探索側は case-fold して**広く拾う**のが正しい。見落とすと検証しないまま zip に残る。
   it('picks up a config whose name differs only in case', async () => {
     const buf = await zipOf({

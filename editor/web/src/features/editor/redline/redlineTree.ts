@@ -9,7 +9,7 @@
 // ここは 2 つの木を同じ `RedlineNode` へ写すだけで、差分の判断は `redlineDiff.ts` が持つ。
 
 import type { Component, ComponentDefinition } from 'grapesjs';
-import { rawKeyFromParts } from '@/lib/blockKey';
+import { occurrenceKeys, rawKeyFromParts } from '@/lib/blockKey';
 
 /** live 側のノード解決子。基準側は常に null を返す。 */
 export type NodeResolver = () => Node | null;
@@ -48,19 +48,31 @@ function textOnlyContent(type: unknown, content: unknown): string | null {
 
 /** 同一親の子に、基底キーの出現順 `#n` を付けて一意化する（`htmlBlockDiff.keyedUnits` と同規則）。 */
 function assignKeys(nodes: { base: string; node: Omit<RedlineNode, 'key'> }[]): RedlineNode[] {
-  const seen = new Map<string, number>();
-  return nodes.map(({ base, node }) => {
-    const n = (seen.get(base) ?? 0) + 1;
-    seen.set(base, n);
-    return { ...node, key: `${base}#${n}` };
-  });
+  const keys = occurrenceKeys(nodes.map((x) => x.base));
+  return nodes.map(({ node }, i) => ({ ...node, key: keys[i] }));
 }
 
 /** 定義の `classes` は文字列配列だが、モデル由来では `{ name }` の配列になることもある。 */
+function classNamesOf(classes: unknown): string[] {
+  if (!Array.isArray(classes)) return [];
+  return (classes as (string | { name?: string })[]).map((c) =>
+    typeof c === 'string' ? c : (c?.name ?? ''),
+  );
+}
+
 function firstClassOf(classes: unknown): string | null {
-  if (!Array.isArray(classes) || classes.length === 0) return null;
-  const c = classes[0] as string | { name?: string };
-  return typeof c === 'string' ? c : (c?.name ?? null);
+  return classNamesOf(classes)[0] || null;
+}
+
+/**
+ * 定義の子。子を持たず `content` だけの `type:'text'` 要素は、その content を 1 個のテキスト子として
+ * 扱う。
+ */
+function childDefsOrText(def: ComponentDefinition): ComponentDefinition[] {
+  const kids = childDefs(def);
+  if (kids.length > 0) return kids;
+  const text = textOnlyContent(def.type, def.content);
+  return text === null ? kids : [{ type: 'textnode', content: text }];
 }
 
 function elKey(attrs: Record<string, unknown> | undefined, classes: unknown, tag: string): string {
@@ -92,12 +104,7 @@ function defToNode(
   // `Omit<ComponentProperties,…> + 索引シグネチャ` の組で `||` 経由の絞り込みが `{}` に
   // 潰れる grapesjs 側の型の癖があるため、ここだけ明示キャストで本来の型に戻す。
   const tag = ((def.tagName as string | undefined) || 'div').toLowerCase();
-  let kids = childDefs(def);
-  if (kids.length === 0) {
-    // 子を持たず `content` だけの `type:'text'` 要素は、その content を 1 個のテキスト子として扱う。
-    const text = textOnlyContent(def.type, def.content);
-    if (text !== null) kids = [{ type: 'textnode', content: text }];
-  }
+  const kids = childDefsOrText(def);
   return {
     base: elKey(def.attributes as Record<string, unknown> | undefined, def.classes, tag),
     node: { kind: 'el', tag, children: fromDefinitions(kids), node: NULL_NODE, def },
@@ -201,18 +208,8 @@ export function renderDefinition(def: ComponentDefinition, doc: Document): Node 
     if (!isRenderableAttr(k) || v == null || v === false) continue;
     el.setAttribute(k, v === true ? '' : String(v));
   }
-  const classes = Array.isArray(def.classes)
-    ? (def.classes as (string | { name?: string })[]).map((c) =>
-        typeof c === 'string' ? c : (c?.name ?? ''),
-      )
-    : [];
-  const cls = classes.filter(Boolean).join(' ');
+  const cls = classNamesOf(def.classes).filter(Boolean).join(' ');
   if (cls) el.setAttribute('class', cls);
-  let kids = childDefs(def);
-  if (kids.length === 0) {
-    const text = textOnlyContent(def.type, def.content);
-    if (text !== null) kids = [{ type: 'textnode', content: text }];
-  }
-  for (const k of kids) el.appendChild(renderDefinition(k, doc));
+  for (const k of childDefsOrText(def)) el.appendChild(renderDefinition(k, doc));
   return el;
 }
