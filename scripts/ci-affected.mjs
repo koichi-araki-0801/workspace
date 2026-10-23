@@ -45,9 +45,10 @@ export const AREAS = {
   },
   offline: {
     label: 'offline + editor の PowerShell (Pester)',
-    // `ci:offline` は offline の Pester に加え、editor のパッチと init-data-repo の Pester も
-    // 走らせる。それらの .ps1 / .bat は editor 領域にも当たるが、editor の段(vitest / e2e)は
-    // PowerShell を 1 行も実行しないので、ここでも拾わないと Pester が一度も走らない。
+    // `ci:offline` は offline の Pester に加え、editor の init-data-repo(と editor/patches に
+    // 置くパッチ)の Pester も走らせる。それらの .ps1 / .bat は editor 領域にも当たるが、
+    // editor の段(vitest / e2e)は PowerShell を 1 行も実行しないので、ここでも拾わないと
+    // Pester が一度も走らない。
     match: (p) =>
       p.startsWith('offline/') || /^editor\/(patches|scripts)\/.+\.(ps1|bat)$/i.test(p),
     stages: ['ci:offline'],

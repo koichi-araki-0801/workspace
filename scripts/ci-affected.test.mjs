@@ -143,8 +143,8 @@ test('classifyChanges: editor のパッチ・scripts の .ps1 / .bat は editor 
   // `ci:offline` がパッチと init-data-repo の Pester を走らせる。editor 領域だけに落ちると
   // vitest / e2e は PowerShell を実行しないので、Pester が一度も走らない。
   for (const p of [
-    'editor/patches/2026-10-fonts-to-css/migrate.ps1',
-    'editor/patches/2026-10-fund-images/apply.Tests.ps1',
+    'editor/patches/example/apply.ps1',
+    'editor/patches/example/apply.Tests.ps1',
     'editor/scripts/init-data-repo.ps1',
     'editor/scripts/init-data-repo.bat',
   ]) {
@@ -154,7 +154,7 @@ test('classifyChanges: editor のパッチ・scripts の .ps1 / .bat は editor 
 
 test('classifyChanges: editor の .ps1 以外(TS・パッチの README)は offline を起動しない', () => {
   assert.deepEqual(classifyChanges(['editor/server/src/config.ts']).areas, ['editor']);
-  assert.deepEqual(classifyChanges(['editor/patches/2026-10-fonts-to-css/README.md']).areas, ['editor']);
+  assert.deepEqual(classifyChanges(['editor/patches/example/README.md']).areas, ['editor']);
 });
 
 test('editor/scripts の .ps1 は editor の 4 段に続けて ci:offline を起動する', () => {

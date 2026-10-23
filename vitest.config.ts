@@ -113,7 +113,6 @@ export default defineConfig({
         'editor/server/src/generate/generatorCheck.ts',
         'editor/server/src/generate/baseDate.ts',
         'editor/server/src/generate/generatorLog.ts',
-        'editor/server/src/files/legacyLayoutCheck.ts',
         'editor/server/src/sync/partSync.ts',
         'editor/server/src/sync/cssSync.ts',
         'editor/server/src/sync/noteMasterService.ts',

@@ -116,7 +116,7 @@ describe('config paths', () => {
     expect('assetsDir' in config).toBe(false);
   });
 
-  it('dataRoot に旧構成の assets が残っていても起動は止めない(警告は files/legacyLayoutCheck.ts)', async () => {
+  it('dataRoot に旧構成の assets が残っていても起動は止めない', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-assets-'));
     try {
       fs.mkdirSync(path.join(root, 'assets', 'fonts'), { recursive: true });
