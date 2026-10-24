@@ -48,8 +48,9 @@ const ImageBinary = z.string().meta({ format: 'binary', description: '画像バ�
  * project zip の受入条件。`POST /build/project` と `POST /preview`(zip 経路)が同じ
  * `prepareProject` を通るので文面を 1 つにする。外部クライアントはまだ存在せず、**ここに
  * 書いたものがそのまま本番の契約になる**ため、実装(`vivliostyle/projectInput.ts` の
- * `ALLOWED_EXTENSIONS` / `isIgnorableEntry` / `isNpmArtifact`、`vivliostyle/projectConfig.ts`
- * の `ACCEPTED_KEYS`)と 1 対 1 に対応させ、400 の判断材料を仕様だけから導けるようにする。
+ * `ALLOWED_EXTENSIONS` / `isIgnorableEntry` / `isNpmArtifact` / `isPostcssConfigName`、
+ * `vivliostyle/projectConfig.ts` の `ACCEPTED_KEYS`)と 1 対 1 に対応させ、400 の判断材料を
+ * 仕様だけから導けるようにする。
  * 実装を変えたらこの文面も変えること(片方だけ動くと外部実装者が 400 の理由を導けない)。
  */
 const PROJECT_ZIP_CONTRACT = [
@@ -65,6 +66,10 @@ const PROJECT_ZIP_CONTRACT = [
   '`Thumbs.db`・`desktop.ini`・`._` で始まる名前。',
   '\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・',
   '`package-lock.json`・`.npmrc`。',
+  '\n\n**拒否する PostCSS 設定**(大小文字を無視し、どの階層のファイル名・フォルダ名でも): ',
+  '`.postcssrc` と `.postcssrc.` で始まる名前(`.postcssrc.json` を含む)・',
+  '`postcss.config.` で始まる名前・`.config/` 直下の `postcssrc` で始まる名前。',
+  '組版は PostCSS の設定を読まない。サーバは展開先に空の設定を置き、探索をそこで止める。',
   '\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。',
   '2 件以上あれば 400。無ければ単一エントリを既定として使う。',
   '内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。',

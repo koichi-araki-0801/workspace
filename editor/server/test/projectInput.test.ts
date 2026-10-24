@@ -10,6 +10,8 @@ import {
   cleanupProject,
   extractByteBudget,
   extractProjectZip,
+  isPostcssConfigName,
+  POSTCSS_STOPPER,
   safeEntryPath,
   safeProjectEntry,
 } from '../src/vivliostyle/projectInput.js';
@@ -546,5 +548,106 @@ describe('safeProjectEntry', () => {
     ]) {
       expect(() => safeProjectEntry(root, bad), bad).toThrow();
     }
+  });
+});
+
+// ── PostCSS 設定ファイル ──
+// Vite(と cli 11.4.0)は PostCSS の設定を `serverRootDir` から親方向へ `pnpm-workspace.yaml` まで
+// 探し、見つけた設定の `plugins` をサーバの node_modules から require して実行する。主防御は
+// 展開ルートに我々が置く空の設定(探索をそこで止める)で、名前の拒否は `isNpmArtifact` と同じ
+// 二次防御。並べる名前は vite 8.2.2 / 8.3.5 と postcss-load-config 6.0.1 の searchPlaces の和集合
+// (`.config/postcssrc*` は lilconfig の既定値。現行は使われないが同族として拒否する)。
+describe('extractProjectZip — PostCSS 設定', () => {
+  const searchPlaces = [
+    '.postcssrc',
+    '.postcssrc.json',
+    '.postcssrc.yaml',
+    '.postcssrc.yml',
+    '.postcssrc.ts',
+    '.postcssrc.cts',
+    '.postcssrc.mts',
+    '.postcssrc.js',
+    '.postcssrc.cjs',
+    '.postcssrc.mjs',
+    'postcss.config.ts',
+    'postcss.config.cts',
+    'postcss.config.mts',
+    'postcss.config.js',
+    'postcss.config.cjs',
+    'postcss.config.mjs',
+    '.config/postcssrc',
+    '.config/postcssrc.json',
+  ];
+
+  it.each([
+    ...searchPlaces,
+    'proj/.postcssrc.json',
+    'a/b/.PostCSSRC.Json',
+    'POSTCSS.CONFIG.JSON',
+    '.postcssrc/x.css',
+  ])('rejects a PostCSS config (%s) at any depth, regardless of case', async (name) => {
+    expect(isPostcssConfigName(name)).toBe(true);
+    const before = await tmpProjectDirs();
+    const buf = await zipOf({ [name]: '{}', 'index.html': '<p>x</p>' });
+    const err = await extractProjectZip(buf).catch((e: unknown) => e);
+    expect(isAppError(err)).toBe(true);
+    // JSZip は親フォルダのエントリを先に書くので、フォルダ名で落ちることもある(`.postcssrc/`)。
+    const msg = (err as Error).message;
+    expect(
+      [name, `${name.split('/')[0]}/`].some((n) => msg.includes(n)),
+      msg,
+    ).toBe(true);
+    expect(msg).toContain('PostCSS');
+    expect((await tmpProjectDirs()).filter((n) => !before.includes(n))).toEqual([]);
+  });
+
+  it('rejects a directory entry named .postcssrc', async () => {
+    const zip = new JSZip();
+    zip.folder('.postcssrc');
+    zip.file('index.html', '<p>x</p>');
+    const buf = await zip.generateAsync({ type: 'nodebuffer' });
+    await expect(extractProjectZip(buf)).rejects.toMatchObject({
+      message: expect.stringContaining('.postcssrc'),
+    });
+  });
+
+  it.each([
+    'postcss.css',
+    'images/postcssrc.png',
+    'my.postcssrc.json.png',
+  ])('does not reject an unrelated name (%s)', (name) => {
+    expect(isPostcssConfigName(name)).toBe(false);
+  });
+
+  it.each([
+    ['root config', { 'vivliostyle.config.json': '{"entry":"index.html"}', 'index.html': '<p/>' }],
+    [
+      'nested config',
+      { 'proj/vivliostyle.config.json': '{"entry":"index.html"}', 'proj/index.html': '<p/>' },
+    ],
+    ['no config', { 'index.html': '<p/>' }],
+  ])('writes an empty %s stopper only at the extraction root', async (_label, files) => {
+    const project = await extractProjectZip(await zipOf(files));
+    created.push(project.dir);
+    expect(await fs.readFile(path.join(project.dir, POSTCSS_STOPPER), 'utf8')).toBe('{}\n');
+    if (project.cwd !== project.dir) {
+      expect(existsSync(path.join(project.cwd, POSTCSS_STOPPER))).toBe(false);
+    }
+  });
+
+  it('the stopper does not change config discovery', async () => {
+    const nested = await extractProjectZip(
+      await zipOf({
+        'proj/vivliostyle.config.json': '{"entry":"index.html"}',
+        'proj/index.html': '<p/>',
+      }),
+    );
+    created.push(nested.dir);
+    expect(nested.cwd).toBe(path.join(nested.dir, 'proj'));
+    expect(nested.config).toBeDefined();
+    const none = await extractProjectZip(await zipOf({ 'index.html': '<p/>' }));
+    created.push(none.dir);
+    expect(none.cwd).toBe(none.dir);
+    expect(none.config).toBeUndefined();
   });
 });

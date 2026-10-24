@@ -120,6 +120,37 @@ function isNpmArtifact(rel: string): boolean {
 }
 
 /**
+ * 展開ルートに我々が置く空の PostCSS 設定のファイル名。Vite(と cli 11.4.0)は PostCSS の設定を
+ * `serverRootDir`(config の置き場 / 単一入力ならエントリの親)から親方向へ `pnpm-workspace.yaml`
+ * まで探し、見つけた設定の `plugins` をサーバの node_modules から require して実行する。展開先は
+ * このリポジトリ配下の temp なので、zip や祖先に置かれた設定が効くと、利用者が任意のパッケージを
+ * options 付きで呼べてしまう。探索は最初に見つけた設定で止まり(各ディレクトリでは
+ * `package.json` → `.postcssrc*` の順。我々の空 `package.json` は `postcss` キーを持たないので
+ * 止まらない)、中身 `{}` でも「見つかった」扱いになる(lilconfig の空判定は空文字だけ)。
+ * よって展開ルートに 1 つ置けば、起点がその下のどこでも祖先へは届かない。**これが主防御**。
+ */
+export const POSTCSS_STOPPER = '.postcssrc.json';
+
+/**
+ * PostCSS の設定として探索される名前か(ディレクトリ名を含む各セグメントで見る)。
+ * 主防御は `POSTCSS_STOPPER` で、これは `isNpmArtifact` と同じ**二次防御**である。展開ルートより
+ * 下に設定が残ると、起点がそのディレクトリのとき空の設定より先に見つかるため、名前でも落とす。
+ * 対象は vite 8.2.2 / 8.3.5 と postcss-load-config 6.0.1 の searchPlaces(`.postcssrc` 系・
+ * `postcss.config.*`)と、lilconfig 既定の `.config/postcssrc*`。拡張子許可リストで既に落ちる名前も
+ * 含めて前方一致で拒否する(許可リストが広がっても穴にならないように)。
+ */
+export function isPostcssConfigName(rel: string): boolean {
+  const segments = rel.toLowerCase().split('/');
+  return segments.some(
+    (s, i) =>
+      s === '.postcssrc' ||
+      s.startsWith('.postcssrc.') ||
+      s.startsWith('postcss.config.') ||
+      (i > 0 && segments[i - 1] === '.config' && s.startsWith('postcssrc')),
+  );
+}
+
+/**
  * 展開して書き出してよい名前か。判定は**正規化後の相対パス**に対して行う
  * (生の `entry.name` で判定すると `x.png/../y.js` が抜ける)。小文字化するのは
  * **拒否を広げる方向の case-fold なので安全**である(受理を広げる方向では畳まない)。
@@ -390,12 +421,20 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
         const rel = path.relative(dir, dest).split(path.sep).join('/');
         if (entry.isDirectory) {
           // ディレクトリ名も同じ規則で見る(`node_modules/` の作成自体を塞ぐ)。
+          if (!isIgnorableEntry(rel) && isPostcssConfigName(rel)) {
+            throw validation(`PostCSS の設定ファイルは取り込めません: ${entry.name}`);
+          }
           if (!isIgnorableEntry(rel) && isNpmArtifact(rel)) {
             throw validation(`このディレクトリは取り込めません: ${entry.name}`);
           }
           continue;
         }
         if (isIgnorableEntry(rel)) continue;
+        // 拡張子は許可内でも(`.postcssrc.json`)取り込まない。拡張子一覧の文言は理由にならないので
+        // 専用の文にする。
+        if (isPostcssConfigName(rel)) {
+          throw validation(`PostCSS の設定ファイルは取り込めません: ${entry.name}`);
+        }
         if (!isAllowedEntryName(rel)) {
           throw validation(
             `このファイルは取り込めません: ${entry.name}。` +
@@ -440,6 +479,9 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     // なので、ここで置くのは常に我々の空ファイルである。
     const pkg = path.join(dir, 'package.json');
     if (!existsSync(pkg)) await fs.writeFile(pkg, '{}\n', 'utf8');
+    // PostCSS 設定の親方向探索をここで止める(`POSTCSS_STOPPER`)。zip 同梱の同名ファイルは
+    // `isPostcssConfigName` で拒否済みなので、ここで置くのは常に我々の空ファイルである。
+    await fs.writeFile(path.join(dir, POSTCSS_STOPPER), '{}\n', 'utf8');
 
     const configPaths = await findConfigFiles(dir);
     // 2 件以上は 400。BFS 順の最初の 1 件を黙って採ると、深い所に別の
