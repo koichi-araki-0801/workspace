@@ -326,11 +326,14 @@ function startRelay(allowed: ReadonlySet<number>): Promise<EgressRelay> {
     // 外す(`_http_server.js` の `onParserExecuteCommon`)。拒否の 502 を書いている間に相手が
     // RST すると 'error' の受け手がいなくなり `uncaughtException` → `serve.ts` の `exit(1)` で
     // プロセスごと落ちる。共有中継は本体プロセスで動くので、ビルドワーカーだけの話ではない
-    // (組版中の Edge は bing.com 等へ CONNECT を十数件送り、ビルド 18 回中 1 回実際に落ちた)。
-    // 切断は拒否の結果として想定内なので、ログを出さずに握りつぶす。
-    // 'upgrade' と clientError にはリスナーを足さない: 'upgrade' はリスナーが無ければ Node が
-    // ソケットを destroy するだけで error を出さず、clientError の既定(`socketOnError`)は
-    // noop の error リスナーを付けてから 400 を書いて destroy する。
+    // (組版中の Edge は bing.com 等へ CONNECT を十数件送る。ビルド 18 回中 1 回落ちた件はこの
+    // 経路と推定している。トレースは残っていない)。切断は拒否の結果として想定内なので、ログを
+    // 出さずに握りつぶす。
+    // 'upgrade' と clientError にはリスナーを足さない。'upgrade' はリスナーが無ければ Node が
+    // Upgrade 要求を通常の要求として 'request' へ回す(既定の `shouldUpgradeCallback` が
+    // `listenerCount('upgrade') > 0`)ので `socketOnError` が残り、`handleRequest` が 502 を返す。
+    // **'upgrade' リスナーを足すなら、CONNECT と同じ error リスナーが必須になる。** clientError の
+    // 既定(`socketOnError`)は noop の error リスナーを付けてから 400 を書いて destroy する。
     s.on('connect', (req, socket) => {
       socket.on('error', () => {});
       logger.warn(

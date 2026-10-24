@@ -702,7 +702,7 @@ describe('egressGuard — 中継の端(事象の順序を明示して駆動す�
 // Node の http.Server は 'connect' を emit する前に、ソケットから自分の error リスナー
 // (`socketOnError`)を外す。拒否の 502 を書いている間に相手が RST すると、そのソケットの
 // 'error' を受ける者がいなくなり `uncaughtException` になる(`serve.ts` は `exit(1)` する)。
-// 組版中の Edge は bing.com 等へ CONNECT を十数件送るので、ビルド 18 回中 1 回実際に落ちた。
+// 組版中の Edge は bing.com 等へ CONNECT を十数件送る(ビルド 18 回中 1 回落ちた件はこの経路と推定)。
 // 本物の RST が 502 の書き込みより先に届くかは OS 次第なので、主テストは中継が受け取った
 // ソケットへ ECONNRESET を直接発生させ、決定的に確かめる。
 describe('egressGuard — CONNECT を拒否したソケットの error でプロセスが落ちない', () => {
@@ -769,6 +769,24 @@ describe('egressGuard — CONNECT を拒否したソケットの error でプロ
       proxyUrl = build.proxyUrl;
       originPort = build.originPort;
     }
+  });
+
+  // 'upgrade' リスナーを持たない中継では、Node が Upgrade 要求を通常の要求として扱い
+  // (`socketOnError` が残る)、`handleRequest` が 502 を返す。'upgrade' にリスナーを足さない
+  // 判断の前提なので固定する。Node の版でこの扱いが変わったらここが落ちる。
+  it('Upgrade 要求は通常の要求として 502 になる(素のソケットへ渡らない)', async () => {
+    const line = await new Promise<string>((resolve, reject) => {
+      const s = net.connect(Number(proxyUrl.port), proxyUrl.hostname, () => {
+        s.write('GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n');
+      });
+      s.setEncoding('utf8');
+      s.on('data', (chunk: string) => {
+        resolve(chunk.split('\r\n')[0]);
+        s.destroy();
+      });
+      s.on('error', reject);
+    });
+    expect(line).toBe('HTTP/1.1 502 Bad Gateway');
   });
 
   // 以下は補助。本物の RST の到着順は OS 次第なので、緑でも安全の証明にはならない。upgrade と

@@ -60,28 +60,44 @@ async function plantAncestorMarker(): Promise<void> {
 const markerLines = (): string[] =>
   existsSync(logFile()) ? readFileSync(logFile(), 'utf8').split('\n').filter(Boolean) : [];
 
-async function projectZip(): Promise<Buffer> {
+type Mode = 'single' | 'config';
+
+/**
+ * 本番の 2 通りの起動形に合わせた zip。config 無しは単一入力(起点 = エントリの親 = 展開ルート)、
+ * config ありはサブフォルダに置いて起点(= config の置き場)を展開ルートより深くする。どちらも
+ * 祖先へ登る途中で展開ルートの空の設定に当たることを確かめる。
+ */
+async function projectZip(mode: Mode): Promise<Buffer> {
   const zip = new JSZip();
+  const at = mode === 'config' ? 'proj/' : '';
+  if (mode === 'config') zip.file(`${at}vivliostyle.config.json`, '{"entry":"index.html"}');
   zip.file(
-    'index.html',
+    `${at}index.html`,
     '<!doctype html><html><head><meta charset="utf-8">' +
       '<link rel="stylesheet" href="style.css"></head><body><p>x</p></body></html>',
   );
-  zip.file('style.css', '/* css-marker */\np{color:red}\n');
+  zip.file(`${at}style.css`, '/* css-marker */\np{color:red}\n');
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
-/** 展開したプロジェクトを本番と同じ単一入力で preview し、CSS を 1 回取る。 */
-async function previewOnce(removeStopper: boolean): Promise<{ status: number; body: string }> {
-  const project = await extractProjectZip(await projectZip());
+/** 展開したプロジェクトを本番と同じ起動形(`previewServer.ts`)で preview し、CSS を 1 回取る。 */
+async function previewOnce(
+  mode: Mode,
+  removeStopper: boolean,
+): Promise<{ status: number; body: string }> {
+  const project = await extractProjectZip(await projectZip(mode));
   type PreviewServer = Awaited<ReturnType<typeof import('@vivliostyle/cli')['preview']>>;
   let server: PreviewServer | undefined;
   try {
     if (removeStopper) await fs.rm(path.join(project.dir, POSTCSS_STOPPER));
     const { preview } = await import('@vivliostyle/cli');
+    const entry =
+      mode === 'config'
+        ? { configData: project.config, cwd: project.cwd }
+        : { input: 'index.html', cwd: project.cwd };
+    if (mode === 'config') expect(project.cwd).not.toBe(project.dir);
     server = await preview({
-      input: 'index.html',
-      cwd: project.cwd,
+      ...entry,
       openViewer: false,
       host: '127.0.0.1',
       viteConfigFile: false,
@@ -114,17 +130,23 @@ afterAll(async () => {
 });
 
 describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
-  it('展開したプロジェクトの preview で、祖先の PostCSS 設定のプラグインは読み込まれない', async () => {
+  it.each<Mode>([
+    'single',
+    'config',
+  ])('展開したプロジェクトの preview(%s)で、祖先の PostCSS 設定のプラグインは読み込まれない', async (mode) => {
     await plantAncestorMarker();
-    const css = await previewOnce(false);
+    const css = await previewOnce(mode, false);
     expect(css.status).toBe(200);
     expect(css.body).toContain('css-marker');
     expect(markerLines()).toEqual([]);
   });
 
-  it('対照: 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)', async () => {
+  it.each<Mode>([
+    'single',
+    'config',
+  ])('対照(%s): 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)', async (mode) => {
     await plantAncestorMarker();
-    await previewOnce(true);
+    await previewOnce(mode, true);
     expect(markerLines()).toContain('load');
   });
 });
