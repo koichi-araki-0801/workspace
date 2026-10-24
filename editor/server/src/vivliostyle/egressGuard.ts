@@ -320,12 +320,24 @@ function startRelay(allowed: ReadonlySet<number>): Promise<EgressRelay> {
   return new Promise((resolve, reject) => {
     const s = http.createServer((req, res) => handleRequest(allowed, req, res));
     // CONNECT は中身が見えないトンネル。loopback の平文 HTTP しか要らないので一律拒否する。
+    //
+    // ⚠ ここで渡るのは http.Server の保護が外れた素のソケットである。Node の http サーバは
+    // 'connect' / 'upgrade' を emit する前に、ソケットから自分の error リスナー(`socketOnError`)を
+    // 外す(`_http_server.js` の `onParserExecuteCommon`)。拒否の 502 を書いている間に相手が
+    // RST すると 'error' の受け手がいなくなり `uncaughtException` → `serve.ts` の `exit(1)` で
+    // プロセスごと落ちる。共有中継は本体プロセスで動くので、ビルドワーカーだけの話ではない
+    // (組版中の Edge は bing.com 等へ CONNECT を十数件送り、ビルド 18 回中 1 回実際に落ちた)。
+    // 切断は拒否の結果として想定内なので、ログを出さずに握りつぶす。
+    // 'upgrade' と clientError にはリスナーを足さない: 'upgrade' はリスナーが無ければ Node が
+    // ソケットを destroy するだけで error を出さず、clientError の既定(`socketOnError`)は
+    // noop の error リスナーを付けてから 400 を書いて destroy する。
     s.on('connect', (req, socket) => {
+      socket.on('error', () => {});
       logger.warn(
         { type: 'egress.blocked', target: req.url, method: 'CONNECT' },
         'PDF 組版からの CONNECT を遮断しました',
       );
-      socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+      socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n', () => socket.destroy());
     });
     s.on('error', reject);
     s.listen(0, '127.0.0.1', () => {
