@@ -9,11 +9,15 @@ import {
   AddNoteRequest,
   BuildInlineRequest,
   BuildMergeDocument,
+  CreatableQuery,
   FundAssetRef,
+  FundsQuery,
+  GenerateRequest,
   MAX_DOCUMENT_CSS_CHARS,
   MAX_DOCUMENT_HTML_CHARS,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_PATH_KEY_CHARS,
+  PartClassificationQuery,
   RecordPdfExportRequest,
   SubmitReviewBody,
 } from '../src/schemas.js';
@@ -133,5 +137,31 @@ describe('画像の参照の名前の上限', () => {
     expect(FundAssetRef.safeParse({ dir: 'a'.repeat(255), file: 'a'.repeat(255) }).success).toBe(
       true,
     );
+  });
+});
+
+describe('ストアドの NVARCHAR(32) へ渡す委託会社コードの上限', () => {
+  // ストアドの引数は UTF-16 単位で数え、長すぎる値は**エラーにならず**切り詰められる。`.max(32)` は
+  // コードポイントで数えるので、サロゲートペアを含む値は UTF-16 の長さでも縛る。
+  const ok = '𠮷'.repeat(16); // 16 文字 = UTF-16 で 32 単位
+  const ng = '𠮷'.repeat(17); // 17 文字 = UTF-16 で 34 単位(コードポイントでは 32 以下)
+  const base = { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' };
+  it.each([
+    [
+      'PartClassificationQuery.companyCode',
+      (v: string) => PartClassificationQuery.safeParse({ companyCode: v }),
+    ],
+    ['FundsQuery.rep1CompanyCode', (v: string) => FundsQuery.safeParse({ rep1CompanyCode: v })],
+    [
+      'CreatableQuery.rep1CompanyCode',
+      (v: string) => CreatableQuery.safeParse({ ...base, rep1CompanyCode: v }),
+    ],
+    [
+      'GenerateRequest.rep1CompanyCode',
+      (v: string) => GenerateRequest.safeParse({ ...base, rep1CompanyCode: v }),
+    ],
+  ])('%s は UTF-16 で 32 単位までを受ける', (_, parse) => {
+    expect(parse(ok).success).toBe(true);
+    expect(parse(ng).success).toBe(false);
   });
 });

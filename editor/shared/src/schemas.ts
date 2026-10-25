@@ -46,6 +46,17 @@ export const MAX_NOTE_ENTRIES_PER_PART = 200;
  */
 export const MAX_NOTES_PER_TEMPLATE = 1000;
 
+/**
+ * UTF-16 単位で `max` 以下の文字列。`.max(N)` は zod 4.6 からコードポイントで数えるので、
+ * UTF-16 で数える相手(NTFS のファイル名、ストアドの `NVARCHAR(N)` 引数)へ渡す値は `.length`
+ * でも縛る。ストアドの引数は長すぎても**エラーにならず切り詰められる**ので、契約の段で落とす。
+ */
+const utf16Max = (max: number, what: string) =>
+  z
+    .string()
+    .max(max)
+    .refine((s) => s.length <= max, { message: `${what}が長すぎます(UTF-16 で ${max} 単位まで)` });
+
 // ── 1. Template identity — テンプレート同定 ──
 
 export const TemplateStatus = z.enum(['draft', 'published']).meta({ id: 'TemplateStatus' });
@@ -718,9 +729,7 @@ export const PartClassificationQuery = z.object({
     .string()
     .optional()
     .meta({ description: 'テンプレートの版種。指定時は対象版種が空か一致するパーツだけ' }),
-  companyCode: z
-    .string()
-    .max(32)
+  companyCode: utf16Max(32, '委託会社コード')
     .optional()
     .meta({ description: '委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)' }),
 });
@@ -840,11 +849,11 @@ export const CreatableInfo = z
   })
   .meta({ id: 'CreatableInfo' });
 
-export const FundsQuery = z.object({ rep1CompanyCode: z.string().min(1).max(32) });
+export const FundsQuery = z.object({ rep1CompanyCode: utf16Max(32, '委託会社コード').min(1) });
 
 export const CreatableQuery = z.object({
   companyCode: z.string().min(1),
-  rep1CompanyCode: z.string().min(1).max(32),
+  rep1CompanyCode: utf16Max(32, '委託会社コード').min(1),
   fundCode: z.string().min(1),
   editionType: z.string().min(1),
 });
@@ -856,7 +865,7 @@ export const CreatableQuery = z.object({
 export const GenerateRequest = z
   .object({
     companyCode: z.string().min(1).meta({ description: '会社(Rep1 の委託会社略称)' }),
-    rep1CompanyCode: z.string().min(1).max(32).meta({
+    rep1CompanyCode: utf16Max(32, '委託会社コード').min(1).meta({
       description:
         'Rep1 の委託会社コード。サーバは companyCode と同じ会社の組であることを Rep1 で確かめてから生成器へ渡す',
     }),
@@ -971,15 +980,8 @@ export const BuildMergeRequest = z
 /** 画像の確認 API が 1 回に受け付ける参照の上限(1 文書の画像は実物で数枚〜十数枚)。 */
 export const MAX_FUND_ASSET_INSPECT_REFS = 50;
 
-/**
- * ファイル名・フォルダ名 1 要素。NTFS の上限は UTF-16 で 255 単位だが、`.max(255)` は
- * コードポイントで数えるので、サロゲートペアを含む名前は `.length` でも縛る。
- */
-const fsNameComponent = () =>
-  z
-    .string()
-    .max(255)
-    .refine((s) => s.length <= 255, { message: '名前が長すぎます(UTF-16 で 255 単位まで)' });
+/** ファイル名・フォルダ名 1 要素。NTFS の上限は UTF-16 で 255 単位。 */
+const fsNameComponent = () => utf16Max(255, '名前');
 
 /** 画像の参照 1 件。`dir` は会社フォルダ(`images/` 直下なら null)。 */
 export const FundAssetRef = z
