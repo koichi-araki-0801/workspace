@@ -254,6 +254,21 @@ describe('classifySqlError', () => {
     expect(e.stage).toBe('connect');
     expect(e.message).toBe(`${sqlErrorHint('08001')}; cannot open (SQLSTATE 08001, エラー番号 53)`);
   });
+  it('6.0.0 の接続失敗(sqlState と details を持つ素のオブジェクト)も connect', () => {
+    const q = '[Microsoft][ODBC Driver 17 for SQL Server]??????????????: SQL Server ???? [53]. ';
+    const details = [
+      { sqlState: '08001', code: 53, message: q },
+      {
+        sqlState: 'HYT00',
+        code: 0,
+        message: '[Microsoft][ODBC Driver 17 for SQL Server]???? ????',
+      },
+      { sqlState: '01S00', code: 0, message: '[Microsoft][ODBC Driver 17 for SQL Server]????' },
+    ];
+    const e = classifySqlError({ message: q, sqlState: '08001', code: 53, details });
+    expect(e.stage).toBe('connect');
+    expect(e.message).toBe(`${sqlErrorHint('08001')} (SQLSTATE 08001, エラー番号 53)`);
+  });
   it('ドライバの原文が化けていれば出さず、日本語の説明と SQLSTATE・エラー番号だけを出す', () => {
     const garbled = '[Microsoft][ODBC Driver 17 for SQL Server]SQL Server xn��';
     const e = classifySqlError([

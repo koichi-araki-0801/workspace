@@ -46,4 +46,19 @@ describe('isGarbledDriverText', () => {
     expect(isGarbledDriverText('abc\u0001')).toBe(true);
     expect(isGarbledDriverText('ストアド')).toBe(true);
   });
+
+  it('? が 2 つ以上続けば化けているとみなす(6.0.0 の接続失敗の実測の形)', () => {
+    expect(
+      isGarbledDriverText(
+        '[Microsoft][ODBC Driver 17 for SQL Server]??????????????: SQL Server ????????????? [53]. ',
+      ),
+    ).toBe(true);
+    expect(isGarbledDriverText("Is it 'x'? yes")).toBe(false);
+  });
+});
+
+describe('sqlErrorHint(6.0.0 で増えた SQLSTATE)', () => {
+  it('HY008(timeoutMs による取り消し)に説明を返す', () => {
+    expect(sqlErrorHint('HY008')).toMatch(/取り消しました/);
+  });
 });

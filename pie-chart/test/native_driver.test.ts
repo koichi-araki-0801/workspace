@@ -139,9 +139,9 @@ describe('sqlserverv8Shim', () => {
     root,
     'node_modules',
     'msnodesqlv8',
-    'build',
-    'Release',
-    'sqlserverv8.node',
+    'prebuilds',
+    'win32-x64',
+    'msnodesqlv8.node',
   );
 
   it('パスが登録されていなければ識別できるメッセージで投げる', () => {

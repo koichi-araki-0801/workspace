@@ -24,7 +24,7 @@
 //      = shim が受ける前提が依存の更新で崩れていない
 //   B. `scripts/sidecar-pins.json` の版・wasm ハッシュが実解決値と一致する
 //      = 依存を上げたら render_hash スナップショットの更新要否に気づける
-//   C. Node >= 24(同梱する DB ドライバの prebuild が Node 24 用。SEA の `assets` は 20.12 以降)
+//   C. Node >= 24(リポジトリの engines。DB ドライバは N-API 製なので版には縛られない。SEA の `assets` は 20.12 以降)
 //   D. DB ドライバの版・ハッシュが pin と一致し、この Node で dlopen できる(--no-db 以外)
 //   E. バンドル内のドライバ require が shim へ差し替わっている(--no-db 以外)
 // 加えて、pie-chart の node_modules が pnpm で入ったものでなければ止める(npm で入れ直すと
@@ -140,8 +140,8 @@ function stripPeSignature(file) {
 }
 
 // 0. アサート C: Node 版 -------------------------------------------------------
-// 同梱する DB ドライバの prebuild(sidecar-pins.json のハッシュ)は Node 24 の ABI 用。リポジトリの
-// engines も Node 24 なので、ほかの版では作らせない。
+// リポジトリの engines が Node 24 なので、ほかの版では作らせない(DB ドライバは N-API 製で Node の
+// メジャー版には縛られないが、exe の実体はこの node のコピーなので版を揃えておく)。
 {
   const maj = Number(process.versions.node.split('.')[0]);
   if (maj < 24) {
@@ -160,8 +160,8 @@ function stripPeSignature(file) {
         ? 'pie-chart\\node_modules was installed by npm, not pnpm. '
         : 'pie-chart\\node_modules is missing. ') +
         'Reinstall at the repository root with the same command as offline\\setup-offline: ' +
-        '`corepack pnpm install --offline --frozen-lockfile --store-dir .pnpm-store`, then place ' +
-        'the DB driver again (native-prebuilds). Do not run npm in the pie-chart folder.',
+        '`corepack pnpm install --offline --frozen-lockfile --store-dir .pnpm-store`. ' +
+        'Do not run npm in the pie-chart folder.',
     );
   }
 }
@@ -191,15 +191,23 @@ const hbWasmSha256 = sha256(hbWasmPath);
   }
 }
 
-// 0-c. アサート D: DB ドライバの版・ハッシュ・ABI ---------------------------------
-// ドライバは NAN 製で、ビルドしたのと同じメジャー版の Node でしか読めない。exe の実体は
+// 0-c. アサート D: DB ドライバの版・ハッシュ・読み込み可否 ------------------------------
+// ドライバは N-API 製の公式 prebuild で、npm tarball の `prebuilds/<platform>-<arch>/` に入っている
+// (install スクリプトは allowBuilds で止めているので `build/Release` は無い)。exe の実体は
 // このビルドを走らせている node のコピーなので、ここで実際に dlopen できれば exe でも読める。
 let driverPath = '';
 let driverSha256 = '';
+let msUtilPath = '';
 if (!noDb) {
   const msPkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
   const msVersion = require('msnodesqlv8/package.json').version;
-  driverPath = join(msPkgDir, 'build', 'Release', 'sqlserverv8.node');
+  msUtilPath = join(msPkgDir, 'lib', 'util.js');
+  driverPath = join(
+    msPkgDir,
+    'prebuilds',
+    `${process.platform}-${process.arch}`,
+    'msnodesqlv8.node',
+  );
   if (!existsSync(driverPath))
     fail(`DB driver not found at ${driverPath} (pass --no-db to build without DB support)`);
   driverSha256 = sha256(driverPath);
@@ -211,7 +219,7 @@ if (!noDb) {
   }
   if (pins.sqlserverv8NodeSha256 !== driverSha256) {
     fail(
-      `sqlserverv8.node hash mismatch: pinned ${pins.sqlserverv8NodeSha256} but resolved ${driverSha256}. Update scripts/sidecar-pins.json.`,
+      `DB driver (msnodesqlv8.node) hash mismatch: pinned ${pins.sqlserverv8NodeSha256} but resolved ${driverSha256}. Update scripts/sidecar-pins.json.`,
     );
   }
   try {
@@ -256,14 +264,39 @@ const subsetFontFsPlugin = {
 };
 
 /**
- * msnodesqlv8 の `require('../build/Release/sqlserverv8.node')` を `src/runtime/sqlserverv8Shim.cjs`
- * へ向ける esbuild plugin。shim は子プロセスが照合済みのパスを登録してから dlopen する。
+ * msnodesqlv8 の `lib/util.js` は、ドライバを `require('../build/Debug/sqlserver.node')`(try)、
+ * 失敗したら `require('node-gyp-build')(<パッケージ>)` の順で探す。node-gyp-build は `prebuilds/` を
+ * ディスク上で走査して読むので SEA では動かない。そこで util.js からの 2 つの require だけを
+ * 差し替える esbuild plugin(依存のソース文字列は書き換えない)。
+ *   - `node-gyp-build` → `src/runtime/sqlserverv8Shim.cjs` を返す関数。shim は子プロセスが
+ *     照合済みのパスを登録してから dlopen する
+ *   - `../build/Debug/sqlserver.node` → 読み込むと投げるモジュール(util.js の catch へ落とす)
  */
 const sqlserverv8Plugin = {
   name: 'sqlserverv8-shim',
   setup(pluginBuild) {
     const shim = join(root, 'src', 'runtime', 'sqlserverv8Shim.cjs');
-    pluginBuild.onResolve({ filter: /sqlserverv8\.node$/ }, () => ({ path: shim }));
+    const ns = 'pie-chart-driver';
+    const utilKey = resolve(msUtilPath).toLowerCase();
+    const fromUtil = (args) => resolve(args.importer).toLowerCase() === utilKey;
+    pluginBuild.onResolve({ filter: /^node-gyp-build$/ }, (args) =>
+      fromUtil(args) ? { path: 'node-gyp-build', namespace: ns } : null,
+    );
+    pluginBuild.onResolve({ filter: /\.node$/ }, (args) =>
+      fromUtil(args) ? { path: 'debug-build', namespace: ns } : null,
+    );
+    pluginBuild.onLoad({ filter: /.*/, namespace: ns }, (args) =>
+      args.path === 'node-gyp-build'
+        ? {
+            contents: `module.exports = () => require(${JSON.stringify(shim)});`,
+            loader: 'js',
+            resolveDir: root,
+          }
+        : {
+            contents: "throw new Error('pie-chart: the msnodesqlv8 debug build is not bundled');",
+            loader: 'js',
+          },
+    );
   },
 };
 
@@ -309,12 +342,15 @@ await build({
 // 1-c. アサート E: ドライバの require が shim へ差し替わったこと -----------------------
 if (!noDb) {
   const bundleSrc = readFileSync(bundlePath, 'utf8');
-  const leftovers = bundleSrc.match(/require\(\s*["'][^"']*sqlserverv8\.node["']\s*\)/g) ?? [];
+  const leftovers = bundleSrc.match(/require\(\s*["'][^"']*\.node["']\s*\)/g) ?? [];
   const shimHits = bundleSrc.match(/pie-chart:sqlserverv8-shim/g) ?? [];
-  if (leftovers.length !== 0 || shimHits.length !== 1) {
+  // node-gyp-build 本体が入っていれば差し替えが空振りしている(SEA で prebuilds/ を探して落ちる)。
+  const ngbHits = bundleSrc.match(/No native build was found/g) ?? [];
+  if (leftovers.length !== 0 || shimHits.length !== 1 || ngbHits.length !== 0) {
     fail(
-      `expected the sqlserverv8.node require to be replaced by the shim exactly once ` +
-        `(leftover requires: ${leftovers.length}, shim markers: ${shimHits.length}).`,
+      'expected the driver loader to be replaced by the shim exactly once ' +
+        `(leftover .node requires: ${leftovers.length}, shim markers: ${shimHits.length}, ` +
+        `node-gyp-build copies: ${ngbHits.length}).`,
     );
   }
 }

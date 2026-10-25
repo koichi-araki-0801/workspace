@@ -259,15 +259,22 @@ export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
  */
 export function classifySqlError(err: unknown): DbStageError {
   if (err instanceof DbStageError) return err;
-  // msnodesqlv8 は接続失敗などで、エラーオブジェクトの配列をそのまま投げる(配列自体には
-  // `sqlstate` も `message` も無い)。単体の場合と同じ扱いに揃えて要素から集める。
-  const elements: unknown[] = Array.isArray(err) ? err : [err];
+  // 接続失敗の形はドライバの版で違う。4.x はエラーオブジェクトの配列をそのまま投げ(配列自体には
+  // `sqlstate` も `message` も無い)、6.x は先頭の 1 件を写した素のオブジェクトに全件を
+  // `details` で添え、SQLSTATE を `sqlState` に置く。どちらも要素の並びへ揃えて集める。
+  const details = (err as { details?: unknown } | null)?.details;
+  const elements: unknown[] = Array.isArray(err)
+    ? err
+    : Array.isArray(details) && details.length > 0
+      ? details
+      : [err];
   const states: Array<{ sqlstate: string; code?: number }> = [];
   const messages: string[] = [];
   let garbled = false;
   for (const el of elements) {
     if (el == null) continue;
-    const raw = (el as { sqlstate?: unknown } | null)?.sqlstate;
+    const o = el as { sqlstate?: unknown; sqlState?: unknown } | null;
+    const raw = o?.sqlstate ?? o?.sqlState;
     const code = (el as { code?: unknown } | null)?.code;
     if (typeof raw === 'string' && raw) {
       states.push({ sqlstate: raw, code: typeof code === 'number' && code > 0 ? code : undefined });

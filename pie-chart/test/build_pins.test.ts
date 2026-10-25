@@ -53,14 +53,14 @@ describe('exe 同梱物の固定値', () => {
     expect(require('msnodesqlv8/package.json').version).toBe(pins.msnodesqlv8);
   });
 
-  // pin は Windows x64 / Node 24 用の公式 prebuild のハッシュなので、照合できるのはその .node が
-  // 置かれている Windows 端末だけ。Linux の CI ではインストールスクリプトを止めているため .node が
-  // 無い。exe のビルドはこの端末種でしか行わず、build-exe.mjs のアサート D も同じ照合をする。
+  // pin は npm tarball に同梱の Windows x64 用 N-API prebuild のハッシュ。tarball にはほかの
+  // OS 向けも入っているが、exe のビルドは Windows x64 でしか行わないので、照合もそこに限る
+  // (build-exe.mjs のアサート D も同じ照合をする)。
   const driverPath = join(
     dirname(require.resolve('msnodesqlv8/package.json')),
-    'build',
-    'Release',
-    'sqlserverv8.node',
+    'prebuilds',
+    'win32-x64',
+    'msnodesqlv8.node',
   );
   it.skipIf(process.platform !== 'win32' || !existsSync(driverPath))(
     'Windows ではネイティブドライバの SHA256 が pin と一致する',
@@ -96,18 +96,19 @@ describe('msnodesqlv8 のドライバ読み込みが shim の前提どおりで�
   const pkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
   const libDir = join(pkgDir, 'lib');
 
-  it('ネイティブドライバの require は lib/util.js の 1 箇所だけ', () => {
-    // 0 箇所なら読み方が変わって plugin が空振りし、2 箇所以上なら差し替え漏れが出る。
-    const hits = readdirSync(libDir)
+  // build-exe.mjs の plugin は lib/util.js からの `node-gyp-build` と `.node` の require だけを
+  // 差し替える。0 箇所なら読み方が変わって plugin が空振りし、ほかのファイルにもあれば差し替え漏れが出る。
+  const hitsOf = (re: RegExp) =>
+    readdirSync(libDir)
       .filter((f) => f.endsWith('.js'))
-      .flatMap((f) =>
-        (
-          readFileSync(join(libDir, f), 'utf8').match(
-            /require\(\s*['"][^'"]*sqlserverv8\.node['"]\s*\)/g,
-          ) ?? []
-        ).map(() => f),
-      );
-    expect(hits).toEqual(['util.js']);
+      .flatMap((f) => (readFileSync(join(libDir, f), 'utf8').match(re) ?? []).map(() => f));
+
+  it('node-gyp-build の require は lib/util.js の 1 箇所だけ', () => {
+    expect(hitsOf(/require\(\s*['"]node-gyp-build['"]\s*\)/g)).toEqual(['util.js']);
+  });
+
+  it('.node の直接 require は lib/util.js の 1 箇所だけ', () => {
+    expect(hitsOf(/require\(\s*['"][^'"]*\.node['"]\s*\)/g)).toEqual(['util.js']);
   });
 });
 

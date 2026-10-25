@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
-  docs の mermaid JS / native-prebuilds）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
+  docs の mermaid JS）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
   置いてある。本スクリプトは次を 1 本で行う:
     0. 直下に source.zip があれば展開段: .sha256 照合 → 前回の MANIFEST に載るファイルを削除 →
        直下へ展開 → bk\ へ退避 → 新しい setup-offline.ps1 を -SkipSourceExtract で再実行して
@@ -18,7 +18,7 @@
        算出する content-key の一致検査。不一致は「ソースと重量物が別の組」なので中止する
        （続けても pnpm install --offline が落ちるだけで、原因が見えにくくなる）。
     3. 同梱 pnpm を corepack 登録 → node_modules / dist を消してオフライン install → build →
-       Playwright 配置 → msnodesqlv8 prebuild 配置 → PortableGit 展開。
+       Playwright 配置 → msnodesqlv8 の require 確認 → PortableGit 展開。
     4. 直下に置かれていたバンドルを bk\ へ退避する（bk\ のものを使った回は動かさない）。
 
   ソースコードは取得しない（git clone が前提）。バンドルの真正性は検証しない: 配布担当だけが
@@ -135,8 +135,7 @@ Write-Host '[2/5] 重量物を直下へ展開...'
 & $TarExe -xzf $Bundle -C $RepoRoot
 if ($LASTEXITCODE -ne 0) { Write-Error '[error] 展開に失敗しました。'; exit 1 }
 foreach ($p in @('.pnpm-store', 'pnpm.tgz', 'ms-playwright', 'python-wheelhouse', 'git-tools',
-    'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js',
-    'native-prebuilds\manifest.txt')) {
+    'docs\_build\vendor\mermaid.min.js', 'docs\_build\vendor\mermaid-layout-elk.min.js')) {
   if (-not (Test-Path (Join-Path $RepoRoot $p))) { Write-Error "[error] 展開後に $p が見つかりません。バンドルが不完全です。"; exit 1 }
 }
 
@@ -195,36 +194,18 @@ if (-not $SkipBuild) {
     & corepack pnpm install --offline --frozen-lockfile --store-dir (Join-Path $RepoRoot '.pnpm-store')
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] オフライン install に失敗しました。'; exit 1 }
 
-    # msnodesqlv8 のネイティブ .node を配置する。npm tarball / .pnpm-store にバイナリは入らず
-    # install スクリプトも allowBuilds で封止しているため、同梱の公式 prebuild を install 後の
-    # .pnpm 実体へ展開する（editor/server と pie-chart は同実体への symlink 参照＝1 箇所で両方に
-    # 効く。install 前だと purge/再構成で消える）。editor の既定は DB モードなので、ここが欠けると
-    # setup は成功したのに起動できない端末ができる。3 段（prebuild と install 先の有無 / 版一致 /
-    # 展開と require 疎通）のどれかで失敗したら setup を失敗にする。
-    $pbTar = Get-ChildItem (Join-Path $RepoRoot 'native-prebuilds\msnodesqlv8-*.tar.gz') -ErrorAction SilentlyContinue | Select-Object -First 1
-    $pbPkg = Get-ChildItem (Join-Path $RepoRoot 'node_modules\.pnpm\msnodesqlv8@*\node_modules\msnodesqlv8') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($pbTar -and $pbPkg) {
-      # lockfile の版だけ上げて prebuild の差し替えを忘れる事故の検知（native-prebuilds\manifest.txt 参照）。
-      $instVer = (Get-Content (Join-Path $pbPkg.FullName 'package.json') -Raw | ConvertFrom-Json).version
-      if ($pbTar.Name -notlike "*v$instVer*") {
-        Write-Error "[error] msnodesqlv8 の install 版($instVer)と prebuild($($pbTar.Name))の版が不一致。native-prebuilds の差し替えが必要です。"; exit 1
-      }
-      & $TarExe -xzf $pbTar.FullName -C $pbPkg.FullName
-      if ($LASTEXITCODE -ne 0) {
-        Write-Error '[error] msnodesqlv8 prebuild の展開に失敗しました。'; exit 1
-      } else {
-        # ABI 不一致・破損はロードで露見するため require で疎通確認する（editor/server から解決）。
-        # EAP=Stop のため stderr リダイレクトは使わず、node 側 try/catch で exit code のみ返す。
-        Push-Location (Join-Path $RepoRoot 'editor\server')
-        & node -e "try{require('msnodesqlv8');process.exit(0)}catch(e){process.exit(1)}"
-        $reqOk = ($LASTEXITCODE -eq 0)
-        Pop-Location
-        if ($reqOk) { Write-Host '[info] msnodesqlv8 ネイティブ .node を配置（require OK）。' }
-        else { Write-Error '[error] msnodesqlv8 の require に失敗しました。Node の ABI（24.x=137）と prebuild の対応を確認してください。'; exit 1 }
-      }
-    } else {
-      Write-Error '[error] msnodesqlv8 prebuild または install 先が見つからず、ネイティブ .node を配置できませんでした。'; exit 1
-    }
+    # msnodesqlv8 のネイティブ .node（N-API の公式 prebuild）は npm tarball の prebuilds\ に入って
+    # いるので、.pnpm-store からの install だけで揃う（install スクリプトは allowBuilds で止めた
+    # まま。実行時に node-gyp-build が prebuilds\win32-x64 を選ぶ）。editor の既定は DB モードなので、
+    # 読めないまま setup を成功させると起動できない端末ができる。require で疎通確認し、失敗なら
+    # setup を失敗にする（editor/server から解決。EAP=Stop のため stderr リダイレクトは使わず、
+    # node 側 try/catch で exit code のみ返す）。
+    Push-Location (Join-Path $RepoRoot 'editor\server')
+    & node -e "try{require('msnodesqlv8');process.exit(0)}catch(e){process.exit(1)}"
+    $reqOk = ($LASTEXITCODE -eq 0)
+    Pop-Location
+    if ($reqOk) { Write-Host '[info] msnodesqlv8 ネイティブ .node を確認（require OK）。' }
+    else { Write-Error '[error] msnodesqlv8 の require に失敗しました。Windows x64 か、node_modules が pnpm install で入ったものかを確認してください。'; exit 1 }
 
     & corepack pnpm build
     if ($LASTEXITCODE -ne 0) { Write-Error '[error] build に失敗しました。'; exit 1 }
