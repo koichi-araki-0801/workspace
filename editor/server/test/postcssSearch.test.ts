@@ -151,12 +151,17 @@ describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
 
   it.each<Mode>(['single', 'config'])(
     '対照(%s): 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)',
+    // `ci`(全プロジェクト + カバレッジ + 4 ワーカー)の下でだけ、config の対照が読み込みを
+    // 観測できないことがあった(2 回中 1 回。単独・server だけの並列では再現しない)。対照の役目は
+    // 「空の設定が無ければ読み込まれる」ことを 1 回示すことなので、やり直しを許す。
+    { timeout: CLI_TEST_TIMEOUT_MS, retry: 2 },
     async (mode) => {
       await plantAncestorMarker();
-      await previewOnce(mode, true);
+      const css = await previewOnce(mode, true);
+      expect(css.status).toBe(200);
+      expect(css.body).toContain('css-marker');
       expect(markerLines()).toContain('load');
     },
-    CLI_TEST_TIMEOUT_MS,
   );
 });
 

@@ -299,12 +299,18 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
           '{% for j in range(9000) %}{{ xs|groupby("k")|length }}{% endfor %}',
         'xs|groupby("k")|length',
       ],
-    ])('長い文字列を読む経路(%s)も長さを数え、上限で unsupported になる', (_, body, expr) => {
-      const f = new Filler();
-      show(grow + body, { d: {} }, f);
-      expect([...f.unsupported]).toContain(expr);
-      expect(f.exhausted).toBe(true);
-    });
+    ])(
+      '長い文字列を読む経路(%s)も長さを数え、上限で unsupported になる',
+      (_, body, expr) => {
+        const f = new Filler();
+        show(grow + body, { d: {} }, f);
+        expect([...f.unsupported]).toContain(expr);
+        expect(f.exhausted).toBe(true);
+      },
+      // 添字のキーの経路は上限に届くまで 99000 回まわり、単独でも約 1.5 秒(カバレッジ計測で
+      // 約 2.5 秒)かかる。`ci` の 4 ワーカー + 計測の下では既定の 5 秒を超えるので上限を広げる。
+      30_000,
+    );
     it('繰り返しの費用は文脈のキーの数に依らない(キー 500 個・300 行 × 20 列の入れ子の for を描ける)', () => {
       const ctx: Record<string, unknown> = {};
       for (let k = 0; k < 500; k++) ctx[`k${k}`] = k;
