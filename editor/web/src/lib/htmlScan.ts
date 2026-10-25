@@ -39,7 +39,7 @@ export interface ScannedElement {
   implicitlyClosed: boolean;
 }
 
-export type PositionContext =
+type PositionContext =
   | { kind: 'text'; parent: ScannedElement | null }
   | { kind: 'attrValue'; element: ScannedElement }
   | { kind: 'tagOther'; element: ScannedElement }

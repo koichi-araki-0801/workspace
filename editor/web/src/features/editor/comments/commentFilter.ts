@@ -13,8 +13,8 @@ export interface CommentThread {
   lastAt: string;
 }
 
-export type CommentStatusFilter = 'all' | 'open' | 'resolved';
-export type CommentSort = 'updated' | 'part';
+type CommentStatusFilter = 'all' | 'open' | 'resolved';
+type CommentSort = 'updated' | 'part';
 
 export interface CommentFilter {
   /** 本文・投稿者の部分一致。空文字は無条件。 */

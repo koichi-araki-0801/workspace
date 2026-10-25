@@ -47,7 +47,7 @@ interface DiffBlock {
   coarse: boolean;
 }
 
-export interface DiffPage {
+interface DiffPage {
   index: number;
   changed: boolean;
   changedBlockCount: number;

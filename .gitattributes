@@ -13,6 +13,10 @@
 *.jsonc text eol=lf
 *.css   text eol=lf
 *.html  text eol=lf
+# vitest 5 はスナップショットを LF で書き戻す。CRLF で取り出すと実行のたびに改行だけの差分が出る。
+*.snap  text eol=lf
+# husky のフックは sh が読むので LF に固定する(CRLF だと sh が行末の CR をコマンドの一部として読む)。
+.husky/* text eol=lf
 
 # Windows 用スクリプトは CRLF を維持(cmd 互換)。.ps1 は UTF-8 BOM 運用(docs/コメント規約.md 参照)。
 *.bat   text eol=crlf

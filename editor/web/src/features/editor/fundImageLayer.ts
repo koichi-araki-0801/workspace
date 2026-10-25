@@ -81,7 +81,7 @@ export interface FundImageLayerOptions {
 }
 
 /** 複製する CSS 1 本と、その参照を解く基準の論理パス。 */
-export interface CssAssetSource {
+interface CssAssetSource {
   css: string;
   /** テンプレの CSS は `TEMPLATE_CSS_FROM`、本文の `<style>` は `DOC_DIR`。 */
   from: string;

@@ -35,7 +35,7 @@ export interface BuildWorker {
 }
 
 /** ワーカー(= プロセス)を 1 つ起こす。テストでは偽実装を注入する。 */
-export type BuildWorkerFactory = () => BuildWorker;
+type BuildWorkerFactory = () => BuildWorker;
 
 export interface BuildWorkerPoolOptions {
   /** 常駐ワーカーの最大数。`0` 以下なら呼び出し側がプールを使わない前提。 */

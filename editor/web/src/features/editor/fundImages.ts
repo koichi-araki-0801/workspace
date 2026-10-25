@@ -29,7 +29,7 @@ import {
 import { JINJA_OPEN_RE } from '@/lib/jinjaAttrs';
 
 /** 本文の種類。`jinja` = 描画を通る本文、`filled` = 値入り HTML(描画を通らない)。 */
-export type FundImageMode = 'jinja' | 'filled';
+type FundImageMode = 'jinja' | 'filled';
 
 export interface FundImageContext {
   mode: FundImageMode;

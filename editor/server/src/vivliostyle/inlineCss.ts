@@ -120,7 +120,7 @@ export interface TagSpan {
 }
 
 /** 属性 1 つ。`name` は小文字化済み。 */
-export interface ParsedAttr {
+interface ParsedAttr {
   name: string;
   value: string;
 }

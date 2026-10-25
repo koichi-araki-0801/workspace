@@ -1,9 +1,6 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "$schema": "https://unpkg.com/knip@6/schema.json",
   "workspaces": {
-    ".": {
-      "entry": ["editor/e2e/tools/e2e-vite.ts"]
-    },
     "editor/server": {
       "entry": [
         "scripts/hash-password.ts",
@@ -21,6 +18,6 @@
     }
   },
   "ignore": ["CLAUDE-SECURITY-*/**"],
-  "ignoreBinaries": ["py", "powershell"],
+  "ignoreBinaries": ["py", "sqllocaldb"],
   "ignoreDependencies": ["pino-pretty"]
 }

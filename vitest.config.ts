@@ -26,7 +26,6 @@ export default defineConfig({
     // どれも「テストは正しいのに CI が赤い」形なので、本物の失敗と区別できなくなるのが実害。
     // 速度より完走性を採る — pre-push が唯一の CI ゲートで、落ちると push そのものが止まるため。
     maxWorkers: 4,
-    minWorkers: 1,
     coverage: {
       provider: 'v8',
       // 各パッケージの include を root 相対へ前置して結合。新規テスト追加時はここを広げる。

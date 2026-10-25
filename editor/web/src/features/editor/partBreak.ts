@@ -24,7 +24,7 @@ import {
 export type BreakEdge = 'before' | 'after';
 
 /** 改ページの出どころ(区切りの要素か、パーツの inline `style` か)。 */
-export type BreakSource = 'div' | 'inline';
+type BreakSource = 'div' | 'inline';
 
 /** パーツの前後の改ページの状態(無ければ null)。 */
 export interface PartBreakState {

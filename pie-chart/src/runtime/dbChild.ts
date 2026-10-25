@@ -48,7 +48,7 @@ import { readSeaAsset } from './seaRuntime.js';
 
 export const RESPONSE_MARKER = 'PIECHART-DB-RESPONSE ';
 
-export type HelperMode = 'fetch' | 'load' | 'connect';
+type HelperMode = 'fetch' | 'load' | 'connect';
 
 /** 親が子に頼む内容(ドライバの場所は親が書き出した後に足す)。 */
 export interface HelperRequest {

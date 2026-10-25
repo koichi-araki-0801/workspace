@@ -459,7 +459,7 @@ export interface PieLayoutConfig {
 }
 
 /** sample 1 件分の構造 (samples.json)。 */
-export interface SampleEntry {
+interface SampleEntry {
   description?: string;
   items: Item[] | Array<[string, number]>;
 }
