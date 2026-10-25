@@ -45,6 +45,13 @@ const MARKER_SOURCE = [
   '',
 ].join('\n');
 
+/**
+ * 実物の CLI を起こすテストの上限。CLI の import だけで約 11 秒かかり、並列実行(pre-push の
+ * `ci:affected` は 4 ワーカー)では既定の 5 秒を大きく超える。`vivliostyleCliContract.test.ts` と
+ * 同じ値にそろえる。
+ */
+const CLI_TEST_TIMEOUT_MS = 120_000;
+
 const logFile = (): string => path.join(config.tmpDir, 'marker.log');
 let seq = 0;
 
@@ -130,25 +137,27 @@ afterAll(async () => {
 });
 
 describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
-  it.each<Mode>([
-    'single',
-    'config',
-  ])('展開したプロジェクトの preview(%s)で、祖先の PostCSS 設定のプラグインは読み込まれない', async (mode) => {
-    await plantAncestorMarker();
-    const css = await previewOnce(mode, false);
-    expect(css.status).toBe(200);
-    expect(css.body).toContain('css-marker');
-    expect(markerLines()).toEqual([]);
-  });
+  it.each<Mode>(['single', 'config'])(
+    '展開したプロジェクトの preview(%s)で、祖先の PostCSS 設定のプラグインは読み込まれない',
+    async (mode) => {
+      await plantAncestorMarker();
+      const css = await previewOnce(mode, false);
+      expect(css.status).toBe(200);
+      expect(css.body).toContain('css-marker');
+      expect(markerLines()).toEqual([]);
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
 
-  it.each<Mode>([
-    'single',
-    'config',
-  ])('対照(%s): 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)', async (mode) => {
-    await plantAncestorMarker();
-    await previewOnce(mode, true);
-    expect(markerLines()).toContain('load');
-  });
+  it.each<Mode>(['single', 'config'])(
+    '対照(%s): 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)',
+    async (mode) => {
+      await plantAncestorMarker();
+      await previewOnce(mode, true);
+      expect(markerLines()).toContain('load');
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
 });
 
 describe('リポジトリに PostCSS 設定が無い', () => {
