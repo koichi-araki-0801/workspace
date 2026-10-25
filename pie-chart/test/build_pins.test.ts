@@ -37,7 +37,7 @@ const pins = JSON.parse(readFileSync(join(root, 'scripts', 'sidecar-pins.json'),
 // pnpm ツリーではルートから `harfbuzzjs` を直接引けないので `subset-font` を基点に解決する
 // (build-exe.mjs と同じ手順であることが重要 — ここで一致してもビルドが別物を掴めば無意味)。
 const subsetFontEntry = require.resolve('subset-font');
-const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/hb-subset.wasm');
+const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/dist/harfbuzz-subset.wasm');
 
 describe('exe 同梱物の固定値', () => {
   it('subset-font の版が pin と一致する', () => {
@@ -77,7 +77,9 @@ describe('subset-font の外部参照が shim の前提どおりであること'
   it('wasm の require.resolve はちょうど 1 箇所', () => {
     // 0 箇所なら読み方が変わって shim が空振りする。2 箇所以上なら想定外の呼び出し元が増えた。
     // どちらも「SEA で wasm が読めず、フルフォントへ静かに落ちる」事故に直結する。
-    const hits = src.match(/require\.resolve\(\s*["']harfbuzzjs\/hb-subset\.wasm["']\s*\)/g);
+    const hits = src.match(
+      /require\.resolve\(\s*["']harfbuzzjs\/dist\/harfbuzz-subset\.wasm["']\s*\)/g,
+    );
     expect(hits?.length ?? 0).toBe(1);
   });
 

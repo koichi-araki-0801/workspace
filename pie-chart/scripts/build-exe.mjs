@@ -20,7 +20,7 @@
 // `src/runtime/seaRuntime.ts`(アセット許可リスト・モジュール解決封鎖)。
 //
 // ビルドを止めるアサートを 5 つ持つ(壊れたら黙って劣化させず落とす):
-//   A. バンドル内に `require.resolve("harfbuzzjs/hb-subset.wasm")` がちょうど 1 回ある
+//   A. バンドル内に `require.resolve("harfbuzzjs/dist/harfbuzz-subset.wasm")` がちょうど 1 回ある
 //      = shim が受ける前提が依存の更新で崩れていない
 //   B. `scripts/sidecar-pins.json` の版・wasm ハッシュが実解決値と一致する
 //      = 依存を上げたら render_hash スナップショットの更新要否に気づける
@@ -151,7 +151,7 @@ function stripPeSignature(file) {
 
 // 0-a. 依存の入り方 ------------------------------------------------------------
 // pie-chart のフォルダで npm を実行すると、node_modules が npm の構成で入れ直され、
-// pnpm-lock.yaml と別の版を掴む(subset-font 2.9 は harfbuzzjs 1.x を引き、wasm を解決できない)。
+// pnpm-lock.yaml と別の版を掴む(wasm の指定子やハッシュが pin とずれ、アサート A / B で止まる)。
 {
   const layout = installLayout(root);
   if (layout !== 'pnpm') {
@@ -170,7 +170,7 @@ function stripPeSignature(file) {
 // pnpm ツリーではルートから `harfbuzzjs` を直接引けないので、`subset-font` を基点に解決する。
 const subsetFontEntry = require.resolve('subset-font');
 const subsetFontVersion = require('subset-font/package.json').version;
-const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/hb-subset.wasm');
+const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/dist/harfbuzz-subset.wasm');
 const hbWasmSha256 = sha256(hbWasmPath);
 {
   if (!existsSync(pinsPath)) fail(`missing ${pinsPath}`);
@@ -293,11 +293,13 @@ await build({
 // 想定外の呼び出し元が増えたということなので、どちらもビルドを止める。
 {
   const bundleSrc = readFileSync(bundlePath, 'utf8');
-  const hits = bundleSrc.match(/require\.resolve\(\s*["']harfbuzzjs\/hb-subset\.wasm["']\s*\)/g);
+  const hits = bundleSrc.match(
+    /require\.resolve\(\s*["']harfbuzzjs\/dist\/harfbuzz-subset\.wasm["']\s*\)/g,
+  );
   const count = hits ? hits.length : 0;
   if (count !== 1) {
     fail(
-      `expected exactly 1 require.resolve("harfbuzzjs/hb-subset.wasm") in the bundle, ` +
+      `expected exactly 1 require.resolve("harfbuzzjs/dist/harfbuzz-subset.wasm") in the bundle, ` +
         `found ${count}. The subset-font wasm shim (src/runtime/seaRuntime.ts) assumes ` +
         'that single call site; re-check the dependency before shipping.',
     );

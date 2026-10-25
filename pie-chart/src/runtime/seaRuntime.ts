@@ -42,10 +42,10 @@ export const SEA_ASSET_KEYS: ReadonlySet<string> = new Set([
 
 /**
  * SEA で `require.resolve` に通す唯一の specifier。`subset-font/index.js` が
- * `require.resolve('harfbuzzjs/hb-subset.wasm')` の 1 箇所だけで外部を参照するため、
+ * `require.resolve('harfbuzzjs/dist/harfbuzz-subset.wasm')` の 1 箇所だけで外部を参照するため、
  * ここを完全一致で受けれる限り実行時のファイル解決は要らない。
  */
-export const HB_WASM_SPECIFIER = 'harfbuzzjs/hb-subset.wasm';
+export const HB_WASM_SPECIFIER = 'harfbuzzjs/dist/harfbuzz-subset.wasm';
 
 /** harfbuzz wasm の SEA アセットキー(`SEA_ASSET_KEYS` の 1 要素)。 */
 export const HB_WASM_ASSET_KEY = 'hb-subset.wasm';

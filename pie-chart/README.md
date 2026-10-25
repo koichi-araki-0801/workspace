@@ -113,7 +113,7 @@ dist-exe/
 ```
 
 - **実行に要るものはすべて exe の中に入れる**。`subset-font` とその JS 閉包は esbuild で
-  バンドルし、`harfbuzzjs/hb-subset.wasm` と `fonts/*.woff2` と OFL 本文は **SEA アセット**
+  バンドルし、`harfbuzzjs/dist/harfbuzz-subset.wasm` と `fonts/*.woff2` と OFL 本文は **SEA アセット**
   として埋め込む。出力 SVG は CLI/tsx 版と **byte-identical**(同一の subset-font + 同一 wasm)。
 - **exe の隣や上位ディレクトリの `fonts/` `node_modules/` は一切見ない**。これは意図的な
   設計で、外に置いたファイルは署名の外にあり誰でも書き換えられるため、そこから実行時に
@@ -138,7 +138,7 @@ dist-exe/
 - ビルドは前提が崩れたら **落ちる**(黙って劣化させない): ①Node < 24、または `pie-chart/node_modules` が
   pnpm で入ったものでない(npm で入れ直された・未インストール)
   ②`scripts/sidecar-pins.json` の `subset-font` 版・wasm SHA256 が実解決値と不一致
-  ③バンドル内の `require.resolve('harfbuzzjs/hb-subset.wasm')` が 1 箇所でない
+  ③バンドル内の `require.resolve('harfbuzzjs/dist/harfbuzz-subset.wasm')` が 1 箇所でない
   ④`sidecar-pins.json` の `msnodesqlv8` 版・`sqlserverv8NodeSha256` が実解決値と不一致、または
   ドライバを dlopen できない(DB 機能つきのとき)。
   ②が出たら依存を上げた合図なので、`pnpm run batch` → `pnpm run batch:diff` と

@@ -96,11 +96,13 @@ describe('require.resolve の許可リスト shim', () => {
   // `.wasm` で終わるなら通す・部分一致で通すといった述語へ緩めると、ここが素通りになる。
   const rejected: unknown[] = [
     './hb-subset.wasm',
-    'harfbuzzjs/hb-subset.wasm ',
-    ' harfbuzzjs/hb-subset.wasm',
-    'HARFBUZZJS/HB-SUBSET.WASM',
-    'harfbuzzjs/hb-subset.wasm\0',
-    'x/harfbuzzjs/hb-subset.wasm',
+    // subset-font 2.6 までの指定子。2.9 で harfbuzzjs 1.x の exports に合わせて変わった。
+    'harfbuzzjs/hb-subset.wasm',
+    'harfbuzzjs/dist/harfbuzz-subset.wasm ',
+    ' harfbuzzjs/dist/harfbuzz-subset.wasm',
+    'HARFBUZZJS/DIST/HARFBUZZ-SUBSET.WASM',
+    'harfbuzzjs/dist/harfbuzz-subset.wasm\0',
+    'x/harfbuzzjs/dist/harfbuzz-subset.wasm',
     'harfbuzzjs',
     'subset-font',
     'node:fs',

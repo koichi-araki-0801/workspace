@@ -1,7 +1,7 @@
 {
   "//": "exe へ同梱する依存の固定値。scripts/build-exe.mjs のアサート B と test/build_pins.test.ts が実解決値と突き合わせる。subsetFont / hbSubsetWasmSha256 が動く = 埋込フォントのサブセット結果(= SVG バイト)が変わりうるので、更新時は必ず pnpm run batch -> pnpm run batch:diff と test/render_hash.test.ts を確認する。msnodesqlv8 / sqlserverv8NodeSha256 は exe に埋め込む DB ドライバの固定値で、Node のメジャー版を上げると作り直しが要る(NAN 製のため)。",
-  "subsetFont": "2.6.0",
-  "hbSubsetWasmSha256": "3a5d246b0e4c0017084775e9f2c7fce96e45d09b1a354fd9e2e440c88fb9890d",
+  "subsetFont": "2.9.0",
+  "hbSubsetWasmSha256": "62415fe6bad92ef16f3e5d2dbed6c66a4adec7f5a59c6d27084811c92cce1ba5",
   "msnodesqlv8": "4.5.0",
   "sqlserverv8NodeSha256": "b98075b63e63b589309704df2f2c20d4a8fda675f467651b8cc5a60fa363fa62"
 }
