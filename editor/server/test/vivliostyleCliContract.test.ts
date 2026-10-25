@@ -67,6 +67,43 @@ describe('@vivliostyle/cli への渡し方', () => {
   });
 });
 
+// ── configData の空の PostCSS 設定が CLI 自身の探索を止めるか ──
+// inline / merge の作業フォルダには空の設定ファイルを置かないので、CLI 自身の PostCSS の探索を
+// 止めるのは configData の `css: { postcss: {} }`(`projectConfig.emptyCssConfig`)だけである。
+// CLI が「object なら探索せずそのまま使う」を変えると、この防御は黙って効かなくなる。
+describe('@vivliostyle/cli の PostCSS 設定の契約(実装を読んで固定する)', () => {
+  const postcssSource = (): string => {
+    const dist = path.dirname(fileURLToPath(import.meta.resolve('@vivliostyle/cli/package.json')));
+    const distDir = path.join(dist, 'dist');
+    for (const name of fs.readdirSync(distDir)) {
+      if (!name.endsWith('.js')) continue;
+      const text = fs.readFileSync(path.join(distDir, name), 'utf8');
+      if (text.includes('async function resolvePostcssConfig(')) return text;
+    }
+    throw new Error('`resolvePostcssConfig` を定義するチャンクが見つかりません');
+  };
+
+  it('config の css.postcss が object なら、探索せずにその設定を使う', () => {
+    const src = postcssSource();
+    const body = src.slice(src.indexOf('async function resolvePostcssConfig('));
+    const objectBranch = body.indexOf('if (typeof postcssOption === "object")');
+    const search = body.indexOf('loadPostcssConfig(postcssOption)');
+    expect(objectBranch).toBeGreaterThan(0);
+    // object の分岐が探索(`loadPostcssConfig`)より先で return する形であること。
+    expect(search).toBeGreaterThan(objectBranch);
+    expect(body.slice(objectBranch, search)).toContain('return {');
+  });
+
+  it('css.postcss が無いときだけ配信ルートから探索する', () => {
+    expect(postcssSource()).toContain('config.css?.postcss) ?? projectConfig.serverRootDir');
+  });
+
+  it('emptyCssConfig は object の分岐に入る値である', async () => {
+    const { emptyCssConfig } = await import('../src/vivliostyle/projectConfig.js');
+    expect(typeof emptyCssConfig().postcss).toBe('object');
+  });
+});
+
 // ── egress 遮断が CLI の実装に本当に噛み合っているか ──
 // `proxyServer` / `proxyBypass` を渡しても、CLI がそれを Chromium の起動引数へ落とさなければ
 // 遮断は 1 バイトも効かない。版を上げたときに黙って無効化されるのが最悪なので、

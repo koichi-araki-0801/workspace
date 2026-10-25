@@ -1,7 +1,8 @@
 // =============================================================================
 // postcssSearch.test.ts — 祖先の PostCSS 設定が展開プロジェクトの組版に効かないことの実測
 // =============================================================================
-// Vite(と cli 11.4.0)は PostCSS の設定を `serverRootDir` から親方向へ `pnpm-workspace.yaml` まで
+// Vite は PostCSS の設定を `serverRootDir` から親方向へ `pnpm-workspace.yaml` まで、cli 11.4.0 は
+// 同じく親方向へホームフォルダまで(lilconfig の既定の `stopDir`。ホームの外ならドライブ直下まで)
 // 探し、見つけた設定の `plugins` をサーバの node_modules から require して実行する。展開先は
 // このリポジトリ配下の temp なので、祖先に設定があれば利用者の zip の組版で任意のパッケージが
 // 動く。主防御は展開ルートに置く空の設定(`POSTCSS_STOPPER`)で、ここでは**実物の CLI を
@@ -152,15 +153,24 @@ describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
   it.each<Mode>(['single', 'config'])(
     '対照(%s): 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)',
     // `ci`(全プロジェクト + カバレッジ + 4 ワーカー)の下でだけ、config の対照が読み込みを
-    // 観測できないことがあった(2 回中 1 回。単独・server だけの並列では再現しない)。対照の役目は
-    // 「空の設定が無ければ読み込まれる」ことを 1 回示すことなので、やり直しを許す。
+    // 観測できないことがあった(2 回中 1 回。単独・server だけの並列では再現しない)。**機序は
+    // 特定できていない**(CSS は 200 で返り、marker の記録だけが無い)。config モードでは CLI 自身は
+    // configData の `css` で探索しないので、ここで読み込むのは Vite の探索だけ。読まれない側への
+    // 揺れなので本番の安全側だが、やり直しで覆う前に、失敗時の状態をメッセージへ出して残す。
+    // CLI 側の探索が止まることは `vivliostyleCliContract.test.ts` の PostCSS 設定の契約で固定する。
     { timeout: CLI_TEST_TIMEOUT_MS, retry: 2 },
     async (mode) => {
       await plantAncestorMarker();
       const css = await previewOnce(mode, true);
-      expect(css.status).toBe(200);
-      expect(css.body).toContain('css-marker');
-      expect(markerLines()).toContain('load');
+      const state = JSON.stringify({
+        status: css.status,
+        body: css.body.slice(0, 200),
+        marker: markerLines(),
+        log: existsSync(logFile()),
+      });
+      expect(css.status, state).toBe(200);
+      expect(css.body, state).toContain('css-marker');
+      expect(markerLines(), state).toContain('load');
     },
   );
 });

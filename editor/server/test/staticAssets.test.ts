@@ -26,6 +26,8 @@ fs.writeFileSync(path.join(webDir, 'index.html'), SHELL);
 for (const [rel, { body }] of Object.entries(FILES)) {
   fs.writeFileSync(path.join(webDir, rel), body);
 }
+// 名前に `#` を含む実ファイル。URL では `#` 以降が断片になるので `/a%23b.js` でしか指せない。
+fs.writeFileSync(path.join(webDir, 'a#b.js'), 'ASSET-HASH');
 // `config` は import 時に env を読むので、動的 import の前に向ける。
 process.env.DATA_ROOT = path.join(tmp, 'data');
 process.env.WEB_DIR = webDir;
@@ -71,18 +73,22 @@ describe('静的配信', () => {
   });
 
   // 大文字小文字違いや `#` のエンコードで、実在ファイルの経路を迂回して資産が返らないこと。
-  // Windows のファイルシステムは大文字小文字を区別しないので、ここが緩むと別名で配信される。
-  it.each(['/Assets/x.js', '/assets/X.JS', '/a%23b.js'])(
-    '%s は資産を漏らさず SPA シェルか 404',
-    async (url) => {
-      const res = await app.inject({ method: 'GET', url });
-      expect(res.body).not.toBe('ASSET-X');
-      if (res.statusCode === 200) {
-        expect(res.headers['content-type']).toMatch(/^text\/html/);
-        expect(res.headers['cache-control']).toBe('no-store');
-      } else {
-        expect(res.statusCode).toBe(404);
-      }
-    },
-  );
+  // `wildcard: false` は起動時に列挙した実ファイルの名前をそのままルートに登録し、Fastify の
+  // ルーターは大文字小文字を区別する。別綴りや符号化した名前はどのルートにも当たらず notFound へ
+  // 落ちる。ここが緩むと(たとえば `wildcard: true` でファイルシステムに直接問い合わせる形に戻すと)、
+  // 大文字小文字を区別しない Windows では別名で配信される。
+  it.each([
+    ['/Assets/x.js', 'ASSET-X'],
+    ['/assets/X.JS', 'ASSET-X'],
+    ['/a%23b.js', 'ASSET-HASH'],
+  ])('%s は資産を漏らさず SPA シェルか 404', async (url, asset) => {
+    const res = await app.inject({ method: 'GET', url });
+    expect(res.body).not.toBe(asset);
+    if (res.statusCode === 200) {
+      expect(res.headers['content-type']).toMatch(/^text\/html/);
+      expect(res.headers['cache-control']).toBe('no-store');
+    } else {
+      expect(res.statusCode).toBe(404);
+    }
+  });
 });
