@@ -3600,24 +3600,16 @@
             "$ref": "#/components/schemas/TemplateStatus"
           },
           "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "最終確定保存の ISO タイムスタンプ"
+            "description": "最終確定保存の ISO タイムスタンプ",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updatedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           }
         },
@@ -3790,15 +3782,11 @@
         "type": "object",
         "properties": {
           "pairTemplateId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "ペアのテンプレート ID。版種がペア対象外なら null"
+            "description": "ペアのテンプレート ID。版種がペア対象外なら null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "pairExists": {
             "type": "boolean",
@@ -4091,23 +4079,15 @@
             "description": "使用上の注意"
           },
           "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "updatedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "content": {
@@ -4138,24 +4118,16 @@
           },
           "targetEdition": {
             "description": "対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める",
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "companyCode": {
             "description": "対象の委託会社コード(Rep1 と同じ値)。null/欠落 = 未設定。一覧の絞り込みだけに使い、全社共通の意味は持たない",
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           }
         },
@@ -4274,24 +4246,16 @@
             "type": "string"
           },
           "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "本文が編集された場合のみ"
+            "description": "本文が編集された場合のみ",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updatedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "status": {
@@ -4299,15 +4263,11 @@
             "$ref": "#/components/schemas/NoteStatus"
           },
           "replyTo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "親投稿の ID。null なら親(スレッドの起点)"
+            "description": "親投稿の ID。null なら親(スレッドの起点)",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -4349,47 +4309,31 @@
             "type": "string"
           },
           "reviewedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "承認/却下したユーザ。pending は null"
+            "description": "承認/却下したユーザ。pending は null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reviewedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "comment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "却下理由 / 承認メモ。無ければ null"
+            "description": "却下理由 / 承認メモ。無ければ null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "baseHash": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "申請時点の現行版コンテンツキー"
+            "description": "申請時点の現行版コンテンツキー",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "changedSummary": {
             "anyOf": [
@@ -4442,47 +4386,31 @@
             "type": "string"
           },
           "reviewedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "承認/却下したユーザ。pending は null"
+            "description": "承認/却下したユーザ。pending は null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reviewedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "comment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "却下理由 / 承認メモ。無ければ null"
+            "description": "却下理由 / 承認メモ。無ければ null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "baseHash": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "申請時点の現行版コンテンツキー"
+            "description": "申請時点の現行版コンテンツキー",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "changedSummary": {
             "anyOf": [
@@ -4650,15 +4578,11 @@
             "description": "CSS の転写結果。承認で CSS が変わらなかったときは null"
           },
           "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "同期処理自体の失敗理由。正常時は null"
+            "description": "同期処理自体の失敗理由。正常時は null",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -4682,15 +4606,11 @@
             "description": "注記マスタへ書き戻したパーツ ID"
           },
           "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "書き戻し自体の失敗理由。正常時は null"
+            "description": "書き戻し自体の失敗理由。正常時は null",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [

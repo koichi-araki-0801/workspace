@@ -150,6 +150,16 @@ describe('資源上限(REST と同じ 4 定数を local でも強制する)', ()
     expect(isOk(res)).toBe(false);
   });
 
+  // REST の Zod 契約(zod 4.6 以降)はコードポイントで数える。local が UTF-16 の `.length` で
+  // 数えると、サロゲートペア(𠮷・絵文字)入りの本文だけ local で先に拒否されてしまう。
+  it('サーバと同じくコードポイントで上限を判定する(𠮷 を含む上限ちょうどは受理)', async () => {
+    const atLimit = `${'𠮷'.repeat(10)}${'x'.repeat(MAX_NOTE_CONTENT_CHARS - 10)}`;
+    expect(isOk(await localNoteRepo.addNote(KOUFU, KEY, atLimit))).toBe(true);
+    expect(isOk(await localNoteRepo.addNote(KOUFU, KEY, `${atLimit}x`))).toBe(false);
+    const keyAtLimit = `${'𠮷'.repeat(10)}${'k'.repeat(MAX_NOTE_PATH_KEY_CHARS - 10)}`;
+    expect(isOk(await localNoteRepo.addNote(KOUFU, keyAtLimit, '本文'))).toBe(true);
+  });
+
   it('パーツキーが上限を超える追加は拒否する', async () => {
     const longKey = 'x'.repeat(MAX_NOTE_PATH_KEY_CHARS + 1);
     const res = await localNoteRepo.addNote(KOUFU, longKey, '本文');

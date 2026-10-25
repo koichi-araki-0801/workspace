@@ -9,6 +9,7 @@ import {
   AddNoteRequest,
   BuildInlineRequest,
   BuildMergeDocument,
+  FundAssetRef,
   MAX_DOCUMENT_CSS_CHARS,
   MAX_DOCUMENT_HTML_CHARS,
   MAX_NOTE_CONTENT_CHARS,
@@ -104,5 +105,33 @@ describe('メモ追加の上限', () => {
       AddNoteRequest.safeParse({ pathKey: 'p0', content: chars(MAX_NOTE_CONTENT_CHARS + 1) })
         .success,
     ).toBe(false);
+  });
+});
+
+describe('文字数の数え方', () => {
+  // zod 4.6 から `.max(N)` はコードポイントで数える。local の上限判定(`noteRepo.ts`)と
+  // 揃える前提なので、ここで固定しておく(zod の数え方が戻ると両者がずれる)。
+  it('`.max(N)` は 𠮷 / 絵文字を 1 文字と数える', () => {
+    expect(
+      AddNoteRequest.safeParse({ pathKey: 'p0', content: '𠮷'.repeat(MAX_NOTE_CONTENT_CHARS) })
+        .success,
+    ).toBe(true);
+    expect(
+      AddNoteRequest.safeParse({ pathKey: '😀'.repeat(MAX_NOTE_PATH_KEY_CHARS), content: 'x' })
+        .success,
+    ).toBe(true);
+  });
+});
+
+describe('画像の参照の名前の上限', () => {
+  // ファイル名とフォルダ名は NTFS の 1 要素あたり 255 単位(UTF-16)が上限。`.max(255)` は
+  // コードポイントで数えるので、サロゲートペアの名前だけ別に縛らないと 256 単位以上が通る。
+  it('UTF-16 で 255 単位を超える名前は拒否する', () => {
+    expect(FundAssetRef.safeParse({ dir: null, file: '𠮷'.repeat(127) }).success).toBe(true);
+    expect(FundAssetRef.safeParse({ dir: null, file: '𠮷'.repeat(128) }).success).toBe(false);
+    expect(FundAssetRef.safeParse({ dir: '𠮷'.repeat(128), file: 'a.png' }).success).toBe(false);
+    expect(FundAssetRef.safeParse({ dir: 'a'.repeat(255), file: 'a'.repeat(255) }).success).toBe(
+      true,
+    );
   });
 });

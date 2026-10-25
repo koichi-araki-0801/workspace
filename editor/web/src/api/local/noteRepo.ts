@@ -62,16 +62,24 @@ function readStore(): NoteStore {
   return out;
 }
 
+/**
+ * 文字数。REST の Zod 契約(`.max(N)`)と同じくコードポイントで数える。`.length`(UTF-16 単位)
+ * だとサロゲートペアを含む入力だけ local が先に拒否する。
+ */
+function charCount(s: string): number {
+  return [...s].length;
+}
+
 /** 本文の長さ上限。add/update 共通(REST の `AddNoteRequest`/`UpdateNoteRequest` と同じ)。 */
 function assertContentLength(content: string): void {
-  if (content.length > MAX_NOTE_CONTENT_CHARS) {
+  if (charCount(content) > MAX_NOTE_CONTENT_CHARS) {
     throw validation(`コメントの本文は${MAX_NOTE_CONTENT_CHARS}文字までです`);
   }
 }
 
 /** パーツキーの長さ上限。pathKey は追加時にしか受け取らないので add でのみ検査する。 */
 function assertPathKeyLength(pathKey: string): void {
-  if (pathKey.length > MAX_NOTE_PATH_KEY_CHARS) {
+  if (charCount(pathKey) > MAX_NOTE_PATH_KEY_CHARS) {
     throw validation(`パーツキーが上限(${MAX_NOTE_PATH_KEY_CHARS}文字)を超えています`);
   }
 }

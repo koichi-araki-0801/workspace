@@ -971,11 +971,21 @@ export const BuildMergeRequest = z
 /** 画像の確認 API が 1 回に受け付ける参照の上限(1 文書の画像は実物で数枚〜十数枚)。 */
 export const MAX_FUND_ASSET_INSPECT_REFS = 50;
 
+/**
+ * ファイル名・フォルダ名 1 要素。NTFS の上限は UTF-16 で 255 単位だが、`.max(255)` は
+ * コードポイントで数えるので、サロゲートペアを含む名前は `.length` でも縛る。
+ */
+const fsNameComponent = () =>
+  z
+    .string()
+    .max(255)
+    .refine((s) => s.length <= 255, { message: '名前が長すぎます(UTF-16 で 255 単位まで)' });
+
 /** 画像の参照 1 件。`dir` は会社フォルダ(`images/` 直下なら null)。 */
 export const FundAssetRef = z
   .object({
-    dir: z.string().max(255).nullable().meta({ description: '会社フォルダ(直下なら null)' }),
-    file: z.string().max(255).meta({ description: 'ファイル名' }),
+    dir: fsNameComponent().nullable().meta({ description: '会社フォルダ(直下なら null)' }),
+    file: fsNameComponent().meta({ description: 'ファイル名' }),
   })
   .meta({ id: 'FundAssetRef' });
 
