@@ -69,6 +69,18 @@ export interface SafeProjectConfig {
   copyAsset?: { includes?: string[]; excludes?: string[] };
   /** 我々が固定する。利用者指定は受け付けない(§`base` の扱い)。 */
   base: string;
+  /** 我々が固定する空の PostCSS 設定(`emptyCssConfig`)。利用者指定は受け付けない。 */
+  css: { postcss: Record<string, never> };
+}
+
+/**
+ * configData に載せる空の PostCSS 設定。cli 11.4 は configData の経路でも配信ルートから
+ * 上へ向かって PostCSS の設定ファイルを探し、見つかればプラグインを読み込む。設定を明示して
+ * 探索そのものを止める(単一入力の経路は `projectInput.ts` の `POSTCSS_STOPPER` が止める)。
+ * 呼び出しごとに新しいオブジェクトを返す(CLI 側の書き換えが他のビルドへ漏れないように)。
+ */
+export function emptyCssConfig(): SafeProjectConfig['css'] {
+  return { postcss: {} };
 }
 
 /** トップレベルで受理するキー。ここに無いキーは**キー名を挙げて 400**。 */
@@ -270,6 +282,7 @@ export function parseProjectConfig(
   const out: SafeProjectConfig = {
     entry: assertEntry(root, parsed.entry, isFile),
     base: DEFAULT_DOC_BASE,
+    css: emptyCssConfig(),
   };
   if (parsed.entryContext !== undefined) {
     const ctx = assertText(parsed.entryContext, 'entryContext');

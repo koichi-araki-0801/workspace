@@ -15,7 +15,7 @@ import { collectDocumentAssetRefs } from './docRefs.js';
 import { inlineCss } from './inlineCss.js';
 import { inlineDocScripts } from './inlineDocScripts.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
-import type { SafeProjectConfig } from './projectConfig.js';
+import { emptyCssConfig, type SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
 import { makeWorkDir } from './workDir.js';
 
@@ -61,6 +61,7 @@ export function mergeConfigObject(entries: string[], size?: string): SafeProject
     ...(size ? { size } : {}),
     // 文書の配信 path はサーバ側で固定する(`projectConfig.parseProjectConfig` と同じ値)。
     base: DEFAULT_DOC_BASE,
+    css: emptyCssConfig(),
   };
 }
 

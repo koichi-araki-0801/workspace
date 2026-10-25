@@ -108,7 +108,7 @@ describe('@vivliostyle/cli の proxy 契約(実装を読んで固定する)', ()
   // ここが変わったら選択の前提が変わるので読み直すこと。
   it('proxy 資格情報は page.authenticate 経由(= ページ単位の仕組み)', () => {
     const src = launcherSource();
-    expect(src).toContain('page.authenticate(');
+    expect(src).toContain('previewPage.authenticate(');
     expect(src).toContain('username: proxy.username');
   });
 

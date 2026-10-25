@@ -101,6 +101,18 @@ describe('base', () => {
   });
 });
 
+describe('css', () => {
+  // cli 11.4 は configData の経路でも配信ルートから PostCSS の設定ファイルを探して読み込む。
+  // 空の設定を必ず渡して探索を止める(zip に混ぜた設定ファイルでプラグインを動かさせない)。
+  it('利用者は css を指定できない', () => {
+    expect(() => parse({ entry: 'a.md', css: { postcss: { plugins: ['x'] } } })).toThrow();
+  });
+
+  it('返却オブジェクトの css は常に空の PostCSS 設定', () => {
+    expect(parse({ entry: 'a.md' }).css).toEqual({ postcss: {} });
+  });
+});
+
 describe('theme', () => {
   it('展開ルート内の実在する .css は通る', () => {
     expect(parse({ entry: 'a.md', theme: 'theme.css' }).theme).toBe('theme.css');
@@ -243,7 +255,7 @@ describe('その他のフィールド', () => {
 
   it('受理したキーだけが出力に載る(片方向の移し替えである)', () => {
     const out = parse({ entry: 'a.md', title: 't' });
-    expect(Object.keys(out).sort()).toEqual(['base', 'entry', 'title']);
+    expect(Object.keys(out).sort()).toEqual(['base', 'css', 'entry', 'title']);
   });
 });
 

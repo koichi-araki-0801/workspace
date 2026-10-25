@@ -119,6 +119,7 @@ describe('buildInlinePdf — 作業フォルダの形', () => {
       entry: ['doc/index.html'],
       size: 'A4',
       base: '/vivliostyle',
+      css: { postcss: {} },
     });
     expect(run.files).toEqual(
       expect.arrayContaining([
@@ -204,7 +205,12 @@ describe('prepareInlineDoc — プレビューの作業フォルダ', () => {
   it('config のエントリは doc/index.html で、資産は兄弟に置く', async () => {
     const { dir, config } = await build.prepareInlineDoc({ html: HTML, size: 'A5' });
     try {
-      expect(config).toEqual({ entry: ['doc/index.html'], size: 'A5', base: '/vivliostyle' });
+      expect(config).toEqual({
+        entry: ['doc/index.html'],
+        size: 'A5',
+        base: '/vivliostyle',
+        css: { postcss: {} },
+      });
       expect(fs.existsSync(path.join(dir, 'doc', 'index.html'))).toBe(true);
       expect(fs.existsSync(path.join(dir, 'css', 'A_1_交付版.css'))).toBe(true);
       expect(fs.existsSync(path.join(dir, 'images', 'b.png'))).toBe(true);

@@ -39,10 +39,11 @@ describe('stripPageCounterReset', () => {
 });
 
 describe('mergeConfigObject', () => {
-  it('emits entries in order with a fixed base', () => {
+  it('emits entries in order with a fixed base and an empty PostCSS config', () => {
     expect(mergeConfigObject(['doc-000.html', 'doc-001.html'])).toEqual({
       entry: ['doc-000.html', 'doc-001.html'],
       base: '/vivliostyle',
+      css: { postcss: {} },
     });
   });
 
