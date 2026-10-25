@@ -39,6 +39,7 @@ python-wheelhouse/
 *.tar.gz.part-*
 # Release 公開時の付随生成物
 offline-deps-bundle.tar.gz.sha256
+offline-deps-lite.tar.gz.sha256
 bundle.key
 _bundle_stage/
 # オフライン環境構築後、ダウンロード物（ソースZIP/バンドル/sha256/key）の退避先
