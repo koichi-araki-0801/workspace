@@ -232,14 +232,16 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
     // ハッシュ付きアセット(`assets/`)は内容ハッシュ済みなので長期 immutable で配る。
     // `wildcard: false` で実在ファイルのみを配信し、非ファイル(SPA ルート)は notFound へ落とす
     // (= 下の setNotFoundHandler が epoch 入り index.html を返す)。`index: false` で `/` も同様。
+    // `/index.html` の直打ちも notFound へ落とす。生ファイルには epoch が入っていない。
     app.register(staticPlugin, {
       root: config.webDist,
       prefix: '/',
       index: false,
       wildcard: false,
-      setHeaders: (res, filePath) => {
+      allowedPath: (pathName) => pathName !== '/index.html',
+      setHeaders: (reply, filePath) => {
         if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          reply.header('Cache-Control', 'public, max-age=31536000, immutable');
         }
       },
     });
