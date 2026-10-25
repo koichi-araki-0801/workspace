@@ -100,12 +100,13 @@ describe('トークン単位のパス安全性ゲート', () => {
     expect(() => assertTemplateAttributeToken('会社コード', token)).toThrow();
   });
 
-  it.each(
-    EVIL_TOKENS.filter((t) => !/[/\\]/.test(t) && t !== ''),
-  )('トークン %j を含むファイル名は assertTemplateFileName が拒否する', (token) => {
-    expect(() => assertTemplateFileName(`${token}_510037_20240710_交付版.html`)).toThrow();
-    expect(isValidTemplateId(`${token}_510037_20240710_交付版`)).toBe(false);
-  });
+  it.each(EVIL_TOKENS.filter((t) => !/[/\\]/.test(t) && t !== ''))(
+    'トークン %j を含むファイル名は assertTemplateFileName が拒否する',
+    (token) => {
+      expect(() => assertTemplateFileName(`${token}_510037_20240710_交付版.html`)).toThrow();
+      expect(isValidTemplateId(`${token}_510037_20240710_交付版`)).toBe(false);
+    },
+  );
 
   it('版種トークンの末尾空白も拒否する(4 トークン全部を見る)', () => {
     expect(() => assertTemplateFileName('AM01_510037_20240710_交付版 .html')).toThrow();

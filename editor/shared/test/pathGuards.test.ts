@@ -251,16 +251,10 @@ describe('WINDOWS_RESERVED_RE — Windows の予約デバイス名', () => {
     'CON.html',
     'nul.tar.gz',
   ])('%s は予約名', (name) => expect(WINDOWS_RESERVED_RE.test(name)).toBe(true));
-  it.each([
-    'com0',
-    'lpt10',
-    'conx',
-    'xcon',
-    'con_',
-    'a.con',
-    'console',
-    '',
-  ])('%s は予約名でない', (name) => expect(WINDOWS_RESERVED_RE.test(name)).toBe(false));
+  it.each(['com0', 'lpt10', 'conx', 'xcon', 'con_', 'a.con', 'console', ''])(
+    '%s は予約名でない',
+    (name) => expect(WINDOWS_RESERVED_RE.test(name)).toBe(false),
+  );
   it('ファイル名のトークンの検査も予約名を落とす', () => {
     expect(isValidTemplateToken('CON')).toBe(false);
     expect(isValidTemplateToken('com1.x')).toBe(false);

@@ -332,25 +332,24 @@ describe('読めなかったメモファイルを空として書き戻さない'
 });
 
 describe('Object.prototype の名前と重なるパーツキー', () => {
-  it.each([
-    '__proto__',
-    'constructor',
-    'toString',
-  ])('%s をキーにした投稿を追加・更新・削除でき、保存内容に残る', async (key) => {
-    const { repo } = await importRepo();
-    const e = await repo.addNote(KOUFU, key, '本文', 'editor1', PARENT);
-    expect(e.pathKey).toBe(key);
-    const raw = JSON.parse(
-      await fs.readFile(path.join(tmpRoot, 'notes', `${KOUFU}.json`), 'utf8'),
-    ) as Record<string, unknown>;
-    expect(Object.hasOwn(raw, key)).toBe(true);
-    await repo.addNote(KOUFU, key, '2 件目', 'editor1', PARENT);
-    await repo.updateNote(KOUFU, e.id, { content: '更新' }, 'editor1');
-    expect((await repo.listNotes(KOUFU)).map((n) => [n.pathKey, n.content])).toEqual([
-      [key, '更新'],
-      [key, '2 件目'],
-    ]);
-    await repo.deleteNote(KOUFU, e.id);
-    expect((await repo.listNotes(KOUFU)).map((n) => n.content)).toEqual(['2 件目']);
-  });
+  it.each(['__proto__', 'constructor', 'toString'])(
+    '%s をキーにした投稿を追加・更新・削除でき、保存内容に残る',
+    async (key) => {
+      const { repo } = await importRepo();
+      const e = await repo.addNote(KOUFU, key, '本文', 'editor1', PARENT);
+      expect(e.pathKey).toBe(key);
+      const raw = JSON.parse(
+        await fs.readFile(path.join(tmpRoot, 'notes', `${KOUFU}.json`), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(Object.hasOwn(raw, key)).toBe(true);
+      await repo.addNote(KOUFU, key, '2 件目', 'editor1', PARENT);
+      await repo.updateNote(KOUFU, e.id, { content: '更新' }, 'editor1');
+      expect((await repo.listNotes(KOUFU)).map((n) => [n.pathKey, n.content])).toEqual([
+        [key, '更新'],
+        [key, '2 件目'],
+      ]);
+      await repo.deleteNote(KOUFU, e.id);
+      expect((await repo.listNotes(KOUFU)).map((n) => n.content)).toEqual(['2 件目']);
+    },
+  );
 });

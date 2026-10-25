@@ -58,30 +58,21 @@ describe('inspectSvg — 通すもの', () => {
 });
 
 describe('inspectSvg — 落とすもの', () => {
-  it.each([
-    'script',
-    'foreignObject',
-    'iframe',
-    'object',
-    'embed',
-    'audio',
-    'video',
-    'a',
-  ])('<%s> は禁止', (el) => {
-    expect(inspectSvg(wrap(`<${el}/>`))).toContain(`禁止された要素 <${el}>`);
-  });
+  it.each(['script', 'foreignObject', 'iframe', 'object', 'embed', 'audio', 'video', 'a'])(
+    '<%s> は禁止',
+    (el) => {
+      expect(inspectSvg(wrap(`<${el}/>`))).toContain(`禁止された要素 <${el}>`);
+    },
+  );
 
-  it.each([
-    'animate',
-    'set',
-    'animateMotion',
-    'animateTransform',
-    'animateColor',
-  ])('SMIL の <%s> は禁止', (el) => {
-    expect(inspectSvg(wrap(`<rect><${el} attributeName="href" to="x"/></rect>`))).toContain(
-      `禁止された要素 <${el}>`,
-    );
-  });
+  it.each(['animate', 'set', 'animateMotion', 'animateTransform', 'animateColor'])(
+    'SMIL の <%s> は禁止',
+    (el) => {
+      expect(inspectSvg(wrap(`<rect><${el} attributeName="href" to="x"/></rect>`))).toContain(
+        `禁止された要素 <${el}>`,
+      );
+    },
+  );
 
   it.each([
     ['onload 属性', `<svg xmlns="${NS}" onload="alert(1)"/>`, 'イベント属性 onload'],

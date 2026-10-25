@@ -336,17 +336,16 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(fs.readdirSync(templatesDir)).toEqual([]);
   });
 
-  it.each([
-    'AM01 ',
-    ' AM01',
-    'AM01.',
-  ])('末尾/先頭の空白・ドットを持つ会社コード %s は 400', async (companyCode) => {
-    // ファイル名全体しか trim 検査していない `assertTemplateFileName` は素通しするが、
-    // SQL Server の `=` は末尾空白を無視するため「ファイル 2 つ・台帳 1 行」を作れる。
-    const res = await generate({ ...validBody, companyCode });
-    expect(res.statusCode).toBe(400);
-    expect(fs.readdirSync(pendingDir)).toEqual([]);
-  });
+  it.each(['AM01 ', ' AM01', 'AM01.'])(
+    '末尾/先頭の空白・ドットを持つ会社コード %s は 400',
+    async (companyCode) => {
+      // ファイル名全体しか trim 検査していない `assertTemplateFileName` は素通しするが、
+      // SQL Server の `=` は末尾空白を無視するため「ファイル 2 つ・台帳 1 行」を作れる。
+      const res = await generate({ ...validBody, companyCode });
+      expect(res.statusCode).toBe(400);
+      expect(fs.readdirSync(pendingDir)).toEqual([]);
+    },
+  );
 
   it('アンダースコアを含む属性は 400(ファイル名規約のトークン境界を偽装させない)', async () => {
     const res = await generate({ ...validBody, fundCode: '510037_20240710' });
@@ -499,15 +498,18 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it.each([
     ['交付版', ID],
     ['全体版', ZENTAI],
-  ])('%sに承認待ちの作成申請があれば、同意があっても生成器を呼ばずに 409「申請中」', async (_e, target) => {
-    await putReview('11111111-1111-4111-8111-111111111111', 'create', 'pending', target);
-    fs.writeFileSync(path.join(pendingDir, `${target}.html`), '<p>申請した生成物</p>', 'utf8');
-    const res = await generate({ ...validBody, replaceExisting: true });
-    expect(res.statusCode).toBe(409);
-    expect(res.json().message).toBe('申請中です。承認か却下を待ってください');
-    expect(generateMock).not.toHaveBeenCalled();
-    expect(fs.existsSync(path.join(pendingDir, `${target}.html`))).toBe(true);
-  });
+  ])(
+    '%sに承認待ちの作成申請があれば、同意があっても生成器を呼ばずに 409「申請中」',
+    async (_e, target) => {
+      await putReview('11111111-1111-4111-8111-111111111111', 'create', 'pending', target);
+      fs.writeFileSync(path.join(pendingDir, `${target}.html`), '<p>申請した生成物</p>', 'utf8');
+      const res = await generate({ ...validBody, replaceExisting: true });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().message).toBe('申請中です。承認か却下を待ってください');
+      expect(generateMock).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(pendingDir, `${target}.html`))).toBe(true);
+    },
+  );
 
   it('決着済み(承認・却下)や編集タブの申請は作り直しを止めない', async () => {
     await putReview('22222222-2222-4222-8222-222222222222', 'create', 'rejected');

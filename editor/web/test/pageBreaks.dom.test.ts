@@ -79,9 +79,12 @@ describe('splitPages', () => {
     ['break-before:always'],
     ['break-before:avoid-page'],
     ['break-before:auto'],
-  ])('inline の %s は改ページしない(Vivliostyle は style 属性の page-break-* と always を効かせない)', (style) => {
-    expect(split(`<p id=a></p><p id=b style="${style}"></p>`)).toEqual([['a', 'b']]);
-  });
+  ])(
+    'inline の %s は改ページしない(Vivliostyle は style 属性の page-break-* と always を効かせない)',
+    (style) => {
+      expect(split(`<p id=a></p><p id=b style="${style}"></p>`)).toEqual([['a', 'b']]);
+    },
+  );
 
   it('inline の after で後ろに改ページ', () => {
     expect(split('<p id=a style="break-after:page"></p><p id=b></p><p id=c></p>')).toEqual([

@@ -346,13 +346,12 @@ describe('meta http-equiv=refresh の content', () => {
 // ── バックスラッシュの scheme 相対 ──
 // WHATWG URL パーサは特殊スキームの base に対し `\` を `/` と同一視する。
 describe('バックスラッシュで書いた scheme 相対', () => {
-  it.each([
-    '\\\\evil.example/x.png',
-    '/\\evil.example/x.png',
-    '\\/evil.example/x.png',
-  ])('<img src="%s"> は外部参照として報告される', (value) => {
-    expect(findExternalRefsInTag('img', [{ name: 'src', value }])).toHaveLength(1);
-  });
+  it.each(['\\\\evil.example/x.png', '/\\evil.example/x.png', '\\/evil.example/x.png'])(
+    '<img src="%s"> は外部参照として報告される',
+    (value) => {
+      expect(findExternalRefsInTag('img', [{ name: 'src', value }])).toHaveLength(1);
+    },
+  );
 });
 
 describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論理ルート相対へ解く', () => {

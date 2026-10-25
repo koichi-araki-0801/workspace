@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.16/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.2/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -15,7 +15,9 @@
       "!**/out",
       "!editor/web/src/api/fixtures",
       "!editor/server/openapi/openapi.json",
-      "!**/*.tsbuildinfo"
+      "!**/*.tsbuildinfo",
+      "!**/*.md",
+      "!**/*.svg"
     ]
   },
   "formatter": {
@@ -28,7 +30,14 @@
     "enabled": true,
     "includes": ["editor/**"],
     "rules": {
-      "recommended": true
+      "preset": "recommended",
+      "a11y": {
+        "noLabelWithoutControl": "warn",
+        "noStaticElementInteractions": "warn",
+        "useKeyWithClickEvents": "warn",
+        "noNoninteractiveTabindex": "warn",
+        "useAriaPropsSupportedByRole": "warn"
+      }
     }
   },
   "javascript": {

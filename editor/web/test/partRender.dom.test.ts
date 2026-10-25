@@ -101,22 +101,26 @@ describe('renderPartForInsert: fixture のパーツ', () => {
   });
 
   // fixture の変数名が local の値の源(値ファイルと `sampleCommon`)のキーと揃っていること。
-  it.each(
-    jinjaParts.map((p) => [p.id, p.content]),
-  )('%s は編集経路で値ファイルの値だけで描け、警告が無い', (_id, content) => {
-    const r = rendered(renderPartForInsert(content, { route: 'edit', values, valuesFound: true }));
-    expect(r.warnings).toEqual([]);
-    expect(r.html).not.toMatch(/\{\{|\{%/);
-  });
+  it.each(jinjaParts.map((p) => [p.id, p.content]))(
+    '%s は編集経路で値ファイルの値だけで描け、警告が無い',
+    (_id, content) => {
+      const r = rendered(
+        renderPartForInsert(content, { route: 'edit', values, valuesFound: true }),
+      );
+      expect(r.warnings).toEqual([]);
+      expect(r.html).not.toMatch(/\{\{|\{%/);
+    },
+  );
 
-  it.each(
-    jinjaParts.map((p) => [p.id, p.content]),
-  )('%s は作成経路で共通サンプルの値がチップで入り、原文に戻る', (_id, content) => {
-    const r = rendered(renderPartForInsert(content, { route: 'create', sample: sampleCommon }));
-    expect(r.warnings).toEqual([]);
-    expect(r.html).toContain('jinja-chip');
-    expect(norm(toTemplate(r.html, { asFragment: true }))).toBe(norm(content));
-  });
+  it.each(jinjaParts.map((p) => [p.id, p.content]))(
+    '%s は作成経路で共通サンプルの値がチップで入り、原文に戻る',
+    (_id, content) => {
+      const r = rendered(renderPartForInsert(content, { route: 'create', sample: sampleCommon }));
+      expect(r.warnings).toEqual([]);
+      expect(r.html).toContain('jinja-chip');
+      expect(norm(toTemplate(r.html, { asFragment: true }))).toBe(norm(content));
+    },
+  );
 });
 
 describe('renderPartForInsert: 作成経路', () => {

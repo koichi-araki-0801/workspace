@@ -611,13 +611,12 @@ describe('extractProjectZip — PostCSS 設定', () => {
     });
   });
 
-  it.each([
-    'postcss.css',
-    'images/postcssrc.png',
-    'my.postcssrc.json.png',
-  ])('does not reject an unrelated name (%s)', (name) => {
-    expect(isPostcssConfigName(name)).toBe(false);
-  });
+  it.each(['postcss.css', 'images/postcssrc.png', 'my.postcssrc.json.png'])(
+    'does not reject an unrelated name (%s)',
+    (name) => {
+      expect(isPostcssConfigName(name)).toBe(false);
+    },
+  );
 
   it.each([
     ['root config', { 'vivliostyle.config.json': '{"entry":"index.html"}', 'index.html': '<p/>' }],

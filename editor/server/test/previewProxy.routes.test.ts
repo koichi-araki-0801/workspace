@@ -123,21 +123,19 @@ describe('GET /api/preview/:id/* の中継許可リスト', () => {
     expect(upstreamHits).toEqual([]);
   });
 
-  it.each([
-    'POST',
-    'PUT',
-    'PATCH',
-    'DELETE',
-  ])('%s はルートに登録されていない(ボディを積まずに 404)', async (method) => {
-    const res = await app.inject({
-      method: method as 'POST',
-      url: `/api/preview/${knownId}/__vivliostyle-viewer/x`,
-      headers: { 'content-type': 'application/zip' },
-      payload: Buffer.alloc(1024 * 1024),
-    });
-    expect(res.statusCode).toBe(404);
-    expect(upstreamHits).toEqual([]);
-  });
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
+    '%s はルートに登録されていない(ボディを積まずに 404)',
+    async (method) => {
+      const res = await app.inject({
+        method: method as 'POST',
+        url: `/api/preview/${knownId}/__vivliostyle-viewer/x`,
+        headers: { 'content-type': 'application/zip' },
+        payload: Buffer.alloc(1024 * 1024),
+      });
+      expect(res.statusCode).toBe(404);
+      expect(upstreamHits).toEqual([]);
+    },
+  );
 
   it('HEAD も同じ許可リストを通る(自動生成される HEAD で迂回できない)', async () => {
     const denied = await app.inject({

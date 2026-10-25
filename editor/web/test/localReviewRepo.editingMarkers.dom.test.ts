@@ -48,37 +48,40 @@ describe('local の申請・承認の編集用の印', () => {
   it.each([
     ['create', 'AM01_510037_交付版'],
     ['edit', EDIT_ID],
-  ] as const)('関所の前に積まれた印入りの申請(%s)は、承認の書き込み点で止まる', async (origin, templateId) => {
-    const login = await localAuthRepo.login({ username: 'admin', password: 'admin' });
-    expect(isOk(login)).toBe(true);
-    const sub = await localReviewRepo.submitReview({
-      templateId,
-      html: '<p>値</p>',
-      css: '',
-      origin,
-    });
-    expect(isOk(sub)).toBe(true);
-    if (!isOk(sub)) return;
-    // 入口の関所が入る前に積まれた申請を模し、保存済みの本文だけを印入りへ差し替える。
-    const stored = JSON.parse(localStorage.getItem(K.reviews) ?? '{}') as Record<
-      string,
-      Record<string, unknown>
-    >;
-    stored[sub.value.id] = { ...stored[sub.value.id], html: CHIP };
-    localStorage.setItem(K.reviews, JSON.stringify(stored));
-    const before = {
-      html: localStorage.getItem(K.htmlOverride),
-      filled: localStorage.getItem(K.filledOverride),
-      css: localStorage.getItem(K.cssOverride),
-    };
+  ] as const)(
+    '関所の前に積まれた印入りの申請(%s)は、承認の書き込み点で止まる',
+    async (origin, templateId) => {
+      const login = await localAuthRepo.login({ username: 'admin', password: 'admin' });
+      expect(isOk(login)).toBe(true);
+      const sub = await localReviewRepo.submitReview({
+        templateId,
+        html: '<p>値</p>',
+        css: '',
+        origin,
+      });
+      expect(isOk(sub)).toBe(true);
+      if (!isOk(sub)) return;
+      // 入口の関所が入る前に積まれた申請を模し、保存済みの本文だけを印入りへ差し替える。
+      const stored = JSON.parse(localStorage.getItem(K.reviews) ?? '{}') as Record<
+        string,
+        Record<string, unknown>
+      >;
+      stored[sub.value.id] = { ...stored[sub.value.id], html: CHIP };
+      localStorage.setItem(K.reviews, JSON.stringify(stored));
+      const before = {
+        html: localStorage.getItem(K.htmlOverride),
+        filled: localStorage.getItem(K.filledOverride),
+        css: localStorage.getItem(K.cssOverride),
+      };
 
-    const res = await localReviewRepo.approveReview(sub.value.id, {});
-    expect(isErr(res) && res.error.kind).toBe('validation');
-    expect(localStorage.getItem(K.htmlOverride)).toBe(before.html);
-    expect(localStorage.getItem(K.filledOverride)).toBe(before.filled);
-    expect(localStorage.getItem(K.cssOverride)).toBe(before.css);
-    // 申請も処理済みにならない(反映と同じ tx で巻き戻る)。
-    const got = await localReviewRepo.getReview(sub.value.id);
-    expect(isOk(got) && got.value.status).toBe('pending');
-  });
+      const res = await localReviewRepo.approveReview(sub.value.id, {});
+      expect(isErr(res) && res.error.kind).toBe('validation');
+      expect(localStorage.getItem(K.htmlOverride)).toBe(before.html);
+      expect(localStorage.getItem(K.filledOverride)).toBe(before.filled);
+      expect(localStorage.getItem(K.cssOverride)).toBe(before.css);
+      // 申請も処理済みにならない(反映と同じ tx で巻き戻る)。
+      const got = await localReviewRepo.getReview(sub.value.id);
+      expect(isOk(got) && got.value.status).toBe('pending');
+    },
+  );
 });

@@ -230,22 +230,23 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     expect(out.endsWith('</i>')).toBe(true); // 繰り返しの単位で止めるので、タグの対応は崩れない
     expect([...f.unsupported]).toEqual(['描画の量が上限を超えたため、以降を省きました']);
   });
-  it.each([
-    16, 20,
-  ])('配列リテラルで同じ値を %i 回倍にしても、出力の上限以下で止まり unsupported になる(例外にしない)', (times) => {
-    let src = '{% set b0 = range(1000) %}';
-    for (let k = 1; k <= times; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
-    src +=
-      `<p>{{ b${times} }}</p><p>{{ b${times}|trim }}</p><p>{{ b${times}|safe }}</p>` +
-      `{% if b${times} < "x" %}lt{% endif %}{% if "0" in b${times}|list %}{% endif %}` +
-      `<p>{{ b${times} + "x" }}</p>`;
-    let r: ReturnType<typeof renderPlainFilled> | undefined;
-    expect(() => {
-      r = renderPlainFilled(src, {});
-    }).not.toThrow();
-    expect(r?.html.length).toBeLessThan(10_000_000);
-    expect(r?.diagnostics.unsupported.length).toBeGreaterThan(0);
-  });
+  it.each([16, 20])(
+    '配列リテラルで同じ値を %i 回倍にしても、出力の上限以下で止まり unsupported になる(例外にしない)',
+    (times) => {
+      let src = '{% set b0 = range(1000) %}';
+      for (let k = 1; k <= times; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+      src +=
+        `<p>{{ b${times} }}</p><p>{{ b${times}|trim }}</p><p>{{ b${times}|safe }}</p>` +
+        `{% if b${times} < "x" %}lt{% endif %}{% if "0" in b${times}|list %}{% endif %}` +
+        `<p>{{ b${times} + "x" }}</p>`;
+      let r: ReturnType<typeof renderPlainFilled> | undefined;
+      expect(() => {
+        r = renderPlainFilled(src, {});
+      }).not.toThrow();
+      expect(r?.html.length).toBeLessThan(10_000_000);
+      expect(r?.diagnostics.unsupported.length).toBeGreaterThan(0);
+    },
+  );
   it('select("in", 長い並び)は要素ごとに右辺を数え、評価の量の上限で止まる', () => {
     const expr = 'range(100000)|select("in", range(100000))|list|length';
     const { html, diagnostics } = renderPlainFilled(`{{ ${expr} }}|`.repeat(6), {});
@@ -366,12 +367,15 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
       ['select のテスト名', '{{ [1]|select(t)|length }}', '[1]|select(t)|length'],
       ['startswith の引数', '{{ "a".startswith(t) }}', '"a".startswith(t)'],
       ['添字のキー', '{{ d[t] }}', 'd[t]'],
-    ])('文字列の引数が長すぎる形(%s)は、課金より先に形で止めて unsupported にする', (_, body, expr) => {
-      const f = new Filler();
-      show(`${grow}${body}`, { d: {} }, f);
-      expect([...f.unsupported]).toEqual([expr]);
-      expect(f.exhausted).toBe(false);
-    });
+    ])(
+      '文字列の引数が長すぎる形(%s)は、課金より先に形で止めて unsupported にする',
+      (_, body, expr) => {
+        const f = new Filler();
+        show(`${grow}${body}`, { d: {} }, f);
+        expect([...f.unsupported]).toEqual([expr]);
+        expect(f.exhausted).toBe(false);
+      },
+    );
     it('属性名の段が多すぎる形は unsupported にする(段 16 までは読む)', () => {
       const f = new Filler();
       const deep16 = Array(16).fill('a').join('.');
@@ -435,30 +439,28 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     show(`${src}[{{ b12|length }}]`, {}, f);
     expect([...f.unsupported].some((e) => e.startsWith('set b'))).toBe(true);
   });
-  it.each([
-    'xs|batch(100000000, 0)',
-    'xs|slice(100000000)',
-    'xs|batch(-1)',
-    'xs|slice(0)',
-  ])('%s(作る配列が引数で決まる)は上限・下限で unsupported になる', (expr) => {
-    const f = new Filler();
-    expect(show(`{{ ${expr} }}`, { xs: [1] }, f)).toBe('');
-    expect([...f.unsupported]).toEqual([expr]);
-  });
-  it.each([
-    '[1]|batch(100000, r)|length',
-    '[1]|slice(100000, r)|length',
-  ])('%s(覚え書き済みの大きな並びで埋める)は 1 回で評価の量を使い切り、以後を描かない', (expr) => {
-    const f = new Filler();
-    const out = show(
-      `{% set r = range(100000) %}{% for j in range(99000) %}{{ ${expr} }}{{ v }}{% endfor %}`,
-      { v: 'V' },
-      f,
-    );
-    expect(out).toBe('');
-    expect([...f.unsupported]).toEqual([expr, '描画の量が上限を超えたため、以降を省きました']);
-    expect(f.exhausted).toBe(true);
-  });
+  it.each(['xs|batch(100000000, 0)', 'xs|slice(100000000)', 'xs|batch(-1)', 'xs|slice(0)'])(
+    '%s(作る配列が引数で決まる)は上限・下限で unsupported になる',
+    (expr) => {
+      const f = new Filler();
+      expect(show(`{{ ${expr} }}`, { xs: [1] }, f)).toBe('');
+      expect([...f.unsupported]).toEqual([expr]);
+    },
+  );
+  it.each(['[1]|batch(100000, r)|length', '[1]|slice(100000, r)|length'])(
+    '%s(覚え書き済みの大きな並びで埋める)は 1 回で評価の量を使い切り、以後を描かない',
+    (expr) => {
+      const f = new Filler();
+      const out = show(
+        `{% set r = range(100000) %}{% for j in range(99000) %}{{ ${expr} }}{{ v }}{% endfor %}`,
+        { v: 'V' },
+        f,
+      );
+      expect(out).toBe('');
+      expect([...f.unsupported]).toEqual([expr, '描画の量が上限を超えたため、以降を省きました']);
+      expect(f.exhausted).toBe(true);
+    },
+  );
   it.each([
     // [式, 作る前に数える量(行・列の数 + 埋める数)]
     ['xs|batch(1000, 0)', 1 + 999],

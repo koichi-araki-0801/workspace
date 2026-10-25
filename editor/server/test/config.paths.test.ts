@@ -154,19 +154,17 @@ describe('config paths', () => {
 });
 
 describe('assertImagesDirOutsideCommittedAreas', () => {
-  it.each([
-    'templates',
-    'filled',
-    'css',
-    'sync',
-  ])('%s の内側と、その領域そのものを拒む', async (area) => {
-    const { assertImagesDirOutsideCommittedAreas } = await importConfigWithEnv({ DATA_ROOT });
-    for (const imagesDir of [path.join(DATA_ROOT, area, 'images'), path.join(DATA_ROOT, area)]) {
-      expect(() =>
-        assertImagesDirOutsideCommittedAreas({ imagesDir, gitRepoDir: DATA_ROOT }),
-      ).toThrow(new RegExp(area));
-    }
-  });
+  it.each(['templates', 'filled', 'css', 'sync'])(
+    '%s の内側と、その領域そのものを拒む',
+    async (area) => {
+      const { assertImagesDirOutsideCommittedAreas } = await importConfigWithEnv({ DATA_ROOT });
+      for (const imagesDir of [path.join(DATA_ROOT, area, 'images'), path.join(DATA_ROOT, area)]) {
+        expect(() =>
+          assertImagesDirOutsideCommittedAreas({ imagesDir, gitRepoDir: DATA_ROOT }),
+        ).toThrow(new RegExp(area));
+      }
+    },
+  );
 
   it('dataRoot 直下の images と、名前が前方一致するだけの兄弟は通す', async () => {
     const { assertImagesDirOutsideCommittedAreas } = await importConfigWithEnv({ DATA_ROOT });
@@ -208,22 +206,19 @@ describe('assertImagesDirOutsideCommittedAreas', () => {
     }
   });
 
-  it.each([
-    'a..b',
-    '',
-    '__proto__.x',
-    'fund.constructor',
-    'prototype',
-  ])('sampleOverlay のパス %j は設定エラーにする', async (bad) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-overlay-bad-'));
-    const file = path.join(dir, 'appconfig.json');
-    try {
-      fs.writeFileSync(file, JSON.stringify({ sampleOverlay: { fundName: bad } }), 'utf8');
-      await expect(importConfigWithEnv({ DATA_ROOT, APP_CONFIG: file })).rejects.toThrow(
-        /appconfig\.json の内容が不正です[\s\S]*sampleOverlay/,
-      );
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  it.each(['a..b', '', '__proto__.x', 'fund.constructor', 'prototype'])(
+    'sampleOverlay のパス %j は設定エラーにする',
+    async (bad) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-config-overlay-bad-'));
+      const file = path.join(dir, 'appconfig.json');
+      try {
+        fs.writeFileSync(file, JSON.stringify({ sampleOverlay: { fundName: bad } }), 'utf8');
+        await expect(importConfigWithEnv({ DATA_ROOT, APP_CONFIG: file })).rejects.toThrow(
+          /appconfig\.json の内容が不正です[\s\S]*sampleOverlay/,
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
 });

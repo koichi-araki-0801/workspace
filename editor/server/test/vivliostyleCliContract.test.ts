@@ -24,16 +24,16 @@ const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'sr
 const read = (name: string): string => fs.readFileSync(path.join(SRC, name), 'utf8');
 
 describe('@vivliostyle/cli への渡し方', () => {
-  it.each([
-    'build.ts',
-    'previewServer.ts',
-  ])('%s は configData で渡し、config パスを渡さない', (f) => {
-    const text = read(f);
-    expect(text).toContain('configData:');
-    // `config: <パス>` を CLI へ渡す形が戻っていないこと。`configData:` は別語なので
-    // 単語境界で見る。
-    expect(/\bconfig:\s*(?:input|spec)\./.test(text)).toBe(false);
-  });
+  it.each(['build.ts', 'previewServer.ts'])(
+    '%s は configData で渡し、config パスを渡さない',
+    (f) => {
+      const text = read(f);
+      expect(text).toContain('configData:');
+      // `config: <パス>` を CLI へ渡す形が戻っていないこと。`configData:` は別語なので
+      // 単語境界で見る。
+      expect(/\bconfig:\s*(?:input|spec)\./.test(text)).toBe(false);
+    },
+  );
 
   it('sharedInlineConfig は必ず viteConfigFile:false を含む', async () => {
     // CLI 既定は `viteConfigFile ?? true`。ここが落ちると展開ツリーの `vite.config.*` が
