@@ -260,7 +260,8 @@ export const Username = z
 export const CreateUserRequest = z
   .object({
     username: Username,
-    displayName: z.string(),
+    // ストアドの `@表示名 NVARCHAR(128)` と同じ長さ(超えると黙って切り詰められる)。
+    displayName: utf16Max(128, '表示名'),
     role: UserRole,
     disabled: z.boolean(),
     mustChangePassword: z.boolean(),
@@ -271,7 +272,7 @@ export const CreateUserRequest = z
 export const UpdateUserRequest = z
   .object({
     username: Username,
-    displayName: z.string(),
+    displayName: utf16Max(128, '表示名'),
     role: UserRole,
     disabled: z.boolean(),
     mustChangePassword: z.boolean(),
@@ -719,14 +720,16 @@ export const PartCatalogItem = z
   })
   .meta({ id: 'PartCatalogItem' });
 
-/** (server 専用) カスケードするパーツ分類のクエリパラメータ(すべて任意)。 */
+/**
+ * (server 専用) カスケードするパーツ分類のクエリパラメータ(すべて任意)。上限は `part.sql` の
+ * 引数(`NVARCHAR(64)` / 版種 `NVARCHAR(32)`)と同じ。超えると黙って切り詰められ、別の値で引かれる。
+ */
 export const PartClassificationQuery = z.object({
-  category: z.string().optional(),
-  majorClass: z.string().optional(),
-  middleClass: z.string().optional(),
-  minorClass: z.string().optional(),
-  editionType: z
-    .string()
+  category: utf16Max(64, 'カテゴリ').optional(),
+  majorClass: utf16Max(64, '大分類').optional(),
+  middleClass: utf16Max(64, '中分類').optional(),
+  minorClass: utf16Max(64, '小分類').optional(),
+  editionType: utf16Max(32, '版種')
     .optional()
     .meta({ description: 'テンプレートの版種。指定時は対象版種が空か一致するパーツだけ' }),
   companyCode: utf16Max(32, '委託会社コード')

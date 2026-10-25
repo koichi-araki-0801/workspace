@@ -10,6 +10,7 @@ import {
   BuildInlineRequest,
   BuildMergeDocument,
   CreatableQuery,
+  CreateUserRequest,
   FundAssetRef,
   FundsQuery,
   GenerateRequest,
@@ -20,6 +21,7 @@ import {
   PartClassificationQuery,
   RecordPdfExportRequest,
   SubmitReviewBody,
+  UpdateUserRequest,
 } from '../src/schemas.js';
 
 const chars = (n: number): string => 'a'.repeat(n);
@@ -163,5 +165,53 @@ describe('ストアドの NVARCHAR(32) へ渡す委託会社コードの上限',
   ])('%s は UTF-16 で 32 単位までを受ける', (_, parse) => {
     expect(parse(ok).success).toBe(true);
     expect(parse(ng).success).toBe(false);
+  });
+});
+
+describe('ストアドの NVARCHAR(N) へ渡す利用者入力の上限', () => {
+  // ストアドの引数は長すぎても**エラーにならず**切り詰められる(表示名は黙って短く保存され、
+  // 分類の絞り込みは別の値で引かれる)。契約の段で、引数と同じ UTF-16 の長さまでに縛る。
+  const user = { username: 'u1', role: 'viewer', disabled: false, mustChangePassword: false };
+  it.each([
+    [
+      'CreateUserRequest.displayName',
+      128,
+      (v: string) => CreateUserRequest.safeParse({ ...user, displayName: v }),
+    ],
+    [
+      'UpdateUserRequest.displayName',
+      128,
+      (v: string) => UpdateUserRequest.safeParse({ displayName: v }),
+    ],
+    [
+      'PartClassificationQuery.category',
+      64,
+      (v: string) => PartClassificationQuery.safeParse({ category: v }),
+    ],
+    [
+      'PartClassificationQuery.majorClass',
+      64,
+      (v: string) => PartClassificationQuery.safeParse({ majorClass: v }),
+    ],
+    [
+      'PartClassificationQuery.middleClass',
+      64,
+      (v: string) => PartClassificationQuery.safeParse({ middleClass: v }),
+    ],
+    [
+      'PartClassificationQuery.minorClass',
+      64,
+      (v: string) => PartClassificationQuery.safeParse({ minorClass: v }),
+    ],
+    [
+      'PartClassificationQuery.editionType',
+      32,
+      (v: string) => PartClassificationQuery.safeParse({ editionType: v }),
+    ],
+  ])('%s は UTF-16 で %i 単位までを受ける', (_, units, parse) => {
+    expect(parse('a'.repeat(units)).success).toBe(true);
+    expect(parse('a'.repeat(units + 1)).success).toBe(false);
+    expect(parse('𠮷'.repeat(units / 2)).success).toBe(true);
+    expect(parse('𠮷'.repeat(units / 2 + 1)).success).toBe(false);
   });
 });

@@ -959,28 +959,32 @@
             "in": "query",
             "name": "category",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "majorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "middleClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "minorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
@@ -988,7 +992,8 @@
             "name": "editionType",
             "schema": {
               "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
-              "type": "string"
+              "type": "string",
+              "maxLength": 32
             },
             "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
           },
@@ -1039,28 +1044,32 @@
             "in": "query",
             "name": "category",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "majorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "middleClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "minorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
@@ -1068,7 +1077,8 @@
             "name": "editionType",
             "schema": {
               "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
-              "type": "string"
+              "type": "string",
+              "maxLength": 32
             },
             "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
           },
@@ -3395,7 +3405,8 @@
             "$ref": "#/components/schemas/Username"
           },
           "displayName": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 128
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
@@ -3437,7 +3448,8 @@
             "$ref": "#/components/schemas/Username"
           },
           "displayName": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 128
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
