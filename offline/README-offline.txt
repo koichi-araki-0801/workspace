@@ -14,7 +14,6 @@
   - python-wheelhouse/  … Python 依存の wheel（docs 閲覧 HTML のビルドとテスト用）
   - git-tools/          … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git）
   - docs/_build/vendor/mermaid*.js … docs の Mermaid 描画ランタイム + ELK レイアウト
-  - native-prebuilds/   … msnodesqlv8 の公式 prebuild（Node 24.x 専用）
   同じ場所の bundle.key は、そのバンドルがどの pnpm-lock.yaml / requirements / manifest から
   作られたかを示す content-key。setup はこれと手元のソースを突き合わせる。
 
@@ -84,8 +83,8 @@ git clone できない運用端末は、ソースコードも Release から ZIP
 ------------------------------------------------------------------------------
   生成と Release への upload は git 管理外の local-only\offline-publish\publish-offline-bundle.bat で行う
   （このフォルダは配布担当の端末にだけある）。pnpm-lock.yaml / package.json の packageManager /
-  各 requirements.txt / git-tools/manifest.txt / docs/_build/vendor/manifest.txt /
-  native-prebuilds/manifest.txt のどれかを変えて push したら、忘れずに実行する。
+  各 requirements.txt / git-tools/manifest.txt / docs/_build/vendor/manifest.txt の
+  どれかを変えて push したら、忘れずに実行する。
   実行を忘れると、他端末の setup は content-key 不一致で止まる（黙って古い重量物を使うことはない）。
   コミットフックからは何も自動実行しない。
 

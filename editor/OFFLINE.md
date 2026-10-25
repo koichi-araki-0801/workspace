@@ -46,7 +46,7 @@
 
 - **ソース** … `git clone`（リポジトリは Public）。
 - **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`・`python-wheelhouse/`・`git-tools/`・
-  docs の mermaid JS（`docs\_build\vendor\mermaid*.js`）・`native-prebuilds/`、約 1.1GB） …
+  docs の mermaid JS（`docs\_build\vendor\mermaid*.js`）、約 1.1GB） …
   **GitHub Releases**（タグ `offline-bundle-v1`、アセット `offline-deps-bundle.tar.gz`）。容量が大きく
   毎回 git 履歴へ積めないため git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`／各
   `requirements.txt`／各 `manifest.txt`）変更時のみ更新する。同じ場所の `bundle.key` は、そのバンドルが

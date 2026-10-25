@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
-  docs の mermaid JS / native-prebuilds）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
+  docs の mermaid JS）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
   置いてある。本スクリプトは**取得だけ**を行う。展開と環境構築は setup-offline.bat の担当で、
   こちらはネットに出られる端末で実行し、取得物をリポジトリ直下（または bk\）に置いた状態で
   setup-offline.bat を実行する（ネットに出られない端末へは取得物 3 ファイルを持ち込む）。

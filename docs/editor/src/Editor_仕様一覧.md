@@ -208,5 +208,6 @@ sproc ファイルは `server/db/sproc/` の 8 本（`audit` / `noteMaster` / `p
 | 14 | 編集（E2E） | 赤入れ表示 | 文言を置換 → トグル OFF/ON → パーツ選択 → autosave | 旧文言が `del[data-redline]` で出る／OFF で消える／選択パーツの装飾が外れる／draft に `data-redline` が無い | 済 |  |
 
 > 検証環境（2026-08-02）: SQL Server 2022 Express LocalDB + ODBC Driver 17 + msnodesqlv8 4.5.0
-> （Node 24 prebuild）。本番ターゲット SQL Server 2012 上での再検証は未実施
+> （Node 24 prebuild）。2026-10-25 に msnodesqlv8 6.0.0（N-API の prebuild）で同じ LocalDB へ
+> 接続・THROW の分類・並行上限・取り消しを再確認した。本番ターゲット SQL Server 2012 上での再検証は未実施
 > （2012 非互換構文の不使用は静的確認済み）。

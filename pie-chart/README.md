@@ -81,9 +81,9 @@ CLI は `pnpm run cli <command>`(または直接 `tsx src/cli.ts <command>`)で�
   `connect` / `query` / `child`)。`load` で止まる場合は、AppLocker / WDAC / ウイルス対策ソフトが
   `%TEMP%` の DLL の読み込みを止めている可能性がある。`pie-chart db-check [--db-name <db>]` で
   ストアド無しに切り分けられる。
-- 既知の制限: SQL Server のエラーメッセージに含まれる日本語(`THROW N'…'` など)は、ドライバ
-  (msnodesqlv8)自身の都合で文字化けする。ストアドのエラーメッセージは英数字で書くか、エラー番号で
-  判別する。
+- 既知の制限: ドライバ(msnodesqlv8)は接続の失敗などで日本語のエラー文を化けさせて返すことがあり、
+  化けと見分けられないので、ASCII 以外を含む原文(`THROW N'…'` の日本語など)は表示しない。
+  ストアドのエラーメッセージは英数字で書くか、エラー番号で判別する。
 - 開発版はネイティブドライバ `msnodesqlv8`(`optionalDependencies`)をその場で読む。未導入でも
   他入力と `tsc` は動く。exe 版はドライバを内蔵する(次節)。
 - 実装の置き場: `src/input/db.ts`(接続文字列・呼び出し・結果の判定)、`src/input/sproc.ts`
@@ -132,8 +132,9 @@ dist-exe/
   からしか読めないため、ストアド入力と `db-check` のときだけ `%TEMP%\pie-chart-db\<pid>-xxxxxx` へ
   新規作成で書き出し、照合(書き出し直後と読み込み直前の 2 回)してから子プロセスが読み込む。
   フォルダは子の終了後に消し、強制終了で残ったものは次の起動時に消す。
-- DB 機能つきの exe は**開発機(pnpm / Node 24)でだけ**作る。ドライバは NAN 製で、ビルドに使った
-  Node のメジャー版でしか読めないため、ビルドは実際に dlopen して確かめ、合わなければ止まる。
+- DB 機能つきの exe は**開発機(pnpm / Node 24)でだけ**作る。ドライバは msnodesqlv8 の npm tarball に
+  入っている N-API 製の prebuild(`prebuilds/win32-x64/msnodesqlv8.node`)で、ビルドは実際に dlopen して
+  確かめ、読めなければ止まる。exe は Node 本体を埋め込むので、Node を上げたら exe も作り直す。
   ドライバの `.node` が置かれていない端末では `--no-db` で DB 機能を外して作れる。
 - ビルドは前提が崩れたら **落ちる**(黙って劣化させない): ①Node < 24、または `pie-chart/node_modules` が
   pnpm で入ったものでない(npm で入れ直された・未インストール)
