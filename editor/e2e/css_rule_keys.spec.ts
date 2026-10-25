@@ -22,7 +22,7 @@ const req = createRequire(path.resolve(here, '../web/package.json'));
 const GRAPES = path.join(path.dirname(req.resolve('grapesjs/package.json')), 'dist/grapes.min.js');
 const FIXTURE_DIR = path.resolve(here, '../web/src/api/fixtures/css');
 
-test('Chromium の GrapesJS 0.23.6 の書き出しと原文で CSS 規則のキーがそろう', async ({ page }) => {
+test('Chromium の GrapesJS 0.23.8 の書き出しと原文で CSS 規則のキーがそろう', async ({ page }) => {
   await page.setContent('<div id="gjs"></div>');
   await page.addScriptTag({ path: GRAPES });
   const fixtures = fs
@@ -34,7 +34,7 @@ test('Chromium の GrapesJS 0.23.6 の書き出しと原文で CSS 規則のキ�
   const outs = await page.evaluate((cases) => {
     // biome-ignore lint/suspicious/noExplicitAny: ページ側のグローバル(型を持たない)
     const g = (window as any).grapesjs;
-    if (g.version !== '0.23.6') throw new Error(`grapesjs ${g.version}`);
+    if (g.version !== '0.23.8') throw new Error(`grapesjs ${g.version}`);
     const ed = g.init({
       container: '#gjs',
       fromElement: false,

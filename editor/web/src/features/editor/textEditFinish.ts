@@ -27,7 +27,7 @@ export const FINISH_TEXT_EDIT_TIMEOUT_MS = 5000;
  * GrapesJS を上げるときの確認点: `disableEditing` は `ComponentTextView` の `@private` API で、
  * `getView()` の型(`ComponentView`)には無いのでキャストして呼んでいる。また、その Promise が
  * `rte:disable` の通知(`grapesEvents.ts` がテキスト編集を確定する)→ `syncContent`(モデルへの
- * 反映)の後で解決するという順序に依存している(0.23.6 の `grapes.mjs` で確認)。どちらかが
+ * 反映)の後で解決するという順序に依存している(0.23.6 の `grapes.mjs` で確認。0.23.8 で該当箇所は不変)。どちらかが
  * 変わると、操作の snapshot が追記を含まなくなる。
  *
  * `disableEditing` は 1 回の編集につき 1 回だけ呼び、その Promise が決着するまで持ち続ける。

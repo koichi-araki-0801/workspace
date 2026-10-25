@@ -36,11 +36,11 @@ function withoutRule(css: string, key: string): string {
   return out;
 }
 
-it('GrapesJS は 0.23.6', () => {
+it('GrapesJS は 0.23.8', () => {
   expect(
     grapesjs.version,
     'GrapesJS を上げたら、このコーパスと既存データへの影響の見積もりを取り直してから期待値を直す',
-  ).toBe('0.23.6');
+  ).toBe('0.23.8');
 });
 
 describe.each(Object.entries({ ...FIXTURES, ...SYNTHETIC }))('%s', (name, css) => {
