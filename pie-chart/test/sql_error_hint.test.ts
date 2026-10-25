@@ -39,7 +39,7 @@ describe('isGarbledDriverText', () => {
     ).toBe(false);
   });
 
-  it('ASCII 以外を含めば化けているとみなす(ドライバは日本語の上位バイトを捨てる)', () => {
+  it('ASCII 以外を含めば、正しく読めた日本語も含めて化けているとみなす', () => {
     expect(isGarbledDriverText('[Microsoft][ODBC Driver 17 for SQL Server]SQL Server xn�')).toBe(
       true,
     );
@@ -47,13 +47,20 @@ describe('isGarbledDriverText', () => {
     expect(isGarbledDriverText('ストアド')).toBe(true);
   });
 
-  it('? が 2 つ以上続けば化けているとみなす(6.0.0 の接続失敗の実測の形)', () => {
+  it('? が 4 つ以上続けば化けているとみなす(6.0.0 の接続失敗の実測の形)', () => {
     expect(
       isGarbledDriverText(
         '[Microsoft][ODBC Driver 17 for SQL Server]??????????????: SQL Server ????????????? [53]. ',
       ),
     ).toBe(true);
+    // 実測で最も短い連続(日本語 4 文字の語が化けたもの)。
+    expect(isGarbledDriverText('[Microsoft][ODBC Driver 17 for SQL Server]???? ok')).toBe(true);
     expect(isGarbledDriverText("Is it 'x'? yes")).toBe(false);
+  });
+
+  it('英文の原文に入りうる 3 つまでの ? は化けとみなさない', () => {
+    expect(isGarbledDriverText("Incorrect syntax near '??'.")).toBe(false);
+    expect(isGarbledDriverText("Incorrect syntax near '???'.")).toBe(false);
   });
 });
 
