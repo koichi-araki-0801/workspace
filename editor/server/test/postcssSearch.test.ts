@@ -17,7 +17,7 @@
 // cli 11.4.0 は PostCSS 設定を探索ディレクトリごとにプロセス内でキャッシュする。各テストは
 // 新しい名前の marker と新しい展開ディレクトリを使う(本番は展開ディレクトリが毎回ランダム)。
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import JSZip from 'jszip';
@@ -175,14 +175,64 @@ describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
   );
 });
 
+/** 遮断端末の展開先で見ないフォルダ(依存・生成物・同梱ツール・退避)。 */
+const UNTRACKED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  '.pnpm-store',
+  'ms-playwright',
+  'python-wheelhouse',
+  'git-tools',
+  'bk',
+  'dist',
+  'out',
+  'coverage',
+]);
+
+/**
+ * リポジトリのファイル一覧(ルートからの `/` 区切り)。git があれば追跡中のファイル、無ければ
+ * source.zip を展開した遮断端末とみなし、`SOURCE-COMMIT` のあるフォルダの下を歩く。端末では
+ * 本番の改修で足したファイルも対象に入れたいので、MANIFEST ではなく実ファイルを見る。
+ */
+function listRepoFiles(): { root: string; tracked: string[] } {
+  try {
+    const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    const tracked = execFileSync('git', ['ls-files', '--full-name'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((f) => f !== '' && !f.split('/').includes('node_modules'));
+    return { root, tracked };
+  } catch {
+    let root = path.resolve(import.meta.dirname);
+    while (!existsSync(path.join(root, 'SOURCE-COMMIT'))) {
+      const parent = path.dirname(root);
+      if (parent === root) throw new Error('git も SOURCE-COMMIT も見つからない');
+      root = parent;
+    }
+    const tracked: string[] = [];
+    const walk = (rel: string): void => {
+      for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
+        const child = rel === '' ? e.name : `${rel}/${e.name}`;
+        if (e.isDirectory()) {
+          if (!UNTRACKED_DIRS.has(e.name) && !/^patch-/.test(e.name)) walk(child);
+        } else if (e.isFile()) tracked.push(child);
+      }
+    };
+    walk('');
+    return { root, tracked };
+  }
+}
+
 describe('リポジトリに PostCSS 設定が無い', () => {
   // inline / merge の作業フォルダはサーバが中身を書くので空の設定を置いていない。リポジトリの
   // どこかに PostCSS 設定(ファイル、または package.json の `postcss` キー)が入ると、その祖先に
   // ある作業フォルダの組版へ効いてしまう。追加された時点でここが落ちる。
-  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  const tracked = execFileSync('git', ['ls-files', '--full-name'], { cwd: root, encoding: 'utf8' })
-    .split('\n')
-    .filter((f) => f !== '' && !f.split('/').includes('node_modules'));
+  const { root, tracked } = listRepoFiles();
 
   it('PostCSS 設定のファイル名を追跡していない', () => {
     expect(tracked.filter((f) => isPostcssConfigName(f))).toEqual([]);

@@ -143,7 +143,9 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     await app.register(generateRoutes, { deps });
     await app.register(templatesRoutes, { deps });
     await app.ready();
-  });
+    // ルート一式の動的 import は、カバレッジ計測と並列実行の下だと既定の 10 秒を超えることがある
+    // (遮断端末を模した環境の test:coverage で 11.7 秒。単独なら数秒)。
+  }, 30_000);
   afterAll(async () => {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });
