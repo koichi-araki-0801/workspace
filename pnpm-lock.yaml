@@ -60,6 +60,9 @@ importers:
       fastify:
         specifier: ^5.12.7
         version: 5.12.7
+      linkedom:
+        specifier: 0.18.13
+        version: 0.18.13
       node-stream-zip:
         specifier: ^1.16.0
         version: 1.16.0
