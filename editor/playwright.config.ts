@@ -58,9 +58,8 @@ export default defineConfig({
       // の editor 領域)だけが `--project docs` で選ぶ。editor に触れた push でだけ再撮影が走り、
       // 差分は「再撮影」としてコミットする。
       name: 'docs',
-      // `timezoneId` は撮影する画面の時刻表示を固定するため。`capture_docs.spec.ts` の
-      // `setFixedTime` が固定するのは瞬間だけで、表示は `Date` のローカル getter 経由=
-      // ブラウザの地方時で組み立てられる。両方を固定して初めて PNG がバイト一致する。
+      // `timezoneId` は撮影する画面の時刻表示を実行機の地方時に依存させないため。表示は `Date` の
+      // ローカル getter 経由=ブラウザの地方時で組み立てられる(時刻そのものはサーバが付ける)。
       use: { ...devices['Desktop Chrome'], timezoneId: 'Asia/Tokyo' },
       testMatch: '**/capture_docs.spec.ts',
     },
