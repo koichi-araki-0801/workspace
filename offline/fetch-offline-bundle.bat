@@ -5,7 +5,7 @@ rem Launches fetch-offline-bundle.ps1 with ExecutionPolicy Bypass (args forwarde
 rem Downloads the offline bundle (tar.gz / .sha256 / bundle.key) from GitHub Releases over
 rem HTTPS into the repo root. Run this on a machine with network access, then run
 rem setup-offline.bat (which never downloads by itself).
-rem   fetch-offline-bundle.bat                    fetch tag offline-bundle-v1
+rem   fetch-offline-bundle.bat                    fetch tag offline-bundle-b26ae4f9
 rem   fetch-offline-bundle.bat -Tag <tag>         fetch another release tag
 rem   fetch-offline-bundle.bat -Source             also fetch source.zip (for air-gapped machines)
 rem ASCII only on purpose: cmd garbles multi-byte rem/title lines in .bat files.

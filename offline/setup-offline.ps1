@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
-  docs の mermaid JS）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
+  docs の mermaid JS）は git に入れず GitHub Releases（タグ offline-bundle-b26ae4f9）に
   置いてある。本スクリプトは次を 1 本で行う:
     0. 直下に source.zip があれば展開段: .sha256 照合 → 前回の MANIFEST に載るファイルを削除 →
        直下へ展開 → bk\ へ退避 → 新しい setup-offline.ps1 を -SkipSourceExtract で再実行して

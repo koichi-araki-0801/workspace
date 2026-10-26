@@ -3,9 +3,11 @@
 ==============================================================================
 
 重量物（依存パッケージ・ブラウザ・wheel・git ツールなど約 1.1GB）は git に入れず、GitHub Releases の
-タグ offline-bundle-v1 に offline-deps-bundle.tar.gz として置いてある。ソースコードは git clone で
+タグ offline-bundle-b26ae4f9 に offline-deps-bundle.tar.gz として置いてある。ソースコードは git clone で
 受け取るのが基本だが、git clone できない遮断端末向けに同じ Release へ source.zip（ソース ZIP）も
-毎回置いてある（手順 B）。
+毎回置いてある（手順 B）。同じ Release には、既に構築済みの端末で依存だけを差し替えるための
+軽い版 offline-deps-lite.tar.gz（.pnpm-store と ms-playwright だけ）も置いてある。以前のタグ
+offline-bundle-v1 は旧バンドルの戻し先として残してある。
 
 ■ 重量物の内訳（Release のアセット offline-deps-bundle.tar.gz に同梱）
   - .pnpm-store/        … 依存パッケージのオフラインストア

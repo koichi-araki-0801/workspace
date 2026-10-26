@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   重量物（.pnpm-store / pnpm.tgz / ms-playwright / python-wheelhouse / git-tools /
-  docs の mermaid JS）は git に入れず GitHub Releases（タグ offline-bundle-v1）に
+  docs の mermaid JS）は git に入れず GitHub Releases（タグ offline-bundle-b26ae4f9）に
   置いてある。本スクリプトは**取得だけ**を行う。展開と環境構築は setup-offline.bat の担当で、
   こちらはネットに出られる端末で実行し、取得物をリポジトリ直下（または bk\）に置いた状態で
   setup-offline.bat を実行する（ネットに出られない端末へは取得物 3 ファイルを持ち込む）。
@@ -26,7 +26,7 @@
   リポジトリ名。既定 workspace。
 
 .PARAMETER Tag
-  重量物アセットの取得元タグ。既定 offline-bundle-v1。
+  重量物アセットの取得元タグ。既定 offline-bundle-b26ae4f9。
 
 .PARAMETER Source
   遮断端末へ持ち込むソース ZIP（source.zip + .sha256）も取得する。git clone で運用する端末では不要。
@@ -40,7 +40,7 @@
 param(
   [string]$Owner = 'koichi-araki-0801',
   [string]$Repo  = 'workspace',
-  [string]$Tag   = 'offline-bundle-v1',
+  [string]$Tag   = 'offline-bundle-b26ae4f9',
   [switch]$Source
 )
 
