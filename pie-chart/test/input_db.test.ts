@@ -286,6 +286,17 @@ describe('classifySqlError', () => {
     expect(e.message).toContain('(SQLSTATE 42S22, エラー番号 207)');
     expect(e.message).not.toContain('�');
   });
+  it('正しく読めた日本語の原文(ストアドの THROW など)はそのまま出す', () => {
+    const e = classifySqlError({
+      sqlstate: '42000',
+      code: 50001,
+      message:
+        '[Microsoft][ODBC Driver 17 for SQL Server][SQL Server]ファンドコード 999999 が見つかりません。',
+    });
+    expect(e.stage).toBe('query');
+    expect(e.message).toContain('ファンドコード 999999 が見つかりません。');
+    expect(e.message).toContain('(SQLSTATE 42000, エラー番号 50001)');
+  });
   it('ストアドが見つからないときはエラー番号から説明を付ける', () => {
     const e = classifySqlError({
       sqlstate: '42000',

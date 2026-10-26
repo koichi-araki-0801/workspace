@@ -282,7 +282,8 @@ export function classifySqlError(err: unknown): DbStageError {
     const msg = (el as { message?: unknown } | null)?.message;
     const text =
       typeof msg === 'string' ? msg : typeof el === 'object' && el !== null ? '' : String(el);
-    // ドライバは日本語のエラー文を壊して返すので、化けた原文は出さない(sqlErrorHint.ts)。
+    // ドライバは接続の失敗などで日本語のエラー文を壊して返すので、化けた原文は出さない
+    // (正しく読めた日本語は出す。sqlErrorHint.ts)。
     if (text && isGarbledDriverText(text)) garbled = true;
     else if (text && !messages.includes(text)) messages.push(text);
   }
@@ -295,7 +296,7 @@ export function classifySqlError(err: unknown): DbStageError {
   const message =
     body ||
     (garbled
-      ? 'データベースのエラー(ドライバの説明文は日本語が文字化けするため表示しない)'
+      ? 'データベースのエラー(ドライバの説明文が文字化けしているため表示しない)'
       : 'database error');
   const tail = chosen
     ? ` (SQLSTATE ${chosen.sqlstate}${chosen.code ? `, エラー番号 ${chosen.code}` : ''})`

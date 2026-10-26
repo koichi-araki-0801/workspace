@@ -39,12 +39,25 @@ describe('isGarbledDriverText', () => {
     ).toBe(false);
   });
 
-  it('ASCII 以外を含めば、正しく読めた日本語も含めて化けているとみなす', () => {
+  it('正しく読めた日本語は化けていない', () => {
+    expect(isGarbledDriverText('ストアド')).toBe(false);
+    expect(
+      isGarbledDriverText(
+        '[Microsoft][ODBC Driver 17 for SQL Server][SQL Server]ファンドコード 510037 が見つかりません。',
+      ),
+    ).toBe(false);
+    expect(isGarbledDriverText('基準日（2024/07/10）が不正です…')).toBe(false);
+  });
+
+  it('置換文字・制御文字・ラテン文字の化けを含めば化けているとみなす', () => {
     expect(isGarbledDriverText('[Microsoft][ODBC Driver 17 for SQL Server]SQL Server xn�')).toBe(
       true,
     );
     expect(isGarbledDriverText('abc\u0001')).toBe(true);
-    expect(isGarbledDriverText('ストアド')).toBe(true);
+    // CP932 のバイト列を Windows-1252 として読んだ形(「ファンド」)。
+    expect(isGarbledDriverText('ƒtƒ@ƒ“ƒh')).toBe(true);
+    // CP932 のバイト列を Latin-1 として読んだ形。
+    expect(isGarbledDriverText('ã\u0083\u0095ã\u0082¡')).toBe(true);
   });
 
   it('? が 4 つ以上続けば化けているとみなす(6.0.0 の接続失敗の実測の形)', () => {

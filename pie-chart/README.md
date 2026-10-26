@@ -81,9 +81,9 @@ CLI は `pnpm run cli <command>`(または直接 `tsx src/cli.ts <command>`)で�
   `connect` / `query` / `child`)。`load` で止まる場合は、AppLocker / WDAC / ウイルス対策ソフトが
   `%TEMP%` の DLL の読み込みを止めている可能性がある。`pie-chart db-check [--db-name <db>]` で
   ストアド無しに切り分けられる。
-- 既知の制限: ドライバ(msnodesqlv8)は接続の失敗などで日本語のエラー文を化けさせて返すことがあり、
-  化けと見分けられないので、ASCII 以外を含む原文(`THROW N'…'` の日本語など)は表示しない。
-  ストアドのエラーメッセージは英数字で書くか、エラー番号で判別する。
+- 既知の制限: ドライバ(msnodesqlv8)は接続の失敗などで日本語のエラー文を化けさせて返すことがある。
+  化けた形(`?` の連続・置換文字・ラテン文字の化け)の原文は表示せず、SQLSTATE とエラー番号から
+  引いた説明を出す。正しく読めた日本語(ストアドの `THROW N'…'` など)はそのまま表示する。
 - 開発版はネイティブドライバ `msnodesqlv8`(`optionalDependencies`)をその場で読む。未導入でも
   他入力と `tsc` は動く。exe 版はドライバを内蔵する(次節)。
 - 実装の置き場: `src/input/db.ts`(接続文字列・呼び出し・結果の判定)、`src/input/sproc.ts`
