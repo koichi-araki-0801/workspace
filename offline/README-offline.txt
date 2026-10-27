@@ -5,8 +5,9 @@
 重量物（依存パッケージ・ブラウザ・wheel・git ツールなど約 1.1GB）は git に入れず、GitHub Releases の
 タグ offline-bundle-5780b761 に offline-deps-bundle.tar.gz として置いてある。ソースコードは git clone で
 受け取るのが基本だが、git clone できない遮断端末向けに同じ Release へ source.zip（ソース ZIP）も
-毎回置いてある（手順 B）。同じ Release には、既に構築済みの端末で依存だけを差し替えるための
-軽い版 offline-deps-lite.tar.gz（.pnpm-store と ms-playwright だけ）も置いてある。以前のタグ
+毎回置いてある（手順 B）。既に構築済みの端末で依存だけを差し替える更新は、ソース差分パッチの
+リリース（タグ source-patch-<元>-to-<先>）で、軽い版 offline-deps-lite.tar.gz（.pnpm-store と
+ms-playwright だけ）とスクリプトを一緒に配る（このタグには置かない）。以前のタグ
 offline-bundle-v1 は旧バンドルの戻し先として残してある。
 
 ■ 重量物の内訳（Release のアセット offline-deps-bundle.tar.gz に同梱）
@@ -98,6 +99,9 @@ git clone できない運用端末は、ソースコードも Release から ZIP
     Public リポジトリを clone している前提で受け入れる。
   - source.zip のすり替えも検出しない（重量物と同じ扱い。Release を更新できるのは所有者のみ）。
   - ソースと重量物の整合は content-key（bundle.key）で担保する。
+  - ソース差分パッチのリリースの .sha256（パッチの zip と軽い版）も、Release と同じ経路で運ばれる
+    ので転送破損の検知にしか使えない。すり替えを検出できるのは、パッチの中の期待値ファイル
+    （deps-update-expected.json。その sha256 が files.zip.sha256 に載る）が持つ軽い版の sha256 の側だけ。
 
 ------------------------------------------------------------------------------
 ■ トラブルシュート
