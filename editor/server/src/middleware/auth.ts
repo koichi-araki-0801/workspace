@@ -67,8 +67,8 @@ function isPasswordChangeAllowed(request: FastifyRequest): boolean {
 const EDITOR_ROLES: readonly string[] = ['editor', 'approver', 'admin'];
 
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
-  // localStorage を使い呼び出さないため。PDF/generate はそのまま動く。
+  // 無認証モード(`AUTH_REQUIRED=false`。セッション無し)ではデータ系ルートを開放する。
+  // ログインなしで REST を使う server 単体の設定のため。PDF/generate はそのまま動く。
   // ⚠ この素通しは**データ系ルートに限る**意図的な設計である。資格情報を書き換える
   // ルート(パスワード変更)はこの区分に属さないので、`requireIdentifiedUser` を重ねて
   // 設定値に依存しない施錠を掛けること。
@@ -85,14 +85,14 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
 }
 
 /**
- * `config.requireAuth` を**参照しない**唯一のガード。ローカルモードでも 401 にする。
+ * `config.requireAuth` を**参照しない**唯一のガード。無認証モードでも 401 にする。
  *
  * 資格情報を書き換えるルート(パスワード変更)の本人確認を
  * `if (request.user && request.user.username !== body.username)` の形で書いてはならない。
- * `requireAuth` はローカルモードで `request.user` を埋めないまま素通りするため、
+ * `requireAuth` は無認証モードで `request.user` を埋めないまま素通りするため、
  * `AUTH_REQUIRED` が false の配備ではこの条件式ごと消え、未認証で任意アカウントの
  * パスワードを書き換えられる。**ガードの発火条件を設定値に従属させない**のがここの仕様で、
- * ローカルモードにサーバ側アカウントは存在しないのだから 401 が正しい応答である。
+ * 無認証モードにサーバ側アカウントは存在しないのだから 401 が正しい応答である。
  */
 export async function requireIdentifiedUser(
   request: FastifyRequest,

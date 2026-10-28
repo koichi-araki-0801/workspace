@@ -4,7 +4,7 @@
 import type { FastifyRequest } from 'fastify';
 
 /**
- * 書き込み系の記録に残す操作者名。ローカルモード(`request.user` 未設定)は `system`。
+ * 書き込み系の記録に残す操作者名。無認証モード(`request.user` 未設定)は `system`。
  * 監査ログ用の `actorFromReq`(`logger.ts`)は未認証を `anonymous` とするので別物。
  */
 export function actorOf(req: FastifyRequest): string {

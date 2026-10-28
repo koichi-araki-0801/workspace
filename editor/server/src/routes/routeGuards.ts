@@ -45,7 +45,7 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   // logout / me は cookie の読み取り後に動く(未ログインでも 204 / null を返す)。
   [`POST ${api(apiPaths.authLogout)}`]: 'public',
   [`GET ${api(apiPaths.authMe)}`]: 'public',
-  // init-password は `requireIdentifiedUser` も重ねる(ローカルモードでも 401)。表の
+  // init-password は `requireIdentifiedUser` も重ねる(無認証モードでも 401)。表の
   // レベルは「requireAuth 系ガードのうち最上位はどれか」を表すので `auth` になる。
   [`POST ${api(apiPaths.authInitPassword)}`]: 'auth',
 
@@ -143,13 +143,13 @@ export const VIEWER_ALLOWED_MUTATIONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * ローカルモード(`AUTH_REQUIRED=false`)でも施錠されねばならないルート。
+ * 無認証モード(`AUTH_REQUIRED=false`)でも施錠されねばならないルート。
  *
  * role ガード(`requireAdmin` 等)は `config.requireAuth` を見て素通りするため、`AUTH_REQUIRED=false`
- * を明示した local 配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
- * `requireIdentifiedUser` を重ねて 401 にしなければならない(local にサーバ側アカウントは
+ * を明示した無認証配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
+ * `requireIdentifiedUser` を重ねて 401 にしなければならない(無認証モードにサーバ側アカウントは
  * 無いので 401 が正しい応答)。ここに載せたルートに `requireIdentifiedUser` が無ければ
- * **サーバ起動時に落ちる** — 「表にはガードがあるが local では効かない」形を届かせない。
+ * **サーバ起動時に落ちる** — 「表にはガードがあるが無認証モードでは効かない」形を届かせない。
  */
 const LOCAL_MODE_ENFORCED: ReadonlySet<string> = new Set([
   `POST ${api(apiPaths.authInitPassword)}`,
@@ -221,7 +221,7 @@ export function assertRoutePolicy(routeOptions: RouteOptions): void {
     }
     if (LOCAL_MODE_ENFORCED.has(key) && !preHandlers.includes(requireIdentifiedUser)) {
       throw new Error(
-        `[routeGuards] ${key} は local モード(AUTH_REQUIRED 未設定)でも施錠が必要です — ` +
+        `[routeGuards] ${key} は無認証モード(AUTH_REQUIRED=false)でも施錠が必要です — ` +
           'requireIdentifiedUser を preHandler に重ねてください(role ガードだけでは素通りします)',
       );
     }

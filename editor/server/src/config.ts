@@ -640,7 +640,8 @@ export const config = {
 
   /**
    * 監査イベント(audit events)を SQL Server の監査テーブルにもミラーする
-   * (永続ファイルログに加えて)。既定 off なので `local` モードは DB に一切触れない。
+   * (永続ファイルログに加えて)。既定 off なので、無認証モードで DB なしに起動するときは
+   * `AUDIT_DB` を立てなければ監査が DB に一切触れない。
    * REST バックエンドと併せて `AUDIT_DB=true` を設定する。
    */
   auditToDb: envFlag('AUDIT_DB', process.env.AUDIT_DB) ?? false,
@@ -648,7 +649,7 @@ export const config = {
   /**
    * データルートにセッション認証を強制する。既定 on。DB モード(rest)が既定になったので
    * 「設定し忘れると無認証で起動する」形を作らない。認証を課さないのは `AUTH_REQUIRED=false`
-   * を明示した local モード(`start.bat local`。DB なし / ログインなし)だけ。
+   * を手で設定したとき(無認証モード。ログインなし)だけ。`start.bat` からは起動できない。
    */
   requireAuth: envFlag('AUTH_REQUIRED', process.env.AUTH_REQUIRED) ?? true,
 
@@ -693,7 +694,7 @@ export function isLoopbackHost(host: string): boolean {
  * 効かない。唯一食い違うのが `Host` ヘッダで、ブラウザはこれを攻撃者ドメインのまま送る。
  * したがって「自分が名乗られるはずのない名前で来た要求」を落とせば経路ごと消える。
  *
- * 効きどころは**認証を課さない配備**(`AUTH_REQUIRED=false` を明示した local モード)である。
+ * 効きどころは**認証を課さない配備**(`AUTH_REQUIRED=false` を明示した無認証モード)である。
  * そこでは実質「loopback に到達できること」だけが認可条件で、下書きの読み書きから
  * `POST /api/generate` の子プロセス起動まで到達される。認証オンの配備ではリバインディング先の
  * オリジンに cookie が付かないので 401 で止まるが、層は薄いより厚い方がよい。

@@ -12,7 +12,7 @@
 //   - author/committer はログインID を都度 `-c user.*` で与え、サーバ環境の
 //     グローバル git 設定に依存しない。
 //   - `ensureRepo` は lazy: 未初期化なら init + .gitignore/.gitattributes + 初回
-//     コミットまで行う(local/テストでは確定保存を呼ばない限り起動しない)。
+//     コミットまで行う(無認証モード/テストでは確定保存を呼ばない限り起動しない)。
 //   - .gitattributes は `* text eol=lf`。`text` で改行正規化を有効にし `eol=lf` で作業ツリー
 //     側も LF に固定するので、`core.autocrlf` の設定に関わらず Windows でも byte が揺れない。
 

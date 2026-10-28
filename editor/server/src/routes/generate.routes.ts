@@ -272,7 +272,7 @@ export const generateRoutes: FastifyPluginAsync<{
                 }
               }
             }
-            // local モードは pending を持たないが、生成器は約束どおり output/ へ書くので同じく消す。
+            // 無認証モードは pending を持たないが、生成器は約束どおり output/ へ書くので同じく消す。
             // 取り込まなかった組入先は、運用者が後から確かめられるよう残す。
             await removeGeneratedFiles(items.map((item) => item.file));
 

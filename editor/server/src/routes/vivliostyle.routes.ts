@@ -45,7 +45,7 @@ const PREVIEW_HOST = config.vivliostyle.preview.host;
  * プレビューセッションの所有者判定に使う主体。監査用の `actorFromReq`(`logger.ts`)は
  * 未認証を `anonymous` へ潰す仕様なので**流用しない** — 認可判定で複数の未認証主体を
  * 1 つの名前へ畳むと、そこが全一致の抜け道になる。
- * ローカルモード(`requireAuth=false`)は単一端末利用が前提なので、センチネル actor で
+ * 無認証モード(`requireAuth=false`)は単一端末利用が前提なので、センチネル actor で
  * 意図的に全一致させる(素通しであることは `previewOwnership.test.ts` が固定する)。
  */
 function previewActorOf(request: FastifyRequest): PreviewActor {

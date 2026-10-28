@@ -3,22 +3,22 @@ rem ============================================================================
 rem  Jinja Template Editor - launcher
 rem
 rem  Usage:
-rem    start.bat               production, REST data mode (SQL Server backend; needs login)
-rem    start.bat dev           development + REST
-rem    start.bat local         production, local data (fixtures + localStorage, no DB, no login)
-rem    start.bat dev local     development + local data
-rem    start.bat lan           production + REST, exposed to the intranet LAN (HTTPS)
+rem    start.bat               production (SQL Server backend; needs login)
+rem    start.bat dev           development
+rem    start.bat lan           production, exposed to the intranet LAN (HTTPS)
 rem    start.bat lan-plain     same but plain HTTP (opt-in, discouraged)
 rem
-rem  Args are order-free. The data mode (rest|local) sets VITE_API_MODE, which the
-rem  web app reads to pick the REST repositories (rest, default) or localStorage
-rem  (local, developer opt-in). 'db' is an alias of 'rest'.
+rem  Args are order-free. The web app has a single data path (REST against the
+rem  SQL Server backend), so there is no data-mode argument. The old 'local'
+rem  developer mode was removed; typing it only prints a warning. Any other word
+rem  (including the old 'rest' and 'db') is ignored, so old shortcuts still start.
+rem  The server's no-auth mode (AUTH_REQUIRED=false) is not reachable from here:
+rem  set AUTH_REQUIRED=false and AUDIT_DB=false by hand and start the server
+rem  directly (see the deployment runbook).
 rem
 rem  'lan' (prod only) binds to 0.0.0.0 so other machines can reach the app.
-rem  It implies the REST data mode: REST is the mode that has logins, and the
-rem  server refuses to bind a non-loopback host without AUTH_REQUIRED=true (see
-rem  config.ts), so 'local lan' would only ever produce a failed start. Asking
-rem  for both explicitly is rejected here instead of overriding what was typed.
+rem  The server refuses to bind a non-loopback host without AUTH_REQUIRED=true
+rem  (see config.ts), which this launcher always sets.
 rem  'lan' always asks the server for HTTPS. The cert is resolved by the server
 rem  (HTTPS_PFX > appconfig tls.pfx > server\tls\editor.pfx), so a cert placed
 rem  anywhere the documented config allows still starts as HTTPS; a missing cert
@@ -51,24 +51,18 @@ rem unrelated repo that happens to hold our port would be tree-killed by mistake
 set "SRV_PAT=(dist[\\/]index\.js)|(src[\\/]index\.ts)"
 set "VITE_PAT=vite[\\/]bin[\\/]vite\.js"
 
-rem --- mode (build prod/dev) and data mode (local/rest), order-free -----------
+rem --- mode (build prod/dev) and LAN exposure, order-free ---------------------
 set "MODE=prod"
-set "APIMODE=rest"
 rem Server listen port. Kept in env so the port pre-check and node agree (see config.ts).
 set "PORT=24680"
 set "LAN="
 set "LANPLAIN="
-rem Set when 'local' was typed (the explicit opt-in for the no-DB developer mode).
-set "LOCALARG="
 for %%A in (%1 %2 %3) do (
   if /I "%%A"=="dev"         set "MODE=dev"
   if /I "%%A"=="-dev"        set "MODE=dev"
   if /I "%%A"=="development" set "MODE=dev"
   if /I "%%A"=="prod"        set "MODE=prod"
-  if /I "%%A"=="local"       set "APIMODE=local"
-  if /I "%%A"=="local"       set "LOCALARG=1"
-  if /I "%%A"=="rest"        set "APIMODE=rest"
-  if /I "%%A"=="db"          set "APIMODE=rest"
+  if /I "%%A"=="local"       echo [start] WARN: 'local' was removed - starting with the SQL Server backend.
   if /I "%%A"=="lan"         set "LAN=1"
   if /I "%%A"=="lan-plain"   set "LAN=1"
   if /I "%%A"=="lan-plain"   set "LANPLAIN=1"
@@ -82,28 +76,17 @@ rem it, and always asks for HTTPS. Deciding TLS here (by probing one hard-coded
 rem cert path) used to publish a correctly-configured deployment as plain HTTP,
 rem so cert resolution is left to config.ts alone - the single source of truth.
 rem Exposure and authentication used to be independent switches, so 'lan' alone
-rem published an editor with every auth check disabled. LAN now implies REST
-rem (the data mode that has logins and sets AUTH_REQUIRED below); an explicit
-rem 'local lan' is a contradiction and stops here rather than being overridden.
+rem published an editor with every auth check disabled. AUTH_REQUIRED is now set
+rem to true below for every launch, so LAN exposure always comes with logins.
 set "SCHEME=http"
 if "%LAN%"=="1" if /I "%MODE%"=="dev" (
   echo [start] WARN: 'lan' is ignored in dev mode - LAN exposure is prod-only.
   set "LAN="
 )
-if "%LAN%"=="1" if "%LOCALARG%"=="1" goto :lanlocal
 
-rem Vite exposes process-env vars prefixed VITE_ to the client at build/dev time.
-set "VITE_API_MODE=%APIMODE%"
-rem REST (default): server-side auth enforcement + DB audit mirroring.
-rem local (explicit opt-in, no DB): switch auth off; config.ts defaults AUTH_REQUIRED to
-rem true, so the developer mode has to say so out loud.
-if /I "%APIMODE%"=="rest" (
-  set "AUTH_REQUIRED=true"
-  set "AUDIT_DB=true"
-) else (
-  set "AUTH_REQUIRED=false"
-  set "AUDIT_DB=false"
-)
+rem Server-side auth enforcement + DB audit mirroring, always on from this launcher.
+set "AUTH_REQUIRED=true"
+set "AUDIT_DB=true"
 
 if "%LAN%"=="1" (
   set "HOST=0.0.0.0"
@@ -146,7 +129,6 @@ if /I "%MODE%"=="prod" goto :prod
 
 rem --- development ------------------------------------------------------------
 echo [start] mode : development
-echo [start] data : %APIMODE%
 echo.
 echo   ==========================================
 echo    App   : http://localhost:24681
@@ -169,7 +151,6 @@ goto :end
 rem --- production -------------------------------------------------------------
 :prod
 echo [start] mode : production
-echo [start] data : %APIMODE%
 echo [start] building: shared, server, web ...
 call pnpm run build
 if errorlevel 1 goto :buildfail
@@ -210,14 +191,6 @@ exit /b 1
 
 :installfail
 echo [start] ERROR: pnpm install failed.
-exit /b 1
-
-:lanlocal
-rem 'local lan' would bind 0.0.0.0 with authentication disabled; the server would
-rem refuse to start anyway (config.ts), so fail here with the fix spelled out.
-echo [start] ERROR: 'lan' cannot be combined with 'local'.
-echo [start]        LAN exposure requires the REST backend, which is what enables
-echo [start]        logins (AUTH_REQUIRED). Use:  start.bat rest lan
 exit /b 1
 
 :buildfail

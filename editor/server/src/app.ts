@@ -127,9 +127,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // 出すので SameSite も CORS も効かない。唯一食い違うのが `Host` で、ブラウザはこれを
   // 攻撃者ドメインのまま送る。
   //
-  // 効きどころは認証を課さない配備(既定の local モード)で、そこでは実質「loopback に到達
-  // できること」だけが認可条件になっている。`config.requireAuth` を見て出し分けては**ならない**
-  // — 設定 1 つでガードが消える形は認証系ガードで避けている作法と同じ。
+  // 効きどころは認証を課さない配備(`AUTH_REQUIRED=false` の無認証モード)で、そこでは実質
+  // 「loopback に到達できること」だけが認可条件になっている。`config.requireAuth` を見て
+  // 出し分けては**ならない** — 設定 1 つでガードが消える形は認証系ガードで避けている作法と同じ。
   //
   // 分離先 python-tools リポジトリの pdf-to-svg(`src/web/origin_guard.py`)と
   // graph-editor(`app.py`)も同じ理由で Host を完全一致集合で検査している。
@@ -148,7 +148,7 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // プロセスを枯渇させられる。ここで 401 にすればボディは 1 バイトも積まない。判定条件は
   // `isPreAuthBufferedRequest`(content-type + 上限を上げた path)。対象ルートは元々
   // `requireAuth` 付きなので、正規のクライアントから見た応答は 401 のまま変わらない。認証を
-  // 課さないローカルモード(`requireAuth=false`)は素通しする。
+  // 課さない無認証モード(`requireAuth=false`)は素通しする。
   app.addHook('onRequest', async (request) => {
     if (!config.requireAuth) return;
     // 照合は**ルーティング結果の登録パターン**で行う(`request.url` は生の request target で、
@@ -170,8 +170,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.setErrorHandler(errorHandler);
 
   // サーバ起動ごとに変わる epoch。配信する index.html に注入し、クライアントは前回値と
-  // 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(local モードの再起動検知。
-  // REST は DB セッション失効が権威的だが、両モードでシェルを確実に作り直すために共有する)。
+  // 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(サーバ再起動の検知。
+  // 認証ありの配備は DB セッション失効が権威的だが、無認証モードを含むどの配備でもシェルを
+  // 確実に作り直すために使う)。
   const APP_EPOCH = String(Date.now());
 
   // SPA シェル: 起動時に epoch を埋め込んだ index.html をメモリ保持する(dev は Vite が
