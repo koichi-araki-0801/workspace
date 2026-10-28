@@ -1,7 +1,7 @@
 // =============================================================================
 // merge.spec.ts — 結合PDF タブが選んだ順序で /api/build/merge を呼ぶことの回帰網
 // =============================================================================
-// local モードでも `mergePdfService` は実サーバの `POST /api/build/merge` を叩くため、
+// `mergePdfService` は実サーバの `POST /api/build/merge` を叩くため、
 // `page.route` で止めないと vivliostyle CLI が実際に走ってしまう(設計正典 6.3)。
 // ここでは要求本文の文書順序(= 追加順)だけを検証し、PDF の実生成はしない。
 import { expect, test } from './fixtures';

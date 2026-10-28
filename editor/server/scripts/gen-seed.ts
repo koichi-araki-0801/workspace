@@ -41,7 +41,7 @@ interface Part {
 const parts = JSON.parse(fs.readFileSync(path.join(fixtures, 'parts.json'), 'utf8')) as Part[];
 const T_PART = '[ug01].[Rep1_運報自動化_Editor_パーツカタログ]';
 // `対象版種` は parts.json に値があっても常に NULL で入れる。新しい環境は「全パーツ共通」から
-// 始め、版種の振り分けは運用で UPDATE して決める(local モードとテストは parts.json の値を使う)。
+// 始め、版種の振り分けは運用で UPDATE して決める(テストは parts.json の値を使う)。
 const partRows = parts
   .map((p) => {
     const c = p.classification;

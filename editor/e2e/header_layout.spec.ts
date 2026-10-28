@@ -9,7 +9,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { login, openEditor } from './helpers';
 
-// 長いファンド名(SMT JPX日経中小型株インデックス・オープン)を持つ seed。ファンド名は
+// 長いファンド名(ダミーＡＭ 日本中小型株式インデックス・オープン)を持つ seed。ファンド名は
 // ヘッダ左ゾーンの幅を決めるので、短い名前の seed では余裕の不足を検出できない。
 const LONG_NAME_ID = 'XX01_950124_20251020_交付版';
 

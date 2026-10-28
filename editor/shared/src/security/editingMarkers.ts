@@ -260,7 +260,7 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
 }
 
 /**
- * 印が残った申請・確定を拒否するときの文言。server と local が同じ文を出すよう、ここに置く。
+ * 印が残った申請・確定を拒否するときの文言。server と web が同じ文を使うよう、ここに置く。
  * 印が無ければ null。
  */
 export function editingMarkerMessage(

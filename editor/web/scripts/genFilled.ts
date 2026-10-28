@@ -32,7 +32,7 @@ const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const templatesDir = resolve(web, '../fixtures/templates');
 const sampleDir = resolve(web, '../fixtures/sample');
 
-// 出力は local 同梱の filled fixtures のみ。REST 実体は dataRoot(git 管理)側が持つため、
+// 出力はテスト用の filled fixtures のみ。REST 実体は dataRoot(git 管理)側が持つため、
 // ここからリポジトリ内の他の場所へは書き出さない。
 const outDirs = [resolve(web, '../fixtures/filled')];
 for (const d of outDirs) mkdirSync(d, { recursive: true });

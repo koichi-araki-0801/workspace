@@ -131,7 +131,7 @@ export function createTemplatePreviewService(
       // 属性内 Jinja(`href="css/{{ fund.code }}.css"` 等)は round-trip 保持のため設計上
       // 残る。描画を通す必要が無いどころか、通すと地の文の `{{` 風の字面まで nunjucks が
       // 式として解釈して本文が静かに欠ける。本文の源も `tpl.html`(Jinja 骨組み)ではなく
-      // `tpl.filled` を採る — local ではこの 2 つが別物(REST は同じ本文が両方へ入る)。
+      // `tpl.filled` を採る(REST は同じ本文が両方へ入るが、テストの偽物では別物になりうる)。
       // `filled` はテストのフェイクや旧応答で欠けうるので、空文字と未定義をまとめて「無し」にする。
       const isFilled = Boolean(tpl.filled);
 

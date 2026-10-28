@@ -28,7 +28,7 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   const filledDir = path.join(E2E_REST_DATA_ROOT, 'filled');
   await fs.mkdir(templatesDir, { recursive: true });
   // templates/ は空で始める。作成済みとコピー元は 3 つ区切り(会社_ファンド_版種)のファイルだけを
-  // 数え、fixtures の templates/(4 つ区切り。local では値入り HTML として使う)はここでは意味を持たない。
+  // 数え、fixtures の templates/(4 つ区切り)はここでは意味を持たない。
   await fs.mkdir(cssDir, { recursive: true });
   await fs.mkdir(filledDir, { recursive: true });
 
@@ -42,8 +42,7 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   for (const name of await fs.readdir(fixturesFilledDir)) {
     await fs.copyFile(path.join(fixturesFilledDir, name), path.join(filledDir, name));
   }
-  // 編集タブで Jinja のパーツを挿入するときの値(`json/<ID>.json`)。local と同じ fixture を置き、
-  // 挿入した断片に入る値を local / rest で揃える。
+  // 編集タブで Jinja のパーツを挿入するときの値(`json/<ID>.json`)。テスト用の fixture を置く。
   const jsonDir = path.join(E2E_REST_DATA_ROOT, 'json');
   const fixturesJsonDir = path.join(repoRoot, 'editor/fixtures/json');
   await fs.mkdir(jsonDir, { recursive: true });

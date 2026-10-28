@@ -26,6 +26,7 @@ const WORDS = [
   '6auY6YeR5Yip44K944OW44Oq44Oz',
   '77yz77yt77y0',
   'VFJVU1RfQU0=',
+  'U01UIEpQWA==',
 ].map(decode);
 /** 会社コード(英字境界・大小文字を区別しない)とファンドコード(数字境界)。 */
 const COMPANY_CODES = new RegExp(

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""テスト・local 検証用の偽の生成器。本番は PY_GENERATE_SCRIPT で本物の build.py を指す。
+"""テスト・LocalDB 検証用の偽の生成器。本番は PY_GENERATE_SCRIPT で本物の build.py を指す。
 
 呼び出し元は editor/server/src/generate/pyTemplate.ts。本番の生成器と同じ約束で動く。
 - 引数(位置): Rep1 コード, ファンド, 基準日 [, コピー元ファンド [, 償還 '1']]
   コピー元が空文字('')なら無し。償還は受け取るだけで、出力は変えない。
 - 略称は、LocalDB の検証 DB の Rep1 コード(00001→XX01、00002→XX02。web の
-  LOCAL_REP1_COMPANY_CODES と同じ組)なら表で引き、無ければ先頭の `R-` を外したもの
+  検証 DB と同じ組)なら表で引き、無ければ先頭の `R-` を外したもの
   (sproc の偽の `R-<略称>` と対)、それも無ければコードそのまま。
 - 書き先は <このスクリプトのフォルダ>/../output/<略称>_<ファンド>_<交付版|全体版>.html。
   一時ファイルに書いてから名前を変え、書きかけを残さない。標準出力には何も出さない。
@@ -29,7 +29,7 @@ import sys
 
 EDITIONS = ("交付版", "全体版")
 
-# LocalDB の検証 DB の Rep1 コード → 略称。web の LOCAL_REP1_COMPANY_CODES(略称 → コード)の逆。
+# LocalDB の検証 DB の Rep1 コード → 略称。
 REP1_ABBREVIATIONS = {"00001": "XX01", "00002": "XX02"}
 
 

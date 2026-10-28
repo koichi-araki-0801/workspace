@@ -252,8 +252,8 @@ export type FundAssetInspectResult = z.infer<typeof sch.FundAssetInspectResult>;
 export type FundAssetInspectResponse = z.infer<typeof sch.FundAssetInspectResponse>;
 
 // ── 8. Data-access contracts ──
-// 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`
-// 層がいずれもこれらの interface を実装する。
+// 集約別・Result を返す契約は `./repositories/*` を参照。web の `rest` 層(とテスト用の偽物)が
+// これらの interface を実装する。
 
 // ── 9. Cross-cutting: Result/エラーモデルとドメインヘルパ (barrel 再エクスポート) ──
 

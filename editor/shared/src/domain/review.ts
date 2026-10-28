@@ -33,7 +33,7 @@ export function formatDateTimeYmdHm(iso: string): string {
 }
 
 /**
- * 同じ内容の承認待ちが既にあるときの拒否文言。server と web local が同じ文を返すよう
+ * 同じ内容の承認待ちが既にあるときの拒否文言。server と web が同じ文を使うよう
  * ここに置く(`code: 'REVIEW_DUPLICATE'` と対で使う)。
  */
 export function duplicateReviewMessage(existingSubmittedAt: string): string {

@@ -1,12 +1,13 @@
 // =============================================================================
 // sampleData.ts — 共通サンプルに Rep1 の実名を被せる(プレビュー文脈の組立)
 // =============================================================================
-// 全ファンド共通の値(server では DB の共通サンプル、local では `sampleCommon`)を土台に、
+// 全ファンド共通の値(server では DB の共通サンプル、テスト用 fixture の生成では `sampleCommon`)を土台に、
 // Rep1 から引いた実名だけを上書きして、プレビュー/差込用の `SampleData` を組み立てる。
 // 被せる先は `SampleOverlayKeys` のパス(既定 `fund.code` など)で、共通値側の変数名に
 // editor が依存しないよう設定で差し替えられる。版種・基準日は `applyTemplateAttributes`。
 //
-// `web`(local=`funds.json`)と `server`(REST=Rep1 の委託会社・ファンド一覧)の双方から使う純関数。
+// `web`(テスト用 fixture の生成は `funds.json`)と `server`(Rep1 の委託会社・ファンド一覧)の双方から
+// 使う純関数。
 
 import type { SampleData, TemplateAttributes } from '../index.js';
 import { formatBaseDate } from './template.js';
