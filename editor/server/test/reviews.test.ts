@@ -60,15 +60,13 @@ d('review workflow (reviewRepo)', () => {
     const { buildHtmlDiff } = await import('@editor/shared');
     const { linkedomParser } = await import('../src/util/linkedomParser.js');
     const diff = buildHtmlDiff(review.baseHtml, review.html, linkedomParser);
-    for (const block of diff.pages.flatMap((page) => page.blocks)) {
-      if (block.status === 'same') continue;
-      const saved = await reviews.updatePartDecision(
-        reqId,
-        { partKey: block.partKey, status: 'approved' },
-        approver,
-      );
-      expect(saved.status).toBe('approved');
-    }
+    const changed = diff.pages
+      .flatMap((page) => page.blocks)
+      .filter((block) => block.status !== 'same')
+      .map((block) => ({ partKey: block.partKey, status: 'approved' as const }));
+    if (changed.length === 0) return;
+    const saved = await reviews.updatePartDecisions(reqId, { decisions: changed }, approver);
+    expect(saved.map((d) => d.status)).toEqual(changed.map(() => 'approved'));
   };
   /** `decideAll` のあとで最終確定する。判定の失敗は握りつぶさずに投げる。 */
   const approveAll = async (
@@ -98,11 +96,15 @@ d('review workflow (reviewRepo)', () => {
       },
       submitter,
     );
-    await reviews.updatePartDecision(
+    await reviews.updatePartDecisions(
       meta.id,
       {
-        partKey: 'p#1',
-        status: 'approved',
+        decisions: [
+          {
+            partKey: 'p#1',
+            status: 'approved',
+          },
+        ],
       },
       approver,
     );
@@ -471,21 +473,29 @@ d('review workflow (reviewRepo)', () => {
       submitter,
     );
 
-    await reviews.updatePartDecision(
+    await reviews.updatePartDecisions(
       meta.id,
       {
-        partKey: 'approved#1',
-        status: 'approved',
+        decisions: [
+          {
+            partKey: 'approved#1',
+            status: 'approved',
+          },
+        ],
       },
       approver,
     );
 
-    await reviews.updatePartDecision(
+    await reviews.updatePartDecisions(
       meta.id,
       {
-        partKey: 'rejected#1',
-        status: 'rejected',
-        comment: '確定対象外',
+        decisions: [
+          {
+            partKey: 'rejected#1',
+            status: 'rejected',
+            comment: '確定対象外',
+          },
+        ],
       },
       approver,
     );
@@ -726,6 +736,163 @@ d('review workflow (reviewRepo)', () => {
   });
 
   // ── edit 申請の最終確定: 画面と同じ差分で検査し、却下したパーツだけを現行版へ戻す ──
+  describe('パーツ判定をまとめて保存する(updatePartDecisions)', () => {
+    const fresh = async (tplId: string) => (await submit(tplId, `<p>${tplId} 判定</p>`)).id;
+    const decisionsOf = async (reqId: string) =>
+      (await reviews.getReview(reqId, approver)).partDecisions ?? [];
+
+    it('承認・却下を 1 回で保存し、履歴に pending → 判定を残す', async () => {
+      const id = await fresh('XX01_720001_20250101_交付版');
+      const saved = await reviews.updatePartDecisions(
+        id,
+        {
+          decisions: [
+            { partKey: 'a#1', status: 'approved' },
+            { partKey: 'b#1', status: 'rejected', comment: '数字が違う' },
+          ],
+        },
+        approver,
+      );
+      // 入力の順に、更新後の判定を返す。
+      expect(saved.map((d) => [d.partKey, d.status])).toEqual([
+        ['a#1', 'approved'],
+        ['b#1', 'rejected'],
+      ]);
+      const stored = await decisionsOf(id);
+      expect(stored).toHaveLength(2);
+      expect(stored.find((d) => d.partKey === 'a#1')).toMatchObject({
+        status: 'approved',
+        decidedBy: 'approver1',
+        comment: null,
+        history: [{ from: 'pending', to: 'approved', changedBy: 'approver1', comment: null }],
+      });
+      expect(stored.find((d) => d.partKey === 'b#1')).toMatchObject({
+        status: 'rejected',
+        comment: '数字が違う',
+        history: [{ from: 'pending', to: 'rejected', comment: '数字が違う' }],
+      });
+    });
+
+    it('取り消しは pending に戻し、decidedBy/decidedAt/comment を null、履歴に from: rejected, to: pending', async () => {
+      const id = await fresh('XX01_720002_20250101_交付版');
+      await reviews.updatePartDecisions(
+        id,
+        { decisions: [{ partKey: 'a#1', status: 'rejected', comment: '戻す' }] },
+        approver,
+      );
+      const [undone] = await reviews.updatePartDecisions(
+        id,
+        { decisions: [{ partKey: 'a#1', status: 'pending' }] },
+        approver,
+      );
+      expect(undone).toMatchObject({
+        partKey: 'a#1',
+        status: 'pending',
+        decidedBy: null,
+        decidedAt: null,
+        comment: null,
+      });
+      expect(undone?.history.map((h) => [h.from, h.to])).toEqual([
+        ['pending', 'rejected'],
+        ['rejected', 'pending'],
+      ]);
+      expect(await decisionsOf(id)).toEqual([undone]);
+      // 取り消したあとは、もう一度判定できる。
+      const [again] = await reviews.updatePartDecisions(
+        id,
+        { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+        approver,
+      );
+      expect(again?.history).toHaveLength(3);
+    });
+
+    it('許さない遷移が 1 件でもあれば何も保存しない', async () => {
+      const id = await fresh('XX01_720003_20250101_交付版');
+      await reviews.updatePartDecisions(
+        id,
+        { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+        approver,
+      );
+      const input = {
+        decisions: [
+          { partKey: 'b#1', status: 'approved' as const },
+          { partKey: 'a#1', status: 'rejected' as const, comment: '承認済みを直接却下' },
+        ],
+      };
+      await expect(reviews.updatePartDecisions(id, input, approver)).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_PART_DECISION_TRANSITION',
+        message: '許されていない判定の変更があります: a#1。画面を読み直してください。',
+      });
+      const stored = await decisionsOf(id);
+      expect(stored.find((d) => d.partKey === 'b#1')).toBeUndefined();
+      expect(stored.find((d) => d.partKey === 'a#1')?.status).toBe('approved');
+    });
+
+    it('未判定の取り消しと同じ判定の再送は許さない遷移', async () => {
+      const id = await fresh('XX01_720004_20250101_交付版');
+      await reviews.updatePartDecisions(
+        id,
+        { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+        approver,
+      );
+      await expect(
+        reviews.updatePartDecisions(
+          id,
+          {
+            decisions: [
+              { partKey: 'c#1', status: 'pending' },
+              { partKey: 'a#1', status: 'approved' },
+            ],
+          },
+          approver,
+        ),
+      ).rejects.toMatchObject({
+        code: 'REVIEW_PART_DECISION_TRANSITION',
+        message: '許されていない判定の変更があります: c#1, a#1。画面を読み直してください。',
+      });
+      expect(await decisionsOf(id)).toHaveLength(1);
+    });
+
+    it('決着済みの申請への判定は code REVIEW_ALREADY_DECIDED の 409', async () => {
+      const id = await fresh('XX01_720005_20250101_交付版');
+      await reviews.rejectReview(id, { comment: '申請ごと却下' }, approver);
+      await expect(
+        reviews.updatePartDecisions(
+          id,
+          { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+          approver,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_ALREADY_DECIDED',
+        message: 'この申請は既に却下済みです',
+      });
+      // 最終確定・申請ごと却下の 409 も同じ code(文言は今のまま)。
+      await expect(reviews.rejectReview(id, { comment: '再却下' }, approver)).rejects.toMatchObject(
+        { kind: 'conflict', code: 'REVIEW_ALREADY_DECIDED' },
+      );
+      await expect(reviews.approveReview(id, {}, approver)).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_ALREADY_DECIDED',
+      });
+    });
+
+    it('権限と職務分掌は今どおり(editor は 403、自分の申請は 403)', async () => {
+      const id = await fresh('XX01_720006_20250101_交付版');
+      const one = { decisions: [{ partKey: 'a#1', status: 'approved' as const }] };
+      await expect(reviews.updatePartDecisions(id, one, submitter)).rejects.toMatchObject({
+        kind: 'forbidden',
+      });
+      await expect(
+        reviews.updatePartDecisions(id, one, { username: 'editor1', role: 'approver' }),
+      ).rejects.toMatchObject({ kind: 'forbidden' });
+      await expect(reviews.updatePartDecisions('nope', one, approver)).rejects.toMatchObject({
+        kind: 'not_found',
+      });
+    });
+  });
+
   describe('edit 申請の最終確定(パーツ判定)', () => {
     /** 申請時点の現行版。区切り・コメント・空白・head を持つ完全な文書。 */
     const BASE =
@@ -761,13 +928,15 @@ d('review workflow (reviewRepo)', () => {
       );
     };
     const decide = async (reqId: string, decisions: Record<string, 'approved' | 'rejected'>) => {
-      for (const [partKey, status] of Object.entries(decisions)) {
-        await reviews.updatePartDecision(
-          reqId,
-          status === 'approved' ? { partKey, status } : { partKey, status, comment: '戻す' },
-          approver,
-        );
-      }
+      await reviews.updatePartDecisions(
+        reqId,
+        {
+          decisions: Object.entries(decisions).map(([partKey, status]) =>
+            status === 'approved' ? { partKey, status } : { partKey, status, comment: '戻す' },
+          ),
+        },
+        approver,
+      );
     };
 
     it('却下したパーツは申請時点の現行版、承認したパーツとパーツの外は申請のバイトのまま書く', {

@@ -1796,13 +1796,13 @@
         }
       }
     },
-    "/review-requests/{reqId}/part-decision": {
+    "/review-requests/{reqId}/part-decisions": {
       "post": {
         "tags": [
           "reviews"
         ],
-        "summary": "パーツ判定の更新(精査者限定・自分の申請は不可)",
-        "operationId": "updateReviewPartDecision",
+        "summary": "パーツ判定のまとめた変更(承認・却下・取り消し。精査者限定・自分の申請は不可。許されない遷移が 1 件でもあれば 409 で何も保存しない)",
+        "operationId": "updateReviewPartDecisions",
         "parameters": [
           {
             "in": "path",
@@ -1817,18 +1817,21 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateReviewPartDecisionRequest"
+                "$ref": "#/components/schemas/UpdateReviewPartDecisionsRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "更新後のパーツ判定(変更履歴つき)",
+            "description": "更新後のパーツ判定(入力の順・変更履歴つき)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReviewPartDecision"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewPartDecision"
+                  }
                 }
               }
             }
@@ -3360,7 +3363,23 @@
           "comment"
         ]
       },
-      "UpdateReviewPartDecisionRequest": {
+      "UpdateReviewPartDecisionsRequest": {
+        "type": "object",
+        "properties": {
+          "decisions": {
+            "minItems": 1,
+            "maxItems": 5000,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewPartDecisionChange"
+            }
+          }
+        },
+        "required": [
+          "decisions"
+        ]
+      },
+      "ReviewPartDecisionChange": {
         "oneOf": [
           {
             "type": "object",
@@ -3373,11 +3392,6 @@
               "status": {
                 "type": "string",
                 "const": "approved"
-              },
-              "comment": {
-                "description": "承認時の判定メモ。無ければ省略",
-                "type": "string",
-                "minLength": 1
               }
             },
             "required": [
@@ -3400,6 +3414,7 @@
               "comment": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 2000,
                 "description": "パーツの却下理由"
               }
             },
@@ -3407,6 +3422,24 @@
               "partKey",
               "status",
               "comment"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
+              },
+              "status": {
+                "type": "string",
+                "const": "pending"
+              }
+            },
+            "required": [
+              "partKey",
+              "status"
             ]
           }
         ],

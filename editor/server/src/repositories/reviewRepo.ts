@@ -30,7 +30,7 @@ import {
   type SubmitReviewRequest,
   toReviewMeta,
   toReviewResponse,
-  type UpdateReviewPartDecisionRequest,
+  type UpdateReviewPartDecisionsRequest,
   type User,
   unexpected,
   validation,
@@ -149,11 +149,26 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
 }
 
 /**
- * 承認・却下が受け付ける現在状態の検査。決着(approved/rejected)済みを 409 で拒む。
+ * 判定・最終確定・申請ごと却下が受け付ける現在状態の検査。決着(approved/rejected)済みを 409
+ * で拒む。`code` は 3 つの操作で共通にし、画面は文言ではなく `code` で「読み直す」へ分岐する。
  */
 function assertUndecided(review: ReviewRequest): void {
   if (review.status === 'approved' || review.status === 'rejected')
-    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`);
+    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`, {
+      code: 'REVIEW_ALREADY_DECIDED',
+    });
+}
+
+/**
+ * パーツ判定 1 件の遷移が許されるか。許すのは未判定 → 承認・却下と、承認・却下 → 未判定
+ * (取り消し)だけ。承認 ↔ 却下の直接の付け替えと同じ判定の再送は、画面が古い(別の人が先に
+ * 判定した)ことの表れなので受けない。保存済みの `pending` は未判定と同じに扱う。
+ */
+function transitionAllowed(
+  from: ReviewPartDecision['status'],
+  to: ReviewPartDecision['status'],
+): boolean {
+  return from === 'pending' ? to !== 'pending' : to === 'pending';
 }
 
 /**
@@ -193,11 +208,12 @@ export interface ReviewRepo {
   submitReview(req: SubmitReviewRequest, actor: ReviewActor): Promise<ReviewRequestMeta>;
   listReviews(filter: { status?: ReviewStatus }, actor: ReviewActor): Promise<ReviewRequestMeta[]>;
   getReview(reqId: string, actor: ReviewActor): Promise<ReviewRequest>;
-  updatePartDecision(
+  /** パーツ判定をまとめて変更し、入力の順に更新後の判定を返す。 */
+  updatePartDecisions(
     reqId: string,
-    input: UpdateReviewPartDecisionRequest,
+    input: UpdateReviewPartDecisionsRequest,
     actor: ReviewActor,
-  ): Promise<ReviewPartDecision>;
+  ): Promise<ReviewPartDecision[]>;
   approveReview(
     reqId: string,
     decision: ReviewDecisionRequest,
@@ -327,8 +343,12 @@ export function createReviewRepo({
       return toReviewResponse(review);
     },
 
-    /** review内のパーツ1件について、現在判定と変更履歴を更新する。 */
-    async updatePartDecision(reqId, input, actor) {
+    /**
+     * review 内のパーツ判定をまとめて変更する。権限・職務分掌・決着済みを今どおり確かめ、
+     * **全件の遷移を先に検査してから** 全件を当てた `partDecisions` を 1 回で書く。1 件でも
+     * 許されない遷移があれば何も書かない(途中まで当たった状態を残さない)。
+     */
+    async updatePartDecisions(reqId, input, actor) {
       return withReviewLock(async () => {
         const review = await readReview(reqId);
         if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
@@ -344,50 +364,72 @@ export function createReviewRepo({
         assertUndecided(review);
 
         const partDecisions = review.partDecisions ?? [];
-        const current = partDecisions.find(
-          (partDecision) => partDecision.partKey === input.partKey,
-        );
+        const currentOf = new Map(partDecisions.map((d) => [d.partKey, d]));
+        const refused = input.decisions
+          .filter(
+            (d) => !transitionAllowed(currentOf.get(d.partKey)?.status ?? 'pending', d.status),
+          )
+          .map((d) => d.partKey);
+        if (refused.length > 0) {
+          throw conflict(
+            `許されていない判定の変更があります: ${refused.join(', ')}。画面を読み直してください。`,
+            { code: 'REVIEW_PART_DECISION_TRANSITION' },
+          );
+        }
+
         const decidedAt = new Date().toISOString();
-
-        const history: ReviewPartDecision['history'] = [
-          ...(current?.history ?? []),
-          {
-            from: current?.status ?? 'pending',
-            to: input.status,
-            changedBy: actor.username,
-            changedAt: decidedAt,
-            comment: input.comment ?? null,
-          },
-        ];
-
-        const nextDecision: ReviewPartDecision =
-          input.status === 'approved'
-            ? {
-                partKey: input.partKey,
-                status: 'approved',
-                decidedBy: actor.username,
-                decidedAt,
-                comment: input.comment ?? null,
-                history,
-              }
-            : {
-                partKey: input.partKey,
-                status: 'rejected',
-                decidedBy: actor.username,
-                decidedAt,
-                comment: input.comment,
-                history,
-              };
-
-        await updateReviewMeta(reqId, {
-          partDecisions: current
-            ? partDecisions.map((partDecision) =>
-                partDecision.partKey === input.partKey ? nextDecision : partDecision,
-              )
-            : [...partDecisions, nextDecision],
+        const next = input.decisions.map((d): ReviewPartDecision => {
+          const current = currentOf.get(d.partKey);
+          const comment = d.status === 'rejected' ? d.comment : null;
+          const history: ReviewPartDecision['history'] = [
+            ...(current?.history ?? []),
+            {
+              from: current?.status ?? 'pending',
+              to: d.status,
+              changedBy: actor.username,
+              changedAt: decidedAt,
+              comment,
+            },
+          ];
+          if (d.status === 'pending') {
+            return {
+              partKey: d.partKey,
+              status: 'pending',
+              decidedBy: null,
+              decidedAt: null,
+              comment: null,
+              history,
+            };
+          }
+          if (d.status === 'approved') {
+            return {
+              partKey: d.partKey,
+              status: 'approved',
+              decidedBy: actor.username,
+              decidedAt,
+              comment: null,
+              history,
+            };
+          }
+          return {
+            partKey: d.partKey,
+            status: 'rejected',
+            decidedBy: actor.username,
+            decidedAt,
+            comment: d.comment,
+            history,
+          };
         });
 
-        return nextDecision;
+        // 既存の判定は位置を保って差し替え、新しいキーは入力の順で末尾へ足す。
+        const nextOf = new Map(next.map((d) => [d.partKey, d]));
+        const merged = [
+          ...partDecisions.map((d) => nextOf.get(d.partKey) ?? d),
+          ...next.filter((d) => !currentOf.has(d.partKey)),
+        ];
+        await updateReviewMeta(reqId, { partDecisions: merged });
+
+        return next;
       });
     },
 

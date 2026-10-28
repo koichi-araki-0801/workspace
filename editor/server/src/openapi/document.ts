@@ -599,17 +599,22 @@ export function buildOpenApiDocument() {
           },
         },
       },
-      [toOpenApiPath(apiPaths.reviewRequestPartDecision)]: {
+      [toOpenApiPath(apiPaths.reviewRequestPartDecisions)]: {
         post: {
           tags: ['reviews'],
-          summary: 'パーツ判定の更新(精査者限定・自分の申請は不可)',
-          operationId: 'updateReviewPartDecision',
+          summary:
+            'パーツ判定のまとめた変更(承認・却下・取り消し。精査者限定・自分の申請は不可。' +
+            '許されない遷移が 1 件でもあれば 409 で何も保存しない)',
+          operationId: 'updateReviewPartDecisions',
           requestParams: { path: z.object({ reqId: z.string() }) },
           requestBody: {
-            content: { 'application/json': { schema: s.UpdateReviewPartDecisionRequest } },
+            content: { 'application/json': { schema: s.UpdateReviewPartDecisionsRequest } },
           },
           responses: {
-            '200': json('更新後のパーツ判定(変更履歴つき)', s.ReviewPartDecision),
+            '200': json(
+              '更新後のパーツ判定(入力の順・変更履歴つき)',
+              z.array(s.ReviewPartDecision),
+            ),
             ...ERR_400,
             ...ERR_401,
             ...ERR_403,

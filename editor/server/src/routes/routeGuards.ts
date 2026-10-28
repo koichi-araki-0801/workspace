@@ -114,7 +114,7 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`POST ${api(apiPaths.reviewRequests)}`]: 'editor',
   [`GET ${api(apiPaths.reviewRequests)}`]: 'auth',
   [`GET ${api(apiPaths.reviewRequestById)}`]: 'auth',
-  [`POST ${api(apiPaths.reviewRequestPartDecision)}`]: 'approver',
+  [`POST ${api(apiPaths.reviewRequestPartDecisions)}`]: 'approver',
   [`POST ${api(apiPaths.reviewRequestApprove)}`]: 'approver',
   [`POST ${api(apiPaths.reviewRequestReject)}`]: 'approver',
 

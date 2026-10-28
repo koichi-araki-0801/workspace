@@ -10,7 +10,7 @@ import {
   ReviewListQuery,
   ReviewRejectBody,
   SubmitReviewBody,
-  UpdateReviewPartDecisionRequest,
+  UpdateReviewPartDecisionsRequest,
 } from '@editor/shared/schemas';
 
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
@@ -70,38 +70,30 @@ export const reviewsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'reviews'> }> 
   app.get<ReqIdParams>(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {
     return reviews.getReview(request.params.reqId, actor(request));
   });
-  // パーツ1件の判定更新(精査者限定)。最終確定前の判定保存だけを行う。
+  // パーツ判定のまとめた変更(精査者限定)。最終確定前の判定(承認・却下・取り消し)の保存だけを
+  // 行い、許されない遷移が 1 件でもあれば 409(`REVIEW_PART_DECISION_TRANSITION`)で全部戻す。
   app.post<
     ReqIdParams & {
-      Body: z.infer<typeof UpdateReviewPartDecisionRequest>;
+      Body: z.infer<typeof UpdateReviewPartDecisionsRequest>;
     }
   >(
-    apiPaths.reviewRequestPartDecision,
+    apiPaths.reviewRequestPartDecisions,
     {
-      preHandler: [requireAuth, requireApprover, validate(UpdateReviewPartDecisionRequest)],
+      preHandler: [requireAuth, requireApprover, validate(UpdateReviewPartDecisionsRequest)],
     },
     async (request) => {
       const reqId = request.params.reqId;
       const body = request.body;
+      const partKeys = body.decisions.map((d) => d.partKey);
 
       return auditedRethrow(
         request,
-        'review.part-decision',
-        () => reviews.updatePartDecision(reqId, body, actor(request)),
+        'review.part-decisions',
+        () => reviews.updatePartDecisions(reqId, body, actor(request)),
         {
-          success: (decision) => ({
-            resource: {
-              reqId,
-              partKey: decision.partKey,
-            },
-          }),
-          failure: () => ({
-            resource: {
-              reqId,
-              partKey: body.partKey,
-            },
-          }),
-          failureMessage: 'part decision update failed',
+          success: () => ({ resource: { reqId, partKeys } }),
+          failure: () => ({ resource: { reqId, partKeys } }),
+          failureMessage: 'part decisions update failed',
         },
       );
     },
