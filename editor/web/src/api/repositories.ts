@@ -30,7 +30,7 @@ import { restTemplateRepo } from './rest/templateRepo';
 import { restUserRepo } from './rest/userRepo';
 
 /** 画面/サービス/ストアへ inject する集約単位のデータアクセス面。 */
-interface Repositories {
+export interface Repositories {
   auth: AuthRepository;
   templates: TemplateRepository;
   parts: PartRepository;
