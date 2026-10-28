@@ -9,6 +9,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPOS_KEY } from '@/api/repositories';
 import Combobox from '@/components/ui/Combobox.vue';
+import Select from '@/components/ui/Select.vue';
 import CreateFundSelect, {
   type CreateFundSelection,
 } from '@/features/templates/components/CreateFundSelect.vue';
@@ -149,5 +150,38 @@ describe('CreateFundSelect', () => {
     await flushPromises();
     expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
     expect(w.find('.animate-spin').exists()).toBe(false);
+  });
+});
+
+describe('CreateFundSelect の版種(任意)', () => {
+  it('版種のラベルは「版種（任意）」で必須の印が無く、未選択は「選ばない（両版を作る）」と出る', async () => {
+    const { w } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    expect(w.text()).toContain('版種（任意）');
+    expect(w.findComponent(Select).props('placeholder')).toBe('選ばない（両版を作る）');
+    const label = w.findAll('label').find((l) => l.text().includes('版種'));
+    expect(label?.text()).not.toContain('*');
+  });
+
+  it('「選ばない（両版を作る）」を選ぶと、editionType を外した選択を伝え、表示は未選択に戻る', async () => {
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037' });
+    const { w, last } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    const select = w.findComponent(Select);
+    select.vm.$emit('update:modelValue', '交付版');
+    await flushPromises();
+    expect(last().editionType).toBe('交付版');
+    select.vm.$emit('update:modelValue', 'both');
+    await flushPromises();
+    expect(last().editionType).toBeUndefined();
+    expect(w.findComponent(Select).props('modelValue')).toBe('both');
+  });
+
+  it('URL の版種を復元すると、その版が選ばれた表示になる', async () => {
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: '全体版' });
+    const { w, last } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    expect(w.findComponent(Select).props('modelValue')).toBe('全体版');
+    expect(last().editionType).toBe('全体版');
   });
 });

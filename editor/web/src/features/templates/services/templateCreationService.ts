@@ -21,7 +21,7 @@ import { draftOwner } from '@/lib/draftOwner';
 import { useEditorSessionStore } from '@/stores/editorSession';
 
 /** テンプレ作成に必要な属性が不足しているときに表示するメッセージ。 */
-export const SELECT_ALL_MSG = '委託会社・ファンド・版種を選択してください';
+export const SELECT_ALL_MSG = '委託会社とファンドを選択してください';
 
 interface TemplateCreationService {
   /** 作成タブの委託会社(Rep1)。 */
@@ -59,7 +59,7 @@ export function createTemplateCreationService(
 ): TemplateCreationService {
   return {
     async create(req) {
-      if (!req.companyCode || !req.fundCode || !req.editionType) {
+      if (!req.companyCode || !req.fundCode) {
         return err(validation(SELECT_ALL_MSG));
       }
       const res = await repo.generate(req);

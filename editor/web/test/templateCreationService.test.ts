@@ -46,6 +46,16 @@ describe('TemplateCreationService.create', () => {
     expect(repo.generate).not.toHaveBeenCalled();
   });
 
+  it('editionType が無くても repo へ渡す', async () => {
+    const repo = repoWithGenerate();
+    const res = await createTemplateCreationService(repo).create({
+      companyCode: 'XX01',
+      fundCode: '950037',
+    });
+    expect(isOk(res)).toBe(true);
+    expect(repo.generate).toHaveBeenCalledWith({ companyCode: 'XX01', fundCode: '950037' });
+  });
+
   it('generates and returns the new meta when attributes are complete', async () => {
     const repo = repoWithGenerate();
     const svc = createTemplateCreationService(repo);
