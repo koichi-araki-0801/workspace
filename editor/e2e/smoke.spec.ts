@@ -1,7 +1,7 @@
 // =============================================================================
 // smoke.spec.ts — 認証フローの E2E スモークテスト (Playwright)
 // =============================================================================
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { partLocator } from './helpers';
 
@@ -130,7 +130,7 @@ const LONG_ROWS = Array.from({ length: 80 }, (_, i) => `<tr><td>行 ${i}</td><td
 );
 
 /** 承認タブの右面を模した文書。表は 2 ページ目から始まって割れる。 */
-function reviewDoc(css = ''): string {
+function reviewDoc(css = '', extra = ''): string {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><style>
 @page{size:A5;margin:10mm} table.long{break-before:page} ${css}
 </style></head><body>
@@ -138,7 +138,7 @@ function reviewDoc(css = ''): string {
 <div data-review-ghost="added">（なし・新規追加）</div>
 <p data-review-keep="">却下した段落 <span class="cmp-del">消した語</span></p>
 <p data-review-no="2">パーツ2</p>
-<table class="long" data-review-no="3">${LONG_ROWS}</table>
+${extra}<table class="long" data-review-no="3">${LONG_ROWS}</table>
 </body></html>`;
 }
 
@@ -194,8 +194,23 @@ async function post(page: Page, msg: HostMsg): Promise<void> {
   await page.evaluate((m) => window.postMessage(m, '*'), msg);
 }
 
+/** ホストが作った札(page container の直下)。申請者の要素が同じ属性を持っていても数えない。 */
+const OWN_BADGES = '#vp [data-vivliostyle-page-container] > [data-review-badge]';
 const badge = (page: Page, no: string) =>
-  page.locator(`#vp [data-review-badge="no"][data-review-for="${no}"]`);
+  page.locator(`${OWN_BADGES}[data-review-badge="no"][data-review-for="${no}"]`);
+const ownBadges = (page: Page, kinds: readonly string[]) =>
+  page.locator(kinds.map((k) => `${OWN_BADGES}[data-review-badge="${k}"]`).join(', '));
+
+/** 札から祖先をたどった opacity の積と、札自身の visibility(祖先の opacity は子で打ち消せない)。 */
+async function effectiveLook(loc: Locator): Promise<{ opacity: number; visibility: string }> {
+  return loc.evaluate((el) => {
+    let opacity = 1;
+    for (let n: Element | null = el; n; n = n.parentElement) {
+      opacity *= Number(getComputedStyle(n).opacity);
+    }
+    return { opacity, visibility: getComputedStyle(el).visibility };
+  });
+}
 
 /** 表示中のページの、目印に関わる要素の位置と高さ(組版が動いていないことの物差し)。 */
 async function fragmentBoxes(page: Page): Promise<number[][]> {
@@ -217,13 +232,15 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
   test.setTimeout(120_000);
   await openHost(page);
 
+  // 申請者の要素が札と同じ属性を持っていても、ホストはそれを外さず、押しても番号を返さない。
+  const fake = '<p data-review-badge="no" data-review-for="9">偽の札</p>';
   // 目印を描かない経路(review なし)で組んだ位置を、描いたあとと比べる。
-  await sendDoc(page, reviewDoc(), false);
-  await expect(page.locator('#vp [data-review-badge]')).toHaveCount(0);
+  await sendDoc(page, reviewDoc('', fake), false);
+  await expect(page.locator(OWN_BADGES)).toHaveCount(0);
   const before = await fragmentBoxes(page);
   expect(before.length).toBeGreaterThan(0);
 
-  await sendDoc(page, reviewDoc());
+  await sendDoc(page, reviewDoc('', fake));
   // 描画済みの DOM に番号の属性が残る(残らなければ紙面の目印は成り立たない)。
   await expect(page.locator('#vp [data-review-no="1"]')).toHaveCount(1);
   // 1 ページ目にはパーツ 1・2 の札。表(3)は 2 ページ目から始まる。
@@ -250,11 +267,13 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
     )
     .toEqual({ '1': 0, '2': 0, '3': 1 });
 
-  // 空き枠の文言と、却下のため現行版のままの札。文字の差分の色はホストが描く。
-  await expect(page.locator('#vp [data-review-ghost]')).toHaveText('（なし・新規追加）');
-  await expect(page.locator('#vp [data-review-ghost]')).toBeVisible();
-  await expect(page.locator('#vp [data-review-badge="keep"]')).toHaveText('却下のため現行版のまま');
-  await expect(page.locator('#vp [data-review-badge="keep"]')).toBeVisible();
+  // 空き枠の文言(札として箱に重ねる)と、却下のため現行版のままの札。文字の差分の色はホストが
+  // 描く。空き枠の箱そのもの(場所を取る文書側の要素)は残る。
+  await expect(page.locator('#vp [data-review-ghost]')).toHaveCount(1);
+  await expect(ownBadges(page, ['ghost'])).toHaveText('（なし・新規追加）');
+  await expect(ownBadges(page, ['ghost'])).toBeVisible();
+  await expect(ownBadges(page, ['keep'])).toHaveText('却下のため現行版のまま');
+  await expect(ownBadges(page, ['keep'])).toBeVisible();
   await expect(page.locator('#vp .cmp-ins')).toHaveCSS('color', 'rgb(21, 128, 61)');
   await expect(page.locator('#vp .cmp-del')).toHaveCSS('color', 'rgb(185, 28, 28)');
 
@@ -264,26 +283,31 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
     marks: { states: { '1': 'approved' }, selected: '2', visible: true },
   });
   await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(47, 138, 95)');
-  await expect(page.locator('#vp [data-review-badge="no"]')).toHaveCount(2);
+  await expect(ownBadges(page, ['no'])).toHaveCount(2);
   await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS(
     'outline-color',
     'rgb(47, 138, 95)',
   );
   expect(await fragmentBoxes(page)).toEqual(before);
 
+  // 偽の札を押しても番号は返らず、描き直しても外されない。
+  await page.getByText('偽の札').click();
   // パーツ 2 を押すと番号が返る。
   await page.locator('#vp [data-review-no="2"]').click();
   await expect
-    .poll(async () => (await hostMsgs(page)).find((m) => m.type === 'editor:preview-part-click'))
-    .toEqual({ type: 'editor:preview-part-click', part: '2' });
+    .poll(async () => (await hostMsgs(page)).filter((m) => m.type === 'editor:preview-part-click'))
+    .toEqual([{ type: 'editor:preview-part-click', part: '2' }]);
+  await expect(page.getByText('偽の札')).toHaveCount(1);
 
   // 表示を切ると札と枠が消える。戻すと描き直す。
   await post(page, {
     type: 'editor:preview-marks',
     marks: { states: { '1': 'approved' }, selected: null, visible: false },
   });
-  await expect(page.locator('#vp [data-review-badge]')).toHaveCount(0);
+  await expect(ownBadges(page, ['no', 'keep'])).toHaveCount(0);
   await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS('outline-style', 'none');
+  // 空き枠の文言は判定の目印ではないので残る。
+  await expect(ownBadges(page, ['ghost'])).toHaveCount(1);
   await post(page, {
     type: 'editor:preview-marks',
     marks: { states: { '1': 'approved' }, selected: null, visible: true },
@@ -313,7 +337,8 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
       .locator('#vp [data-vivliostyle-page-container]:visible [data-review-no="3"]')
       .count(),
   ).toBeGreaterThan(0);
-  await expect(page.locator('#vp [data-review-badge]')).toHaveCount(0);
+  await expect(page.locator(OWN_BADGES)).toHaveCount(0);
+  await expect(page.getByText('偽の札')).toHaveCount(1);
 });
 
 // Vivliostyle は display:none の要素を描画済みの DOM に出さない(要素ごと無い)。本文の要素を
@@ -335,16 +360,22 @@ for (const [label, css] of [
     test.setTimeout(120_000);
     await openHost(page);
     await sendDoc(page, reviewDoc(css));
-    for (const loc of [
-      badge(page, '1'),
-      page.locator('#vp [data-review-ghost]'),
-      page.locator('#vp [data-review-badge="keep"]'),
-    ]) {
+    // 対照: 申請者 CSS は本当に効いている(パーツ 1 の申請者の要素は隠れている)。
+    const part1 = page.locator('#vp [data-review-no="1"]');
+    await expect(part1).toHaveCSS('visibility', 'hidden');
+    await expect(part1).toHaveCSS('opacity', '0');
+    // 空き枠の箱は display:none の CSS でも残る(場所を取る文書側の要素)。
+    await expect(page.locator('#vp [data-review-ghost]')).toHaveCount(1);
+    await expect(page.locator('#vp [data-review-ghost]')).not.toHaveCSS('display', 'none');
+    for (const loc of [badge(page, '1'), ownBadges(page, ['ghost']), ownBadges(page, ['keep'])]) {
       await expect(loc).toHaveCount(1);
       await expect(loc).not.toHaveCSS('display', 'none');
       await expect(loc).toHaveCSS('visibility', 'visible');
       await expect(loc).toHaveCSS('opacity', '1');
+      // 祖先まで含めて見える(申請者の要素の子孫ではない)。
+      expect(await effectiveLook(loc)).toEqual({ opacity: 1, visibility: 'visible' });
     }
+    await expect(ownBadges(page, ['ghost'])).toHaveText('（なし・新規追加）');
     await expect(page.locator('#vp .cmp-ins')).toHaveCSS('color', 'rgb(21, 128, 61)');
     await expect(page.locator('#vp .cmp-ins')).toHaveCSS(
       'background-color',

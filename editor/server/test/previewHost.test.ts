@@ -13,10 +13,13 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   PREVIEW_MARK_COLORS,
+  PREVIEW_MAX_PART_KEYS,
   PREVIEW_MSG_MARKS,
   PREVIEW_MSG_PART_CLICK,
   PREVIEW_MSG_PART_PAGES,
+  parsePreviewMarks,
   REVIEW_GHOST_ATTR,
+  REVIEW_GHOST_TEXT,
   REVIEW_KEEP_ATTR,
   REVIEW_KEEP_TEXT,
   REVIEW_NO_ATTR,
@@ -152,6 +155,52 @@ describe('GET /api/preview-host/index.html', () => {
     );
     expect(boot).toContain('editor:preview-marks');
     expect(() => new Function(boot)).not.toThrow();
+    expect(boot).toContain(REVIEW_GHOST_TEXT.rejectedAdded);
+  });
+
+  it('ブートスクリプトの marks の検査は shared の parsePreviewMarks と同じ入力に同じ答えを返す', async () => {
+    const { BOOT_MARKS_PARSER } = await import('../src/vivliostyle/previewHost.js');
+    // 子の中と同じ文字列を評価して、閉じた関数を取り出す。
+    const hostParse = new Function(`${BOOT_MARKS_PARSER}\nreturn parseMarks;`)() as (
+      v: unknown,
+    ) => unknown;
+    const many = (n: number) =>
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i), 'pending']));
+    const base = { states: { '1': 'approved', '23': 'rejected' }, selected: '1', visible: true };
+    const table: unknown[] = [
+      base,
+      { states: {}, selected: null, visible: false },
+      { ...base, states: { '0': 'pending', '99999': 'approved' } },
+      { ...base, states: { x: 'approved' } },
+      { ...base, states: { '01': 'approved' } },
+      { ...base, states: { '123456': 'approved' } },
+      { ...base, states: { '1': 'held' } },
+      { ...base, states: { '1': null } },
+      { ...base, states: JSON.parse('{"__proto__":"approved"}') },
+      { ...base, states: [] },
+      { ...base, states: null },
+      { ...base, selected: 'x' },
+      { ...base, selected: '01' },
+      { ...base, selected: 1 },
+      { ...base, selected: undefined },
+      { ...base, visible: 'yes' },
+      { ...base, states: many(PREVIEW_MAX_PART_KEYS) },
+      { ...base, states: many(PREVIEW_MAX_PART_KEYS + 1) },
+      null,
+      undefined,
+      [],
+      'marks',
+      1,
+    ];
+    // 子の関数は states を null prototype で作るので、JSON を通して形だけを比べる。
+    const norm = (v: unknown) => (v === null ? null : JSON.parse(JSON.stringify(v)));
+    for (const [i, input] of table.entries()) {
+      expect(norm(hostParse(input)), `#${i}`).toEqual(norm(parsePreviewMarks(input)));
+    }
+    // 表が「通る」側と「拒む」側の両方を含むこと(どちらかに偏ると比べた意味が無い)。
+    const accepted = table.filter((v) => parsePreviewMarks(v) !== null).length;
+    expect(accepted).toBeGreaterThanOrEqual(4);
+    expect(accepted).toBeLessThan(table.length);
   });
 });
 

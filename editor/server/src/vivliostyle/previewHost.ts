@@ -49,6 +49,7 @@ import {
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
   REVIEW_GHOST_ATTR,
+  REVIEW_GHOST_TEXT,
   REVIEW_KEEP_ATTR,
   REVIEW_KEEP_TEXT,
   REVIEW_NO_ATTR,
@@ -173,13 +174,48 @@ async function viewerBundle(): Promise<string> {
  *    CSS に消されないようにする。空き枠の点線は `outline`(高さを変えない)。
  *  - 申請者の要素の断片には判定の色の `outline` と選択中の `box-shadow`、`.cmp-ins` /
  *    `.cmp-del` には `color` と `background-color` だけを書く(どれも組版を動かさない)。
- * Vivliostyle は display:none の要素を描画済みの DOM に**出さない**(実測)ので、空き枠だけは
+ * Vivliostyle は display:none の要素を描画済みの DOM に**出さない**(実測)ので、空き枠の箱は
  * 利用者スタイルシート(`userStyleSheet`。利用者の重要宣言は著者の `!important` に勝つ。実測)
- * で残す。申請者の要素を display:none で消す CSS は紙面の目印も消せるが、判定の正典は親画面の
+ * で残し、その文言はホストの札として page container の子に重ねる(祖先の opacity・clip-path は
+ * 子で打ち消せないため)。申請者の要素を display:none で消す CSS は紙面の目印も消せるが、判定の正典は親画面の
  * 右欄の文字の差分で、こちらは申請者 CSS が届かない。札は表示中のページだけに描く(表示して
  * いないページの断片は `getBoundingClientRect` が 0 になり、座標を取れない)。
  */
+/**
+ * ブートスクリプトの中の `marks` の形の検査(`parseMarks`)と、それが使う番号の規則。子は shared を
+ * import できないので同じ規則を手で書く。shared の `parsePreviewMarks` と同じ入力に同じ答えを
+ * 返すことを、テストがこの文字列を評価して確かめる(そのために export する)。
+ */
+export const BOOT_MARKS_PARSER = `
+  var MAX_MARK_KEYS=${JSON.stringify(PREVIEW_MAX_PART_KEYS)};
+  // 番号は正規形だけ通す(shared の isPreviewPartNo と同じ規則)。
+  var PART_NO_RE=/^(0|[1-9][0-9]{0,4})$/;
+  function isPlain(v){return !!v&&typeof v==='object'&&!Array.isArray(v);}
+  function parseMarks(v){
+    if(!isPlain(v)||!isPlain(v.states)||typeof v.visible!=='boolean')return null;
+    if(v.selected!==null&&!(typeof v.selected==='string'&&PART_NO_RE.test(v.selected)))return null;
+    var keys=Object.keys(v.states);
+    if(keys.length>MAX_MARK_KEYS)return null;
+    var states=Object.create(null);
+    for(var i=0;i<keys.length;i++){
+      var s=v.states[keys[i]];
+      if(!PART_NO_RE.test(keys[i])||(s!=='pending'&&s!=='approved'&&s!=='rejected'))return null;
+      states[keys[i]]=s;
+    }
+    return {states:states,selected:v.selected,visible:v.visible};
+  }`;
+
+/** 空き枠の種類(`data-review-ghost` の値)→ 札に描く文言。文言は文書側と同じ定数。 */
+const GHOST_TEXT_BY_KIND: Readonly<Record<string, string>> = {
+  added: REVIEW_GHOST_TEXT.added,
+  removed: REVIEW_GHOST_TEXT.removed,
+  'rejected-added': REVIEW_GHOST_TEXT.rejectedAdded,
+};
+
 const BOOT_SCRIPT = `(function(){
+  // テンプレ JS が window.parent を差し替えても、発信元の検査と送信先が変わらないよう、
+  // 文書を読む前のブート時に捕まえておく。
+  var PARENT=window.parent;
   var MSG_DOC=${JSON.stringify(PREVIEW_MSG_DOC)};
   var MSG_CMD=${JSON.stringify(PREVIEW_MSG_CMD)};
   var MSG_READY=${JSON.stringify(PREVIEW_MSG_READY)};
@@ -192,12 +228,13 @@ const BOOT_SCRIPT = `(function(){
   var NO_ATTR=${JSON.stringify(REVIEW_NO_ATTR)}, GHOST_ATTR=${JSON.stringify(REVIEW_GHOST_ATTR)};
   var KEEP_ATTR=${JSON.stringify(REVIEW_KEEP_ATTR)}, KEEP_TEXT=${JSON.stringify(REVIEW_KEEP_TEXT)};
   var INS_CLASS=${JSON.stringify(HL_INS)}, DEL_CLASS=${JSON.stringify(HL_DEL)};
-  var MAX_MARK_KEYS=${JSON.stringify(PREVIEW_MAX_PART_KEYS)};
-  // 札(ホストが作る要素)の印。値は 'no'(番号札)か 'keep'(却下の札)、FOR_ATTR に番号。
+  var GHOST_TEXT=${JSON.stringify(GHOST_TEXT_BY_KIND)};
+  // 札(ホストが作る要素)の印。値は 'no'(番号札)・'keep'(却下の札)・'ghost'(空き枠の文言)、
+  // FOR_ATTR に番号。印は見分けのためだけで、外すときもクリックでも、自分が作った札の
+  // 配列・Map だけを見る(申請者の要素が同じ属性を持っていても触らない)。
   var BADGE_ATTR='data-review-badge', FOR_ATTR='data-review-for';
   var PC_SEL='[data-vivliostyle-page-container]';
-  // 番号は正規形だけ通す(shared の isPreviewPartNo と同じ規則)。
-  var PART_NO_RE=/^(0|[1-9][0-9]{0,4})$/;
+  ${BOOT_MARKS_PARSER}
   // 空き枠を display:none の CSS から残す利用者スタイルシート(承認タブの紙面だけに当てる)。
   var GHOST_USER_CSS='['+GHOST_ATTR+']{display:block !important;visibility:visible !important;opacity:1 !important}';
   // ズームの範囲/刻み/フィット余白は編集画面(useGrapes.ts)に合わせる。
@@ -205,13 +242,13 @@ const BOOT_SCRIPT = `(function(){
   var V=window.Vivliostyle, viewer=null, blobUrl=null, errTimer=null;
   var currentPage=1, pageCount=0, atFirst=true, atLast=false, zoom=1, userZoomed=false, ready=false;
   // 目印の状態。どれも文書単位で、load() の先頭で捨てる。
-  var reviewDoc=false, marks=null, parts=null, saved=new Map();
+  var reviewDoc=false, marks=null, parts=null, saved=new Map(), badges=[], badgeNo=new Map();
   // 親のオリジンは opaque な子からは指定できないため '*' 固定。運ぶのはページ番号と倍率の
   // 数値だけで、親が既に持っていない情報は 1 つも含まない。
   function post(type,extra){
     var m={type:type};
     if(extra)for(var k in extra)m[k]=extra[k];
-    parent.postMessage(m,'*');
+    PARENT.postMessage(m,'*');
   }
   function sendState(){
     post(MSG_STATE,{state:{currentPage:currentPage,pageCount:pageCount,atFirst:atFirst,
@@ -262,21 +299,6 @@ const BOOT_SCRIPT = `(function(){
     for(var k in props){if(keep)paint(el,k,props[k]);else el.style.setProperty(k,props[k],'important');}
   }
   var SHOWN={display:'block',visibility:'visible',opacity:'1','clip-path':'none'};
-  function isPlain(v){return !!v&&typeof v==='object'&&!Array.isArray(v);}
-  // shared の parsePreviewMarks と同じ規則で形を検査する(子は shared を import できない)。
-  function parseMarks(v){
-    if(!isPlain(v)||!isPlain(v.states)||typeof v.visible!=='boolean')return null;
-    if(v.selected!==null&&!(typeof v.selected==='string'&&PART_NO_RE.test(v.selected)))return null;
-    var keys=Object.keys(v.states);
-    if(keys.length>MAX_MARK_KEYS)return null;
-    var states=Object.create(null);
-    for(var i=0;i<keys.length;i++){
-      var s=v.states[keys[i]];
-      if(!PART_NO_RE.test(keys[i])||(s!=='pending'&&s!=='approved'&&s!=='rejected'))return null;
-      states[keys[i]]=s;
-    }
-    return {states:states,selected:v.selected,visible:v.visible};
-  }
   function stateOf(no){return (marks&&marks.states[no])||'pending';}
   function marksVisible(){return !marks||marks.visible;}
   // 描画済みの DOM から目印の対象を集める。番号は最初の断片とそのページ、却下の札は
@@ -286,7 +308,9 @@ const BOOT_SCRIPT = `(function(){
     var pcs=vp.querySelectorAll(PC_SEL), pcIndex=new Map();
     for(var i=0;i<pcs.length;i++)pcIndex.set(pcs[i],i);
     var p={pcs:pcs,first:Object.create(null),firstPage:Object.create(null),
-      keepLast:Object.create(null),frags:[],ghosts:[],diffs:[]};
+      keepLast:Object.create(null),frags:[],ghosts:[],diffs:[],noOf:new Map()};
+    // 集め直すときは前の断片へ書いた値の記録を捨てる(切り離された要素を持ち続けない)。
+    saved=new Map();
     var els=vp.querySelectorAll('['+NO_ATTR+'],['+GHOST_ATTR+'],['+KEEP_ATTR+'],.'+INS_CLASS+',.'+DEL_CLASS);
     for(var j=0;j<els.length;j++){
       var el=els[j], pc=el.closest(PC_SEL);
@@ -295,7 +319,10 @@ const BOOT_SCRIPT = `(function(){
       if(el.hasAttribute(GHOST_ATTR))p.ghosts.push(el);
       else if(el.hasAttribute(NO_ATTR))p.frags.push(el);
       var no=el.getAttribute(NO_ATTR);
-      if(no!==null&&PART_NO_RE.test(no)&&!(no in p.first)){p.first[no]=el;p.firstPage[no]=pcIndex.get(pc);}
+      if(no!==null&&PART_NO_RE.test(no)){
+        p.noOf.set(el,no);
+        if(!(no in p.first)){p.first[no]=el;p.firstPage[no]=pcIndex.get(pc);}
+      }
       if(el.hasAttribute(KEEP_ATTR)&&!el.hasAttribute(GHOST_ATTR)){
         p.keepLast[el.getAttribute('data-adapt-eloff')||('i'+j)]=el;
       }
@@ -325,18 +352,50 @@ const BOOT_SCRIPT = `(function(){
     paintAll(b,{position:'absolute','z-index':'2147483647',cursor:'pointer','box-sizing':'border-box',
       'white-space':'nowrap',margin:'0',float:'none',transform:'none',filter:'none'});
     pc.appendChild(b);
+    badges.push(b);
+    if(no!==null)badgeNo.set(b,no);
     return b;
   }
+  function clearBadges(){
+    for(var i=0;i<badges.length;i++){if(badges[i].parentNode)badges[i].parentNode.removeChild(badges[i]);}
+    badges=[];badgeNo=new Map();
+  }
+  // 札を描き直す必要があるか(組み直しで page container が入れ替わった・増えた)。
+  function stale(){
+    if(!parts)return true;
+    if(parts.pcs.length===0)return document.getElementById('vp').querySelector(PC_SEL)!==null;
+    for(var i=0;i<parts.pcs.length;i++){if(!parts.pcs[i].isConnected)return true;}
+    return false;
+  }
   function placeBadges(){
-    var vp=document.getElementById('vp');
-    var old=vp.querySelectorAll('['+BADGE_ATTR+']');
-    for(var i=0;i<old.length;i++)old[i].parentNode.removeChild(old[i]);
-    if(!parts||!marksVisible())return;
+    clearBadges();
+    if(!parts)return;
+    var vis=marksVisible();
     for(var k=0;k<parts.pcs.length;k++){
       var pc=parts.pcs[k];
       // 表示中のページだけ(display:none のページは矩形が 0 で座標を取れない)。
       if(pc.getClientRects().length===0)continue;
       var f=null;
+      // 空き枠の文言は札として page container の子に重ねる。文書側の箱(場所を取る要素)は
+      // 申請者の要素の子孫で、祖先の opacity・clip-path は子で打ち消せないため。
+      for(var g=0;g<parts.ghosts.length;g++){
+        var gh=parts.ghosts[g], text=GHOST_TEXT[gh.getAttribute(GHOST_ATTR)];
+        if(typeof text!=='string'||gh.closest(PC_SEL)!==pc)continue;
+        f=f||frameOf(pc);
+        var gr=gh.getBoundingClientRect();
+        if(!(gr.width>0)||!(gr.height>0))continue;
+        var gb=makeBadge(pc,'ghost',parts.noOf.get(gh)||null,text,{font:'11px/1 sans-serif',
+          'background-color':'#f6f7f9',color:'#8a909a','outline-style':'dashed',
+          'outline-width':'1.5px','outline-color':'#b6bcc6','outline-offset':'-2px',
+          'text-align':'center',overflow:'hidden'});
+        gb.style.setProperty('left',((gr.left-f.x)/f.s)+'px','important');
+        gb.style.setProperty('top',((gr.top-f.y)/f.s)+'px','important');
+        gb.style.setProperty('width',(gr.width/f.s)+'px','important');
+        gb.style.setProperty('height',(gr.height/f.s)+'px','important');
+        gb.style.setProperty('line-height',(gr.height/f.s)+'px','important');
+        gb.style.setProperty('z-index','2147483646','important');
+      }
+      if(!vis)continue;
       for(var no in parts.first){
         if(parts.firstPage[no]!==k)continue;
         f=f||frameOf(pc);
@@ -393,12 +452,14 @@ const BOOT_SCRIPT = `(function(){
     }
   }
   // 冪等: 自分の札を全部外してから描く。組み直し(ズーム等)で断片が入れ替わっていたら
-  // 集め直す。
-  function decorate(){
+  // 集め直す。断片への書き込み(paintMarks)は COMPLETE・marks の受信・集め直しのときだけで、
+  // ページ送り(nav)では表示中のページの札だけを置き直す(nav 1 回を番号の数に比例する軽さに)。
+  function decorate(full){
     if(!reviewDoc||!ready)return;
     try{
-      if(!parts||(parts.pcs.length>0&&!parts.pcs[0].isConnected))collect();
-      paintMarks();
+      var fresh=stale();
+      if(fresh)collect();
+      if(full||fresh)paintMarks();
       placeBadges();
     }catch(e){/* 目印は補助。失敗してもプレビューは操作不能へ倒さない */}
   }
@@ -409,7 +470,7 @@ const BOOT_SCRIPT = `(function(){
       if(viewer&&viewer.cleanup)viewer.cleanup();
       viewer=null;
       currentPage=1;pageCount=0;atFirst=true;atLast=false;zoom=1;userZoomed=false;ready=false;
-      reviewDoc=review===true;marks=null;parts=null;saved=new Map();
+      reviewDoc=review===true;marks=null;parts=null;saved=new Map();badges=[];badgeNo=new Map();
       var vp=document.getElementById('vp');
       vp.innerHTML='';
       if(!html){sendState();return;}
@@ -429,10 +490,10 @@ const BOOT_SCRIPT = `(function(){
         if(typeof p.epage==='number')currentPage=Math.max(1,Math.round(p.epage)+1);
         if(typeof p.first==='boolean')atFirst=p.first;
         if(typeof p.last==='boolean')atLast=p.last;
-        applyFit();decorate();sendState();
+        applyFit();decorate(false);sendState();
       });
       viewer.addListener('readystatechange',function(){
-        if(viewer&&viewer.readyState===V.ReadyState.COMPLETE){ready=true;applyFit();decorate();sendState();}
+        if(viewer&&viewer.readyState===V.ReadyState.COMPLETE){ready=true;applyFit();decorate(true);sendState();}
       });
       // 文書ロードの失敗を親へ伝える。core は致命的なロード失敗(例: 内蔵リソースの取得
       // 不能)を 'error' イベントで通知し、readyState は loading のまま**永久に止まる** —
@@ -467,7 +528,7 @@ const BOOT_SCRIPT = `(function(){
         // 番号の最初の断片の page container が並びの何番目かで移る(id は当てにしない。
         // 著者の id は gotoAnchor の形に合うとは限らない)。
         if(!reviewDoc||!ready||typeof part!=='string'||!PART_NO_RE.test(part))return;
-        if(!parts)decorate();
+        if(!parts)decorate(true);
         var idx=parts?parts.firstPage[part]:undefined;
         if(typeof idx==='number')viewer.navigateToPage(V.Navigation.EPAGE,idx);
       }
@@ -496,7 +557,7 @@ const BOOT_SCRIPT = `(function(){
   // 親からのメッセージだけを受ける。子から見た parent は 1 つしかないので、これで
   // 発信元は一意に決まる(逆向きの検証は親が event.source の同一性で行う)。
   window.addEventListener('message',function(e){
-    if(e.source!==parent)return;
+    if(e.source!==PARENT)return;
     var d=e.data;
     if(!d||typeof d.type!=='string')return;
     if(d.type===MSG_DOC)load(typeof d.html==='string'?d.html:'',d.review);
@@ -504,18 +565,20 @@ const BOOT_SCRIPT = `(function(){
     else if(d.type===MSG_MARKS){
       // 文書は組み直さずに描き替える。形の違う値は捨てる(前の marks のまま)。
       var m=parseMarks(d.marks);
-      if(m&&reviewDoc){marks=m;decorate();}
+      if(m&&reviewDoc){marks=m;decorate(true);}
     }
   });
   // 紙面のパーツ(または札)が押されたら番号を返す。親は自分の番号の集合で照合する
   // (テンプレ JS がこのメッセージを偽れるため、ここの値を判定の根拠にしない)。
   document.getElementById('vp').addEventListener('click',function(e){
     if(!reviewDoc||!ready)return;
-    var t=e.target;
-    if(!t||!t.closest)return;
-    var b=t.closest('['+BADGE_ATTR+']'), no=b?b.getAttribute(FOR_ATTR):null;
-    if(!b){var el=t.closest('['+NO_ATTR+']');no=el?el.getAttribute(NO_ATTR):null;}
-    if(no!==null&&PART_NO_RE.test(no))post(MSG_PART_CLICK,{part:no});
+    // 番号は自分が作った札と、自分が集めた断片からだけ読む(属性だけで選ばない)。
+    var vp=document.getElementById('vp');
+    for(var n=e.target;n&&n!==vp;n=n.parentElement){
+      var no=badgeNo.get(n);
+      if(no===undefined&&parts)no=parts.noOf.get(n);
+      if(no!==undefined){post(MSG_PART_CLICK,{part:no});return;}
+    }
   },true);
   // ブラウザズーム/ペイン幅の変化に追随する。iframe がコンテナを 100% で埋めるので、
   // ここで測る window 寸法がそのまま利用可能領域になる(親との往復は不要)。
