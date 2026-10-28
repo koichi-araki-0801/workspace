@@ -2,9 +2,11 @@
 // hostProtocol.test.ts — プレビューホストの資産 URL の組み立て
 // =============================================================================
 import { describe, expect, it } from 'vitest';
+import { MAX_TOP_LEVEL_BLOCKS } from '../src/html/reviewDiff/htmlDiff.js';
 import {
   isPreviewPartNo,
   PREVIEW_HOST_BASE,
+  PREVIEW_MAX_PART_KEYS,
   parsePreviewMarks,
   parsePreviewPartPages,
   previewHostAssetUrl,
@@ -32,9 +34,24 @@ describe('previewHostAssetUrl — 論理パス → プレビューホストの�
 });
 
 describe('isPreviewPartNo', () => {
-  it('isPreviewPartNo は 1〜5 桁の数字だけ', () => {
-    for (const ok of ['0', '7', '12345', '00001']) expect(isPreviewPartNo(ok)).toBe(true);
-    for (const ng of ['', '123456', '-1', '1.5', 'a1', ' 1', '１', 1, null, undefined]) {
+  it('isPreviewPartNo は 1〜5 桁の数字の正規形だけ(先頭の 0 は 0 だけ)', () => {
+    for (const ok of ['0', '7', '12345', '99999']) expect(isPreviewPartNo(ok)).toBe(true);
+    // '01' と '1' が別のキーとして二重に通らないよう、先頭に 0 を持つ形は拒む。
+    for (const ng of [
+      '',
+      '123456',
+      '-1',
+      '1.5',
+      'a1',
+      ' 1',
+      '１',
+      '00001',
+      '01',
+      '00',
+      1,
+      null,
+      undefined,
+    ]) {
       expect(isPreviewPartNo(ng)).toBe(false);
     }
   });
@@ -58,6 +75,23 @@ describe('parsePreviewMarks', () => {
     expect(parsePreviewMarks({ ...base, states: [] })).toBeNull();
     expect(parsePreviewMarks(null)).toBeNull();
   });
+  it('境界: states の値が null・__proto__ キー・キーの個数の上限', () => {
+    expect(parsePreviewMarks({ ...base, states: { '1': null } })).toBeNull();
+    expect(
+      parsePreviewMarks({ ...base, states: JSON.parse('{"__proto__":"approved"}') }),
+    ).toBeNull();
+    expect(parsePreviewMarks({ ...base, selected: '01' })).toBeNull();
+    const many = (n: number) =>
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i), 'pending']));
+    expect(parsePreviewMarks({ ...base, states: many(PREVIEW_MAX_PART_KEYS) })).not.toBeNull();
+    expect(parsePreviewMarks({ ...base, states: many(PREVIEW_MAX_PART_KEYS + 1) })).toBeNull();
+  });
+});
+
+describe('PREVIEW_MAX_PART_KEYS', () => {
+  it('差分の最上位ブロックの上限と同じ値(番号はそれ以上振られない)', () => {
+    expect(PREVIEW_MAX_PART_KEYS).toBe(MAX_TOP_LEVEL_BLOCKS);
+  });
 });
 
 describe('parsePreviewPartPages', () => {
@@ -72,5 +106,16 @@ describe('parsePreviewPartPages', () => {
     expect(parsePreviewPartPages({ x: 1 })).toBeNull();
     expect(parsePreviewPartPages([1])).toBeNull();
     expect(parsePreviewPartPages(null)).toBeNull();
+  });
+  it('境界: NaN・Infinity・安全な整数を超える値・__proto__・キーの個数の上限', () => {
+    for (const n of [Number.NaN, Number.POSITIVE_INFINITY, 2 ** 60, 1e300]) {
+      expect(parsePreviewPartPages({ '1': n }), String(n)).toBeNull();
+    }
+    expect(parsePreviewPartPages(JSON.parse('{"__proto__":1}'))).toBeNull();
+    expect(parsePreviewPartPages({ '01': 1 })).toBeNull();
+    const many = (n: number) =>
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i), 0]));
+    expect(parsePreviewPartPages(many(PREVIEW_MAX_PART_KEYS))).not.toBeNull();
+    expect(parsePreviewPartPages(many(PREVIEW_MAX_PART_KEYS + 1))).toBeNull();
   });
 });

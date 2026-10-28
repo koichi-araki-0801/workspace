@@ -37,9 +37,9 @@ import {
   FONT_MIME,
   HL_DEL,
   HL_INS,
-  MAX_TOP_LEVEL_BLOCKS,
   PREVIEW_HOST_BASE,
   PREVIEW_MARK_COLORS,
+  PREVIEW_MAX_PART_KEYS,
   PREVIEW_MSG_CMD,
   PREVIEW_MSG_DOC,
   PREVIEW_MSG_ERROR,
@@ -192,7 +192,7 @@ const BOOT_SCRIPT = `(function(){
   var NO_ATTR=${JSON.stringify(REVIEW_NO_ATTR)}, GHOST_ATTR=${JSON.stringify(REVIEW_GHOST_ATTR)};
   var KEEP_ATTR=${JSON.stringify(REVIEW_KEEP_ATTR)}, KEEP_TEXT=${JSON.stringify(REVIEW_KEEP_TEXT)};
   var INS_CLASS=${JSON.stringify(HL_INS)}, DEL_CLASS=${JSON.stringify(HL_DEL)};
-  var MAX_MARK_KEYS=${JSON.stringify(MAX_TOP_LEVEL_BLOCKS)};
+  var MAX_MARK_KEYS=${JSON.stringify(PREVIEW_MAX_PART_KEYS)};
   // 札(ホストが作る要素)の印。値は 'no'(番号札)か 'keep'(却下の札)、FOR_ATTR に番号。
   var BADGE_ATTR='data-review-badge', FOR_ATTR='data-review-for';
   var PC_SEL='[data-vivliostyle-page-container]';

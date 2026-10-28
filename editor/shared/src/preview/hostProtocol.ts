@@ -120,9 +120,18 @@ export interface PreviewMarks {
   visible: boolean;
 }
 
-const PART_NO_RE = /^\d{1,5}$/;
+/**
+ * 子との間で運ぶ番号のキーの個数の上限。番号は差分の最上位ブロックにしか振られないので、
+ * その上限(`MAX_TOP_LEVEL_BLOCKS`)と同じ値にする(同じ値であることはテストで固定する)。
+ * ここで reviewDiff を import しないのは、`shared/preview` から `shared/html` への依存を作らない
+ * ため。子(テンプレ JS が動く)から届く値で親の処理を膨らませない。
+ */
+export const PREVIEW_MAX_PART_KEYS = 5_000;
 
-/** パーツの番号の文字列(1〜5 桁の数字)か。 */
+/** 正規形だけ通す(`'01'` と `'1'` が同じ番号の別キーとして二重に通らないように)。 */
+const PART_NO_RE = /^(0|[1-9]\d{0,4})$/;
+
+/** パーツの番号の文字列(1〜5 桁の数字の正規形。先頭の 0 は `'0'` だけ)か。 */
 export function isPreviewPartNo(v: unknown): v is string {
   return typeof v === 'string' && PART_NO_RE.test(v);
 }
@@ -140,8 +149,10 @@ export function parsePreviewMarks(v: unknown): PreviewMarks | null {
   if (!isPlainRecord(v) || !isPlainRecord(v.states)) return null;
   if (typeof v.visible !== 'boolean') return null;
   if (v.selected !== null && !isPreviewPartNo(v.selected)) return null;
+  const entries = Object.entries(v.states);
+  if (entries.length > PREVIEW_MAX_PART_KEYS) return null;
   const states: Record<string, PreviewMarkState> = {};
-  for (const [k, st] of Object.entries(v.states)) {
+  for (const [k, st] of entries) {
     if (!isPreviewPartNo(k) || !isMarkState(st)) return null;
     states[k] = st;
   }
@@ -154,9 +165,14 @@ export function parsePreviewMarks(v: unknown): PreviewMarks | null {
  */
 export function parsePreviewPartPages(v: unknown): Record<string, number> | null {
   if (!isPlainRecord(v)) return null;
+  const entries = Object.entries(v);
+  if (entries.length > PREVIEW_MAX_PART_KEYS) return null;
   const pages: Record<string, number> = {};
-  for (const [k, n] of Object.entries(v)) {
-    if (!isPreviewPartNo(k) || typeof n !== 'number' || !Number.isInteger(n) || n < 0) return null;
+  for (const [k, n] of entries) {
+    // 安全な整数に限る(2 ** 60・1e300 は整数でも index として意味を持たない)。
+    if (!isPreviewPartNo(k) || typeof n !== 'number' || !Number.isSafeInteger(n) || n < 0) {
+      return null;
+    }
     pages[k] = n;
   }
   return pages;
