@@ -1,9 +1,9 @@
 // =============================================================================
 // index.ts — web/server 共通のドメイン型と API 契約型 (barrel)
 // =============================================================================
-// `web/api/local` 実装と `server` の REST 実装は、いずれも `./repositories/*` の
-// 集約別リポジトリ interface を満たさねばならない。これによりデータソースを
-// 画面/サービス/ストアに触れず差し替えできる。
+// web の REST リポジトリ(とテスト用の偽物)は、`./repositories/*` の集約別リポジトリ
+// interface を満たさねばならない。これによりデータソースを画面/サービス/ストアに触れず
+// 差し替えできる。
 //
 // API 契約型(ワイヤ形式)の正典は `./schemas.ts` の Zod スキーマで、1:1 対応する型は
 // `z.infer` で導出する(手書き二重定義は置かない。フィールドの説明は schemas 側に置く)。
@@ -289,7 +289,7 @@ export { SAFE_MARKUP_ATTRS, SAFE_MARKUP_TAGS } from './jinja/safeMarkup.js';
 export * from './preview/hostProtocol.js';
 // Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。
 export * from './render/hostProtocol.js';
-// 集約別のリポジトリ契約 (web local と REST が実装)。
+// 集約別のリポジトリ契約 (web の REST リポジトリが実装)。
 export * from './repositories/AuthRepository.js';
 export * from './repositories/FundAssetRepository.js';
 export * from './repositories/HistoryRepository.js';

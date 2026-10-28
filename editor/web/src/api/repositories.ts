@@ -1,5 +1,5 @@
 // =============================================================================
-// repositories.ts — リポジトリの DI 合成ルート(local/REST 実装の切替点)
+// repositories.ts — REST リポジトリの DI 合成ルート
 // =============================================================================
 import type {
   AuthRepository,
@@ -12,14 +12,6 @@ import type {
   UserRepository,
 } from '@editor/shared';
 import { type InjectionKey, inject } from 'vue';
-import { localAuthRepo } from './local/authRepo';
-import { localFundAssetRepo } from './local/fundAssetRepo';
-import { localHistoryRepo } from './local/historyRepo';
-import { localNoteRepo } from './local/noteRepo';
-import { localPartRepo } from './local/partRepo';
-import { localReviewRepo } from './local/reviewRepo';
-import { localTemplateRepo } from './local/templateRepo';
-import { localUserRepo } from './local/userRepo';
 import { restAuthRepo } from './rest/authRepo';
 import { restFundAssetRepo } from './rest/fundAssetRepo';
 import { restHistoryRepo } from './rest/historyRepo';
@@ -43,24 +35,8 @@ export interface Repositories {
 }
 
 /**
- * データアクセスの合成ルート。local(fixtures + localStorage)実装を束ねる。
- * 同一インタフェースの REST 実装へこの 1 オブジェクトを差し替えるだけで、
- * 画面/サービス側は無改修で済む。
- */
-export const localRepositories: Repositories = {
-  auth: localAuthRepo,
-  templates: localTemplateRepo,
-  parts: localPartRepo,
-  history: localHistoryRepo,
-  notes: localNoteRepo,
-  reviews: localReviewRepo,
-  users: localUserRepo,
-  fundAssets: localFundAssetRepo,
-};
-
-/**
- * REST 配線。インタフェースは local と同一で、実体は SQL Server backend の API。
- * `main.ts` の既定はこちらで、上の local セットは `VITE_API_MODE=local` の明示指定だけが選ぶ。
+ * データアクセスの合成ルート。実体は SQL Server backend の API。テストは同じ形の偽物を
+ * provide して差し替える。
  */
 export const restRepositories: Repositories = {
   auth: restAuthRepo,

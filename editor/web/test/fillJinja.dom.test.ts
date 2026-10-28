@@ -2,7 +2,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
-import { defaultSkeleton } from '../src/api/local/store';
 import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
 import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
@@ -164,15 +163,6 @@ describe('生成スケルトンの参照キーがサンプルで満たされる'
     const { diagnostics } = toFilledWithDiagnostics(
       GENERATED_SKELETON_BODY,
       fixtureSample(attrs.fundCode, attrs),
-    );
-    expect(diagnostics.unsupported).toEqual([]);
-    expect(diagnostics.missing).toEqual([]);
-  });
-
-  it('defaultSkeleton(local の新規作成雛形): 解釈できない/未定義の Jinja 式が無い', () => {
-    const { diagnostics } = toFilledWithDiagnostics(
-      defaultSkeleton(),
-      fixtureSample('000000', { editionType: '交付版', baseDate: '20260101' }),
     );
     expect(diagnostics.unsupported).toEqual([]);
     expect(diagnostics.missing).toEqual([]);

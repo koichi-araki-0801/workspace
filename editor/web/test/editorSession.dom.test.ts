@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
+import { editorUiKey, setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
 import {
   defaultEditorUiState,
   type EditorSnapshot,
@@ -16,12 +16,6 @@ describe('useEditorSessionStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     localStorage.clear();
-    // 既定は rest(= ログイン ID スコープ)なので、キー名を直書きする検証は local を明示する。
-    vi.stubEnv('VITE_API_MODE', 'local');
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('ensure() creates an empty session and returns the same instance on re-ensure', () => {
@@ -315,7 +309,7 @@ describe('useEditorSessionStore', () => {
       selectedKey: 'p1/.x#2',
       redlineEnabled: true,
     });
-    const persisted = JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}');
+    const persisted = JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}');
     expect(persisted.t1).toEqual({
       redlineEnabled: true,
       paneTab: 'comments',
@@ -328,7 +322,7 @@ describe('useEditorSessionStore', () => {
 
   it('新しいセッションは永続した ui から hydrate し、allowEdit と選択は既定に戻る', () => {
     localStorage.setItem(
-      'editor:session:ui:local',
+      editorUiKey(),
       JSON.stringify({
         t1: {
           redlineEnabled: true,
@@ -359,14 +353,14 @@ describe('useEditorSessionStore', () => {
     store.persistUi('t1');
     store.clear('t1');
     expect(store.ensure('t1').ui.zoom).toBeNull();
-    expect(JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}').t1).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}').t1).toBeUndefined();
   });
 
   it('永続ミラーが壊れた値を持っていても、既定値へフォールバックして復元する', () => {
     // 破損経路の例: 手動編集・旧バージョンとの互換切れ・localStorage 共有の事故。
     // 型不整合のまま `setZoom` 等へ渡すと NaN clamp 等の実害があるため、hydrate 時点で防ぐ。
     localStorage.setItem(
-      'editor:session:ui:local',
+      editorUiKey(),
       JSON.stringify({
         t1: {
           zoom: 'big',
@@ -390,29 +384,21 @@ describe('Undo ミラーのユーザー分離', () => {
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
     setUndoUserScope(null);
   });
 
-  it('local は単一利用者前提の固定スコープを使う', () => {
-    vi.stubEnv('VITE_API_MODE', 'local');
-    setUndoUserScope('alice');
-    expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
-  });
-
   it('Undo ミラーのキーは v2 で、旧形式のミラーは読まない', () => {
-    vi.stubEnv('VITE_API_MODE', 'local');
+    setUndoUserScope('alice');
     localStorage.setItem(
-      'editor:session:undo:local',
+      'editor:session:undo:alice',
       JSON.stringify({ t1: { past: [{ html: 'old', css: '' }], future: [] } }),
     );
     const store = useEditorSessionStore();
     expect(store.ensure('t1').undoPast).toEqual([]);
-    expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
+    expect(undoStacksKey()).toBe('editor:session:undo:v2:alice');
   });
 
-  it('rest はログイン ID ごとに別キーで、他ユーザーの内容へ到達しない', () => {
-    vi.stubEnv('VITE_API_MODE', 'rest');
+  it('ログイン ID ごとに別キーで、他ユーザーの内容へ到達しない', () => {
     setUndoUserScope('alice');
     const keyA = undoStacksKey();
     const s = useEditorSessionStore().ensure('t1');
@@ -427,24 +413,8 @@ describe('Undo ミラーのユーザー分離', () => {
     expect(useEditorSessionStore().ensure('t1').undoPast).toEqual([]);
   });
 
-  it('rest で未ログインなら anonymous スコープへ隔離する', () => {
-    vi.stubEnv('VITE_API_MODE', 'rest');
+  it('未ログインなら anonymous スコープへ隔離する', () => {
     setUndoUserScope(null);
     expect(undoStacksKey()).toBe('editor:session:undo:v2:anonymous');
-  });
-
-  it('VITE_API_MODE 未設定でも Undo ミラーはログイン ID でスコープされる(既定は rest)', () => {
-    vi.stubEnv('VITE_API_MODE', undefined);
-    setUndoUserScope('alice');
-    const keyA = undoStacksKey();
-    const s = useEditorSessionStore().ensure('t1');
-    s.undoPast.push({ html: '<p>alice</p>', css: '' });
-    useEditorSessionStore().persist('t1');
-    expect(localStorage.getItem(keyA)).toContain('alice');
-
-    setUndoUserScope('bob');
-    expect(undoStacksKey()).not.toBe(keyA);
-    setActivePinia(createPinia());
-    expect(useEditorSessionStore().ensure('t1').undoPast).toEqual([]);
   });
 });

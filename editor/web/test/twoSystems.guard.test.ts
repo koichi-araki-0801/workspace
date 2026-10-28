@@ -137,12 +137,6 @@ describe('editor 2系統の原則: カタログのパーツの挿入', () => {
 describe('editor 2系統の原則: rest 経路の値入り HTML', () => {
   const read = (rel: string) => fs.readFileSync(path.resolve(__dirname, '../src', rel), 'utf8');
 
-  it('既定のデータモードは rest(main.ts は local を明示指定でだけ選ぶ)', () => {
-    const src = read('main.ts');
-    expect(src).toMatch(/VITE_API_MODE === 'local'/);
-    expect(src).not.toMatch(/VITE_API_MODE === 'rest'/);
-  });
-
   it('プレビューは filled が非空の文書で toTemplate を通さない', () => {
     const src = read('features/preview/services/templatePreviewService.ts');
     expect(src).toMatch(/draft && isFilled/);

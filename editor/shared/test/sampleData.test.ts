@@ -137,8 +137,8 @@ describe('buildSampleData', () => {
 });
 
 describe('生成器の骨組みの変数が、基準日の無いテンプレのサンプルで埋まる', () => {
-  // 骨組みは 2 か所: server の偽の生成器(Python の書式なので `{{{{ }}}}` と `{{% %}}` を
-  // 元の Jinja へ戻して読む)と local モードの defaultSkeleton。どちらもテキストとして読む。
+  // 骨組みは server の偽の生成器にある(Python の書式なので `{{{{ }}}}` と `{{% %}}` を
+  // 元の Jinja へ戻して、テキストとして読む)。
   const sources = [
     fs
       .readFileSync(
@@ -149,7 +149,6 @@ describe('生成器の骨組みの変数が、基準日の無いテンプレの�
       .replaceAll('}}}}', '}}')
       .replaceAll('{{%', '{%')
       .replaceAll('%}}', '%}'),
-    fs.readFileSync(path.resolve(__dirname, '../../web/src/api/local/store.ts'), 'utf8'),
   ];
   it.each(sources.map((s, i) => [i, s] as const))('骨組み %s', (_i, src) => {
     const loopVars = new Set([...src.matchAll(/\{%\s*for\s+(\w+)\s+in/g)].map((m) => m[1]));

@@ -13,9 +13,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB_SRC = path.resolve(HERE, '../src');
 const FIXTURE_CSS_DIR = path.resolve(HERE, '../../fixtures/css');
 
-// local モードは fixtures を静的 import と glob で読む。local を消すまでは走査から外す。
-const EXCLUDED_UNTIL_LOCAL_REMOVED = ['api/local/'];
-
 function sourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
@@ -48,10 +45,7 @@ describe('正テーマ CSS(assets/reportTheme.css)', () => {
 });
 
 describe('本番コードは editor/fixtures を読まない', () => {
-  const files = sourceFiles(WEB_SRC).filter((file) => {
-    const rel = path.relative(WEB_SRC, file).replace(/\\/g, '/');
-    return !EXCLUDED_UNTIL_LOCAL_REMOVED.some((dir) => rel.startsWith(dir));
-  });
+  const files = sourceFiles(WEB_SRC);
 
   it('走査対象を実際に読めている(セルフテスト)', () => {
     expect(files.length).toBeGreaterThan(50);

@@ -1,7 +1,7 @@
 // =============================================================================
 // review.ts — 承認ワークフローのドメイン純関数
 // =============================================================================
-// `web/api/local` と `server` の双方で使う、依存なしの純関数を置く(`template.ts` と同方針)。
+// web と `server` の双方で使える、依存なしの純関数を置く(`template.ts` と同方針)。
 
 import type { ReviewRequest, ReviewRequestMeta, StoredReviewRequest } from '../index.js';
 

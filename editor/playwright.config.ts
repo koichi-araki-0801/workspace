@@ -85,9 +85,8 @@ export default defineConfig({
       // だから(`editor/` ではない。隣の webServer が `pnpm --filter` で効いているのと同じ理由)。
       command: `node editor/e2e/tools/e2e-vite.ts --port ${E2E_REST_WEB_PORT}`,
       cwd: fileURLToPath(new URL('..', import.meta.url)),
-      // `VITE_API_MODE=rest` は既定と同じだが、呼び出し元シェルの `local` 指定に引きずられない
-      // よう明示する。`API_PROXY_TARGET` は vite.config.ts の proxy 先の上書き。
-      env: { VITE_API_MODE: 'rest', API_PROXY_TARGET: apiUrl },
+      // `API_PROXY_TARGET` は vite.config.ts の proxy 先の上書き。
+      env: { API_PROXY_TARGET: apiUrl },
       url: webUrl,
       reuseExistingServer: false,
       // Vite は実行中に黙って落ちたことがある。終了時の出力を捕まえて原因を残す。

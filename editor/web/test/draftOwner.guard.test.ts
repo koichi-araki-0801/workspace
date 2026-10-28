@@ -10,7 +10,7 @@
 //   下書きの実体を取りに行く(`getDraft` を呼ぶ)アプリコードは、必ず所属判定
 //   (`belongsToSession`)も参照している。
 //
-// repository 実装(`api/local` / `api/rest`)は `getDraft` の**定義側**で、採用の判断を
+// repository 実装(`api/rest`)は `getDraft` の**定義側**で、採用の判断を
 // しないため対象外にする。
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
@@ -42,7 +42,7 @@ function stripComments(source: string): string {
 const ALL_SOURCES = sourceFiles(WEB_SRC);
 
 /** `getDraft` の定義側(repository 実装)。採用の判断はしないので関門の対象外。 */
-const DEFINITION_SIDE = [path.join(WEB_SRC, 'api/local'), path.join(WEB_SRC, 'api/rest')];
+const DEFINITION_SIDE = [path.join(WEB_SRC, 'api/rest')];
 
 function isDefinitionSide(file: string): boolean {
   return DEFINITION_SIDE.some((dir) => file.startsWith(dir + path.sep));

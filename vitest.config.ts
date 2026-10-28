@@ -283,15 +283,7 @@ export default defineConfig({
         'editor/web/src/features/reviews/ReviewTabView.vue',
         'editor/web/src/features/reviews/useReviewDiff.ts',
         'editor/web/src/features/reviews/ReviewNoticeBar.vue',
-        'editor/web/src/api/local/authRepo.ts',
-        'editor/web/src/api/local/templateRepo.ts',
-        'editor/web/src/api/local/userRepo.ts',
-        'editor/web/src/api/local/historyRepo.ts',
-        'editor/web/src/api/local/partRepo.ts',
-        'editor/web/src/api/local/noteRepo.ts',
-        'editor/web/src/api/local/reviewRepo.ts',
-        'editor/web/src/api/local/fundAssetRepo.ts',
-        // rest トランスポートと 7 リポジトリ、DI 合成ルート。local と同じ契約で差し替わることを
+        // rest トランスポートと 7 リポジトリ、DI 合成ルート。契約どおりに動くことを
         // 直接テストで固定する(rest e2e は挙動の一部しか通らない)。
         'editor/web/src/api/rest/*.ts',
         'editor/web/src/api/repositories.ts',

@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 // =============================================================================
-// vite-env.d.ts — Vite クライアント環境の型宣言(`*.vue` import と env 変数)
+// vite-env.d.ts — Vite クライアント環境の型宣言(`*.vue` import)
 // =============================================================================
 
 declare module '*.vue' {
@@ -8,13 +8,4 @@ declare module '*.vue' {
 
   const component: DefineComponent<Record<string, unknown>, Record<string, unknown>, unknown>;
   export default component;
-}
-
-interface ImportMetaEnv {
-  /** データソース: 'local' は fixtures + localStorage(開発用 opt-in)、未設定を含むそれ以外は REST。 */
-  readonly VITE_API_MODE?: 'local' | 'rest';
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
 }

@@ -40,9 +40,8 @@ export const MAX_NOTE_PATH_KEY_CHARS = 512;
 export const MAX_NOTE_ENTRIES_PER_PART = 200;
 /**
  * メモ 1 ファイル(1 版インスタンス)が保持できる `pathKey` の件数上限(パーツ数の実物は
- * 1 版あたり数十)。web の local 実装(`api/local/noteRepo.ts`)と server 実装
- * (`server/src/files/notesFile.ts`)の双方が同じ値を強制する必要があるため shared に置く —
- * 複製すると片方だけが追随しない値の乖離を構造的に作る。
+ * 1 版あたり数十)。server 実装(`server/src/files/notesFile.ts`)が強制する値で、メモの
+ * 他の上限と並べて shared に置く。
  */
 export const MAX_NOTES_PER_TEMPLATE = 1000;
 
