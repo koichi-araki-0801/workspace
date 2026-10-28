@@ -282,10 +282,7 @@ describe('pruneCanvasActiveContent — 要素と属性の許可リスト', () =>
 // 許可リストが狭すぎると、既に保存されているテンプレを開いたときに中身が静かに欠ける。
 // fixtures/parts に新しいタグ・属性が入ったら CI が落ちるよう、census を常設する。
 describe('canvas 語彙の census(許可リストが実テンプレを削らない)', () => {
-  const FIXTURES = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../src/api/fixtures',
-  );
+  const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures');
 
   /** 実 DOM でパースして GrapesJS の `ParsedNode` 相当へ写す。 */
   function toParsed(node: Node): ParsedHtmlNode {

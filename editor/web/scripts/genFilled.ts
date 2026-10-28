@@ -10,7 +10,7 @@
  *
  * 2系統の原則(設計正典.md「編集 2 系統」)に従い、filled fixtures は編集タブが
  * 読む「値埋め込み済みHTML」であり、値は**ファンド別の実サンプル**でなければならない
- * (全ファンド共通ダミーにしない)。ファンド別実値は `src/api/fixtures/sample/<fund>.json`
+ * (全ファンド共通ダミーにしない)。ファンド別実値は `editor/fixtures/sample/<fund>.json`
  * を正典とし、版種・基準日(ファイル名由来)だけ `applyTemplateAttributes` で被せる。
  * per-fund サンプルが無いファンドのみ共通ダミー(`buildSampleData`)へフォールバックする。
  */
@@ -26,15 +26,15 @@ import {
   type SampleTemplateAttributes,
   sampleCommon,
 } from '@editor/shared';
-import fundMaster from '../src/api/fixtures/funds.json';
+import fundMaster from '../../fixtures/funds.json';
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const templatesDir = resolve(web, 'src/api/fixtures/templates');
-const sampleDir = resolve(web, 'src/api/fixtures/sample');
+const templatesDir = resolve(web, '../fixtures/templates');
+const sampleDir = resolve(web, '../fixtures/sample');
 
 // 出力は local 同梱の filled fixtures のみ。REST 実体は dataRoot(git 管理)側が持つため、
 // ここからリポジトリ内の他の場所へは書き出さない。
-const outDirs = [resolve(web, 'src/api/fixtures/filled')];
+const outDirs = [resolve(web, '../fixtures/filled')];
 for (const d of outDirs) mkdirSync(d, { recursive: true });
 
 const funds = fundMaster as Record<

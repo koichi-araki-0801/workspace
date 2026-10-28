@@ -72,7 +72,7 @@ function checkCanvas(raw: string, sample: Record<string, unknown>): void {
   expectRoundTrip(bodyOf(raw), viaCanvas(filledBody), 'canvas');
 }
 
-const fixtureDir = resolve(__dirname, '../src/api/fixtures/templates');
+const fixtureDir = resolve(__dirname, '../../fixtures/templates');
 const fixtureFiles = readdirSync(fixtureDir)
   .filter((f) => f.endsWith('.html'))
   .sort();

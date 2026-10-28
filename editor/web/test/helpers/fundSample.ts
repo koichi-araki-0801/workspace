@@ -10,7 +10,7 @@ import {
   type SampleTemplateAttributes,
   sampleCommon,
 } from '@editor/shared';
-import fundMaster from '../../src/api/fixtures/funds.json';
+import fundMaster from '../../../fixtures/funds.json';
 
 interface FundFixture {
   name: string;

@@ -32,10 +32,10 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   await fs.mkdir(cssDir, { recursive: true });
   await fs.mkdir(filledDir, { recursive: true });
 
-  const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
+  const fixturesCssDir = path.join(repoRoot, 'editor/fixtures/css');
   // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の fixture(往復用の印も
   // Jinja も含まない値入り HTML)をそのまま使う。
-  const fixturesFilledDir = path.join(repoRoot, 'editor/web/src/api/fixtures/filled');
+  const fixturesFilledDir = path.join(repoRoot, 'editor/fixtures/filled');
   for (const name of await fs.readdir(fixturesCssDir)) {
     await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));
   }
@@ -45,7 +45,7 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   // 編集タブで Jinja のパーツを挿入するときの値(`json/<ID>.json`)。local と同じ fixture を置き、
   // 挿入した断片に入る値を local / rest で揃える。
   const jsonDir = path.join(E2E_REST_DATA_ROOT, 'json');
-  const fixturesJsonDir = path.join(repoRoot, 'editor/web/src/api/fixtures/json');
+  const fixturesJsonDir = path.join(repoRoot, 'editor/fixtures/json');
   await fs.mkdir(jsonDir, { recursive: true });
   for (const name of await fs.readdir(fixturesJsonDir)) {
     await fs.copyFile(path.join(fixturesJsonDir, name), path.join(jsonDir, name));

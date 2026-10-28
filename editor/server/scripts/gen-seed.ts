@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { COMMON_SAMPLE_SEED_ROWS } from './commonSampleSeed.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const fixtures = path.resolve(__dirname, '..', '..', 'web', 'src', 'api', 'fixtures');
+const fixtures = path.resolve(__dirname, '..', '..', 'fixtures');
 const seedDir = path.resolve(__dirname, '..', 'db', 'seed');
 fs.mkdirSync(seedDir, { recursive: true });
 

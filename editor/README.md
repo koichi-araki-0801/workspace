@@ -104,7 +104,7 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 起動するサーバ（sproc は `server/test/fakes/sprocFake.ts` の in-memory フェイク、dataRoot は
 `<repo>/.tmp/e2e-rest-dataroot`（リポジトリルート直下。`editor/` の下ではない）を毎回作り直し）
 を相手に走る。SQL Server は不要。
-`filled/` には `web/src/api/fixtures/filled/*.html`、`json/` には `web/src/api/fixtures/json/*.json`
+`filled/` には `editor/fixtures/filled/*.html`、`json/` には `editor/fixtures/json/*.json`
 （編集タブでパーツを挿入するときの値）を seed する。worker 数は 1（ログイン試行の
 集中回避）。
 

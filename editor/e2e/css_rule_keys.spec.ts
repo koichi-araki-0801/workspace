@@ -20,7 +20,7 @@ import { expect, test } from './fixtures';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const req = createRequire(path.resolve(here, '../web/package.json'));
 const GRAPES = path.join(path.dirname(req.resolve('grapesjs/package.json')), 'dist/grapes.min.js');
-const FIXTURE_DIR = path.resolve(here, '../web/src/api/fixtures/css');
+const FIXTURE_DIR = path.resolve(here, '../fixtures/css');
 
 test('Chromium の GrapesJS 0.23.8 の書き出しと原文で CSS 規則のキーがそろう', async ({ page }) => {
   await page.setContent('<div id="gjs"></div>');
@@ -29,6 +29,8 @@ test('Chromium の GrapesJS 0.23.8 の書き出しと原文で CSS 規則のキ�
     .readdirSync(FIXTURE_DIR)
     .filter((f) => f.endsWith('.css'))
     .map((f) => [f, fs.readFileSync(path.join(FIXTURE_DIR, f), 'utf8')] as const);
+  // 0 件だと合成ケースだけで「常に緑」になるため、下限を固定する。
+  expect(fixtures.length).toBeGreaterThanOrEqual(8);
   const corpus: Record<string, string> = { ...Object.fromEntries(fixtures), ...SYNTHETIC };
 
   const outs = await page.evaluate((cases) => {

@@ -82,10 +82,7 @@ describe('renderPartForInsert: 編集経路', () => {
 });
 
 describe('renderPartForInsert: fixture のパーツ', () => {
-  const FIXTURES = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../src/api/fixtures',
-  );
+  const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures');
   const parts = JSON.parse(readFileSync(path.join(FIXTURES, 'parts.json'), 'utf8')) as Array<{
     id: string;
     content: string;

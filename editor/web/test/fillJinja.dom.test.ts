@@ -79,7 +79,7 @@ describe('toFilled substitutes values for display', () => {
 });
 
 describe('real report templates round-trip token-for-token', () => {
-  const fixtures = resolve(__dirname, '../src/api/fixtures');
+  const fixtures = resolve(__dirname, '../../fixtures');
   // 固定列挙ではなくディレクトリ走査で拾う。列挙方式では fixture を 1 枚足したときに
   // 「新しいテンプレだけ検査されない」形で無言に漏れ、しかも緑のままになる。
   // 検査から外したいものが出たら、理由を添えてこの除外集合へ書く(現時点で除外は無い)。

@@ -18,7 +18,7 @@ vi.mock('@/components/ui/toast', () => ({ toast: vi.fn(), toastError: vi.fn() })
 
 const FIXTURES = Object.fromEntries(
   Object.entries(
-    import.meta.glob('../src/api/fixtures/css/*.css', {
+    import.meta.glob('../../fixtures/css/*.css', {
       query: '?raw',
       import: 'default',
       eager: true,
@@ -41,6 +41,11 @@ it('GrapesJS は 0.23.8', () => {
     grapesjs.version,
     'GrapesJS を上げたら、このコーパスと既存データへの影響の見積もりを取り直してから期待値を直す',
   ).toBe('0.23.8');
+});
+
+// glob の移し先を誤ると実テンプレが 0 件になり、合成ケースだけで「常に緑」になる。
+it('実テンプレの CSS を読めている', () => {
+  expect(Object.keys(FIXTURES).length).toBeGreaterThanOrEqual(8);
 });
 
 describe.each(Object.entries({ ...FIXTURES, ...SYNTHETIC }))('%s', (name, css) => {

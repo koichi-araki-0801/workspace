@@ -14,10 +14,10 @@
  */
 import { Eye } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
-// レポートの正テーマ(全ファンド共通)。クラスの見た目はこの 1 枚で確定する。
-import reportCss from '@/api/fixtures/css/AM01_510037_交付版.css?raw';
 import { buildPartPreviewDoc } from '@/features/editor/partPreviewDoc';
 import { onFrameHeight, withHeightReporter } from '@/lib/useIframeAutoFit';
+// レポートの正テーマ(全ファンド共通)。クラスの見た目はこの 1 枚で確定する。
+import reportCss from '../../../../fixtures/css/AM01_510037_交付版.css?raw';
 
 const props = defineProps<{ content: string | null }>();
 

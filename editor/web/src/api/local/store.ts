@@ -24,7 +24,7 @@ import {
   K,
   undoStacksKey,
 } from '@/lib/storageKeys';
-import fundMasterJson from '../fixtures/funds.json';
+import fundMasterJson from '../../../../fixtures/funds.json';
 
 // キー定数の実体は `@/lib/storageKeys`(モード非依存コードが `api/local/**` 一式を import する
 // 足がかりを作らないための切り出し先)。既存の `K.xxx` 参照を無改修で通すため re-export する。
@@ -32,7 +32,7 @@ export { K };
 
 // ── 1. bundled fixtures — 同梱フィクスチャの読込 ──
 
-const templateFiles = import.meta.glob('../fixtures/templates/*.html', {
+const templateFiles = import.meta.glob('../../../../fixtures/templates/*.html', {
   eager: true,
   query: '?raw',
   import: 'default',
@@ -40,40 +40,40 @@ const templateFiles = import.meta.glob('../fixtures/templates/*.html', {
 
 // editor canvas に表示する値差込済み(pre-filled)コピー。キーは raw テンプレートと
 // 同じファイル名。エントリが無ければ実行時 fill にフォールバックする。
-const filledFiles = import.meta.glob('../fixtures/filled/*.html', {
+const filledFiles = import.meta.glob('../../../../fixtures/filled/*.html', {
   eager: true,
   query: '?raw',
   import: 'default',
 }) as Record<string, string>;
 
 // 編集タブの値ファイル(server の `<dataRoot>/json/<ID>.json`)。キーは filled と同じ ID。
-const jsonFiles = import.meta.glob('../fixtures/json/*.json', {
+const jsonFiles = import.meta.glob('../../../../fixtures/json/*.json', {
   eager: true,
   import: 'default',
 }) as Record<string, SampleData>;
 
-const cssFiles = import.meta.glob('../fixtures/css/*.css', {
+const cssFiles = import.meta.glob('../../../../fixtures/css/*.css', {
   eager: true,
   query: '?raw',
   import: 'default',
 }) as Record<string, string>;
 
 export const partCatalog = (
-  import.meta.glob('../fixtures/parts.json', { eager: true, import: 'default' }) as Record<
+  import.meta.glob('../../../../fixtures/parts.json', { eager: true, import: 'default' }) as Record<
     string,
     PartCatalogItem[]
   >
-)['../fixtures/parts.json'];
+)['../../../../fixtures/parts.json'];
 
 interface SeedUser extends User {
   password: string;
 }
 const seedUsers = (
-  import.meta.glob('../fixtures/users.json', { eager: true, import: 'default' }) as Record<
+  import.meta.glob('../../../../fixtures/users.json', { eager: true, import: 'default' }) as Record<
     string,
     SeedUser[]
   >
-)['../fixtures/users.json'];
+)['../../../../fixtures/users.json'];
 
 function baseName(path: string): string {
   return path.split('/').at(-1) ?? path;

@@ -13,7 +13,7 @@
       "!**/dist",
       "!**/coverage",
       "!**/out",
-      "!editor/web/src/api/fixtures",
+      "!editor/fixtures",
       "!editor/server/openapi/openapi.json",
       "!**/*.tsbuildinfo",
       "!**/*.md",

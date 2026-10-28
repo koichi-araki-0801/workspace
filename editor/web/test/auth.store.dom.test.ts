@@ -8,11 +8,11 @@ import { isOk } from '@editor/shared';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from 'vue';
-import editorUser from '@/api/fixtures/users.json';
 import { localRepositories, REPOS_KEY } from '@/api/repositories';
 import { draftOwner } from '@/lib/draftOwner';
 import { draftOwnerKey, K, undoStacksKey } from '@/lib/storageKeys';
 import { useAuthStore } from '@/stores/auth';
+import editorUser from '../../fixtures/users.json';
 
 // fixture の editor ユーザーは mustChangePassword:true 個体で、平文パスワードもここから読む
 // (直書きすると fixture 更新時にテストだけが古いパスワードを参照して壊れる)。

@@ -272,7 +272,7 @@ describe('書き出した HTML を読み直しても部品の型と固定が残�
   });
 
   it('編集タブの値入り HTML(fixtures/filled)は jinja の型を一つも持たない', () => {
-    const dir = path.resolve(__dirname, '../src/api/fixtures/filled');
+    const dir = path.resolve(__dirname, '../../fixtures/filled');
     const name = fs.readdirSync(dir).find((n) => n.endsWith('.html')) as string;
     const doc = fs.readFileSync(path.join(dir, name), 'utf8');
     const body = /<body[^>]*>([\s\S]*)<\/body>/.exec(doc)?.[1] ?? '';

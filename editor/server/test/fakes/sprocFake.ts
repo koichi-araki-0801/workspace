@@ -83,7 +83,7 @@ export const DEFAULT_USERS: readonly FakeUserSeed[] = [
 ];
 
 // ファンドマスタが無いと Rep1 の実名を被せられず、差し込むファンド名が共通サンプルの値のままになる。
-// コードは `editor/web/src/api/fixtures/sample/*.json` と一致させる(dataRoot 側の seed が
+// コードは `editor/fixtures/sample/*.json` と一致させる(dataRoot 側の seed が
 // 同じファンドのテンプレートを置くため)。
 export const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
 export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [

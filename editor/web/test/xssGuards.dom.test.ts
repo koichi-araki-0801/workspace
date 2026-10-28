@@ -137,10 +137,7 @@ describe('findExternalRefsInCss', () => {
   });
 
   it('現行の全ファンド CSS が誤検出ゼロで通る', () => {
-    const dir = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../src/api/fixtures/css',
-    );
+    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures/css');
     const files = readdirSync(dir).filter((n) => n.endsWith('.css'));
     // 0 件だと以下の forEach が素通りして「常に緑」になるため、下限を固定する。
     expect(files.length).toBeGreaterThanOrEqual(1);
