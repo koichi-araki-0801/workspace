@@ -45,10 +45,16 @@ export function previewHostAssetUrl(rel: string): string {
   return `/api${PREVIEW_HOST_BASE}/${rel.split('/').map(encodeURIComponent).join('/')}`;
 }
 
-/** 親 → 子: 組版する文書を渡す(`html` は完成済みのプレビュー文書文字列)。 */
+/**
+ * 親 → 子: 組版する文書を渡す。本体は `{ type, html, review? }` で、`html` は完成済みの
+ * プレビュー文書文字列。`review: true` は承認タブの紙面(目印を描き、`PREVIEW_MSG_MARKS` を
+ * 受ける経路)で、そのときだけホストが目印を描く。編集のプレビューは付けない。
+ */
 export const PREVIEW_MSG_DOC = 'editor:preview-doc';
 
-/** 親 → 子: 操作命令(`cmd` は `PreviewCommand`)。 */
+/**
+ * 親 → 子: 操作命令。本体は `{ type, cmd, page?, anchor?, part? }`(`cmd` は `PreviewCommand`)。
+ */
 export const PREVIEW_MSG_CMD = 'editor:preview-cmd';
 
 /** 子 → 親: ブート完了(以後 `PREVIEW_MSG_DOC` を受け付ける)。 */
@@ -60,13 +66,19 @@ export const PREVIEW_MSG_STATE = 'editor:preview-state';
 /** 子 → 親: 組版の失敗通知(親はフォールバック表示へ倒す)。 */
 export const PREVIEW_MSG_ERROR = 'editor:preview-error';
 
-/** 親 → 子: 目印の状態(番号ごとの判定・選択・表示)。文書を組み直さずに描き替える。 */
+/**
+ * 親 → 子: 目印の状態(番号ごとの判定・選択・表示)。文書を組み直さずに描き替える。
+ * 本体は `{ type, marks: PreviewMarks }`。
+ */
 export const PREVIEW_MSG_MARKS = 'editor:preview-marks';
 
-/** 子 → 親: 紙面のパーツが押された(`part` は番号の文字列)。 */
+/** 子 → 親: 紙面のパーツが押された。本体は `{ type, part }`(`part` は番号の文字列)。 */
 export const PREVIEW_MSG_PART_CLICK = 'editor:preview-part-click';
 
-/** 子 → 親: 飾りを描いたあとの、番号 → 物理ページの index(0 始まり)。 */
+/**
+ * 子 → 親: 飾りを描いたあとの、番号 → 物理ページの index(0 始まり)。本体は
+ * `{ type, pages }`(`pages` は `parsePreviewPartPages` で検査する)。
+ */
 export const PREVIEW_MSG_PART_PAGES = 'editor:preview-part-pages';
 
 /** 親から子へ送れる操作。`goToPage` はページ番号、`gotoAnchor` は要素 id、`gotoPart` はパーツの番号(文字列)を引数に取る。 */

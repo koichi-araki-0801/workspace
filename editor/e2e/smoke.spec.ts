@@ -1,6 +1,7 @@
 // =============================================================================
 // smoke.spec.ts — 認証フローの E2E スモークテスト (Playwright)
 // =============================================================================
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { partLocator } from './helpers';
 
@@ -116,6 +117,258 @@ test('preview shows the edited body after an autosaved draft exists', async ({ p
   await page.goto(`/preview/${id}`, { waitUntil: 'commit' });
   const preview = page.frameLocator('iframe[title="プレビュー"]');
   await expect(preview.getByText('E2E追記').first()).toBeVisible({ timeout: 60_000 });
+});
+
+// ── 承認タブの紙面の目印(ホストの直行テスト) ──
+// ホストページを最上位で開き、親の代わりに自分で postMessage する。最上位では
+// `parent === window` なのでホストの発信元検査を通り、子 → 親のメッセージも同じ window に届く。
+// 自分が送った doc / cmd / marks も同じリスナに来るので、子が送る種別だけを集める。
+
+/** 改ページで 2 ページ以上に割れる表(`data-review-no="3"`)の行。 */
+const LONG_ROWS = Array.from({ length: 80 }, (_, i) => `<tr><td>行 ${i}</td><td>値</td></tr>`).join(
+  '',
+);
+
+/** 承認タブの右面を模した文書。表は 2 ページ目から始まって割れる。 */
+function reviewDoc(css = ''): string {
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><style>
+@page{size:A5;margin:10mm} table.long{break-before:page} ${css}
+</style></head><body>
+<p data-review-no="1">パーツ1 <span class="cmp-ins">足した語</span></p>
+<div data-review-ghost="added">（なし・新規追加）</div>
+<p data-review-keep="">却下した段落 <span class="cmp-del">消した語</span></p>
+<p data-review-no="2">パーツ2</p>
+<table class="long" data-review-no="3">${LONG_ROWS}</table>
+</body></html>`;
+}
+
+type HostMsg = { type: string; [k: string]: unknown };
+
+async function openHost(page: Page): Promise<void> {
+  await page.goto('/login');
+  await page.locator('#u').fill('admin');
+  await page.locator('#p').fill('admin');
+  await page.getByRole('button', { name: 'ログイン' }).click();
+  await page.waitForURL(/\/edit/);
+  await page.goto('/api/preview-host/index.html');
+  await page.evaluate(() => {
+    const w = window as unknown as { __msgs: HostMsg[] };
+    w.__msgs = [];
+    const kinds = [
+      'editor:preview-part-click',
+      'editor:preview-part-pages',
+      'editor:preview-state',
+    ];
+    window.addEventListener('message', (e) => {
+      const d = e.data as HostMsg | null;
+      if (d && kinds.includes(d.type)) w.__msgs.push(d);
+    });
+  });
+}
+
+async function hostMsgs(page: Page): Promise<HostMsg[]> {
+  return page.evaluate(() => (window as unknown as { __msgs: HostMsg[] }).__msgs);
+}
+
+/** 文書を送り、組版が終わる(state.ready)まで待つ。 */
+async function sendDoc(page: Page, html: string, review = true): Promise<void> {
+  await page.evaluate(
+    ([h, r]) => {
+      (window as unknown as { __msgs: HostMsg[] }).__msgs = [];
+      window.postMessage({ type: 'editor:preview-doc', html: h, review: r }, '*');
+    },
+    [html, review] as const,
+  );
+  await expect
+    .poll(
+      async () =>
+        (await hostMsgs(page)).some(
+          (m) => m.type === 'editor:preview-state' && (m.state as { ready: boolean }).ready,
+        ),
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+}
+
+async function post(page: Page, msg: HostMsg): Promise<void> {
+  await page.evaluate((m) => window.postMessage(m, '*'), msg);
+}
+
+const badge = (page: Page, no: string) =>
+  page.locator(`#vp [data-review-badge="no"][data-review-for="${no}"]`);
+
+/** 表示中のページの、目印に関わる要素の位置と高さ(組版が動いていないことの物差し)。 */
+async function fragmentBoxes(page: Page): Promise<number[][]> {
+  return page.evaluate(() =>
+    [
+      ...document.querySelectorAll(
+        '#vp [data-review-no], #vp [data-review-ghost], #vp [data-review-keep]',
+      ),
+    ]
+      .map((e) => e.getBoundingClientRect())
+      .filter((r) => r.height > 0)
+      .map((r) => [r.x, r.y, r.width, r.height].map((v) => Math.round(v * 10) / 10)),
+  );
+}
+
+test('ホストは data-review-no のパーツへ番号札を描き、押すと part-click を返し、marks で色を変える', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await openHost(page);
+
+  // 目印を描かない経路(review なし)で組んだ位置を、描いたあとと比べる。
+  await sendDoc(page, reviewDoc(), false);
+  await expect(page.locator('#vp [data-review-badge]')).toHaveCount(0);
+  const before = await fragmentBoxes(page);
+  expect(before.length).toBeGreaterThan(0);
+
+  await sendDoc(page, reviewDoc());
+  // 描画済みの DOM に番号の属性が残る(残らなければ紙面の目印は成り立たない)。
+  await expect(page.locator('#vp [data-review-no="1"]')).toHaveCount(1);
+  // 1 ページ目にはパーツ 1・2 の札。表(3)は 2 ページ目から始まる。
+  await expect(badge(page, '1')).toHaveCount(1);
+  await expect(badge(page, '2')).toHaveCount(1);
+  await expect(badge(page, '3')).toHaveCount(0);
+  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(59, 130, 196)');
+  expect(await fragmentBoxes(page)).toEqual(before);
+  // 札はパーツの断片の左上に重なる(倍率を掛けた座標で数 px の内側)。
+  const [b1, p1] = await page.evaluate(() =>
+    ['#vp [data-review-badge="no"][data-review-for="1"]', '#vp [data-review-no="1"]'].map((s) => {
+      const r = document.querySelector(s)?.getBoundingClientRect();
+      return { x: r?.x ?? Number.NaN, y: r?.y ?? Number.NaN };
+    }),
+  );
+  expect(Math.abs((b1?.x ?? 0) - (p1?.x ?? 0))).toBeLessThan(6);
+  expect(Math.abs((b1?.y ?? 0) - (p1?.y ?? 0))).toBeLessThan(6);
+
+  // 番号 → 物理ページ。
+  await expect
+    .poll(
+      async () =>
+        (await hostMsgs(page)).filter((m) => m.type === 'editor:preview-part-pages').at(-1)?.pages,
+    )
+    .toEqual({ '1': 0, '2': 0, '3': 1 });
+
+  // 空き枠の文言と、却下のため現行版のままの札。文字の差分の色はホストが描く。
+  await expect(page.locator('#vp [data-review-ghost]')).toHaveText('（なし・新規追加）');
+  await expect(page.locator('#vp [data-review-ghost]')).toBeVisible();
+  await expect(page.locator('#vp [data-review-badge="keep"]')).toHaveText('却下のため現行版のまま');
+  await expect(page.locator('#vp [data-review-badge="keep"]')).toBeVisible();
+  await expect(page.locator('#vp .cmp-ins')).toHaveCSS('color', 'rgb(21, 128, 61)');
+  await expect(page.locator('#vp .cmp-del')).toHaveCSS('color', 'rgb(185, 28, 28)');
+
+  // marks で色が変わり、札は増えない。
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: { '1': 'approved' }, selected: '2', visible: true },
+  });
+  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(47, 138, 95)');
+  await expect(page.locator('#vp [data-review-badge="no"]')).toHaveCount(2);
+  await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS(
+    'outline-color',
+    'rgb(47, 138, 95)',
+  );
+  expect(await fragmentBoxes(page)).toEqual(before);
+
+  // パーツ 2 を押すと番号が返る。
+  await page.locator('#vp [data-review-no="2"]').click();
+  await expect
+    .poll(async () => (await hostMsgs(page)).find((m) => m.type === 'editor:preview-part-click'))
+    .toEqual({ type: 'editor:preview-part-click', part: '2' });
+
+  // 表示を切ると札と枠が消える。戻すと描き直す。
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: { '1': 'approved' }, selected: null, visible: false },
+  });
+  await expect(page.locator('#vp [data-review-badge]')).toHaveCount(0);
+  await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS('outline-style', 'none');
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: { '1': 'approved' }, selected: null, visible: true },
+  });
+  await expect(badge(page, '1')).toHaveCount(1);
+
+  // gotoPart は表の最初の断片のページへ移り、そこで札を描く。割れた表の札は 1 つ。
+  await post(page, { type: 'editor:preview-cmd', cmd: 'gotoPart', part: '3' });
+  await expect
+    .poll(async () => {
+      const states = (await hostMsgs(page)).filter((m) => m.type === 'editor:preview-state');
+      return (states.at(-1)?.state as { currentPage: number } | undefined)?.currentPage;
+    })
+    .toBe(2);
+  await expect(badge(page, '3')).toHaveCount(1);
+  await expect(badge(page, '3')).toBeVisible();
+  await post(page, { type: 'editor:preview-cmd', cmd: 'nextPage' });
+  await expect
+    .poll(async () => {
+      const states = (await hostMsgs(page)).filter((m) => m.type === 'editor:preview-state');
+      return (states.at(-1)?.state as { currentPage: number } | undefined)?.currentPage;
+    })
+    .toBe(3);
+  // 3 ページ目にも表の断片はあるが、札は最初の断片だけ。
+  expect(
+    await page
+      .locator('#vp [data-vivliostyle-page-container]:visible [data-review-no="3"]')
+      .count(),
+  ).toBeGreaterThan(0);
+  await expect(page.locator('#vp [data-review-badge]')).toHaveCount(0);
+});
+
+// Vivliostyle は display:none の要素を描画済みの DOM に出さない(要素ごと無い)。本文の要素を
+// display:none で消す CSS は紙面の目印も消せるので、ここで確かめるのは visibility・opacity で
+// 隠す形と、空き枠・差分の印だけを狙って消す形。判定の正典は親画面の右欄の文字の差分。
+for (const [label, css] of [
+  [
+    '全体を隠す形',
+    '*{visibility:hidden!important;opacity:0!important} [data-review-ghost],div{display:none!important} .cmp-ins,.cmp-del{color:inherit!important;background:none!important}',
+  ],
+  [
+    '本文の要素を狙う形',
+    'p,table,div,span{visibility:hidden!important;opacity:0!important} [data-review-ghost]{display:none!important;visibility:hidden!important} [data-review-no]{outline:none!important} .cmp-ins{color:transparent!important;background-color:transparent!important}',
+  ],
+] as const) {
+  test(`申請者 CSS で隠そうとしても番号札・空き枠・却下の札が見える(${label})`, async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    await openHost(page);
+    await sendDoc(page, reviewDoc(css));
+    for (const loc of [
+      badge(page, '1'),
+      page.locator('#vp [data-review-ghost]'),
+      page.locator('#vp [data-review-badge="keep"]'),
+    ]) {
+      await expect(loc).toHaveCount(1);
+      await expect(loc).not.toHaveCSS('display', 'none');
+      await expect(loc).toHaveCSS('visibility', 'visible');
+      await expect(loc).toHaveCSS('opacity', '1');
+    }
+    await expect(page.locator('#vp .cmp-ins')).toHaveCSS('color', 'rgb(21, 128, 61)');
+    await expect(page.locator('#vp .cmp-ins')).toHaveCSS(
+      'background-color',
+      'rgba(22, 163, 74, 0.18)',
+    );
+    await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS(
+      'outline-color',
+      'rgb(59, 130, 196)',
+    );
+  });
+}
+
+test('文書を送り直すと札を描き直し、前の文書の marks は持ち越さない', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openHost(page);
+  await sendDoc(page, reviewDoc());
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: { '1': 'approved' }, selected: null, visible: true },
+  });
+  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(47, 138, 95)');
+  await sendDoc(page, reviewDoc());
+  await expect(badge(page, '1')).toHaveCount(1);
+  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(59, 130, 196)');
 });
 
 test('wrong credentials show an error and stay on login', async ({ page }) => {

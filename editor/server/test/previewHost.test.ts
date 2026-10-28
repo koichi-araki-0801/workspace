@@ -11,6 +11,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  PREVIEW_MARK_COLORS,
+  PREVIEW_MSG_MARKS,
+  PREVIEW_MSG_PART_CLICK,
+  PREVIEW_MSG_PART_PAGES,
+  REVIEW_GHOST_ATTR,
+  REVIEW_KEEP_ATTR,
+  REVIEW_KEEP_TEXT,
+  REVIEW_NO_ATTR,
+} from '@editor/shared';
 import helmet from '@fastify/helmet';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -108,6 +118,40 @@ describe('GET /api/preview-host/index.html', () => {
       url: '/api/preview-host/index.html?html=<img src=x onerror=alert(1)>',
     });
     expect(again.body).toBe(res.body);
+  });
+
+  it('ホストページは目印のメッセージ種別と色を埋め、利用者の文字列を含まない', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/preview-host/index.html' });
+    for (const s of [
+      PREVIEW_MSG_MARKS,
+      PREVIEW_MSG_PART_CLICK,
+      PREVIEW_MSG_PART_PAGES,
+      PREVIEW_MARK_COLORS.pending,
+      PREVIEW_MARK_COLORS.approved,
+      '#c0392b',
+      REVIEW_NO_ATTR,
+      REVIEW_GHOST_ATTR,
+      REVIEW_KEEP_ATTR,
+      REVIEW_KEEP_TEXT,
+    ]) {
+      // ページは 765KB あるので、失敗時に本文を全部出さない形で比べる。
+      expect(res.body.includes(s), s).toBe(true);
+    }
+    // 目印を足しても、要求に含めた文字列はページへ入らない(定数のまま)。
+    const again = await app.inject({
+      method: 'GET',
+      url: '/api/preview-host/index.html?part=<script>alert(1)</script>',
+    });
+    expect(again.body).toBe(res.body);
+    expect(again.body).not.toContain('alert(1)');
+    // ブートスクリプトは文字列で組むので、構文が壊れても型検査では気づけない。最後の
+    // `<script>` を関数本体として解釈できることを確かめる。
+    const boot = res.body.slice(
+      res.body.lastIndexOf('<script>') + 8,
+      res.body.lastIndexOf('</script>'),
+    );
+    expect(boot).toContain('editor:preview-marks');
+    expect(() => new Function(boot)).not.toThrow();
   });
 });
 
