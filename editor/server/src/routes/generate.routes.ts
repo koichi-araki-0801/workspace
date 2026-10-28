@@ -47,9 +47,9 @@ import { config } from '../config.js';
 import type { Deps } from '../deps.js';
 import { deleteDraft } from '../files/draftFiles.js';
 import { withFileLock } from '../files/fileLock.js';
-import { findInProgressIds } from '../files/inProgress.js';
+import { inProgressLookup } from '../files/inProgress.js';
 import { deletePending, writePending } from '../files/pendingFiles.js';
-import { hasPendingCreateReview } from '../files/reviewFiles.js';
+import { pendingCreateReviewLookup } from '../files/reviewFiles.js';
 import { findTemplateId, listTemplateFiles, readTemplateCss } from '../files/templateFiles.js';
 import { latestBaseDate } from '../generate/baseDate.js';
 import {
@@ -82,21 +82,25 @@ const companyKey = (code: string): string => code.trimEnd().toLowerCase();
 
 type EditionState = 'created' | 'pendingReview' | 'inProgress' | 'none';
 
+type InProgressOf = Awaited<ReturnType<typeof inProgressLookup>>;
+
 /**
  * 作成画面のファンドの 1 版の状態。優先は 作成済み > 申請中 > 作業中 > 無し(作成タブの
  * `getCreatableInfo` と同じ規則)。照合は大文字小文字を区別しない。`found` は作業中の綴りの一覧で、
- * 作り直しで古い作業を消すのに使う。
+ * 作り直しで古い作業を消すのに使う。申請と作業中の一覧は呼び出し側で 1 度だけ取って渡す。
  */
-async function editionState(
+function editionState(
   templateFiles: string[],
   attrs: SkeletonAttributes,
   id: string,
-): Promise<{ state: EditionState; found: Awaited<ReturnType<typeof findInProgressIds>> }> {
-  const found = await findInProgressIds(id);
+  hasPendingReview: (templateId: string) => boolean,
+  inProgressOf: InProgressOf,
+): { state: EditionState; found: ReturnType<InProgressOf> } {
+  const found = inProgressOf(id);
   if (findTemplateId(templateFiles, attrs.companyCode, attrs.fundCode, attrs.editionType)) {
     return { state: 'created', found };
   }
-  if (await hasPendingCreateReview(id)) return { state: 'pendingReview', found };
+  if (hasPendingReview(id)) return { state: 'pendingReview', found };
   if (found.drafts.length > 0 || found.pending.length > 0) return { state: 'inProgress', found };
   return { state: 'none', found };
 }
@@ -130,8 +134,8 @@ export const generateRoutes: FastifyPluginAsync<{
           ) {
             throw validation(`版種は ${GENERATED_EDITIONS.join('・')} のどちらかです`);
           }
-          // 基準日は常に最新基準日(画面からは選ばせない)。古い画面が送る baseDate は
-          // スキーマの検証で落ちるので、ここへは届かない。
+          // 基準日は常に最新基準日(画面からは選ばせない)。古い画面が送る baseDate は、スキーマが
+          // 未知のキーとして取り除くので(400 にはしない)、ここへは届かない。
           const baseDate = latestBaseDate();
           const rep1CompanyCode = body.rep1CompanyCode.trim();
           // コピー元も属性と同じくここで検査する。検査済みの値だけを生成器と作成履歴へ渡す。
@@ -185,12 +189,14 @@ export const generateRoutes: FastifyPluginAsync<{
             // 候補の版ごとの状態。作成済みは生成では触らない(直すときは作成タブで既存のテンプレートを
             // 開き、申請 → 承認で templates/ を上書きする)。承認待ちの作成申請があるうちに作り直すと、
             // 承認でその申請の内容が templates/ に入り、作り直した生成物と食い違う。
-            const states = await Promise.all(
-              candidates.map(async (c) => ({
-                ...c,
-                ...(await editionState(templateFiles, c.attributes, c.id)),
-              })),
-            );
+            const [hasPendingReview, inProgressOf] = await Promise.all([
+              pendingCreateReviewLookup(),
+              inProgressLookup(),
+            ]);
+            const states = candidates.map((c) => ({
+              ...c,
+              ...editionState(templateFiles, c.attributes, c.id, hasPendingReview, inProgressOf),
+            }));
             const isBlocked = (st: EditionState) => st === 'created' || st === 'pendingReview';
             const blocked = states.filter((st) => isBlocked(st.state));
             if (blocked.length === states.length) {

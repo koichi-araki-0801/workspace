@@ -184,4 +184,12 @@ describe('CreateFundSelect の版種(任意)', () => {
     expect(w.findComponent(Select).props('modelValue')).toBe('全体版');
     expect(last().editionType).toBe('全体版');
   });
+
+  it('URL の版種が作れる版でなければ捨て、未選択として伝える', async () => {
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: 'foo' });
+    const { w, last } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    expect(w.findComponent(Select).props('modelValue')).toBe('both');
+    expect(last().editionType).toBeUndefined();
+  });
 });

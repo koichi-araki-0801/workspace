@@ -532,4 +532,19 @@ describe('CreateTabView: 版種を任意にした作成', () => {
     await settle();
     expect(templates.generate.mock.calls[0][0]).toMatchObject({ editionType: '交付版' });
   });
+
+  it('版種を選ばず作業中の版があれば、帯と「作成中の…を開く」を出し、作成経路で開く', async () => {
+    const { w } = mountWith(both('inProgress', 'none'), null);
+    await settle();
+    expect(w.text()).toContain(
+      '作成中の版があります。続きは作成中のテンプレートを開いてください。作り直すと作業中の内容は捨てられます。',
+    );
+    expect(buttonNamed(w, '作成中の全体版を開く')).toBeUndefined();
+    await buttonNamed(w, '作成中の交付版を開く')?.trigger('click');
+    expect(router.push).toHaveBeenCalledWith({
+      name: 'editor',
+      params: { id: ID },
+      query: { created: '1' },
+    });
+  });
 });

@@ -41,4 +41,14 @@ describe('findInProgressIds', () => {
     const { findInProgressIds } = await import('../src/files/inProgress.js');
     expect(await findInProgressIds('XX01_950037_交付版')).toEqual({ pending: [], drafts: [] });
   });
+
+  it('inProgressLookup は一覧を 1 度取り、id ごとに findInProgressIds と同じ結果を返す', async () => {
+    put('pending', 'xx01_950037_交付版.html');
+    put('drafts', 'XX01_950037_全体版.html');
+    const { findInProgressIds, inProgressLookup } = await import('../src/files/inProgress.js');
+    const lookup = await inProgressLookup();
+    for (const id of ['XX01_950037_交付版', 'XX01_950037_全体版', 'XX01_950003_交付版']) {
+      expect(lookup(id)).toEqual(await findInProgressIds(id));
+    }
+  });
 });

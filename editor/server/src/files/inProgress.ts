@@ -14,8 +14,18 @@ interface InProgressIds {
 }
 
 export async function findInProgressIds(templateId: string): Promise<InProgressIds> {
-  const want = templateId.toLowerCase();
-  const match = (ids: string[]) => ids.filter((id) => id.toLowerCase() === want);
+  return (await inProgressLookup())(templateId);
+}
+
+/**
+ * pending/ と下書きの一覧を 1 度だけ取り、id ごとの照合を返す。1 回の要求で複数の版を問うとき
+ * (作成タブの作成可否・生成)に、版ごとにフォルダを読み直さないため。
+ */
+export async function inProgressLookup(): Promise<(templateId: string) => InProgressIds> {
   const [pending, drafts] = await Promise.all([listPendingIds(), listDraftIds()]);
-  return { pending: match(pending), drafts: match(drafts) };
+  return (templateId) => {
+    const want = templateId.toLowerCase();
+    const match = (ids: string[]) => ids.filter((id) => id.toLowerCase() === want);
+    return { pending: match(pending), drafts: match(drafts) };
+  };
 }

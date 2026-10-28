@@ -31,9 +31,9 @@ import { config } from '../config.js';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
-import { findInProgressIds } from '../files/inProgress.js';
+import { inProgressLookup } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
-import { hasPendingCreateReview } from '../files/reviewFiles.js';
+import { pendingCreateReviewLookup } from '../files/reviewFiles.js';
 import {
   filledExists,
   findTemplateId,
@@ -203,6 +203,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       // 対象ではないので作業中に数えない)。
       const files = await listTemplateFiles();
       const asked = editionType === undefined ? [...CREATABLE_EDITIONS] : [editionType];
+      // 申請と作業中の一覧は 1 度だけ取る(版ごとに reviews/ や pending/ を読み直さない)。
+      const [hasPendingReview, inProgressOf] = await Promise.all([
+        pendingCreateReviewLookup(),
+        inProgressLookup(),
+      ]);
       const editions: CreatableEditionStatus[] = [];
       for (const e of asked) {
         const templateId = findTemplateId(files, companyCode, fundCode, e);
@@ -215,11 +220,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         const id = templateIdFromFileName(
           skeletonFileName({ companyCode, fundCode, editionType: e }),
         );
-        if (await hasPendingCreateReview(id)) {
+        if (hasPendingReview(id)) {
           editions.push({ editionType: e, state: 'pendingReview' });
           continue;
         }
-        const found = await findInProgressIds(id);
+        const found = inProgressOf(id);
         const inProgressId = found.pending[0] ?? found.drafts[0];
         editions.push(
           inProgressId === undefined

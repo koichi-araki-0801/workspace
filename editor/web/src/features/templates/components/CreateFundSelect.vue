@@ -6,7 +6,7 @@
 // 選んだときに一括取得する。会社の値はファイル名の会社コード(略称)で、ファンドを引くときだけ
 // Rep1 の会社コードを使う。見た目は編集タブの `SearchFilters` と同じ部品で組む。版種は任意で、
 // 選ばなければ両版を作る(作成済み・申請中の版は飛ばす)。
-import { type CompanyOption, type FundOption, isErr } from '@editor/shared';
+import { type CompanyOption, CREATABLE_EDITIONS, type FundOption, isErr } from '@editor/shared';
 import { Loader2, RotateCcw } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
@@ -110,8 +110,13 @@ onMounted(async () => {
     return;
   }
   companies.value = res.value;
-  // URL から復元した版種(古いブックマーク)は、その版を選んだ表示にする。
-  if (query.editionType) editionChoice.value = query.editionType;
+  // URL から復元した版種(古いブックマーク)は、その版を選んだ表示にする。作れる版でなければ
+  // (手打ちの壊れた値)捨てる。残すと表示は未選択なのに、その値で作成を送ってしまう。
+  if ((CREATABLE_EDITIONS as readonly string[]).includes(query.editionType ?? '')) {
+    editionChoice.value = query.editionType as string;
+  } else {
+    query.editionType = undefined;
+  }
   // URL から復元した会社コードは候補の綴り(略称)へそろえる。ファイル名の会社コードになるため。
   const known = companyOf(query.companyCode);
   if (known) query.companyCode = known.companyCode;

@@ -143,10 +143,20 @@ export async function countPendingReviews(): Promise<number> {
  * 内容が templates/ に入り、作り直した生成物と食い違う。照合は大文字小文字を区別しない。
  */
 export async function hasPendingCreateReview(templateId: string): Promise<boolean> {
-  const want = templateId.toLowerCase();
-  return (await listReviewMetas()).some(
-    (m) => m.status === 'pending' && m.origin === 'create' && m.templateId.toLowerCase() === want,
+  return (await pendingCreateReviewLookup())(templateId);
+}
+
+/**
+ * 申請の一覧を 1 度だけ走査し、id ごとの「承認待ちの作成申請があるか」を返す。1 回の要求で
+ * 複数の版を問うときに、版ごとに reviews/ を走査し直さないため。照合は大文字小文字を区別しない。
+ */
+export async function pendingCreateReviewLookup(): Promise<(templateId: string) => boolean> {
+  const ids = new Set(
+    (await listReviewMetas())
+      .filter((m) => m.status === 'pending' && m.origin === 'create')
+      .map((m) => m.templateId.toLowerCase()),
   );
+  return (templateId) => ids.has(templateId.toLowerCase());
 }
 
 /** 申請本文(HTML と CSS)の照合用の hash。区切りを挟むので、境界のずれた別の組と一致しない。 */
