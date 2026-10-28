@@ -301,6 +301,7 @@ export * from './html/reviewDiff/htmlParser.js';
 export * from './html/reviewDiff/pageSplit.js';
 export * from './html/reviewDiff/partMarks.js';
 export * from './html/reviewDiff/reviewedCandidate.js';
+export * from './html/reviewDiff/reviewPaper.js';
 export * from './html/reviewParts.js';
 
 // Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
