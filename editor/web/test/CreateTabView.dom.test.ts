@@ -170,63 +170,14 @@ describe('CreateTabView', () => {
     );
   });
 
-  it('基準日は空欄が既定で、空のままなら要求に baseDate を載せない', async () => {
+  it('基準日の入力欄を出さず、要求に baseDate を載せない', async () => {
     const { w, templates } = mountWith({ created: false, seriesFunds: [] });
     await settle();
-    const input = w.find('input[type="date"]');
-    expect(input.exists()).toBe(true);
-    expect((input.element as HTMLInputElement).value).toBe('');
+    expect(w.find('input[type="date"]').exists()).toBe(false);
+    expect(w.text()).not.toContain('基準日');
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
-    expect(templates.generate).toHaveBeenCalledWith(expect.not.objectContaining({ baseDate: '' }));
     expect(templates.generate.mock.calls[0][0]).not.toHaveProperty('baseDate');
-  });
-
-  it('基準日を入れると、要求にその値を載せる', async () => {
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
-    await settle();
-    await w.find('input[type="date"]').setValue('2026-10-01');
-    await buttonNamed(w, '属性から新規作成')?.trigger('click');
-    await settle();
-    expect(templates.generate).toHaveBeenCalledWith(
-      expect.objectContaining({ baseDate: '2026-10-01' }),
-    );
-  });
-
-  it('基準日の入力欄は日本時間の今日を max にする', async () => {
-    const { w } = mountWith({ created: false, seriesFunds: [] });
-    await settle();
-    expect(w.find('input[type="date"]').attributes('max')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-  });
-
-  it('今日より後の基準日は誤りを出し、生成しない', async () => {
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
-    await settle();
-    await w.find('input[type="date"]').setValue('2999-01-01');
-    expect(w.text()).toContain('基準日は今日より後にできません');
-    await buttonNamed(w, '属性から新規作成')?.trigger('click');
-    await settle();
-    expect(templates.generate).not.toHaveBeenCalled();
-  });
-
-  it('開いたまま日本時間の日付が変わっても、新しい今日までの基準日を受け付ける', async () => {
-    // Date だけ偽装する(flushPromises が使うタイマーは本物のまま)。
-    vi.useFakeTimers({ toFake: ['Date'] });
-    try {
-      vi.setSystemTime(new Date('2026-10-22T14:00:00Z'));
-      const { w, templates } = mountWith({ created: false, seriesFunds: [] });
-      await settle();
-      vi.setSystemTime(new Date('2026-10-22T15:30:00Z'));
-      await w.find('input[type="date"]').setValue('2026-10-23');
-      await buttonNamed(w, '属性から新規作成')?.trigger('click');
-      await settle();
-      expect(templates.generate).toHaveBeenCalledWith(
-        expect.objectContaining({ baseDate: '2026-10-23' }),
-      );
-      expect(w.find('input[type="date"]').attributes('max')).toBe('2026-10-23');
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('取り込まなかった組入先があれば、飛ばした id を並べて知らせる', async () => {

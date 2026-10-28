@@ -48,7 +48,7 @@ import { findInProgressIds } from '../files/inProgress.js';
 import { deletePending, writePending } from '../files/pendingFiles.js';
 import { hasPendingCreateReview } from '../files/reviewFiles.js';
 import { findTemplateId, listTemplateFiles, readTemplateCss } from '../files/templateFiles.js';
-import { assertRequestedBaseDate, latestBaseDate } from '../generate/baseDate.js';
+import { latestBaseDate } from '../generate/baseDate.js';
 import {
   GENERATED_EDITIONS,
   type GeneratedFile,
@@ -119,11 +119,9 @@ export const generateRoutes: FastifyPluginAsync<{
           if (!(GENERATED_EDITIONS as readonly string[]).includes(openEdition)) {
             throw validation(`版種は ${GENERATED_EDITIONS.join('・')} のどちらかです`);
           }
-          // 基準日は、指定があれば検査して使い、無ければ最新基準日。排他や生成器に触れる前に
-          // 決めるので、不正な日付で会社の排他を取らず、生成器も呼ばない。
-          const baseDate = body.baseDate
-            ? assertRequestedBaseDate(body.baseDate)
-            : latestBaseDate();
+          // 基準日は常に最新基準日(画面からは選ばせない)。古い画面が送る baseDate は
+          // スキーマの検証で落ちるので、ここへは届かない。
+          const baseDate = latestBaseDate();
           const rep1CompanyCode = body.rep1CompanyCode.trim();
           // コピー元も属性と同じくここで検査する。検査済みの値だけを生成器と作成履歴へ渡す。
           const sourceFundCode = body.sourceFundCode

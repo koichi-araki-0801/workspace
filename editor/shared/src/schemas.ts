@@ -883,13 +883,6 @@ export const GenerateRequest = z
       .boolean()
       .optional()
       .meta({ description: '償還ファンドとして作成(生成器へパラメータとして渡す)' }),
-    baseDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .meta({
-        description: '生成器へ渡す基準日(YYYY-MM-DD)。空なら最新基準日。今日(日本時間)より後は不可',
-      }),
     replaceExisting: z
       .boolean()
       .optional()

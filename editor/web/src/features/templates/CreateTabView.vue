@@ -9,8 +9,6 @@ import { useRouter } from 'vue-router';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import { confirm } from '@/components/ui/confirm';
-import Input from '@/components/ui/Input.vue';
-import Label from '@/components/ui/Label.vue';
 import Step from '@/components/ui/Step.vue';
 import { toast, toastError, toastSuccess } from '@/components/ui/toast';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -36,24 +34,6 @@ const isSeriesFund = computed(() => (info.value?.seriesFunds.length ?? 0) > 0);
 const alreadyCreated = computed(() => info.value?.created === true);
 // 償還ファンドとして作成するか(生成器へのパラメータ)。
 const isRedemption = ref(false);
-const jstDate = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Asia/Tokyo',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-// 日本時間の今日。日付入力の上限と、未来日の検査に使う(サーバも同じ検査をする)。画面を開いた
-// まま日付をまたぐと古くなるので、フォーカス時と検査の直前に取り直す。
-const today = ref(jstDate.format(new Date()));
-function refreshToday() {
-  today.value = jstDate.format(new Date());
-}
-// 基準日(空なら送らず、サーバが最新基準日を使う)。
-const baseDate = ref('');
-// 同じ桁数のゼロ埋め文字列なので、文字列の大小がそのまま日付の前後になる。
-const baseDateError = computed(() =>
-  baseDate.value > today.value ? '基準日は今日より後にできません' : '',
-);
 // 属性を素早く変えると前の属性の応答が後から届く。反映は最新の要求分だけに絞る。
 const latestResolve = useLatest();
 
@@ -158,21 +138,12 @@ function openInCreateRoute(id: string | undefined) {
   if (id) router.push(editorRoute(id, { created: true }));
 }
 
-/** 基準日が誤りなら知らせて false(入力欄の下にも同じ文言を出している)。 */
-function baseDateOk(): boolean {
-  refreshToday();
-  if (!baseDateError.value) return true;
-  toastError(baseDateError.value);
-  return false;
-}
-
 async function createNew() {
   const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !rep1CompanyCode || !fundCode || !editionType) {
     toastError(SELECT_ALL_MSG);
     return;
   }
-  if (!baseDateOk()) return;
   const consent = await recreateConsent();
   if (!consent) return;
   await create(
@@ -182,7 +153,6 @@ async function createNew() {
       fundCode,
       editionType,
       isRedemption: isRedemption.value,
-      ...(baseDate.value ? { baseDate: baseDate.value } : {}),
       ...consent,
     },
     'テンプレートを作成しました',
@@ -197,7 +167,6 @@ async function createFromSeries(sourceFundCode: string) {
     toastError(SELECT_ALL_MSG);
     return;
   }
-  if (!baseDateOk()) return;
   const consent = await recreateConsent();
   if (!consent) return;
   await create(
@@ -208,7 +177,6 @@ async function createFromSeries(sourceFundCode: string) {
       editionType,
       sourceFundCode,
       isRedemption: isRedemption.value,
-      ...(baseDate.value ? { baseDate: baseDate.value } : {}),
       ...consent,
     },
     'シリーズを基にテンプレートを作成しました',
@@ -273,24 +241,6 @@ async function createFromSeries(sourceFundCode: string) {
             <Checkbox v-model="isRedemption" />
             償還ファンドとして作成する
           </label>
-          <div class="space-y-1">
-            <div class="flex items-center gap-2 text-[13px] text-foreground">
-              <Label for="create-base-date">基準日</Label>
-              <Input
-                id="create-base-date"
-                v-model="baseDate"
-                type="date"
-                :max="today"
-                class="w-[170px]"
-                @focus="refreshToday"
-                :aria-invalid="!!baseDateError"
-              />
-            </div>
-            <p v-if="baseDateError" class="text-[12px] text-destructive">{{ baseDateError }}</p>
-            <p class="text-[12px] text-muted-foreground">
-              空欄なら最新基準日（日本時間の当日。土日は直前の金曜）で作成します
-            </p>
-          </div>
         </div>
 
         <div :class="cn('flex flex-wrap gap-3', (!canCreate || alreadyCreated) && 'pointer-events-none')">

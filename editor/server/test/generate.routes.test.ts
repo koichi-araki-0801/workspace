@@ -385,23 +385,14 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(generateMock.mock.calls[0][1]).toBe('2026-10-23');
   });
 
-  it('基準日の指定があれば、土日でも過去日でもそのまま生成器の第 2 引数へ渡す', async () => {
-    const res = await generate({ ...validBody, baseDate: '2026-10-17' });
-    expect(res.statusCode).toBe(200);
-    expect(generateMock.mock.calls[0][1]).toBe('2026-10-17');
-  });
-
-  it.each([
-    ['今日より後', '2999-01-01'],
-    ['存在しない日', '2026-02-30'],
-    ['形式違い', '2026-1-5'],
-  ])('基準日が不正(%s)なら、Rep1 も生成器も呼ばずに 400', async (_l, baseDate) => {
-    const res = await generate({ ...validBody, baseDate });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().kind).toBe('validation');
-    expect(generateMock).not.toHaveBeenCalled();
-    expect(fs.readdirSync(pendingDir)).toEqual([]);
-  });
+  it.each(['2026-10-17', '2999-01-01'])(
+    '古い画面が baseDate(%s)を送っても無視し、最新基準日を生成器へ渡す',
+    async (baseDate) => {
+      const res = await generate({ ...validBody, baseDate });
+      expect(res.statusCode).toBe(200);
+      expect(generateMock.mock.calls[0][1]).toBe('2026-10-23');
+    },
+  );
 
   it.each([
     ['他社の Rep1 コード', { rep1CompanyCode: 'R-BM02' }],
