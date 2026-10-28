@@ -671,7 +671,7 @@ function fastSamePage(
   const blocks: DiffBlock[] = keyed.map((b, i) => ({
     key: b.key,
     partKey: parts.keys.get(b.el) ?? b.key,
-    beforePartKey: parts.keys.get(beforePage[i]) ?? null,
+    beforePartKey: beforePage[i] ? (parts.keys.get(beforePage[i]) ?? null) : null,
     status: 'same',
     beforeHtml: b.el.outerHTML,
     afterHtml: b.el.outerHTML,

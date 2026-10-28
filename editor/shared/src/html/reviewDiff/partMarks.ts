@@ -39,6 +39,8 @@ export const PART_NAME_MAX_CHARS = 20;
  * 変更のあるパーツへ、ページ順・紙面の並び順(`reviewedPageOrder`)で 1 から番号を振る。
  * ページを移ったパーツは削除と追加の 2 つの block に同じ `partKey` で現れるので、1 つにまとめて
  * `changed` とし、左右のページを両方埋める。
+ * `<style>`・地の文(`#attached#`・`#text#`)も status が same 以外なら番号を振る。承認タブでは
+ * 判定の対象で行と番号が要り、編集画面も同じ差分に同じ関数を当てるので番号が一致する。
  */
 export function numberChangedParts(diff: HtmlDiff): ChangedPart[] {
   const parts: ChangedPart[] = [];

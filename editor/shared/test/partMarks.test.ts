@@ -141,6 +141,21 @@ describe('numberChangedParts', () => {
     ]);
   });
 
+  it('パーツに数えない block(#attached#・#text#)の変更にも番号を振る', () => {
+    const diff = diffOf([
+      page(
+        0,
+        [block('p#1', 'same'), block('#attached#1', 'changed'), block('#text#1', 'added')],
+        ['p#1', '#attached#1'],
+        ['p#1', '#attached#1', '#text#1'],
+      ),
+    ]);
+    expect(numberChangedParts(diff).map((p) => [p.no, p.partKey, p.kind])).toEqual([
+      [1, '#attached#1', 'changed'],
+      [2, '#text#1', 'added'],
+    ]);
+  });
+
   it('same だけの差分は空', () => {
     const sameOnly = diffOf([page(0, [block('a#1', 'same')], ['a#1'], ['a#1'])]);
     expect(numberChangedParts(sameOnly)).toEqual([]);
