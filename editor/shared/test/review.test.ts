@@ -3,7 +3,12 @@
 // =============================================================================
 import { describe, expect, it } from 'vitest';
 import { duplicateReviewMessage, formatDateTimeYmdHm } from '../src/domain/review.js';
-import { ReviewRequestMeta, ReviewStatus, SubmitReviewBody } from '../src/schemas.js';
+import {
+  ReviewRequestMeta,
+  ReviewStatus,
+  SubmitReviewBody,
+  UpdateReviewPartDecisionsRequest,
+} from '../src/schemas.js';
 
 const baseMeta = {
   id: 'rv1',
@@ -73,5 +78,59 @@ describe('formatDateTimeYmdHm / duplicateReviewMessage', () => {
     expect(duplicateReviewMessage(d.toISOString())).toBe(
       '同じ内容の確定保存申請が既に承認待ちです（2026/12/31 23:59に申請）。新しい申請は作りませんでした。',
     );
+  });
+});
+
+describe('UpdateReviewPartDecisionsRequest', () => {
+  const ok = (decisions: unknown) =>
+    UpdateReviewPartDecisionsRequest.safeParse({ decisions }).success;
+
+  it('承認・却下・取り消しを 1 回で受ける', () => {
+    expect(
+      ok([
+        { partKey: 'a#0', status: 'approved' },
+        { partKey: 'b#1', status: 'rejected', comment: '数値が違う' },
+        { partKey: 'c#2', status: 'pending' },
+      ]),
+    ).toBe(true);
+  });
+  it('却下は理由が要る', () => {
+    expect(ok([{ partKey: 'a#0', status: 'rejected' }])).toBe(false);
+  });
+  it('空白だけの却下理由は拒む', () => {
+    expect(ok([{ partKey: 'a#0', status: 'rejected', comment: ' 　\n' }])).toBe(false);
+  });
+  it('同じ partKey が 2 つあれば拒む', () => {
+    const r = UpdateReviewPartDecisionsRequest.safeParse({
+      decisions: [
+        { partKey: 'a#0', status: 'approved' },
+        { partKey: 'a#0', status: 'pending' },
+      ],
+    });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.message).toBe('partKey が重複しています: a#0');
+  });
+  it('空の配列は拒む', () => {
+    expect(ok([])).toBe(false);
+  });
+  it('5,001 件は拒む', () => {
+    const mk = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ partKey: `k#${i}`, status: 'approved' }));
+    expect(ok(mk(5000))).toBe(true);
+    expect(ok(mk(5001))).toBe(false);
+  });
+  it('長すぎる却下の理由は拒む', () => {
+    const rej = (comment: string) => ok([{ partKey: 'a#0', status: 'rejected', comment }]);
+    expect(rej('あ'.repeat(2000))).toBe(true);
+    expect(rej('あ'.repeat(2001))).toBe(false);
+    // 😀 は 1 コードポイント = 2 UTF-16 単位。1000 個で 2000 単位、1001 個で 2002 単位
+    expect(rej('😀'.repeat(1000))).toBe(true);
+    expect(rej('😀'.repeat(1001))).toBe(false);
+  });
+  it('承認は判定メモを持てない(余分なキーは無視され、出力に残らない)', () => {
+    const r = UpdateReviewPartDecisionsRequest.parse({
+      decisions: [{ partKey: 'a#0', status: 'approved', comment: 'メモ' }],
+    });
+    expect(r.decisions[0]).toEqual({ partKey: 'a#0', status: 'approved' });
   });
 });

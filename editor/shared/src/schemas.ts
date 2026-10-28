@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { isValidAnyTemplateId } from './domain/template.js';
 import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
 import { APP_ERROR_KINDS } from './errors.js';
+import { MAX_TOP_LEVEL_BLOCKS } from './html/reviewDiff/htmlDiff.js';
 
 // ── 0. 資源上限 — 契約の段で本文の大きさを縛る ──
 //
@@ -489,6 +490,54 @@ export const UpdateReviewPartDecisionRequest = z
     }),
   ])
   .meta({ id: 'UpdateReviewPartDecisionRequest' });
+
+/**
+ * パーツ判定 1 件の変更。承認は判定メモを受けず、却下は理由を必須にする。
+ * `pending` は判定の取り消しで、サーバが返す `status: 'pending'` と同じく「未判定」を指す。
+ */
+export const ReviewPartDecisionChange = z
+  .discriminatedUnion('status', [
+    z.object({
+      partKey: z.string().min(1).meta({
+        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+      }),
+      status: z.literal('approved'),
+    }),
+    z.object({
+      partKey: z.string().min(1).meta({
+        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+      }),
+      status: z.literal('rejected'),
+      comment: utf16Max(2000, '却下の理由').trim().min(1).meta({ description: 'パーツの却下理由' }),
+    }),
+    z.object({
+      partKey: z.string().min(1).meta({
+        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+      }),
+      status: z.literal('pending'),
+    }),
+  ])
+  .meta({ id: 'ReviewPartDecisionChange' });
+
+/** パーツ判定をまとめて変更する入力。同じ `partKey` を 2 回含められない。 */
+export const UpdateReviewPartDecisionsRequest = z
+  .object({
+    decisions: z.array(ReviewPartDecisionChange).min(1).max(MAX_TOP_LEVEL_BLOCKS),
+  })
+  .superRefine((req, ctx) => {
+    const seen = new Set<string>();
+    for (const [i, d] of req.decisions.entries()) {
+      if (seen.has(d.partKey)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['decisions', i, 'partKey'],
+          message: `partKey が重複しています: ${d.partKey}`,
+        });
+      }
+      seen.add(d.partKey);
+    }
+  })
+  .meta({ id: 'UpdateReviewPartDecisionsRequest' });
 
 export const ReviewOrigin = z.enum(['edit', 'create']).meta({
   id: 'ReviewOrigin',

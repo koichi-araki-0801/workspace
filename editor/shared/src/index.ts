@@ -105,6 +105,12 @@ export type ReviewPartDecision = z.infer<typeof sch.ReviewPartDecision>;
 /** パーツ判定を承認済みまたは却下済みへ更新する入力。 */
 export type UpdateReviewPartDecisionRequest = z.infer<typeof sch.UpdateReviewPartDecisionRequest>;
 
+/** パーツ判定 1 件の変更(承認・却下・取り消し)。 */
+export type ReviewPartDecisionChange = z.infer<typeof sch.ReviewPartDecisionChange>;
+
+/** パーツ判定をまとめて変更する入力。 */
+export type UpdateReviewPartDecisionsRequest = z.infer<typeof sch.UpdateReviewPartDecisionsRequest>;
+
 /** 申請元の経路。`'edit'` は編集タブ、`'create'` は作成タブ。 */
 export type ReviewOrigin = z.infer<typeof sch.ReviewOrigin>;
 

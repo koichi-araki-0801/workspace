@@ -15,6 +15,7 @@ import type {
   ReviewStatus,
   SubmitReviewRequest,
   UpdateReviewPartDecisionRequest,
+  UpdateReviewPartDecisionsRequest,
 } from '../index.js';
 import type { Result } from '../result.js';
 
@@ -52,6 +53,20 @@ export interface ReviewRepository {
     reqId: string,
     input: UpdateReviewPartDecisionRequest,
   ): Promise<Result<ReviewPartDecision>>;
+
+  /**
+   * review内のパーツ判定をまとめて変更する。
+   *
+   * 許す遷移は未判定 → 承認・却下、承認・却下 → 未判定だけ。1 件でも外れたら conflict で全部戻す。
+   * 取り消しは `pending` を送り、返る判定の `status: 'pending'` は未判定と同義。
+   *
+   * 申請全体の状態が `pending` の場合だけ更新できる。`approved`または`rejected`の申請は
+   * 既に処理済みとして`conflict`で拒否する。
+   */
+  updatePartDecisions?(
+    reqId: string,
+    input: UpdateReviewPartDecisionsRequest,
+  ): Promise<Result<ReviewPartDecision[]>>;
 
   /** 承認して実ファイルへ反映する(approver|admin のみ)。反映後メタ + 並行性警告を返す。 */
   approveReview(
