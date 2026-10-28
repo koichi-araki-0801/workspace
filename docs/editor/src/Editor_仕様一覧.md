@@ -1,7 +1,7 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "1.9"
+version: "2.0"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
@@ -12,10 +12,11 @@ rev:
   - 1.6 | 2026-10-08 | パーツカタログの対象版種と分類の英名、パーツ一覧と分類候補の版種による絞り込み（`@版種` と `editionType`）
   - 1.7 | 2026-10-23 | 生成 API を 1 回の作成で両版と組入先を取り込む形へ（GenerateRequest の rep1CompanyCode、GenerateResult の importedIds / skipped、409・400 の条件）
   - 1.8 | 2026-10-23 | 作成タブに基準日の任意入力（画面項目 9、GenerateRequest の baseDate）
-  - 1.9 | 2026-10-28 | 作成タブの基準日の入力を撤去（画面項目 9 と GenerateRequest の baseDate。1.8 で追加したが、画面で選ばせる必要が無く、いつもサーバの既定値＝日本時間の当日・土日は直前の金曜で作るため。画面項目 10 以降を 1 つずつ繰り上げ）。版種を任意にし、選べばその版だけ、選ばなければ作成済み・申請中でない版をすべて作る形へ（繰り上げ後の画面項目 6・9・10、creatable の editionType を任意にして版ごとの状態 editions を返す、GenerateRequest の editionType を任意に、GenerateResult の template? / imported / skipped）。組入先を取り込まない（生成器の出力は output/ に残す）
+  - 1.9 | 2026-10-26 | API 表にパーツ判定（part-decision）を追加して番号を振り直し、最終確定（approve）の編集経路の判定の当て方と 400・409 の条件を記載
+  - 2.0 | 2026-10-28 | 作成タブの基準日の入力を撤去（画面項目 9 と GenerateRequest の baseDate。1.8 で追加したが、画面で選ばせる必要が無く、いつもサーバの既定値＝日本時間の当日・土日は直前の金曜で作るため。画面項目 10 以降を 1 つずつ繰り上げ）。版種を任意にし、選べばその版だけ、選ばなければ作成済み・申請中でない版をすべて作る形へ（繰り上げ後の画面項目 6・9・10、creatable の editionType を任意にして版ごとの状態 editions を返す、GenerateRequest の editionType を任意に、GenerateResult の template? / imported / skipped）。組入先を取り込まない（生成器の出力は output/ に残す）
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 1.9 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 2.0 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -84,12 +85,13 @@ rev:
 | 38 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
 | 39 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
 | 40 | `GET` | `/review-requests/:reqId` | ○ | reqId | ReviewRequest（本体込み） |
-| 41 | `POST` | `/review-requests/:reqId/approve` | approver | ReviewDecisionRequest（comment） | ApproveReviewResult（実ファイル反映 + git コミット。自己承認は拒否） |
-| 42 | `POST` | `/review-requests/:reqId/reject` | approver | ReviewDecisionRequest（comment 必須） | ReviewRequestMeta（rejected） |
-| 43 | `GET` | `/users` | admin | — | User[] |
-| 44 | `POST` | `/users` | admin | CreateUserRequest（username, displayName, role, disabled, mustChangePassword） | 作成結果（一時パスワードは応答 1 回のみ） |
-| 45 | `PATCH` | `/users/:id` | admin | UpdateUserRequest（username, displayName, role, disabled, mustChangePassword） | 更新後 User |
-| 46 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（一時パスワード。要PW変更） |
+| 41 | `POST` | `/review-requests/:reqId/part-decision` | approver | UpdateReviewPartDecisionRequest（partKey = 文書全体での `<アンカー>#<通し番号>`、status = approved / rejected、comment（却下は必須）） | ReviewPartDecision（現在の判定と変更履歴 history。承認待ちの申請だけ。自分の申請は admin を除き判定できない） |
+| 42 | `POST` | `/review-requests/:reqId/approve` | approver | ReviewDecisionRequest（comment） | ApproveReviewResult（実ファイル反映 + git コミット。自己承認は拒否）。作成経路は却下したパーツを Jinja 原文から除いて書く。編集経路は承認画面と同じ差分でパーツ判定を検査し（未判定・本文に無い判定・判定の重複・差分の打ち切りは 400）、却下したパーツだけを申請時点の現行版へ戻して書く。却下があり申請後に現行版の HTML が変わっていれば 409 `REVIEW_BASE_CHANGED`、戻す位置を確かめられなければ 409 `REVIEW_SPLICE_MISMATCH`、比較元の無い古い申請に判定があれば 409 `REVIEW_BASE_MISSING` |
+| 43 | `POST` | `/review-requests/:reqId/reject` | approver | ReviewDecisionRequest（comment 必須） | ReviewRequestMeta（rejected） |
+| 44 | `GET` | `/users` | admin | — | User[] |
+| 45 | `POST` | `/users` | admin | CreateUserRequest（username, displayName, role, disabled, mustChangePassword） | 作成結果（一時パスワードは応答 1 回のみ） |
+| 46 | `PATCH` | `/users/:id` | admin | UpdateUserRequest（username, displayName, role, disabled, mustChangePassword） | 更新後 User |
+| 47 | `POST` | `/users/:id/reset-password` | admin | id | PWリセット結果（一時パスワード。要PW変更） |
 
 認証欄の凡例: 空欄 = 認証不要 ／ Cookie = ログイン済みセッション ／ ○ = ログイン済みなら全ロール ／ editor・approver・admin = そのロール以上（admin は全権）。パスは `/api` プレフィックスを省いて示す。ルートと必要ロールの正典は `server/src/routes/routeGuards.ts` の `ROUTE_POLICY`。
 
