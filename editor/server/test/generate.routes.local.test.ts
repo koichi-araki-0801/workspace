@@ -1,11 +1,11 @@
 // =============================================================================
-// generate.routes.local.test.ts — local モード(AUTH_REQUIRED=false)の生成経路
+// generate.routes.local.test.ts — 無認証モード(AUTH_REQUIRED=false)の生成経路
 // =============================================================================
 // `generate.routes.test.ts` は `AUTH_REQUIRED=true` で「認証済み利用者が確定領域へ
 // 書けないこと」を検証するが、`request.user` を onRequest で必ず注入するため
 // `loginId = request.user?.username ?? 'system'` の `?? 'system'` 側と、
 // `if (config.requireAuth) { ... }` の else 側(pending 書込をしない)を一度も踏まない。
-// web の local モード(localStorage のみ・DB 不達を前提)を模した本ファイルは user 注入を外し、
+// 無認証モード(DB 不達を前提)を模した本ファイルは user 注入を外し、
 // 押した版を返すだけで sproc の `テンプレート` の台帳にも pending にも触れないことを固定する。
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,7 +20,7 @@ process.env.TEMPLATES_DIR = path.join(root, 'data', 'templates');
 process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
 // `HISTORY_DIR` という設定キーは存在しない。作成履歴は `config.logging.dir` 配下へ書かれる
-// (local モードでは呼ばれない想定だが、逸れ先を tmp に固定しておく)。
+// (無認証モードでは呼ばれない想定だが、逸れ先を tmp に固定しておく)。
 process.env.LOG_DIR = path.join(root, 'logs');
 process.env.AUTH_REQUIRED = 'false';
 
@@ -53,7 +53,7 @@ vi.mock('../src/generate/pyTemplate.js', async (importOriginal) => {
   };
 });
 
-describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では sproc の テンプレート にも pending にも触れない', () => {
+describe('POST /api/generate は 無認証モード(AUTH_REQUIRED=false)では sproc の テンプレート にも pending にも触れない', () => {
   let app: FastifyInstance;
   // Rep1 の会社一覧の照合以外で `SP.template` を呼んだ回数だけを数える。注記マスタ適用
   // (`SP.noteMaster` の `取得`)は生成のたび呼ばれる正当な経路なので、ここでは対象外にする。
@@ -77,7 +77,7 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
     const deps = createDeps(sproc, createSessionStub());
     app = Fastify();
     app.setErrorHandler(errorHandler);
-    // `request.user` を注入する onRequest フックは置かない — これが「local モード」の再現で、
+    // `request.user` を注入する onRequest フックは置かない — これが「無認証モード」の再現で、
     // `requireAuth`/`requireEditor` は `config.requireAuth=false` で no-op のまま素通る。
     await app.register(generateRoutes, { deps });
     await app.ready();
@@ -111,7 +111,7 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
     expect(res.json().importedIds).toEqual(['XX01_950037_交付版', 'XX01_950037_全体版']);
     expect(templateCalls).toBe(0);
     // 確定領域(`templatesDir`)へ書かないことは `generate.routes.test.ts` が認証オンで
-    // 主張する。ここは local の非到達(sproc・pending・作成記録)と output/ の後始末だけを見る。
+    // 主張する。ここは無認証モードでの非到達(sproc・pending・作成記録)と output/ の後始末だけを見る。
     expect(fs.readdirSync(pendingDir)).toEqual([]);
     expect(fs.readdirSync(outputDir)).toEqual([]);
     expect(fs.existsSync(path.join(root, 'logs', 'history', 'create.jsonl'))).toBe(false);

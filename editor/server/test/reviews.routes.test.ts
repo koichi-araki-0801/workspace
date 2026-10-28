@@ -362,7 +362,7 @@ d('review workflow (HTTP routes)', () => {
   // モード(user 未設定)を全件可視の admin 扱いにする。onRequest フックは `x-test-user` が
   // 無ければ `req.user` を注入しない(上の各テストと同じ buildApp を使う)ので、ヘッダを
   // 送らないリクエストがそのままこの分岐を踏む。
-  it('user 無し(local モード)の一覧は全件可視の admin 扱い', async () => {
+  it('user 無し(無認証モード)の一覧は全件可視の admin 扱い', async () => {
     const res = await app.inject({ method: 'GET', url: '/review-requests' });
     expect(res.statusCode).toBe(200);
     expect((res.json() as unknown[]).length).toBeGreaterThan(0);
