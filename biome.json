@@ -14,6 +14,7 @@
       "!**/coverage",
       "!**/out",
       "!editor/fixtures",
+      "!editor/web/src/assets/reportTheme.css",
       "!editor/server/openapi/openapi.json",
       "!**/*.tsbuildinfo",
       "!**/*.md",

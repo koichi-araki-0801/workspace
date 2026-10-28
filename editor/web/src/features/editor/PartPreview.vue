@@ -10,14 +10,15 @@
  *
  * 実寸は A4 横幅相当(96dpi ≒ 794px)で組み、ステージ実測幅に合わせて `transform: scale`
  * で縮小する。挿入先 canvas には全ファンド共通テーマの複製 CSS が載るため、プレビューも
- * その正テーマ(`AM01_510037_交付版.css`)1 枚を読めば実物と同じ見た目になる([[editor-tofilled-text-only]])。
+ * その正テーマ(`assets/reportTheme.css`。fixture の正テーマのバイト複製)1 枚を読めば実物と
+ * 同じ見た目になる([[editor-tofilled-text-only]])。
  */
 import { Eye } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+// レポートの正テーマ(全ファンド共通)。クラスの見た目はこの 1 枚で確定する。
+import reportCss from '@/assets/reportTheme.css?raw';
 import { buildPartPreviewDoc } from '@/features/editor/partPreviewDoc';
 import { onFrameHeight, withHeightReporter } from '@/lib/useIframeAutoFit';
-// レポートの正テーマ(全ファンド共通)。クラスの見た目はこの 1 枚で確定する。
-import reportCss from '../../../../fixtures/css/AM01_510037_交付版.css?raw';
 
 const props = defineProps<{ content: string | null }>();
 
