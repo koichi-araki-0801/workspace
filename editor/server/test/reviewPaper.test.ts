@@ -1,22 +1,17 @@
 // =============================================================================
 // reviewPaper.test.ts — 承認タブの左右の紙面の本文(判定・空き枠・番号)
 // =============================================================================
-// 差分は実パーサ(linkedom)で `buildHtmlDiff` に通して作る。linkedom は server の依存で shared には
-// 入っていないので、server の node_modules を相対で指す(server の `linkedomParser.ts` と同じ包み方)。
+// 差分は実パーサ(server の `linkedomParser`)で `buildHtmlDiff` に通して作る。
 
-import { describe, expect, it } from 'vitest';
-import { parseHTML } from '../../server/node_modules/linkedom';
-import { buildHtmlDiff } from '../src/html/reviewDiff/htmlDiff';
-import { type HtmlParser, linkedomDocumentHtml } from '../src/html/reviewDiff/htmlParser';
-import { numberChangedParts } from '../src/html/reviewDiff/partMarks';
 import {
+  buildHtmlDiff,
   buildReviewPaper,
+  numberChangedParts,
   type PaperDecision,
   REVIEW_GHOST_TEXT,
-} from '../src/html/reviewDiff/reviewPaper';
-
-const parse: HtmlParser = (html) =>
-  parseHTML(linkedomDocumentHtml(html)).document as unknown as Document;
+} from '@editor/shared';
+import { describe, expect, it } from 'vitest';
+import { linkedomParser as parse } from '../src/util/linkedomParser.js';
 
 const BREAK = '\n<div class="pagebreak"></div>\n';
 
@@ -115,30 +110,46 @@ describe('buildReviewPaper', () => {
     expect(openTag(left, 'b')).toContain(`data-review-no="${noOf('b#1')}"`);
     expect(openTag(right, 'b')).toContain(`data-review-no="${noOf('b#1')}"`);
     expect(openTag(right, 'a')).not.toContain('data-review-no');
+  });
 
-    // 1 頁目の段落を 2 頁目へ移す。実パーサの差分は内容の違う 2 block に分けるので、
-    // 同じ partKey を持つ削除と追加の対(ページを移ったパーツの形)へ組み替える。
-    const base = buildHtmlDiff(
-      `<p>先頭</p><p>移動する段落</p>${BREAK}<p>末尾</p>`,
-      `<p>先頭</p>${BREAK}<p>末尾</p><p>移動する段落</p>`,
-      parse,
-    );
-    const moved: Diff = {
-      ...base,
-      pages: base.pages.map((pg) => ({
-        ...pg,
-        blocks: pg.blocks.map((blk) =>
-          blk.status === 'added' ? { ...blk, partKey: 'p#2', beforePartKey: 'p#2' } : blk,
-        ),
-      })),
-    };
+  it('ページを移ったパーツは削除と追加が 1 件にまとまり、両面で同じ番号が出る', () => {
+    // 1 頁目の末尾の段落を、そのまま 2 頁目の先頭へ移す(位置が揃うので同じ partKey の対になる)。
+    const moved = buildHtmlDiff(`<p>先頭</p><p>移動</p>`, `<p>先頭</p>${BREAK}<p>移動</p>`, parse);
     const movedParts = numberChangedParts(moved);
     expect(movedParts).toHaveLength(1);
+    expect(movedParts[0].kind).toBe('changed');
     const no = `data-review-no="${movedParts[0].no}"`;
     for (const side of ['before', 'after'] as const) {
       const html = paper({ side, d: moved }).html;
       expect(html.split(no)).toHaveLength(3); // 元の位置と移動先の 2 か所
     }
+  });
+
+  it('位置がずれて対にならない移動は、別々の番号になる', () => {
+    const moved = buildHtmlDiff(
+      `<p>先頭</p><p>移動する段落</p>${BREAK}<p>末尾</p>`,
+      `<p>先頭</p>${BREAK}<p>末尾</p><p>移動する段落</p>`,
+      parse,
+    );
+    const movedParts = numberChangedParts(moved);
+    expect(movedParts.map((p) => p.kind)).toEqual(['removed', 'added']);
+    expect(new Set(movedParts.map((p) => p.no)).size).toBe(2);
+  });
+
+  it('番号を付けても changed / added の要素の id・style などの既存属性は保たれる', () => {
+    const d = buildHtmlDiff(
+      '<p id="x" style="color:red" class="k">旧</p>',
+      '<p id="x" style="color:red" class="k">新</p><div id="y" style="margin:0" title="t">追加</div>',
+      parse,
+    );
+    const html = paper({ side: 'after', d }).html;
+    for (const tag of [openTag(html, 'x'), openTag(html, 'y')]) {
+      expect(tag).toContain('data-review-no=');
+    }
+    expect(openTag(html, 'x')).toContain('style="color:red"');
+    expect(openTag(html, 'x')).toContain('class="k"');
+    expect(openTag(html, 'y')).toContain('style="margin:0"');
+    expect(openTag(html, 'y')).toContain('title="t"');
   });
 
   it('既存の id・style 属性を変えず、空き枠も style 属性を持たない', () => {
