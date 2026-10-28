@@ -170,6 +170,7 @@ export default defineConfig({
         // 「pending だけのテンプレートを編集経路で開いて申請が拒否される」形で出る。
         'editor/web/src/features/templates/editorRoute.ts',
         'editor/web/src/features/templates/viewmodels/templateVm.ts',
+        'editor/web/src/features/templates/viewmodels/createPlan.ts',
         'editor/web/src/features/templates/components/searchGuard.ts',
         'editor/web/src/features/templates/services/templateCreationService.ts',
         'editor/web/src/features/editor/services/templateEditorService.ts',

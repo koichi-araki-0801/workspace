@@ -60,7 +60,7 @@ function mountWith(info: CreatableInfo) {
           css: '',
           filled: '',
         },
-        importedIds: [ID],
+        imported: [{ templateId: ID, editionType: '交付版' }],
         skipped: [],
       }),
     ),
@@ -92,7 +92,10 @@ beforeEach(() => {
 
 describe('CreateTabView', () => {
   it('作成済みなら「既存のテンプレートを開く」で作成経路の編集画面を開き、作成の 2 つは押せない', async () => {
-    const { w, templates } = mountWith({ created: true, templateId: ID, seriesFunds: SERIES });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'created', templateId: ID }],
+      seriesFunds: SERIES,
+    });
     await settle();
     const open = buttonNamed(w, '既存のテンプレートを開く');
     expect(open).toBeDefined();
@@ -108,8 +111,27 @@ describe('CreateTabView', () => {
     expect(templates.generate).not.toHaveBeenCalled();
   });
 
+  it('選んだ版が申請中なら「申請中です」を出し、作成の 2 つは押せない', async () => {
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'pendingReview' }],
+      seriesFunds: SERIES,
+    });
+    await settle();
+    expect(w.text()).toContain(
+      'この会社・ファンド・版種のテンプレートは申請中です。承認か却下を待ってください。',
+    );
+    expect(buttonNamed(w, '属性から新規作成')?.attributes('disabled')).toBeDefined();
+    expect(buttonNamed(w, '既存のシリーズを元に作成')?.attributes('disabled')).toBeDefined();
+    expect(buttonNamed(w, '作成中のテンプレートを開く')).toBeUndefined();
+    expect(buttonNamed(w, '既存のテンプレートを開く')).toBeUndefined();
+    expect(templates.generate).not.toHaveBeenCalled();
+  });
+
   it('作成中なら「作成中のテンプレートを開く」で作成経路の編集画面を開く', async () => {
-    const { w } = mountWith({ created: false, inProgressId: ID, seriesFunds: SERIES });
+    const { w } = mountWith({
+      editions: [{ editionType: '交付版', state: 'inProgress', templateId: ID }],
+      seriesFunds: SERIES,
+    });
     await settle();
     await buttonNamed(w, '作成中のテンプレートを開く')?.trigger('click');
     expect(router.push).toHaveBeenCalledWith({
@@ -122,7 +144,10 @@ describe('CreateTabView', () => {
 
   it('作成中の作り直しは確認し、断れば生成しない', async () => {
     confirmMock.mockResolvedValue(false);
-    const { w, templates } = mountWith({ created: false, inProgressId: ID, seriesFunds: [] });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'inProgress', templateId: ID }],
+      seriesFunds: [],
+    });
     await settle();
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
@@ -133,7 +158,10 @@ describe('CreateTabView', () => {
   });
 
   it('作成中の作り直しに同意すると replaceExisting で生成し、作成経路の編集画面へ進む', async () => {
-    const { w, templates } = mountWith({ created: false, inProgressId: ID, seriesFunds: [] });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'inProgress', templateId: ID }],
+      seriesFunds: [],
+    });
     await settle();
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
@@ -148,7 +176,10 @@ describe('CreateTabView', () => {
   });
 
   it('作り直しの確認文は交付版・全体版の両方を捨てることを伝える', async () => {
-    const { w } = mountWith({ created: false, inProgressId: ID, seriesFunds: [] });
+    const { w } = mountWith({
+      editions: [{ editionType: '交付版', state: 'inProgress', templateId: ID }],
+      seriesFunds: [],
+    });
     await settle();
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
@@ -161,7 +192,10 @@ describe('CreateTabView', () => {
   });
 
   it('生成の要求に Rep1 の会社コードを載せる', async () => {
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'none' }],
+      seriesFunds: [],
+    });
     await settle();
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
@@ -171,7 +205,10 @@ describe('CreateTabView', () => {
   });
 
   it('基準日の入力欄を出さず、要求に baseDate を載せない', async () => {
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'none' }],
+      seriesFunds: [],
+    });
     await settle();
     expect(w.find('input[type="date"]').exists()).toBe(false);
     expect(w.text()).not.toContain('基準日');
@@ -180,28 +217,32 @@ describe('CreateTabView', () => {
     expect(templates.generate.mock.calls[0][0]).not.toHaveProperty('baseDate');
   });
 
-  it('取り込まなかった組入先があれば、飛ばした id を並べて知らせる', async () => {
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+  it.each([
+    ['created' as const, '全体版は作成済みのため飛ばしました'],
+    ['pendingReview' as const, '全体版は申請中のため飛ばしました'],
+  ])('飛ばした版があれば知らせる(%s)', async (reason, message) => {
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'none' }],
+      seriesFunds: [],
+    });
     const first = await templates.generate();
     templates.generate.mockResolvedValueOnce(
       ok({
         ...(first as { value: object }).value,
-        skipped: [
-          { templateId: 'XX01_950003_交付版', reason: 'created' },
-          { templateId: 'XX01_950155_全体版', reason: 'pendingReview' },
-        ],
+        skipped: [{ templateId: 'XX01_950037_全体版', editionType: '全体版', reason }],
       }) as never,
     );
     await settle();
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
-    expect(toastMock).toHaveBeenCalledWith(
-      '組入先の次のテンプレートは既にあるため取り込みませんでした: XX01_950003_交付版、XX01_950155_全体版',
-    );
+    expect(toastMock).toHaveBeenCalledWith(message);
   });
 
-  it('飛ばした組入先が無ければ、その通知は出さない', async () => {
-    const { w } = mountWith({ created: false, seriesFunds: [] });
+  it('飛ばした版が無ければ、その通知は出さない', async () => {
+    const { w } = mountWith({
+      editions: [{ editionType: '交付版', state: 'none' }],
+      seriesFunds: [],
+    });
     await settle();
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
@@ -209,7 +250,10 @@ describe('CreateTabView', () => {
   });
 
   it('作成済みでも作成中でもなければ、確認せずに生成し「開く」ボタンは出ない', async () => {
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'none' }],
+      seriesFunds: [],
+    });
     await settle();
     expect(buttonNamed(w, '既存のテンプレートを開く')).toBeUndefined();
     expect(buttonNamed(w, '作成中のテンプレートを開く')).toBeUndefined();
@@ -223,7 +267,10 @@ describe('CreateTabView', () => {
 
   it('問い合わせ中に属性が欠けたら、前の属性の作成可否が後から届いても反映しない', async () => {
     let release: (v: unknown) => void = () => {};
-    const { w, templates } = mountWith({ created: false, seriesFunds: [] });
+    const { w, templates } = mountWith({
+      editions: [{ editionType: '交付版', state: 'none' }],
+      seriesFunds: [],
+    });
     templates.getCreatableInfo.mockImplementation(
       () =>
         new Promise((resolve) => {
@@ -246,7 +293,7 @@ describe('CreateTabView', () => {
       editionType: undefined,
     });
     await settle();
-    release(ok({ created: false, seriesFunds: SERIES }));
+    release(ok({ editions: [{ editionType: '交付版', state: 'none' }], seriesFunds: SERIES }));
     await settle();
     // 前の属性(510099)のシリーズ候補で「シリーズから作成」カードが現れない。
     expect(buttonNamed(w, '既存のシリーズを元に作成')).toBeUndefined();

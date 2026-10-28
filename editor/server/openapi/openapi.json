@@ -474,7 +474,7 @@
         "tags": [
           "templates"
         ],
-        "summary": "作成タブの作成可否(作成済み・シリーズのコピー元候補)",
+        "summary": "作成タブの作成可否(版ごとの状態・シリーズのコピー元候補)",
         "operationId": "getCreatableInfo",
         "parameters": [
           {
@@ -511,13 +511,12 @@
             "schema": {
               "type": "string",
               "minLength": 1
-            },
-            "required": true
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "作成済みとシリーズのコピー元候補",
+            "description": "版ごとの状態(版種を省けば両版)とシリーズのコピー元候補",
             "content": {
               "application/json": {
                 "schema": {
@@ -780,7 +779,7 @@
         ],
         "summary": "新規テンプレートを生成(Python ジェネレータ)",
         "operationId": "generate",
-        "description": "1 回の作成で、選んだファンドの交付版・全体版と、生成器が一緒に書き出す組入先を取り込む。組入先は、作成済み・承認待ちの作成申請・作業中のどれも無い版だけを取り込み、残りは `skipped` で返す。生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。直後は `GET /templates/{id}` が `status: \"draft\"` で返り、`GET /templates` の一覧には現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認(`POST /review-requests` → `.../approve`)だけが行う。会社コード・ファンドコード・版種は 1 トークンとして安全な文字列に限る(`/` `` `_` `..` 制御文字・前後空白・末尾ドットは 400)。",
+        "description": "1 回の作成で、選んだファンドの作る版を取り込む。版種を選べばその版、選ばなければ作成済み・承認待ちの作成申請のどちらも無い版をすべて作り、飛ばした版は `skipped` で返す。組入先(生成器が一緒に書き出すマザーファンド等)は取り込まない。取り込んだ版が 1 つなら `template` で返し、両版なら返さない(`imported` に両版)。生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。直後は `GET /templates/{id}` が `status: \"draft\"` で返り、`GET /templates` の一覧には現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認(`POST /review-requests` → `.../approve`)だけが行う。会社コード・ファンドコード・版種は 1 トークンとして安全な文字列に限る(`/` `` `_` `..` 制御文字・前後空白・末尾ドットは 400)。",
         "requestBody": {
           "content": {
             "application/json": {
@@ -822,7 +821,7 @@
             }
           },
           "409": {
-            "description": "選んだファンドのどちらかの版が作成済み・申請中、または同意の無い作業中 (kind=conflict)",
+            "description": "選んだ版(版種を選ばなければ両版とも)が作成済みか申請中、または作る版が同意の無い作業中 (kind=conflict)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3070,9 +3069,9 @@
             "minLength": 1
           },
           "editionType": {
+            "description": "作る版(交付版・全体版のどちらか)。省略すると、作成済み・申請中でない版をすべて作る",
             "type": "string",
-            "minLength": 1,
-            "description": "作成後に開く版(交付版・全体版のどちらか)。生成は両版とも行う"
+            "minLength": 1
           },
           "sourceFundCode": {
             "description": "シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)",
@@ -3083,15 +3082,14 @@
             "type": "boolean"
           },
           "replaceExisting": {
-            "description": "選んだファンドの両版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。組入先には効かない",
+            "description": "作る版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。作らない版には効かない",
             "type": "boolean"
           }
         },
         "required": [
           "companyCode",
           "rep1CompanyCode",
-          "fundCode",
-          "editionType"
+          "fundCode"
         ]
       },
       "RecordPartChangeRequest": {
@@ -3707,17 +3705,12 @@
       "CreatableInfo": {
         "type": "object",
         "properties": {
-          "created": {
-            "type": "boolean",
-            "description": "選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)"
-          },
-          "templateId": {
-            "description": "作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く",
-            "type": "string"
-          },
-          "inProgressId": {
-            "description": "作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける",
-            "type": "string"
+          "editions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreatableEditionStatus"
+            },
+            "description": "版ごとの状態。版種を指定すればその版の 1 件、指定しなければ交付版・全体版の順に 2 件"
           },
           "seriesFunds": {
             "type": "array",
@@ -3728,8 +3721,36 @@
           }
         },
         "required": [
-          "created",
+          "editions",
           "seriesFunds"
+        ],
+        "additionalProperties": false
+      },
+      "CreatableEditionStatus": {
+        "type": "object",
+        "properties": {
+          "editionType": {
+            "type": "string",
+            "description": "版種(交付版・全体版)"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "created",
+              "pendingReview",
+              "inProgress"
+            ],
+            "description": "none = 無い / created = templates/ に作成済み(会社_ファンド_版種.html。大文字小文字は区別しない) / pendingReview = 承認待ちの作成申請がある / inProgress = 同じ id の下書きか pending/ がある(作業中。作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける)。作成済みの版の下書きは作業中に数えない"
+          },
+          "templateId": {
+            "description": "created ならテンプレートの id(templates/ のファイルの綴りのまま)、inProgress なら pending を優先し無ければ下書きの id。作成タブの「既存の…を開く」「作成中の…を開く」で開く。none と pendingReview では持たない",
+            "type": "string"
+          }
+        },
+        "required": [
+          "editionType",
+          "state"
         ],
         "additionalProperties": false
       },
@@ -3937,25 +3958,40 @@
           "template": {
             "$ref": "#/components/schemas/Template"
           },
-          "importedIds": {
+          "imported": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/GenerateImported"
             },
-            "description": "取り込んだテンプレートの id(選んだファンドの交付版・全体版、組入先の順)"
+            "description": "取り込んだ版(交付版・全体版の順)"
           },
           "skipped": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/GenerateSkipped"
             },
-            "description": "取り込まなかった組入先"
+            "description": "作成済みか申請中のため作らなかった版"
           }
         },
         "required": [
-          "template",
-          "importedIds",
+          "imported",
           "skipped"
+        ],
+        "additionalProperties": false
+      },
+      "GenerateImported": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string"
+          },
+          "editionType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "editionType"
         ],
         "additionalProperties": false
       },
@@ -3965,18 +4001,21 @@
           "templateId": {
             "type": "string"
           },
+          "editionType": {
+            "type": "string"
+          },
           "reason": {
             "type": "string",
             "enum": [
               "created",
-              "pendingReview",
-              "inProgress"
+              "pendingReview"
             ],
-            "description": "created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある / inProgress: 下書きか pending/ がある"
+            "description": "created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある"
           }
         },
         "required": [
           "templateId",
+          "editionType",
           "reason"
         ],
         "additionalProperties": false

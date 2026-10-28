@@ -29,12 +29,15 @@ export interface TemplateRepository {
   listCompanies(): Promise<Result<CompanyOption[]>>;
   /** 作成タブのファンド(Rep1 の委託会社コードで引く)。 */
   listFunds(rep1CompanyCode: string): Promise<Result<FundOption[]>>;
-  /** 作成タブ Step 2 の素: 作成済みか、シリーズのコピー元候補(テンプレの有無付き)。 */
+  /**
+   * 作成タブ Step 2 の素: 版ごとの作成可否と、シリーズのコピー元候補(テンプレの有無付き)。
+   * `editionType` を省けば両版の状態を返す。
+   */
   getCreatableInfo(q: {
     companyCode: string;
     rep1CompanyCode: string;
     fundCode: string;
-    editionType: string;
+    editionType?: string;
   }): Promise<Result<CreatableInfo>>;
   /** 候補。出所は画面ごとに違う(edit / published。`DropdownScope` を参照)。 */
   getDropdownOptions(query: DropdownQuery, scope: DropdownScope): Promise<Result<DropdownOptions>>;

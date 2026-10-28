@@ -25,14 +25,13 @@ const q = (fundCode: string) => ({
   companyCode: 'XX01',
   rep1CompanyCode: 'R-XX01',
   fundCode,
-  editionType: '交付版',
 });
 
 describe('templateRepo の作成タブ用の問い合わせ', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
 
   beforeAll(async () => {
-    for (const d of ['templates', 'filled', 'pending'])
+    for (const d of ['templates', 'filled', 'pending', 'reviews'])
       fs.mkdirSync(path.join(tmp, d), { recursive: true });
     put('filled', 'xx01_910024_20250101_交付版'); // filled/ にしか無い
     put('templates', 'xx01_950037_交付版'); // 小文字の会社コード
@@ -44,6 +43,24 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     await writeDraft('XX01_950003_交付版', '<p>下書きだけ</p>', '');
     await writeDraft('xx01_950037_交付版', '<p>既存を直している下書き</p>', '');
     await writeDraft('XX01_910024_全体版', '<p>全体版だけの下書き</p>', '');
+    // 950155 の全体版は承認待ちの作成申請(同じ id の pending もある)。
+    await writePending('XX01_950155_全体版', '<p>申請した生成物</p>', '');
+    const { writeReview } = await import('../src/files/reviewFiles.js');
+    await writeReview({
+      id: '11111111-1111-4111-8111-111111111111',
+      templateId: 'XX01_950155_全体版',
+      attributes: { companyCode: 'XX01', fundCode: '950155', editionType: '全体版' },
+      origin: 'create',
+      status: 'pending',
+      submittedBy: 'editor1',
+      submittedAt: new Date().toISOString(),
+      reviewedBy: null,
+      reviewedAt: null,
+      comment: null,
+      baseHash: null,
+      html: '<p>申請</p>',
+      css: '',
+    });
     const { createFakeSproc } = await import('./fakes/sprocFake.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     repo = createTemplateRepo(await createFakeSproc());
@@ -77,51 +94,52 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     expect(await repo.listFunds('R-ZZ99')).toEqual([]);
   });
 
-  it('作成済みは templates/ に 3 つ区切りがあるときだけ立つ(filled/・pending/・旧形式は見ない)', async () => {
-    const created = async (f: string) => (await repo.getCreatableInfo(q(f))).created;
-    expect(await created('950037')).toBe(true); // templates/
-    expect(await created('910024')).toBe(false); // filled/ にしか無い
-    expect(await created('950124')).toBe(false); // pending/ にしか無い
-    expect(await created('950003')).toBe(true); // 交付版は無いが全体版が作成済み(両版で判定する)
-    expect(await created('950155')).toBe(false); // 旧形式だけ
+  const st = async (f: string, e?: string, over: Partial<ReturnType<typeof q>> = {}) =>
+    (await repo.getCreatableInfo({ ...q(f), ...over, ...(e ? { editionType: e } : {}) })).editions;
+
+  it('版種を指定しなければ両版の状態を交付版・全体版の順で返す', async () => {
+    expect(await st('950037')).toEqual([
+      { editionType: '交付版', state: 'created', templateId: 'xx01_950037_交付版' },
+      { editionType: '全体版', state: 'none' },
+    ]);
   });
 
-  it('作成済みは大文字小文字を区別せずに照合し、templateId はファイルの綴りのまま返す', async () => {
-    expect(await repo.getCreatableInfo(q('950037'))).toMatchObject({
-      created: true,
-      templateId: 'xx01_950037_交付版',
-    });
-    expect(await repo.getCreatableInfo(q('950124'))).not.toHaveProperty('templateId');
+  it('作成済みの版の下書きは作業中に数えず、もう片方の版は版ごとに判定する', async () => {
+    expect(await st('950003')).toEqual([
+      { editionType: '交付版', state: 'inProgress', templateId: 'XX01_950003_交付版' },
+      { editionType: '全体版', state: 'created', templateId: 'XX01_950003_全体版' },
+    ]);
   });
 
-  it('押した版が未作成でも、もう片方の版が作成済みなら created で、templateId はその版', async () => {
-    expect(await repo.getCreatableInfo(q('950003'))).toMatchObject({
-      created: true,
-      templateId: 'XX01_950003_全体版',
+  it('作業中は pending を優先し、綴り違いもファイルの綴りのまま返す', async () => {
+    expect((await st('950124', undefined, { companyCode: 'xx01' }))[0]).toEqual({
+      editionType: '交付版',
+      state: 'inProgress',
+      templateId: 'XX01_950124_交付版',
     });
-    // 両方あれば押した版を優先する。
-    expect(await repo.getCreatableInfo({ ...q('950037'), editionType: '全体版' })).toMatchObject({
-      created: true,
-      templateId: 'xx01_950037_交付版',
+    expect((await st('910024'))[1]).toEqual({
+      editionType: '全体版',
+      state: 'inProgress',
+      templateId: 'XX01_910024_全体版',
     });
   });
 
-  it('作業中(同じ id の pending か下書き)なら inProgressId を返す。作成済みなら返さない', async () => {
-    expect(await repo.getCreatableInfo(q('950124'))).toMatchObject({
-      created: false,
-      inProgressId: 'XX01_950124_交付版', // pending
-    });
-    // 全体版の下書きだけでも、交付版を押した画面の作成中になる(両版で判定する)。
-    expect(await repo.getCreatableInfo(q('910024'))).toMatchObject({
-      created: false,
-      inProgressId: 'XX01_910024_全体版',
-    });
-    // 会社コードの綴りが違っても見つけ、id はファイルの綴りのまま返す(そのまま開ける)。
-    expect(await repo.getCreatableInfo({ ...q('950124'), companyCode: 'xx01' })).toMatchObject({
-      inProgressId: 'XX01_950124_交付版',
-    });
-    expect(await repo.getCreatableInfo(q('950037'))).not.toHaveProperty('inProgressId');
-    expect(await repo.getCreatableInfo(q('950155'))).not.toHaveProperty('inProgressId');
+  it('承認待ちの作成申請は pending があっても pendingReview で、templateId を持たない', async () => {
+    expect(await st('950155')).toEqual([
+      { editionType: '交付版', state: 'none' },
+      { editionType: '全体版', state: 'pendingReview' },
+    ]);
+  });
+
+  it('filled/・旧形式(4 つ区切り)は作成済みに数えない', async () => {
+    expect((await st('910024'))[0]).toEqual({ editionType: '交付版', state: 'none' });
+    expect((await st('950155'))[0]).toEqual({ editionType: '交付版', state: 'none' });
+  });
+
+  it('版種を指定すればその版の 1 件だけを返す', async () => {
+    expect(await st('950003', '全体版')).toEqual([
+      { editionType: '全体版', state: 'created', templateId: 'XX01_950003_全体版' },
+    ]);
   });
 
   it('シリーズの他ファンドをコピー元候補にし、自分は含めず、テンプレの有無を付ける', async () => {
@@ -137,8 +155,11 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     const extra = path.join(tmp, 'templates', 'XX01_950037_全体版.html');
     fs.writeFileSync(extra, '<p>x</p>', 'utf8');
     try {
-      for (const editionType of ['交付版', '全体版']) {
-        const info = await repo.getCreatableInfo({ ...q('950155'), editionType });
+      for (const editionType of ['交付版', '全体版', undefined]) {
+        const info = await repo.getCreatableInfo({
+          ...q('950155'),
+          ...(editionType ? { editionType } : {}),
+        });
         expect(info.seriesFunds.find((f) => f.fundCode === '950037')?.hasTemplate).toBe(true);
       }
     } finally {
@@ -157,6 +178,12 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
       return [];
     });
     const info = await createTemplateRepo(sproc).getCreatableInfo(q('777777'));
-    expect(info).toEqual({ created: false, seriesFunds: [] });
+    expect(info).toEqual({
+      editions: [
+        { editionType: '交付版', state: 'none' },
+        { editionType: '全体版', state: 'none' },
+      ],
+      seriesFunds: [],
+    });
   });
 });

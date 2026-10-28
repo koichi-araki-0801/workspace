@@ -6,6 +6,7 @@ import {
   type CreatableInfo,
   err,
   type FundOption,
+  type GenerateImported,
   type GenerateRequest,
   type GenerateSkipped,
   isOk,
@@ -32,10 +33,14 @@ interface TemplateCreationService {
     q: Parameters<TemplateRepository['getCreatableInfo']>[0],
   ): Promise<Result<CreatableInfo>>;
   /**
-   * 属性を検証してから生成する(交付版と全体版を 1 組で取り込む)。成功時は押した版の meta と、
-   * 既にあるため取り込まなかった組入先を返す。
+   * 属性を検証してから生成する。成功時は、取り込んだ版が 1 つならその meta(両版なら null)と、
+   * 取り込んだ版・作成済みか申請中のため飛ばした版を返す。
    */
-  create(req: GenerateRequest): Promise<Result<{ meta: TemplateMeta; skipped: GenerateSkipped[] }>>;
+  create(
+    req: GenerateRequest,
+  ): Promise<
+    Result<{ meta: TemplateMeta | null; imported: GenerateImported[]; skipped: GenerateSkipped[] }>
+  >;
 }
 
 /**
@@ -59,12 +64,16 @@ export function createTemplateCreationService(
       }
       const res = await repo.generate(req);
       if (isOk(res)) {
-        // 1 回の作成は両版と組入先をまとめて置き換えるので、開いた版だけでなく取り込んだ全 id の
-        // 前の編集状態を捨てる(同じタブで別の版を開いたとき古い Undo が戻らないように)。
-        const ids = new Set([res.value.template.meta.id, ...res.value.importedIds]);
+        // 1 回の作成は作る版をまとめて置き換えるので、取り込んだ全 id の前の編集状態を捨てる
+        // (同じタブで別の版を開いたとき古い Undo が戻らないように)。
+        const ids = new Set(res.value.imported.map((i) => i.templateId));
         for (const id of ids) forgetEditState(id);
       }
-      return map(res, (r) => ({ meta: r.template.meta, skipped: r.skipped }));
+      return map(res, (r) => ({
+        meta: r.template?.meta ?? null,
+        imported: r.imported,
+        skipped: r.skipped,
+      }));
     },
     listCompanies: () => repo.listCompanies(),
     listFunds: (rep1CompanyCode) => repo.listFunds(rep1CompanyCode),

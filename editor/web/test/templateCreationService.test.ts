@@ -24,7 +24,11 @@ const meta: TemplateMeta = {
 
 function repoWithGenerate() {
   const generate = vi.fn(async () =>
-    ok({ template: { meta, html: '', css: '' }, importedIds: [meta.id], skipped: [] }),
+    ok({
+      template: { meta, html: '', css: '' },
+      imported: [{ templateId: meta.id, editionType: '交付版' }],
+      skipped: [],
+    }),
   );
   return { generate } as unknown as TemplateRepository & { generate: typeof generate };
 }
@@ -47,15 +51,27 @@ describe('TemplateCreationService.create', () => {
     const svc = createTemplateCreationService(repo);
     const res = await svc.create({ companyCode: 'XX01', fundCode: '950037', editionType: 'kr' });
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value).toEqual({ meta, skipped: [] });
+    if (isOk(res)) {
+      expect(res.value).toEqual({
+        meta,
+        imported: [{ templateId: meta.id, editionType: '交付版' }],
+        skipped: [],
+      });
+    }
     expect(repo.generate).toHaveBeenCalledOnce();
   });
 
-  it('取り込まなかった組入先(skipped)をそのまま返す', async () => {
+  it('飛ばした版(skipped)をそのまま返す', async () => {
     const repo = repoWithGenerate();
-    const skipped = [{ templateId: 'XX01_950003_交付版', reason: 'created' as const }];
+    const skipped = [
+      { templateId: 'XX01_950037_全体版', editionType: '全体版', reason: 'created' as const },
+    ];
     repo.generate.mockResolvedValueOnce(
-      ok({ template: { meta, html: '', css: '' }, importedIds: [meta.id], skipped }) as never,
+      ok({
+        template: { meta, html: '', css: '' },
+        imported: [{ templateId: meta.id, editionType: '交付版' }],
+        skipped,
+      }) as never,
     );
     const res = await createTemplateCreationService(repo).create({
       companyCode: 'XX01',
@@ -77,12 +93,15 @@ describe('TemplateCreationService.create', () => {
     expect(forget).not.toHaveBeenCalled();
   });
 
-  it('1 回の作成で取り込んだ全 id(両版と組入先)の編集状態を、重複なく捨てる', async () => {
+  it('取り込んだ全 id の編集状態を、重複なく捨てる', async () => {
     const repo = repoWithGenerate();
     repo.generate.mockResolvedValueOnce(
       ok({
         template: { meta, html: '', css: '' },
-        importedIds: [meta.id, 'XX01_950037_全体版', 'XX01_999000_交付版', meta.id],
+        imported: [
+          { templateId: meta.id, editionType: '交付版' },
+          { templateId: 'XX01_950037_全体版', editionType: '全体版' },
+        ],
         skipped: [],
       }) as never,
     );
@@ -93,7 +112,26 @@ describe('TemplateCreationService.create', () => {
       editionType: 'kr',
     });
     expect(forget.mock.calls.map((c) => c[0]).sort()).toEqual(
-      [meta.id, 'XX01_950037_全体版', 'XX01_999000_交付版'].sort(),
+      [meta.id, 'XX01_950037_全体版'].sort(),
+    );
+  });
+
+  it('template が無ければ meta は null で、imported の全 id の編集状態を捨てる', async () => {
+    const repo = repoWithGenerate();
+    const imported = [
+      { templateId: 'XX01_950037_交付版', editionType: '交付版' },
+      { templateId: 'XX01_950037_全体版', editionType: '全体版' },
+    ];
+    repo.generate.mockResolvedValueOnce(ok({ imported, skipped: [] }) as never);
+    const forget = vi.fn();
+    const res = await createTemplateCreationService(repo, forget).create({
+      companyCode: 'XX01',
+      fundCode: '950037',
+      editionType: 'kr',
+    });
+    expect(isOk(res) && res.value).toEqual({ meta: null, imported, skipped: [] });
+    expect(forget.mock.calls.map((c) => c[0]).sort()).toEqual(
+      ['XX01_950037_交付版', 'XX01_950037_全体版'].sort(),
     );
   });
 });
@@ -118,7 +156,8 @@ describe('TemplateCreationService の作成タブ用の問い合わせ', () => {
   });
 
   it('getCreatableInfo は repo へそのまま委譲する', async () => {
-    const getCreatableInfo = vi.fn(async () => ok({ created: true, seriesFunds: [] }));
+    const info = { editions: [{ editionType: '交付版', state: 'none' as const }], seriesFunds: [] };
+    const getCreatableInfo = vi.fn(async () => ok(info));
     const svc = createTemplateCreationService({
       getCreatableInfo,
     } as unknown as TemplateRepository);
@@ -129,7 +168,7 @@ describe('TemplateCreationService の作成タブ用の問い合わせ', () => {
       editionType: '交付版',
     };
     const res = await svc.getCreatableInfo(q);
-    expect(isOk(res) && res.value.created).toBe(true);
+    expect(isOk(res) && res.value).toEqual(info);
     expect(getCreatableInfo).toHaveBeenCalledWith(q);
   });
 });

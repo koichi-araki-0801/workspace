@@ -321,11 +321,11 @@ export function buildOpenApiDocument() {
       '/templates/creatable': {
         get: {
           tags: ['templates'],
-          summary: '作成タブの作成可否(作成済み・シリーズのコピー元候補)',
+          summary: '作成タブの作成可否(版ごとの状態・シリーズのコピー元候補)',
           operationId: 'getCreatableInfo',
           requestParams: { query: s.CreatableQuery },
           responses: {
-            '200': json('作成済みとシリーズのコピー元候補', s.CreatableInfo),
+            '200': json('版ごとの状態(版種を省けば両版)とシリーズのコピー元候補', s.CreatableInfo),
             ...ERR_400,
             ...ERR_401,
           },
@@ -386,9 +386,10 @@ export function buildOpenApiDocument() {
           summary: '新規テンプレートを生成(Python ジェネレータ)',
           operationId: 'generate',
           description: [
-            '1 回の作成で、選んだファンドの交付版・全体版と、生成器が一緒に書き出す組入先を取り込む。',
-            '組入先は、作成済み・承認待ちの作成申請・作業中のどれも無い版だけを取り込み、',
-            '残りは `skipped` で返す。',
+            '1 回の作成で、選んだファンドの作る版を取り込む。版種を選べばその版、選ばなければ',
+            '作成済み・承認待ちの作成申請のどちらも無い版をすべて作り、飛ばした版は `skipped` で返す。',
+            '組入先(生成器が一緒に書き出すマザーファンド等)は取り込まない。',
+            '取り込んだ版が 1 つなら `template` で返し、両版なら返さない(`imported` に両版)。',
             '生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。',
             '直後は `GET /templates/{id}` が `status: "draft"` で返り、`GET /templates` の一覧には',
             '現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認',
@@ -402,7 +403,7 @@ export function buildOpenApiDocument() {
             ...ERR_400,
             ...ERR_401,
             '409': err(
-              '選んだファンドのどちらかの版が作成済み・申請中、または同意の無い作業中 (kind=conflict)',
+              '選んだ版(版種を選ばなければ両版とも)が作成済みか申請中、または作る版が同意の無い作業中 (kind=conflict)',
             ),
             ...ERR_500,
           },

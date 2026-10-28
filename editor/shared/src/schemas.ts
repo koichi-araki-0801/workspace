@@ -827,24 +827,32 @@ export const SeriesFundOption = FundOption.extend({
   }),
 }).meta({ id: 'SeriesFundOption' });
 
-export const CreatableInfo = z
+export const CreatableEditionStatus = z
   .object({
-    created: z.boolean().meta({
+    editionType: z.string().meta({ description: '版種(交付版・全体版)' }),
+    state: z.enum(['none', 'created', 'pendingReview', 'inProgress']).meta({
       description:
-        '選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)',
+        'none = 無い / created = templates/ に作成済み(会社_ファンド_版種.html。大文字小文字は区別しない) / ' +
+        'pendingReview = 承認待ちの作成申請がある / inProgress = 同じ id の下書きか pending/ がある(作業中。' +
+        '作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける)。作成済みの版の下書きは作業中に数えない',
     }),
-    templateId: z.string().optional().meta({
-      description:
-        '作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く',
-    }),
-    inProgressId: z
+    templateId: z
       .string()
       .optional()
       .meta({
         description:
-          '作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。' +
-          '作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける',
+          'created ならテンプレートの id(templates/ のファイルの綴りのまま)、inProgress なら pending を優先し' +
+          '無ければ下書きの id。作成タブの「既存の…を開く」「作成中の…を開く」で開く。none と pendingReview では持たない',
       }),
+  })
+  .meta({ id: 'CreatableEditionStatus' });
+
+export const CreatableInfo = z
+  .object({
+    editions: z.array(CreatableEditionStatus).meta({
+      description:
+        '版ごとの状態。版種を指定すればその版の 1 件、指定しなければ交付版・全体版の順に 2 件',
+    }),
     seriesFunds: z
       .array(SeriesFundOption)
       .meta({ description: '同じシリーズの他のファンド(シリーズから作成のコピー元候補)' }),
@@ -857,7 +865,7 @@ export const CreatableQuery = z.object({
   companyCode: z.string().min(1),
   rep1CompanyCode: utf16Max(32, '委託会社コード').min(1),
   fundCode: z.string().min(1),
-  editionType: z.string().min(1),
+  editionType: z.string().min(1).optional(),
 });
 
 /**
@@ -872,10 +880,10 @@ export const GenerateRequest = z
         'Rep1 の委託会社コード。サーバは companyCode と同じ会社の組であることを Rep1 で確かめてから生成器へ渡す',
     }),
     fundCode: z.string().min(1),
-    editionType: z
-      .string()
-      .min(1)
-      .meta({ description: '作成後に開く版(交付版・全体版のどちらか)。生成は両版とも行う' }),
+    editionType: z.string().min(1).optional().meta({
+      description:
+        '作る版(交付版・全体版のどちらか)。省略すると、作成済み・申請中でない版をすべて作る',
+    }),
     sourceFundCode: z.string().optional().meta({
       description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)',
     }),
@@ -888,32 +896,37 @@ export const GenerateRequest = z
       .optional()
       .meta({
         description:
-          '選んだファンドの両版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。' +
-          '組入先には効かない',
+          '作る版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。' +
+          '作らない版には効かない',
       }),
   })
   .meta({ id: 'GenerateRequest' });
 
-/** 生成器が書いたが取り込まなかった組入先の 1 版。別のファンドから作られた作業を消さないため。 */
+/** 版種を選ばない作成で、作成済みか申請中のため作らなかった版。生成器の出力は output/ に残す。 */
 export const GenerateSkipped = z
   .object({
     templateId: z.string(),
-    reason: z.enum(['created', 'pendingReview', 'inProgress']).meta({
-      description:
-        'created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある / ' +
-        'inProgress: 下書きか pending/ がある',
+    editionType: z.string(),
+    reason: z.enum(['created', 'pendingReview']).meta({
+      description: 'created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある',
     }),
   })
   .meta({ id: 'GenerateSkipped' });
 
-/** 生成の結果。`template` は作成後に開く版(`GenerateRequest.editionType`)。 */
+/** 取り込んだ 1 版。 */
+export const GenerateImported = z
+  .object({ templateId: z.string(), editionType: z.string() })
+  .meta({ id: 'GenerateImported' });
+
+/**
+ * 生成の結果。`template` は取り込んだ版がちょうど 1 つのときだけ返す(その版を開く)。両版を
+ * 取り込んだときは返さず、画面はどちらを開くかを選ばせる。組入先は取り込まない。
+ */
 export const GenerateResult = z
   .object({
-    template: Template,
-    importedIds: z.array(z.string()).meta({
-      description: '取り込んだテンプレートの id(選んだファンドの交付版・全体版、組入先の順)',
-    }),
-    skipped: z.array(GenerateSkipped).meta({ description: '取り込まなかった組入先' }),
+    template: Template.optional(),
+    imported: z.array(GenerateImported).meta({ description: '取り込んだ版(交付版・全体版の順)' }),
+    skipped: z.array(GenerateSkipped).meta({ description: '作成済みか申請中のため作らなかった版' }),
   })
   .meta({ id: 'GenerateResult' });
 

@@ -8,11 +8,12 @@ import {
   assertAnyTemplateId,
   buildSampleData,
   type CompanyOption,
+  CREATABLE_EDITIONS,
+  type CreatableEditionStatus,
   type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
-  EDITION_SYNC_PAIRS,
   type FundMaster,
   type FundOption,
   notFound,
@@ -32,6 +33,7 @@ import { SP } from '../db/sprocNames.js';
 import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
 import { findInProgressIds } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
+import { hasPendingCreateReview } from '../files/reviewFiles.js';
 import {
   filledExists,
   findTemplateId,
@@ -131,7 +133,7 @@ export interface TemplateRepo {
     companyCode: string;
     rep1CompanyCode: string;
     fundCode: string;
-    editionType: string;
+    editionType?: string;
   }): Promise<CreatableInfo>;
 }
 
@@ -191,41 +193,40 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     listFunds,
 
     /**
-     * 作成タブ Step 2 の素。作成済み・作業中・コピー元の有無はファイルで、シリーズは Rep1 の会社コードで
-     * 引き、名称はファンド一覧から付ける。
+     * 作成タブ Step 2 の素。版ごとの作成済み・申請中・作業中とコピー元の有無はファイルで、シリーズは
+     * Rep1 の会社コードで引き、名称はファンド一覧から付ける。
      */
     async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
       // テンプレートは基準日で使い回さないので、テンプレートフォルダ(templates/)に 3 つ区切りの
       // ファイルがあるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
-      // 作成は交付版と全体版を 1 組で取り込むので、作成済み・作業中は両版のどちらかで決める
-      // (押した版を優先し、無ければもう片方の版)。
+      // 判定は版ごと。優先は 作成済み > 申請中 > 作業中 > 無し(作成済みの版の下書きは作り直しの
+      // 対象ではないので作業中に数えない)。
       const files = await listTemplateFiles();
-      const editions = [editionType, EDITION_SYNC_PAIRS[editionType]].filter(
-        (e): e is string => typeof e === 'string',
-      );
-      const templateId =
-        editions
-          .map((e) => findTemplateId(files, companyCode, fundCode, e))
-          .find((t) => t !== null) ?? null;
-      const created = templateId !== null;
-      // 作業中は、どちらの版も作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している
-      // 下書きは作り直しの対象ではない(画面は「既存のテンプレートを開く」だけを出す)。
-      // 綴り違いも見つけ、id はファイルの綴りのまま返す(pending を優先。無ければ下書き)。
-      let inProgressId: string | undefined;
-      if (!created) {
-        for (const e of editions) {
-          const id = templateIdFromFileName(
-            skeletonFileName({ companyCode, fundCode, editionType: e }),
-          );
-          const found = await findInProgressIds(id);
-          inProgressId = found.pending[0] ?? found.drafts[0];
-          if (inProgressId !== undefined) break;
+      const asked = editionType === undefined ? [...CREATABLE_EDITIONS] : [editionType];
+      const editions: CreatableEditionStatus[] = [];
+      for (const e of asked) {
+        const templateId = findTemplateId(files, companyCode, fundCode, e);
+        if (templateId !== null) {
+          editions.push({ editionType: e, state: 'created', templateId });
+          continue;
         }
+        // 申請中と作業中は要求の綴りで問う。作業中は綴り違いも見つけ、id はファイルの綴りのまま
+        // 返す(pending を優先。無ければ下書き)。
+        const id = templateIdFromFileName(
+          skeletonFileName({ companyCode, fundCode, editionType: e }),
+        );
+        if (await hasPendingCreateReview(id)) {
+          editions.push({ editionType: e, state: 'pendingReview' });
+          continue;
+        }
+        const found = await findInProgressIds(id);
+        const inProgressId = found.pending[0] ?? found.drafts[0];
+        editions.push(
+          inProgressId === undefined
+            ? { editionType: e, state: 'none' }
+            : { editionType: e, state: 'inProgress', templateId: inProgressId },
+        );
       }
-      const extra = {
-        ...(templateId === null ? {} : { templateId }),
-        ...(inProgressId === undefined ? {} : { inProgressId }),
-      };
       const seriesRows = await sproc.callSproc(SP.series, '一覧', [
         p('委託会社コード', rep1CompanyCode),
       ]);
@@ -233,7 +234,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
       );
       const series = seriesOf.get(fundCode) ?? null;
-      if (!series) return { created, ...extra, seriesFunds: [] };
+      if (!series) return { editions, seriesFunds: [] };
       const names = new Map(
         (await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]),
       );
@@ -243,10 +244,12 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
           fundCode: code,
           fundName: names.get(code) ?? '',
           // 生成は選んだファンドの両版をコピーするので、コピー元は両版がそろっている必要がある。
-          hasTemplate: editions.every((e) => findTemplateId(files, companyCode, code, e) !== null),
+          hasTemplate: CREATABLE_EDITIONS.every(
+            (e) => findTemplateId(files, companyCode, code, e) !== null,
+          ),
         }))
         .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
-      return { created, ...extra, seriesFunds };
+      return { editions, seriesFunds };
     },
 
     /**
@@ -263,7 +266,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      * Jinja)は一覧に出さない — 値入り HTML が無いテンプレを編集して申請する事故を防ぐため。
      *
      * 基準日を持たないテンプレート(作成タブの生成物)は出さない。生成直後の作業中のものは
-     * 作成タブの「作成中のテンプレートを開く」(`CreatableInfo.inProgressId`)から開ける。
+     * 作成タブの「作成中のテンプレートを開く」(`CreatableInfo.editions` の inProgress)から開ける。
      *
      * 未承認の内容を扱ってはいけない画面(比較タブ・結合 PDF)は**呼び出し側**で
      * `status === 'published'` に絞る。一覧側で落とすと、承認前の `pending/` へ編集タブから戻れなくなる。

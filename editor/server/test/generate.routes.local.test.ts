@@ -34,10 +34,18 @@ vi.mock('../src/generate/pyTemplate.js', async (importOriginal) => {
   const path = await import('node:path');
   return {
     ...(await importOriginal<typeof import('../src/generate/pyTemplate.js')>()),
-    generateTemplates: async (attrs: { companyCode: string; fundCode: string }) => {
+    // 本物と同じく、要求した版を先頭に並べる。
+    generateTemplates: async (
+      attrs: { companyCode: string; fundCode: string },
+      _baseDate: string,
+      required: readonly string[] = ['交付版', '全体版'],
+    ) => {
       const dir = path.join(process.env.DATA_ROOT ?? '', '..', 'output');
       fs.mkdirSync(dir, { recursive: true });
-      return ['交付版', '全体版'].map((editionType) => {
+      const order = ['交付版', '全体版'].sort(
+        (a, b) => Number(!required.includes(a)) - Number(!required.includes(b)),
+      );
+      return order.map((editionType) => {
         const fileName = `${attrs.companyCode}_${attrs.fundCode}_${editionType}.html`;
         const html = `<html><body><p>生成物 ${editionType}</p></body></html>`;
         const file = path.join(dir, fileName);
@@ -94,7 +102,7 @@ describe('POST /api/generate は 無認証モード(AUTH_REQUIRED=false)では s
     }
   });
 
-  it('押した版を返し、取り込んだファイルを output/ から消し、pending も作成記録も作らない', async () => {
+  it('選んだ版を返し、取り込んだ版と選ばなかった版の出力を output/ から消し、pending も作成記録も作らない', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/generate',
@@ -108,7 +116,9 @@ describe('POST /api/generate は 無認証モード(AUTH_REQUIRED=false)では s
     expect(res.statusCode).toBe(200);
     expect(res.json().template.meta.id).toBe('XX01_950037_全体版');
     expect(res.json().template.html).toContain('生成物 全体版');
-    expect(res.json().importedIds).toEqual(['XX01_950037_交付版', 'XX01_950037_全体版']);
+    expect(res.json().imported).toEqual([
+      { templateId: 'XX01_950037_全体版', editionType: '全体版' },
+    ]);
     expect(templateCalls).toBe(0);
     // 確定領域(`templatesDir`)へ書かないことは `generate.routes.test.ts` が認証オンで
     // 主張する。ここは無認証モードでの非到達(sproc・pending・作成記録)と output/ の後始末だけを見る。

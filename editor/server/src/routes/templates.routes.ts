@@ -68,7 +68,10 @@ export const templatesRoutes: FastifyPluginAsync<{
         companyCode: assertTemplateAttributeToken('会社コード', q.companyCode),
         rep1CompanyCode: q.rep1CompanyCode,
         fundCode: assertTemplateAttributeToken('ファンドコード', q.fundCode),
-        editionType: assertTemplateAttributeToken('版種', q.editionType),
+        // 版種は省ける(省けば両版の状態を返す)。
+        ...(q.editionType === undefined
+          ? {}
+          : { editionType: assertTemplateAttributeToken('版種', q.editionType) }),
       });
     },
   );

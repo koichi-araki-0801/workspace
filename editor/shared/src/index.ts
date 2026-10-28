@@ -205,11 +205,13 @@ export type PartClassificationOptions = z.infer<typeof sch.PartClassificationOpt
 export type CompanyOption = z.infer<typeof sch.CompanyOption>;
 export type FundOption = z.infer<typeof sch.FundOption>;
 export type SeriesFundOption = z.infer<typeof sch.SeriesFundOption>;
+export type CreatableEditionStatus = z.infer<typeof sch.CreatableEditionStatus>;
 export type CreatableInfo = z.infer<typeof sch.CreatableInfo>;
 
 export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
 
 export type GenerateSkipped = z.infer<typeof sch.GenerateSkipped>;
+export type GenerateImported = z.infer<typeof sch.GenerateImported>;
 
 export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 

@@ -157,9 +157,9 @@ describe('templates.routes', () => {
     expect(res.json().map((f: { fundCode: string }) => f.fundCode)).toContain('950037');
   });
 
-  it('GET /templates/creatable: 4 つのどれかが欠けたら 400、そろえば作成済みを返す', async () => {
+  it('GET /templates/creatable: 会社・Rep1・ファンドのどれかが欠けたら 400、版種は省ける', async () => {
     const base = `companyCode=XX01&rep1CompanyCode=R-XX01&fundCode=950037&editionType=${encodeURIComponent('交付版')}`;
-    for (const drop of ['companyCode', 'rep1CompanyCode', 'fundCode', 'editionType']) {
+    for (const drop of ['companyCode', 'rep1CompanyCode', 'fundCode']) {
       const query = base
         .split('&')
         .filter((kv) => !kv.startsWith(`${drop}=`))
@@ -171,14 +171,22 @@ describe('templates.routes', () => {
       });
       expect(res.statusCode).toBe(400);
     }
-    // 作成済みは templates/ にあるときだけ。filled/ にしか無い間は false。
+    // 版種を省けば両版の状態を返す。
+    const both = await app.inject({
+      method: 'GET',
+      url: '/templates/creatable?companyCode=XX01&rep1CompanyCode=R-XX01&fundCode=950037',
+      headers: as('editor'),
+    });
+    expect(both.statusCode).toBe(200);
+    expect(both.json().editions).toHaveLength(2);
+    // 作成済みは templates/ にあるときだけ。filled/ にしか無い間は none。
     const before = await app.inject({
       method: 'GET',
       url: `/templates/creatable?${base}`,
       headers: as('editor'),
     });
     expect(before.statusCode).toBe(200);
-    expect(before.json()).toMatchObject({ created: false });
+    expect(before.json().editions[0].state).toBe('none');
     // 作成済みは templates/ に 3 つ区切りがあるときだけ。旧形式(4 つ区切り)は数えない。
     fs.writeFileSync(
       path.join(root, 'data', 'templates', 'XX01_950037_20200101_交付版.html'),
@@ -190,7 +198,7 @@ describe('templates.routes', () => {
       url: `/templates/creatable?${base}`,
       headers: as('editor'),
     });
-    expect(legacy.json()).toMatchObject({ created: false });
+    expect(legacy.json().editions[0].state).toBe('none');
     fs.writeFileSync(
       path.join(root, 'data', 'templates', 'XX01_950037_交付版.html'),
       '<p>{{ a }}</p>',
@@ -201,7 +209,11 @@ describe('templates.routes', () => {
       url: `/templates/creatable?${base}`,
       headers: as('editor'),
     });
-    expect(res.json()).toMatchObject({ created: true, templateId: 'XX01_950037_交付版' });
+    expect(res.json().editions[0]).toEqual({
+      editionType: '交付版',
+      state: 'created',
+      templateId: 'XX01_950037_交付版',
+    });
   });
 
   it('GET /templates/creatable: ファイル名のトークンとして不正な会社コードは 400', async () => {

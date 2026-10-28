@@ -87,12 +87,22 @@ function writeOutput(companyCode: string, fundCode: string, editionType: string)
   return { fileName, attributes: { companyCode, fundCode, editionType }, html, path: file };
 }
 
-async function fakeGenerate(attrs: GenerateAttributes): Promise<GeneratedFile[]> {
-  const files: GeneratedFile[] = [];
-  for (const fund of [attrs.fundCode, ...state.extraFunds]) {
-    for (const e of EDITIONS) files.push(writeOutput(attrs.companyCode, fund, e));
+// 本物の `generateTemplates` と同じく、要求した版(`required`)を先頭に、残りを後ろへ並べる。
+async function fakeGenerate(
+  attrs: GenerateAttributes,
+  _baseDate?: string,
+  required: readonly string[] = EDITIONS,
+): Promise<GeneratedFile[]> {
+  const head = EDITIONS.filter((e) => required.includes(e)).map((e) =>
+    writeOutput(attrs.companyCode, attrs.fundCode, e),
+  );
+  const rest = EDITIONS.filter((e) => !required.includes(e)).map((e) =>
+    writeOutput(attrs.companyCode, attrs.fundCode, e),
+  );
+  for (const fund of state.extraFunds) {
+    for (const e of EDITIONS) rest.push(writeOutput(attrs.companyCode, fund, e));
   }
-  return files;
+  return [...head, ...rest];
 }
 
 let templateCalls = 0;
@@ -214,6 +224,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     fundCode: '950037',
     editionType: '交付版',
   };
+  const bothBody = { companyCode: 'XX01', rep1CompanyCode: 'R-XX01', fundCode: '950037' };
 
   const pendingHtml = (id: string) => fs.readFileSync(path.join(pendingDir, `${id}.html`), 'utf8');
   const createHistory = () =>
@@ -235,15 +246,30 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(fs.readdirSync(templatesDir)).toEqual([]);
   });
 
-  it('両版を pending に書き、応答は押した版を開き、importedIds に両版', async () => {
-    const res = await generate({ ...validBody, editionType: '全体版' });
+  it('版種を選ばなければ両版を pending に書き、template を返さず imported に両版', async () => {
+    const res = await generate(bothBody);
     expect(res.statusCode).toBe(200);
     expect(pendingHtml(ID)).toContain('生成物 950037 交付版');
     expect(pendingHtml(ZENTAI)).toContain('生成物 950037 全体版');
+    expect(res.json()).not.toHaveProperty('template');
+    expect(res.json().imported).toEqual([
+      { templateId: ID, editionType: '交付版' },
+      { templateId: ZENTAI, editionType: '全体版' },
+    ]);
+    expect(res.json().skipped).toEqual([]);
+    expect(generateMock.mock.calls[0][2]).toEqual(['交付版', '全体版']);
+  });
+
+  it('全体版を選べば全体版だけを pending に書き、template はその版で、交付版の出力は output/ から消す', async () => {
+    const res = await generate({ ...validBody, editionType: '全体版' });
+    expect(res.statusCode).toBe(200);
+    expect(fs.existsSync(path.join(pendingDir, `${ID}.html`))).toBe(false);
+    expect(pendingHtml(ZENTAI)).toContain('生成物 950037 全体版');
     expect(res.json().template.meta.id).toBe(ZENTAI);
     expect(res.json().template.html).toContain('全体版');
-    expect(res.json().importedIds).toEqual([ID, ZENTAI]);
-    expect(res.json().skipped).toEqual([]);
+    expect(res.json().imported).toEqual([{ templateId: ZENTAI, editionType: '全体版' }]);
+    expect(generateMock.mock.calls[0][2]).toEqual(['全体版']);
+    expect(fs.readdirSync(outputDir)).toEqual([]);
   });
 
   it('生成物は pending へ置かれ、GET /templates/:id が status=draft で返す', async () => {
@@ -263,9 +289,29 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(fs.readFileSync(confirmed, 'utf8')).toBe('<p>承認済みの本番テンプレ</p>');
   });
 
-  it('全体版だけが作成済みでも 409「作成済み」で、生成器を呼ばない', async () => {
-    fs.writeFileSync(path.join(templatesDir, `${ZENTAI}.html`), '<p>確定</p>', 'utf8');
+  it('交付版を選べば、全体版が作成済みでも作る', async () => {
+    const confirmed = path.join(templatesDir, `${ZENTAI}.html`);
+    fs.writeFileSync(confirmed, '<p>確定</p>', 'utf8');
     const res = await generate(validBody);
+    expect(res.statusCode).toBe(200);
+    expect(fs.readFileSync(confirmed, 'utf8')).toBe('<p>確定</p>');
+  });
+
+  it('版種を選ばず全体版が作成済みなら交付版だけを作り、全体版は skipped(created)で出力を残す', async () => {
+    fs.writeFileSync(path.join(templatesDir, `${ZENTAI}.html`), '<p>確定</p>', 'utf8');
+    const res = await generate(bothBody);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().template.meta.id).toBe(ID);
+    expect(res.json().skipped).toEqual([
+      { templateId: ZENTAI, editionType: '全体版', reason: 'created' },
+    ]);
+    expect(fs.readdirSync(outputDir)).toEqual(['XX01_950037_全体版.html']);
+  });
+
+  it('版種を選ばず両版とも作成済みなら 409「作成済み」で生成器を呼ばない', async () => {
+    fs.writeFileSync(path.join(templatesDir, `${ID}.html`), '<p>確定</p>', 'utf8');
+    fs.writeFileSync(path.join(templatesDir, `${ZENTAI}.html`), '<p>確定</p>', 'utf8');
+    const res = await generate(bothBody);
     expect(res.statusCode).toBe(409);
     expect(res.json().message).toBe('作成済みです。既存のテンプレートを開いてください');
     expect(generateMock).not.toHaveBeenCalled();
@@ -281,7 +327,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
 
   it('生成直後のテンプレート(基準日なし)は編集タブの一覧に出ず、作成タブの作業中として開ける', async () => {
     // 編集タブは値入り HTML(基準日あり)だけを扱う。生成直後の id を見失わないよう、
-    // 作成タブの creatable が作業中(inProgressId)として返す。到達不能は復旧手段が無いので退行扱い。
+    // 作成タブの creatable が作業中(inProgress)として返す。到達不能は復旧手段が無いので退行扱い。
     await generate(validBody);
     const list = await app.inject({ method: 'GET', url: '/templates?fundCode=950037' });
     expect(list.statusCode).toBe(200);
@@ -297,7 +343,9 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       })}`,
     });
     expect(info.statusCode).toBe(200);
-    expect(info.json()).toMatchObject({ created: false, inProgressId: ID });
+    expect(info.json().editions).toEqual([
+      { editionType: '交付版', state: 'inProgress', templateId: ID },
+    ]);
   });
 
   it('値入り HTML と同じ id の pending が残っていても、一覧は published の 1 行だけ', async () => {
@@ -383,6 +431,13 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       fundCode: '950037',
     });
     expect(generateMock.mock.calls[0][1]).toBe('2026-10-23');
+    expect(generateMock.mock.calls[0][2]).toEqual(['交付版']);
+  });
+
+  it('editionType が空文字なら 400', async () => {
+    const res = await generate({ ...validBody, editionType: '' });
+    expect(res.statusCode).toBe(400);
+    expect(generateMock).not.toHaveBeenCalled();
   });
 
   it.each(['2026-10-17', '2999-01-01'])(
@@ -443,7 +498,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('コピー元があれば sourceFundCode と isRedemption を生成器へ渡し、両版の作成記録に残す', async () => {
     putSource('950037');
     const res = await generate({
-      ...validBody,
+      ...bothBody,
       fundCode: '950155',
       sourceFundCode: '950037',
       isRedemption: true,
@@ -488,21 +543,36 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(res.statusCode).toBe(200);
   });
 
-  it.each([
-    ['交付版', ID],
-    ['全体版', ZENTAI],
-  ])(
-    '%sに承認待ちの作成申請があれば、同意があっても生成器を呼ばずに 409「申請中」',
-    async (_e, target) => {
-      await putReview('11111111-1111-4111-8111-111111111111', 'create', 'pending', target);
-      fs.writeFileSync(path.join(pendingDir, `${target}.html`), '<p>申請した生成物</p>', 'utf8');
-      const res = await generate({ ...validBody, replaceExisting: true });
-      expect(res.statusCode).toBe(409);
-      expect(res.json().message).toBe('申請中です。承認か却下を待ってください');
-      expect(generateMock).not.toHaveBeenCalled();
-      expect(fs.existsSync(path.join(pendingDir, `${target}.html`))).toBe(true);
-    },
-  );
+  it('交付版に承認待ちの作成申請があれば、同意があっても生成器を呼ばずに 409「申請中」', async () => {
+    await putReview('11111111-1111-4111-8111-111111111111', 'create', 'pending', ID);
+    fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>申請した生成物</p>', 'utf8');
+    const res = await generate({ ...validBody, replaceExisting: true });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().message).toBe('申請中です。承認か却下を待ってください');
+    expect(generateMock).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(pendingDir, `${ID}.html`))).toBe(true);
+  });
+
+  it('版種を選ばず全体版が申請中なら交付版だけを作り、全体版は skipped(pendingReview)', async () => {
+    await putReview('11111111-1111-4111-8111-111111111111', 'create', 'pending', ZENTAI);
+    fs.writeFileSync(path.join(pendingDir, `${ZENTAI}.html`), '<p>申請した生成物</p>', 'utf8');
+    const res = await generate(bothBody);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().template.meta.id).toBe(ID);
+    expect(res.json().skipped).toEqual([
+      { templateId: ZENTAI, editionType: '全体版', reason: 'pendingReview' },
+    ]);
+    expect(pendingHtml(ZENTAI)).toBe('<p>申請した生成物</p>');
+  });
+
+  it('版種を選ばず両版とも申請中なら 409「申請中」', async () => {
+    await putReview('11111111-1111-4111-8111-111111111111', 'create', 'pending', ID);
+    await putReview('55555555-5555-4555-8555-555555555555', 'create', 'pending', ZENTAI);
+    const res = await generate(bothBody);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().message).toBe('申請中です。承認か却下を待ってください');
+    expect(generateMock).not.toHaveBeenCalled();
+  });
 
   it('決着済み(承認・却下)や編集タブの申請は作り直しを止めない', async () => {
     await putReview('22222222-2222-4222-8222-222222222222', 'create', 'rejected');
@@ -525,16 +595,54 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(generateMock).not.toHaveBeenCalled();
   });
 
-  it('全体版だけが作業中でも、同意が無ければ 409。同意があれば両版を置き換える', async () => {
+  it('版種を選ばず全体版だけが作業中でも、同意が無ければ 409。同意があれば両版を置き換える', async () => {
     fs.writeFileSync(path.join(draftsDir, `${ZENTAI}.html`), '<p>全体版の下書き</p>', 'utf8');
-    const refused = await generate(validBody);
+    const refused = await generate(bothBody);
     expect(refused.statusCode).toBe(409);
     expect(refused.json().message).toBe('作成中のテンプレートがあります');
-    const res = await generate({ ...validBody, replaceExisting: true });
+    const res = await generate({ ...bothBody, replaceExisting: true });
     expect(res.statusCode).toBe(200);
     expect(fs.existsSync(path.join(draftsDir, `${ZENTAI}.html`))).toBe(false);
     expect(pendingHtml(ID)).toContain('交付版');
     expect(pendingHtml(ZENTAI)).toContain('全体版');
+  });
+
+  it('交付版を選んで同意つきで作り直しても、全体版の下書きと pending は残す', async () => {
+    fs.writeFileSync(path.join(draftsDir, `${ID}.html`), '<p>交付版の下書き</p>', 'utf8');
+    fs.writeFileSync(path.join(draftsDir, `${ZENTAI}.html`), '<p>全体版の下書き</p>', 'utf8');
+    fs.writeFileSync(path.join(pendingDir, `${ZENTAI}.html`), '<p>全体版の生成物</p>', 'utf8');
+    const res = await generate({ ...validBody, replaceExisting: true });
+    expect(res.statusCode).toBe(200);
+    expect(fs.readFileSync(path.join(draftsDir, `${ZENTAI}.html`), 'utf8')).toBe(
+      '<p>全体版の下書き</p>',
+    );
+    expect(pendingHtml(ZENTAI)).toBe('<p>全体版の生成物</p>');
+    expect(fs.existsSync(path.join(draftsDir, `${ID}.html`))).toBe(false);
+    expect(fs.readdirSync(outputDir)).toEqual([]);
+  });
+
+  it('版種を選ばず、交付版が作成済みで全体版が作業中なら、同意があれば全体版だけを作り直す', async () => {
+    const confirmed = path.join(templatesDir, `${ID}.html`);
+    fs.writeFileSync(confirmed, '<p>確定</p>', 'utf8');
+    fs.writeFileSync(path.join(draftsDir, `${ZENTAI}.html`), '<p>全体版の下書き</p>', 'utf8');
+    const refused = await generate(bothBody);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().message).toBe('作成中のテンプレートがあります');
+    const res = await generate({ ...bothBody, replaceExisting: true });
+    expect(res.statusCode).toBe(200);
+    expect(fs.readFileSync(confirmed, 'utf8')).toBe('<p>確定</p>');
+    expect(pendingHtml(ZENTAI)).toContain('生成物 950037 全体版');
+    expect(fs.readdirSync(outputDir)).toEqual(['XX01_950037_交付版.html']);
+    expect(res.json().template.meta.id).toBe(ZENTAI);
+  });
+
+  it('版種を選ばず、片方が作業中でもう片方が無ければ、同意があれば両版を作る', async () => {
+    fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>古い生成物</p>', 'utf8');
+    const res = await generate({ ...bothBody, replaceExisting: true });
+    expect(res.statusCode).toBe(200);
+    expect(pendingHtml(ID)).toContain('生成物 950037 交付版');
+    expect(pendingHtml(ZENTAI)).toContain('生成物 950037 全体版');
+    expect(res.json().imported).toHaveLength(2);
   });
 
   it('同意して作り直すと、下書きを捨てて pending を新しい生成物にし、コメントとパーツ変更履歴は残す', async () => {
@@ -558,7 +666,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     // ファイルになる。書いた後で古い綴りを消すと、新しい生成物ごと消えて成功応答のまま 404 になる。
     const OLD = 'xx01_950037_交付版';
     fs.writeFileSync(path.join(pendingDir, `${OLD}.html`), '<p>古い綴りの生成物</p>', 'utf8');
-    const res = await generate({ ...validBody, replaceExisting: true });
+    const res = await generate({ ...bothBody, replaceExisting: true });
     expect(res.statusCode).toBe(200);
     const got = await app.inject({ method: 'GET', url: `/templates/${encodeURIComponent(ID)}` });
     expect(got.statusCode).toBe(200);
@@ -582,7 +690,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
 
   it('書いた後の段で失敗しても、書いた pending は残して失敗を返す', async () => {
     recordCreateFail.on = true;
-    const res = await generate(validBody);
+    const res = await generate(bothBody);
     expect(res.statusCode).toBe(500);
     expect(pendingHtml(ID)).toContain('交付版');
     expect(pendingHtml(ZENTAI)).toContain('全体版');
@@ -636,89 +744,32 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(res.json().template.css).toBe('');
   });
 
-  describe('組入先', () => {
-    const IN_KOFU = 'XX01_510100_交付版';
-    const IN_ZENTAI = 'XX01_510100_全体版';
+  describe('組入先は取り込まない', () => {
     beforeEach(() => {
       state.extraFunds = ['510100'];
     });
 
-    it('何も無ければ両版を pending に入れ、importedIds の後ろに並べる', async () => {
-      const res = await generate(validBody);
+    it.each([
+      ['版種あり', validBody],
+      ['版種なし', bothBody],
+    ])('%s: 組入先は pending に入れず output/ に残し、知らせもしない', async (_l, body) => {
+      const res = await generate(body);
       expect(res.statusCode).toBe(200);
-      expect(res.json().importedIds).toEqual([ID, ZENTAI, IN_KOFU, IN_ZENTAI]);
-      expect(pendingHtml(IN_KOFU)).toContain('510100 交付版');
-      expect(fs.readdirSync(outputDir)).toEqual([]);
+      const ids = res.json().imported.map((i: { templateId: string }) => i.templateId);
+      expect(ids).not.toContain('XX01_510100_交付版');
+      expect(res.json().skipped).toEqual([]);
+      expect(fs.readdirSync(pendingDir).filter((f) => f.startsWith('XX01_510100_'))).toEqual([]);
+      const left = fs.readdirSync(outputDir);
+      expect(left).toContain('XX01_510100_交付版.html');
+      expect(left).toContain('XX01_510100_全体版.html');
     });
 
-    it('何も無い版だけ pending に入れ、作業中の版は skipped に載せてそのまま残す', async () => {
-      fs.writeFileSync(path.join(pendingDir, `${IN_KOFU}.html`), '<p>別の作業</p>', 'utf8');
-      const res = await generate(validBody);
-      expect(res.statusCode).toBe(200);
-      expect(res.json().importedIds).toEqual([ID, ZENTAI, IN_ZENTAI]);
-      expect(res.json().skipped).toEqual([{ templateId: IN_KOFU, reason: 'inProgress' }]);
-      expect(pendingHtml(IN_KOFU)).toBe('<p>別の作業</p>');
-      expect(pendingHtml(IN_ZENTAI)).toContain('510100 全体版');
-      expect(fs.readdirSync(outputDir)).toEqual([`${IN_KOFU}.html`]);
-    });
-
-    it('下書きだけでも作業中として取り込まない', async () => {
-      fs.writeFileSync(path.join(draftsDir, `${IN_ZENTAI}.html`), '<p>下書き</p>', 'utf8');
-      const res = await generate(validBody);
-      expect(res.json().skipped).toEqual([{ templateId: IN_ZENTAI, reason: 'inProgress' }]);
-      expect(fs.existsSync(path.join(draftsDir, `${IN_ZENTAI}.html`))).toBe(true);
-      expect(fs.existsSync(path.join(pendingDir, `${IN_ZENTAI}.html`))).toBe(false);
-    });
-
-    it('作成済みの版は created、承認待ちの作成申請がある版は pendingReview で取り込まない', async () => {
-      fs.writeFileSync(path.join(templatesDir, `${IN_KOFU}.html`), '<p>確定</p>', 'utf8');
-      await putReview('44444444-4444-4444-8444-444444444444', 'create', 'pending', IN_ZENTAI);
-      const res = await generate(validBody);
-      expect(res.statusCode).toBe(200);
-      expect(res.json().importedIds).toEqual([ID, ZENTAI]);
-      expect(res.json().skipped).toEqual([
-        { templateId: IN_KOFU, reason: 'created' },
-        { templateId: IN_ZENTAI, reason: 'pendingReview' },
-      ]);
-      expect(fs.readFileSync(path.join(templatesDir, `${IN_KOFU}.html`), 'utf8')).toBe(
-        '<p>確定</p>',
-      );
-    });
-
-    it('組入先には replaceExisting が効かない', async () => {
-      fs.writeFileSync(path.join(pendingDir, `${IN_KOFU}.html`), '<p>別の作業</p>', 'utf8');
-      fs.writeFileSync(path.join(draftsDir, `${IN_KOFU}.html`), '<p>別の下書き</p>', 'utf8');
-      const res = await generate({ ...validBody, replaceExisting: true });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().skipped).toEqual([{ templateId: IN_KOFU, reason: 'inProgress' }]);
-      expect(pendingHtml(IN_KOFU)).toBe('<p>別の作業</p>');
-      expect(fs.existsSync(path.join(draftsDir, `${IN_KOFU}.html`))).toBe(true);
-    });
-
-    it('組入先の作成記録には requestedFundCode が付き、コピー元は付かない', async () => {
-      putSource('950003');
-      const res = await generate({ ...validBody, sourceFundCode: '950003' });
+    it('組入先の作成記録を残さない', async () => {
+      const res = await generate(bothBody);
       expect(res.statusCode).toBe(200);
       const entries = createHistory();
-      expect(entries).toHaveLength(4);
-      const inner = entries.filter((e) => e.attributes.fundCode === '510100');
-      expect(inner).toHaveLength(2);
-      for (const e of inner) {
-        expect(e.requestedFundCode).toBe('950037');
-        expect(e).not.toHaveProperty('sourceFundCode');
-      }
-    });
-
-    it('組入先の CSS の初期値にコピー元を使わない', async () => {
-      putSource('950003');
-      fs.writeFileSync(path.join(cssDir, 'XX01_950003_交付版.css'), '.src{}', 'utf8');
-      fs.writeFileSync(path.join(cssDir, 'XX01_950003_全体版.css'), '.src{}', 'utf8');
-      fs.writeFileSync(path.join(cssDir, `${IN_KOFU}.css`), '.own{}', 'utf8');
-      const res = await generate({ ...validBody, sourceFundCode: '950003' });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().template.css).toBe('.src{}');
-      expect(fs.readFileSync(path.join(pendingDir, `${IN_KOFU}.css`), 'utf8')).toBe('.own{}');
-      expect(fs.readFileSync(path.join(pendingDir, `${IN_ZENTAI}.css`), 'utf8')).toBe('');
+      expect(entries).toHaveLength(2);
+      for (const e of entries) expect(e).not.toHaveProperty('requestedFundCode');
     });
   });
 
@@ -727,10 +778,12 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
-    generateMock.mockImplementationOnce(async (attrs: GenerateAttributes) => {
-      await gate;
-      return fakeGenerate(attrs);
-    });
+    generateMock.mockImplementationOnce(
+      async (attrs: GenerateAttributes, baseDate: string, required: readonly string[]) => {
+        await gate;
+        return fakeGenerate(attrs, baseDate, required);
+      },
+    );
     const first = generate(validBody);
     await vi.waitFor(() => expect(generateMock).toHaveBeenCalledTimes(1));
     const second = generate({ ...validBody, fundCode: '950155' });
