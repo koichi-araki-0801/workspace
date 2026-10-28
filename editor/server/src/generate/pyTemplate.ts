@@ -21,6 +21,8 @@ import path from 'node:path';
 import {
   assertSkeletonFileName,
   assertTemplateAttributeToken,
+  CREATABLE_EDITIONS,
+  type CreatableEdition,
   parseSkeletonFileName,
   type SkeletonAttributes,
 } from '@editor/shared';
@@ -30,7 +32,7 @@ import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
 import { generatorLogPath, logSizeBefore, parseOutputNames, readRunLog } from './generatorLog.js';
 
 /** 生成器が 1 ファンドにつき書く版の順(作成画面のファンドの結果はこの順で返す)。 */
-export const GENERATED_EDITIONS = ['交付版', '全体版'] as const;
+export const GENERATED_EDITIONS = CREATABLE_EDITIONS;
 
 /**
  * 生成器へ渡す属性。ルート(`generate.routes.ts`)で検証した値だけ。版種は生成器が決めるので
@@ -276,13 +278,15 @@ async function readGeneratedFile(
 }
 
 /**
- * 生成器を呼び出し、今回の実行ログに載ったファイルを検査して返す。作成画面のファンドの 2 版
- * (交付版・全体版の順)が先頭で、組入先はファイル名順に続く。終了コード 0 でも、ログに載った
+ * 生成器を呼び出し、今回の実行ログに載ったファイルを検査して返す。作成画面のファンドの
+ * `required` の版(交付版・全体版の順)が先頭で、残り(要求しなかった版と組入先)はファイル名順に
+ * 続く。終了コード 0 でも、ログに載った
  * ファイルがこの呼び出しで書かれていなければ失敗にする(前回の生成物を取り違えないため)。
  */
 export function generateTemplates(
   attrs: GenerateAttributes,
   baseDate: string,
+  required: readonly CreatableEdition[] = GENERATED_EDITIONS,
 ): Promise<GeneratedFile[]> {
   const args = generatorArgs(attrs, baseDate);
   const [rep1, fund] = args;
@@ -313,14 +317,21 @@ export function generateTemplates(
     for (const name of names) {
       files.push(await readGeneratedFile(dir, name, before, attrs.companyCode));
     }
-    return orderGenerated(files, attrs.fundCode);
+    return orderGenerated(files, attrs.fundCode, required);
   });
 }
 
-/** 作成画面のファンドの 2 版を先頭に、残り(組入先)をファイル名順に並べる。 */
-function orderGenerated(files: GeneratedFile[], fundCode: string): GeneratedFile[] {
+/**
+ * 作成画面のファンドの要求した版を先頭に、残り(要求しなかった版と組入先)をファイル名順に並べる。
+ * 要求した版が欠ければ失敗にする。要求しなかった版は欠けていてもよい。
+ */
+function orderGenerated(
+  files: GeneratedFile[],
+  fundCode: string,
+  required: readonly CreatableEdition[],
+): GeneratedFile[] {
   const head: GeneratedFile[] = [];
-  for (const edition of GENERATED_EDITIONS) {
+  for (const edition of GENERATED_EDITIONS.filter((e) => required.includes(e))) {
     const hit = files.find(
       (f) => f.attributes.fundCode === fundCode && f.attributes.editionType === edition,
     );

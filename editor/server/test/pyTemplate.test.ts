@@ -351,6 +351,17 @@ describe('生成の同時実行の上限', () => {
 });
 
 describe('generateTemplates の取り込み', () => {
+  it('要求が交付版だけなら、全体版の出力を後ろへ回し、組入先と同じくファイル名順に並べる', async () => {
+    answerWith(() => ({ ...bothEditions('F1'), ...bothEditions('A2') }));
+    const files = await generateTemplates(attrs, BASE, ['交付版']);
+    expect(files.map((f) => f.fileName)).toEqual([
+      'C1_F1_交付版.html',
+      'C1_A2_交付版.html',
+      'C1_A2_全体版.html',
+      'C1_F1_全体版.html',
+    ]);
+  });
+
   it('両版を書けば交付版・全体版の順で返し、html は書いた中身', async () => {
     answerOk();
     const files = await generateTemplates(attrs, BASE);
@@ -445,6 +456,18 @@ describe('generateTemplates の取り込み', () => {
 
 describe('generateTemplates の全体の失敗', () => {
   const run = (a = attrs) => generateTemplates(a, BASE);
+
+  it('要求が交付版だけなら、全体版が無くても失敗にしない', async () => {
+    answerWith(() => ({ 'C1_F1_交付版.html': '<html>a</html>' }));
+    await expect(generateTemplates(attrs, BASE, ['交付版'])).resolves.toHaveLength(1);
+  });
+
+  it('要求が全体版だけで全体版が無ければ失敗にする', async () => {
+    answerWith(() => ({ 'C1_F1_交付版.html': '<html>a</html>' }));
+    await expect(generateTemplates(attrs, BASE, ['全体版'])).rejects.toThrow(
+      /Python生成器.*全体版/,
+    );
+  });
 
   it('終了コードが 0 でなければ stderr を含めて失敗にする', async () => {
     answerRaw(() => undefined, new Error('exit 1'), 'stderr detail');

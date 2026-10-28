@@ -87,6 +87,10 @@ export function cssFileNameOf(templateId: string): string | null {
 // 承認直後にパーツ単位の自動同期(server の `sync/partSync.ts`)を掛ける。版種は自由文字列の
 // ままだが(旧 `kr`/`zr` 等の残存資産を壊さない)、ペアとして扱うのは下表の 2 値に限る。
 
+/** 作成画面で作れる版種(生成器が 1 ファンドにつき書く版)。この順で並べて返す。 */
+export const CREATABLE_EDITIONS = ['交付版', '全体版'] as const;
+export type CreatableEdition = (typeof CREATABLE_EDITIONS)[number];
+
 /**
  * 自動同期のペアとみなす版種の相互対応。ここに無い版種はペア無し(同期対象外)。
  *
