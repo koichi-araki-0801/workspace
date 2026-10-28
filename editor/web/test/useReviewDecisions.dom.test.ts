@@ -45,7 +45,9 @@ describe('useReviewDecisions', () => {
 
   it('却下は全パーツへ同じ理由を付けて 1 回で送る', async () => {
     const { d, save } = setup(ok([dec('a#1', 'rejected'), dec('b#1', 'rejected')]));
-    await d.reject(['a#1', 'b#1'], '誤り');
+    expect(await d.reject(['a#1', 'b#1'], '誤り')).toBe(true);
+    expect(d.counts.value).toMatchObject({ rejected: 2, pending: 0 });
+    expect(d.decisions.value.map((x) => x.status)).toEqual(['rejected', 'rejected']);
     expect(save).toHaveBeenCalledTimes(1);
     expect(save).toHaveBeenCalledWith({
       decisions: [
@@ -119,5 +121,57 @@ describe('useReviewDecisions', () => {
     expect(some.unknownDecisionPartKeys.value).toEqual(['x#1']);
     expect(some.pendingPartKeys.value).toEqual([]);
     expect(some.duplicateDecisionPartKeys.value).toEqual([]);
+  });
+
+  it('保存中の再押下は受け付けず、終われば次を受け付ける', async () => {
+    let resolve!: (v: unknown) => void;
+    const { d, save } = setup(ok([]));
+    save.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    const first = d.approve(['a#1']);
+    expect(d.saving.value).toBe(true);
+    expect(await d.approve(['b#1'])).toBe(false);
+    expect(await d.undo('a#1')).toBe(false);
+    expect(save).toHaveBeenCalledTimes(1);
+    resolve(ok([dec('a#1', 'approved')]));
+    expect(await first).toBe(true);
+    expect(d.saving.value).toBe(false);
+    expect(await d.approve(['b#1'])).toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['TRANSITION', err(appError('conflict', 'x', { code: 'REVIEW_PART_DECISION_TRANSITION' }))],
+    ['ALREADY_DECIDED', err(appError('conflict', 'x', { code: 'REVIEW_ALREADY_DECIDED' }))],
+    ['code なし 409', err(appError('conflict', 'x'))],
+    ['ネットワーク', err(appError('network', 'x'))],
+  ])('失敗(%s)では手元の判定が据え置きで、saving は戻る', async (_n, result) => {
+    const { d } = setup(result);
+    const before = JSON.stringify(d.decisions.value);
+    expect(await d.approve(['b#1'])).toBe(false);
+    expect(JSON.stringify(d.decisions.value)).toBe(before);
+    expect(d.counts.value).toMatchObject({ rejected: 1, approved: 0, pending: 1 });
+    expect(d.saving.value).toBe(false);
+  });
+
+  it('reload が review を差し替えたら手元の判定が作り直される', async () => {
+    const review = ref({ partDecisions: [dec('a#1', 'rejected')] } as unknown as ReviewRequest);
+    const reload = vi.fn(async () => {
+      review.value = { partDecisions: [dec('b#1', 'approved')] } as unknown as ReviewRequest;
+    });
+    const d = useReviewDecisions({
+      review,
+      diff: ref(null),
+      changes: ref([]),
+      save: vi.fn().mockResolvedValue(err(appError('conflict', 'x'))),
+      reload,
+    });
+    await d.approve(['a#1']);
+    await Promise.resolve();
+    expect(d.decisions.value).toEqual([dec('b#1', 'approved')]);
   });
 });

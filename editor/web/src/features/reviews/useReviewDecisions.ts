@@ -4,6 +4,7 @@
 // 保存は 1 回の要求にまとめ、成功したら応答の `partDecisions` で手元を差し替える(読み直さない)。
 // 失敗したときだけ読み直す。トーストはここで出し、View は結果の真偽だけ見る。
 import {
+  type AppError,
   buildReviewedHtmlCandidate,
   type HtmlDiff,
   isErr,
@@ -35,6 +36,8 @@ export function useReviewDecisions(ctx: {
   unknownDecisionPartKeys: ComputedRef<string[]>;
   duplicateDecisionPartKeys: ComputedRef<string[]>;
   rejectedSignature: ComputedRef<string>;
+  /** 保存中。真の間は approve / reject / undo を受け付けない(View はこれで押せなくする)。 */
+  saving: Ref<boolean>;
   approve(partKeys: string[]): Promise<boolean>;
   reject(partKeys: string[], reason: string): Promise<boolean>;
   undo(partKey: string): Promise<boolean>;
@@ -48,13 +51,14 @@ export function useReviewDecisions(ctx: {
     { immediate: true },
   );
 
+  const saving = ref(false);
   const decisions = computed(() => local.value);
   const counts = computed(() => decisionCounts(ctx.changes.value, local.value));
   const candidate = computed(() =>
     ctx.diff.value === null ? null : buildReviewedHtmlCandidate(ctx.diff.value, local.value),
   );
 
-  async function failed(error: { code?: string }): Promise<false> {
+  async function failed(error: AppError): Promise<false> {
     await ctx.reload();
     if (error.code === 'REVIEW_PART_DECISION_TRANSITION') {
       toast('ほかの方が判定を変えました。画面を読み直しました。', 'error');
@@ -67,10 +71,18 @@ export function useReviewDecisions(ctx: {
   }
 
   async function send(input: UpdateReviewPartDecisionsRequest): Promise<boolean> {
-    const res = await ctx.save(input);
-    if (isErr(res)) return failed(res.error);
-    local.value = mergeSavedDecisions(local.value, res.value);
-    return true;
+    // 連打で古い応答が新しい応答を上書きしたり、reload が飛行中の要求を追い越したりしないよう、
+    // 保存中は次を受け付けない。
+    if (saving.value) return false;
+    saving.value = true;
+    try {
+      const res = await ctx.save(input);
+      if (isErr(res)) return await failed(res.error);
+      local.value = mergeSavedDecisions(local.value, res.value);
+      return true;
+    } finally {
+      saving.value = false;
+    }
   }
 
   return {
@@ -80,6 +92,7 @@ export function useReviewDecisions(ctx: {
     unknownDecisionPartKeys: computed(() => candidate.value?.unknownDecisionPartKeys ?? []),
     duplicateDecisionPartKeys: computed(() => candidate.value?.duplicateDecisionPartKeys ?? []),
     rejectedSignature: computed(() => rejectedSignatureOf(local.value)),
+    saving,
     approve: (partKeys) =>
       send({ decisions: partKeys.map((partKey) => ({ partKey, status: 'approved' as const })) }),
     reject: (partKeys, reason) =>
