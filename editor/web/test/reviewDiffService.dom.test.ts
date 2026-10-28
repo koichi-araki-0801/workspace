@@ -89,68 +89,6 @@ function diffPage(blocks: Array<{ status: string }>) {
     truncated: false,
   };
 }
-/** 改ページ区切りを持つ2ページのsame差分を組む。 */
-function twoPageSameDiff() {
-  const firstHtml = '<section data-part-id="first">1ページ目</section>';
-  const secondHtml = '<section data-part-id="second">2ページ目</section>';
-
-  return {
-    pages: [
-      {
-        index: 0,
-        changed: false,
-        changedBlockCount: 0,
-        beforeHtml: firstHtml,
-        afterHtml: firstHtml,
-        beforeKeys: ['first'],
-        afterKeys: ['first'],
-        blocks: [
-          {
-            key: 'first',
-            partKey: 'first#1',
-            label: 'ページ1・パーツ1',
-            status: 'same',
-            beforeHtml: firstHtml,
-            afterHtml: firstHtml,
-            rawBeforeHtml: firstHtml,
-            rawAfterHtml: firstHtml,
-            coarse: false,
-          },
-        ],
-        coarse: false,
-      },
-      {
-        index: 1,
-        changed: false,
-        changedBlockCount: 0,
-        beforeHtml: secondHtml,
-        afterHtml: secondHtml,
-        beforeKeys: ['second'],
-        afterKeys: ['second'],
-        blocks: [
-          {
-            key: 'second',
-            partKey: 'second#1',
-            label: 'ページ2・パーツ1',
-            status: 'same',
-            beforeHtml: secondHtml,
-            afterHtml: secondHtml,
-            rawBeforeHtml: secondHtml,
-            rawAfterHtml: secondHtml,
-            coarse: false,
-          },
-        ],
-        coarse: false,
-      },
-    ],
-    changedPageCount: 0,
-    beforePageCount: 2,
-    afterPageCount: 2,
-    coarse: false,
-    truncated: false,
-  };
-}
-
 function makeService(over: {
   getReview?: unknown;
   renderTemplateBody?: unknown;
@@ -212,9 +150,10 @@ describe('reviewDiffService.buildDiff', () => {
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
       'baseline:XX01_111111_20250101_交付版',
     );
-    expect(res.value.rows).toHaveLength(3);
-    expect(res.value.rows.map((row) => row.key)).toEqual(['part-0#1', 'part-1#1', 'part-2#1']);
-    expect(res.value.pendingPartKeys).toEqual(['part-0#1', 'part-1#1']);
+    expect(res.value.changes.map((c) => [c.no, c.partKey])).toEqual([
+      [1, 'part-0#1'],
+      [2, 'part-1#1'],
+    ]);
 
     expect(res.value.summary).toEqual({ total: 3, changed: 1, added: 1, removed: 0 });
     expect(res.value.cssBefore).toBe('.before{}');
@@ -222,46 +161,26 @@ describe('reviewDiffService.buildDiff', () => {
     // buildHtmlDiff は (beforeHtml, afterHtml, cssBefore, cssAfter) の順で呼ぶ。
     expect(buildHtmlDiff).toHaveBeenCalledWith('<before>', '<after>', '.before{}', '.after{}');
   });
-  it('edit申請の最終候補HTMLに申請版の改ページ区切りを保持する', async () => {
-    const beforeHtml =
-      '<section data-part-id="first">1ページ目</section>' +
-      '<div class="pagebreak"></div>' +
-      '<section data-part-id="second">2ページ目</section>';
-
-    const afterHtml =
-      '<section data-part-id="first">1ページ目</section>' +
-      '<div class="pagebreak"></div>' +
-      '<section data-part-id="second">2ページ目</section>';
-
-    buildHtmlDiff.mockResolvedValue(twoPageSameDiff());
-
-    const { service } = makeService({
-      renderVersionHtml: ok({
-        html: beforeHtml,
-        css: '.pagebreak{break-after:page}',
-      }),
-      renderTemplateBody: ok({
-        html: afterHtml,
-        css: '.pagebreak{break-after:page}',
-      }),
-    });
-
+  it('changes は numberChangedParts の順で、業務名があれば name に使う', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }, { status: 'added' }]));
+    const { service, parts } = makeService({});
+    (parts.listParts as ReturnType<typeof vi.fn>).mockResolvedValue(
+      ok([{ id: 'part-1', name: '費用の表' }]),
+    );
     const res = await service.buildDiff('req-1');
-
     expect(res.ok).toBe(true);
     if (!res.ok) return;
+    expect(res.value.changes.map((c) => c.no)).toEqual([1, 2]);
+    expect(res.value.changes[0].name).toBe('ページ1・パーツ1');
+    expect(res.value.changes[1].name).toBe('費用の表');
+  });
 
-    const doc = new DOMParser().parseFromString(res.value.reviewedBodyHtml, 'text/html');
-    const children = Array.from(doc.body.children);
-
-    expect(
-      children.map((element) => {
-        if (element.matches('div.pagebreak')) return 'pagebreak';
-        return element.getAttribute('data-part-id');
-      }),
-    ).toEqual(['first', 'pagebreak', 'second']);
-
-    expect(children.filter((element) => element.matches('div.pagebreak'))).toHaveLength(1);
+  it('diff を返す', async () => {
+    const d = diffPage([{ status: 'changed' }]);
+    buildHtmlDiff.mockResolvedValue(d);
+    const { service } = makeService({});
+    const res = await service.buildDiff('req-1');
+    expect(res.ok && res.value.diff).toBe(d);
   });
 
   it('create 経路: 保存済みの値入り本文を使い、before は空で全パーツを added にする', async () => {
@@ -406,7 +325,7 @@ describe('reviewDiffService.buildDiff', () => {
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const ops = res.value.rows[0].textOps;
+    const ops = res.value.changes[0].textOps;
     const insText = ops
       .filter((o) => o.type === 'ins')
       .map((o) => o.text)
@@ -466,17 +385,17 @@ describe('reviewDiffService.buildDiff', () => {
     if (!res.ok) return;
     const isCoarse = (ops: { type: string }[]) =>
       ops.length === 2 && ops.every((o) => o.type !== 'same');
-    expect(isCoarse(res.value.rows[0].textOps)).toBe(false); // 1 つ目は語句単位
-    expect(isCoarse(res.value.rows[1].textOps)).toBe(true); // 予算を使い切り 2 つ目は粗い差分
+    expect(isCoarse(res.value.changes[0].textOps)).toBe(false); // 1 つ目は語句単位
+    expect(isCoarse(res.value.changes[1].textOps)).toBe(true); // 予算を使い切り 2 つ目は粗い差分
   });
 
-  it('same パーツは textOps を作らない(空)', async () => {
+  it('same パーツは changes に載らない', async () => {
     buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'same' }]));
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.value.rows[0].textOps).toEqual([]);
+    expect(res.value.changes).toEqual([]);
   });
 
   it('getReview のエラーはそのまま伝播する', async () => {
@@ -533,7 +452,7 @@ describe('reviewDiffService.buildDiff', () => {
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const ins = res.value.rows[0].textOps
+    const ins = res.value.changes[0].textOps
       .filter((o) => o.type === 'ins')
       .map((o) => o.text)
       .join('');

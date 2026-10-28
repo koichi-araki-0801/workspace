@@ -14,7 +14,6 @@ import type {
   ReviewRequestMeta,
   ReviewStatus,
   SubmitReviewRequest,
-  UpdateReviewPartDecisionRequest,
   UpdateReviewPartDecisionsRequest,
 } from '../index.js';
 import type { Result } from '../result.js';
@@ -41,20 +40,6 @@ export interface ReviewRepository {
   getReview(reqId: string): Promise<Result<ReviewRequest>>;
 
   /**
-   * review内のパーツ1件について、現在の判定を更新する。
-   *
-   * 初回判定と最終確定前の判定変更を同じmethodで扱う。判定を覆す際の確認ダイアログは
-   * Viewが担当し、repositoryは確定した入力だけを保存する。
-   *
-   * 申請全体の状態が `pending` の場合だけ更新できる。`approved`または`rejected`の申請は
-   * 既に処理済みとして`conflict`で拒否し、最終確定後のパーツ判定を変更させない。
-   */
-  updatePartDecision(
-    reqId: string,
-    input: UpdateReviewPartDecisionRequest,
-  ): Promise<Result<ReviewPartDecision>>;
-
-  /**
    * review内のパーツ判定をまとめて変更する。
    *
    * 許す遷移は未判定 → 承認・却下、承認・却下 → 未判定だけ。1 件でも外れたら conflict で全部戻す。
@@ -63,7 +48,7 @@ export interface ReviewRepository {
    * 申請全体の状態が `pending` の場合だけ更新できる。`approved`または`rejected`の申請は
    * 既に処理済みとして`conflict`で拒否する。
    */
-  updatePartDecisions?(
+  updatePartDecisions(
     reqId: string,
     input: UpdateReviewPartDecisionsRequest,
   ): Promise<Result<ReviewPartDecision[]>>;

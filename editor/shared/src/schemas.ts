@@ -464,34 +464,6 @@ export const ReviewPartDecision = z
   .meta({ id: 'ReviewPartDecision' });
 
 /**
- * パーツ判定の更新入力。承認はメモを任意とし、却下は理由を必須にする。
- * `pending` は初期状態であり、判定更新の遷移先としては受け付けない。
- */
-export const UpdateReviewPartDecisionRequest = z
-  .discriminatedUnion('status', [
-    z.object({
-      partKey: z.string().min(1).meta({
-        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
-      }),
-      status: z.literal('approved'),
-      comment: z
-        .string()
-        .trim()
-        .min(1)
-        .optional()
-        .meta({ description: '承認時の判定メモ。無ければ省略' }),
-    }),
-    z.object({
-      partKey: z.string().min(1).meta({
-        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
-      }),
-      status: z.literal('rejected'),
-      comment: z.string().trim().min(1).meta({ description: 'パーツの却下理由' }),
-    }),
-  ])
-  .meta({ id: 'UpdateReviewPartDecisionRequest' });
-
-/**
  * パーツ判定 1 件の変更。承認は判定メモを受けず、却下は理由を必須にする。
  * `pending` は判定の取り消しで、サーバが返す `status: 'pending'` と同じく「未判定」を指す。
  */

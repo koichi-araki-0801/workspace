@@ -102,9 +102,6 @@ export type ReviewPartDecisionHistoryEntry = z.infer<typeof sch.ReviewPartDecisi
 /** review内のパーツ1件について、現在有効な判定と変更履歴を保持する。 */
 export type ReviewPartDecision = z.infer<typeof sch.ReviewPartDecision>;
 
-/** パーツ判定を承認済みまたは却下済みへ更新する入力。 */
-export type UpdateReviewPartDecisionRequest = z.infer<typeof sch.UpdateReviewPartDecisionRequest>;
-
 /** パーツ判定 1 件の変更(承認・却下・取り消し)。 */
 export type ReviewPartDecisionChange = z.infer<typeof sch.ReviewPartDecisionChange>;
 

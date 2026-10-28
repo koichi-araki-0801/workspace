@@ -12,7 +12,7 @@ import {
   type ReviewRequest,
   type ReviewRequestMeta,
   type SubmitReviewRequest,
-  type UpdateReviewPartDecisionRequest,
+  type UpdateReviewPartDecisionsRequest,
 } from '@editor/shared';
 import { apiFetch, attemptRest } from './http';
 
@@ -32,9 +32,9 @@ export const restReviewRepo: ReviewRepository = {
   getReview: (reqId: string) =>
     attemptRest(() => apiFetch<ReviewRequest>(buildPath(apiPaths.reviewRequestById, { reqId }))),
 
-  updatePartDecision: (reqId: string, input: UpdateReviewPartDecisionRequest) =>
+  updatePartDecisions: (reqId: string, input: UpdateReviewPartDecisionsRequest) =>
     attemptRest(() =>
-      apiFetch<ReviewPartDecision>(buildPath(apiPaths.reviewRequestPartDecision, { reqId }), {
+      apiFetch<ReviewPartDecision[]>(buildPath(apiPaths.reviewRequestPartDecisions, { reqId }), {
         method: 'POST',
         body: input,
       }),

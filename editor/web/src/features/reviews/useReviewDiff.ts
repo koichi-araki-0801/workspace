@@ -6,18 +6,19 @@
 // 揃える)。トースト/画面遷移といった presentation は View 側に残し、ここは状態と Result を返す。
 import type {
   ApproveReviewResult,
+  HtmlDiff,
   Result,
   ReviewPartDecision,
   ReviewRequest,
   ReviewRequestMeta,
-  UpdateReviewPartDecisionRequest,
+  UpdateReviewPartDecisionsRequest,
 } from '@editor/shared';
 
 import { isErr } from '@editor/shared';
 import { ref } from 'vue';
 import { useReviewRepo } from '@/api/repositories';
 import { useAsyncResult } from '@/lib/useAsyncResult';
-import type { ReviewChangeSummary, ReviewPartRow } from './services/reviewDiffService';
+import type { ReviewChangeRow, ReviewChangeSummary } from './services/reviewDiffService';
 import { useReviewDiffService } from './services/reviewDiffService';
 
 export function useReviewDiff(reqId: () => string) {
@@ -27,22 +28,14 @@ export function useReviewDiff(reqId: () => string) {
   const { loading: deciding, run: runDecide } = useAsyncResult();
 
   const review = ref<ReviewRequest | null>(null);
-  const rows = ref<ReviewPartRow[]>([]);
+  const changes = ref<ReviewChangeRow[]>([]);
+  const diff = ref<HtmlDiff | null>(null);
   const summary = ref<ReviewChangeSummary>({ total: 0, changed: 0, added: 0, removed: 0 });
   const cssBefore = ref('');
   const cssAfter = ref('');
   /** 見た目比較(`ReviewVisualCompare`)へ渡す before/after の本文全体 HTML。 */
   const beforeBodyHtml = ref('');
   const afterBodyHtml = ref('');
-  /** 保存済みパーツ判定を反映した、見た目比較用の最終候補HTML。 */
-  const reviewedBodyHtml = ref('');
-  /** 変更対象のうち判定が保存されていないパーツ識別子。 */
-  const pendingPartKeys = ref<string[]>([]);
-  /** 現在の差分対象に存在しない保存済みパーツ識別子。 */
-  const unknownDecisionPartKeys = ref<string[]>([]);
-  /** 同じパーツに複数ある保存済み判定。 */
-  const duplicateDecisionPartKeys = ref<string[]>([]);
-
   /** 変更のあったページの index(0 始まり。`diff.pages` 由来)。見た目比較のマーカー対象。 */
   const changedPageIndexes = ref<number[]>([]);
   /**
@@ -69,16 +62,13 @@ export function useReviewDiff(reqId: () => string) {
       return;
     }
     review.value = res.value.review;
-    rows.value = res.value.rows;
+    changes.value = res.value.changes;
+    diff.value = res.value.diff;
     summary.value = res.value.summary;
     cssBefore.value = res.value.cssBefore;
     cssAfter.value = res.value.cssAfter;
     beforeBodyHtml.value = res.value.beforeBodyHtml;
     afterBodyHtml.value = res.value.afterBodyHtml;
-    reviewedBodyHtml.value = res.value.reviewedBodyHtml;
-    pendingPartKeys.value = res.value.pendingPartKeys;
-    unknownDecisionPartKeys.value = res.value.unknownDecisionPartKeys;
-    duplicateDecisionPartKeys.value = res.value.duplicateDecisionPartKeys;
     changedPageIndexes.value = res.value.changedPageIndexes;
 
     beforePageCount.value = res.value.beforePageCount;
@@ -98,25 +88,22 @@ export function useReviewDiff(reqId: () => string) {
     return runDecide(() => reviews.rejectReview(reqId(), { comment }));
   }
 
-  /** パーツ1件の判定を保存し、更新後の現在判定を返す。 */
-  function updatePartDecision(
-    input: UpdateReviewPartDecisionRequest,
-  ): Promise<Result<ReviewPartDecision>> {
-    return runDecide(() => reviews.updatePartDecision(reqId(), input));
+  /** パーツ判定をまとめて保存し、保存後の判定(応答の `partDecisions`)を返す。 */
+  function updatePartDecisions(
+    input: UpdateReviewPartDecisionsRequest,
+  ): Promise<Result<ReviewPartDecision[]>> {
+    return runDecide(() => reviews.updatePartDecisions(reqId(), input));
   }
 
   return {
     review,
-    rows,
+    changes,
+    diff,
     summary,
     cssBefore,
     cssAfter,
     beforeBodyHtml,
     afterBodyHtml,
-    reviewedBodyHtml,
-    pendingPartKeys,
-    unknownDecisionPartKeys,
-    duplicateDecisionPartKeys,
     changedPageIndexes,
     beforePageCount,
     afterPageCount,
@@ -129,6 +116,6 @@ export function useReviewDiff(reqId: () => string) {
     load,
     approve,
     reject,
-    updatePartDecision,
+    updatePartDecisions,
   };
 }

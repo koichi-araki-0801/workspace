@@ -1,0 +1,95 @@
+// =============================================================================
+// useReviewDecisions.ts — 承認タブの判定の保存と手元の判定状態
+// =============================================================================
+// 保存は 1 回の要求にまとめ、成功したら応答の `partDecisions` で手元を差し替える(読み直さない)。
+// 失敗したときだけ読み直す。トーストはここで出し、View は結果の真偽だけ見る。
+import {
+  buildReviewedHtmlCandidate,
+  type HtmlDiff,
+  isErr,
+  type Result,
+  type ReviewPartDecision,
+  type ReviewRequest,
+  type UpdateReviewPartDecisionsRequest,
+} from '@editor/shared';
+import { type ComputedRef, computed, type Ref, ref, watch } from 'vue';
+import { toast } from '@/components/ui/toast';
+import {
+  type DecisionCounts,
+  decisionCounts,
+  mergeSavedDecisions,
+  rejectedSignature as rejectedSignatureOf,
+} from './reviewDecisionState';
+import type { ReviewChangeRow } from './services/reviewDiffService';
+
+export function useReviewDecisions(ctx: {
+  review: Ref<ReviewRequest | null>;
+  diff: Ref<HtmlDiff | null>;
+  changes: Ref<ReviewChangeRow[]>;
+  save: (input: UpdateReviewPartDecisionsRequest) => Promise<Result<ReviewPartDecision[]>>;
+  reload: () => Promise<void>;
+}): {
+  decisions: ComputedRef<ReviewPartDecision[]>;
+  counts: ComputedRef<DecisionCounts>;
+  pendingPartKeys: ComputedRef<string[]>;
+  unknownDecisionPartKeys: ComputedRef<string[]>;
+  duplicateDecisionPartKeys: ComputedRef<string[]>;
+  rejectedSignature: ComputedRef<string>;
+  approve(partKeys: string[]): Promise<boolean>;
+  reject(partKeys: string[], reason: string): Promise<boolean>;
+  undo(partKey: string): Promise<boolean>;
+} {
+  const local = ref<ReviewPartDecision[]>([]);
+  watch(
+    () => ctx.review.value,
+    (r) => {
+      local.value = [...(r?.partDecisions ?? [])];
+    },
+    { immediate: true },
+  );
+
+  const decisions = computed(() => local.value);
+  const counts = computed(() => decisionCounts(ctx.changes.value, local.value));
+  const candidate = computed(() =>
+    ctx.diff.value === null ? null : buildReviewedHtmlCandidate(ctx.diff.value, local.value),
+  );
+
+  async function failed(error: { code?: string }): Promise<false> {
+    await ctx.reload();
+    if (error.code === 'REVIEW_PART_DECISION_TRANSITION') {
+      toast('ほかの方が判定を変えました。画面を読み直しました。', 'error');
+    } else if (error.code === 'REVIEW_ALREADY_DECIDED') {
+      toast('この申請はすでに処理されています。画面を読み直しました。', 'error');
+    } else {
+      toast('パーツ判定の保存に失敗しました。', 'error');
+    }
+    return false;
+  }
+
+  async function send(input: UpdateReviewPartDecisionsRequest): Promise<boolean> {
+    const res = await ctx.save(input);
+    if (isErr(res)) return failed(res.error);
+    local.value = mergeSavedDecisions(local.value, res.value);
+    return true;
+  }
+
+  return {
+    decisions,
+    counts,
+    pendingPartKeys: computed(() => candidate.value?.pendingPartKeys ?? []),
+    unknownDecisionPartKeys: computed(() => candidate.value?.unknownDecisionPartKeys ?? []),
+    duplicateDecisionPartKeys: computed(() => candidate.value?.duplicateDecisionPartKeys ?? []),
+    rejectedSignature: computed(() => rejectedSignatureOf(local.value)),
+    approve: (partKeys) =>
+      send({ decisions: partKeys.map((partKey) => ({ partKey, status: 'approved' as const })) }),
+    reject: (partKeys, reason) =>
+      send({
+        decisions: partKeys.map((partKey) => ({
+          partKey,
+          status: 'rejected' as const,
+          comment: reason,
+        })),
+      }),
+    undo: (partKey) => send({ decisions: [{ partKey, status: 'pending' }] }),
+  };
+}

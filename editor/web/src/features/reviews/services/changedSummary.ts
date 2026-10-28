@@ -19,8 +19,8 @@ import {
   renderReviewPair,
   useCompareService,
 } from '@/features/compare/services/compareService';
+import { loadPartNameMap, partNameOf } from '@/lib/partNames';
 import { htmlWorker } from '@/workers';
-import { loadPartNameMap, partNameOf } from './partNames';
 
 interface SummaryInput {
   templateId: string;

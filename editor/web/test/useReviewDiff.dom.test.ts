@@ -11,7 +11,7 @@ import { useReviewDiff } from '@/features/reviews/useReviewDiff';
 const buildDiff = vi.fn();
 const approveReviewFn = vi.fn();
 const rejectReviewFn = vi.fn();
-const updatePartDecisionFn = vi.fn();
+const updatePartDecisionsFn = vi.fn();
 
 vi.mock('@/features/reviews/services/reviewDiffService', () => ({
   useReviewDiffService: () => ({ buildDiff }),
@@ -20,13 +20,14 @@ vi.mock('@/api/repositories', () => ({
   useReviewRepo: () => ({
     approveReview: approveReviewFn,
     rejectReview: rejectReviewFn,
-    updatePartDecision: updatePartDecisionFn,
+    updatePartDecisions: updatePartDecisionsFn,
   }),
 }));
 
 const diffData = {
   review: { id: 'r1', origin: 'edit' },
-  rows: [{ key: 'k', label: 'p', status: 'changed', beforeHtml: 'a', afterHtml: 'b' }],
+  changes: [{ no: 1, partKey: 'k#1', name: 'p', textOps: [] }],
+  diff: { pages: [] },
   summary: { total: 1, changed: 1, added: 0, removed: 0 },
   cssBefore: '.b{}',
   cssAfter: '.a{}',
@@ -39,7 +40,7 @@ beforeEach(() => {
   buildDiff.mockReset();
   approveReviewFn.mockReset();
   rejectReviewFn.mockReset();
-  updatePartDecisionFn.mockReset();
+  updatePartDecisionsFn.mockReset();
 });
 
 describe('useReviewDiff', () => {
@@ -50,7 +51,8 @@ describe('useReviewDiff', () => {
 
     expect(buildDiff).toHaveBeenCalledWith('r1');
     expect(d.review.value?.id).toBe('r1');
-    expect(d.rows.value).toHaveLength(1);
+    expect(d.changes.value).toHaveLength(1);
+    expect(d.diff.value).toEqual({ pages: [] });
     expect(d.summary.value.changed).toBe(1);
     expect(d.cssBefore.value).toBe('.b{}');
     expect(d.cssAfter.value).toBe('.a{}');
@@ -87,12 +89,13 @@ describe('useReviewDiff', () => {
     expect(rejectReviewFn).toHaveBeenCalledWith('r1', { comment: 'NG' });
   });
 
-  it('updatePartDecision は reqId と判定で repo を呼び、保存後の判定を返す', async () => {
-    updatePartDecisionFn.mockResolvedValue(ok({ partKey: 'k#1', status: 'approved' }));
+  it('updatePartDecisions は reqId と判定の束で repo を呼び、保存後の判定を返す', async () => {
+    updatePartDecisionsFn.mockResolvedValue(ok([{ partKey: 'k#1', status: 'approved' }]));
     const d = useReviewDiff(() => 'r1');
-    const res = await d.updatePartDecision({ partKey: 'k#1', status: 'approved' });
+    const input = { decisions: [{ partKey: 'k#1', status: 'approved' as const }] };
+    const res = await d.updatePartDecisions(input);
 
-    expect(updatePartDecisionFn).toHaveBeenCalledWith('r1', { partKey: 'k#1', status: 'approved' });
-    expect(res.ok && res.value.partKey).toBe('k#1');
+    expect(updatePartDecisionsFn).toHaveBeenCalledWith('r1', input);
+    expect(res.ok && res.value[0].partKey).toBe('k#1');
   });
 });

@@ -6,17 +6,20 @@
 // (`CompareView`)と完全共有(`htmlWorker.buildHtmlDiff` + `htmlBlockDiff` の `DiffBlock`)。
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
 import {
-  buildReviewedHtmlCandidate,
+  type ChangedPart,
+  type HtmlDiff,
   isErr,
+  numberChangedParts,
   ok,
   type PartRepository,
+  partDisplayName,
+  partNameOfHtml,
   type Result,
   type ReviewRepository,
   type ReviewRequest,
 } from '@editor/shared';
 import { usePartRepo, useReviewRepo } from '@/api/repositories';
 import {
-  type BlockStatus,
   createLcsBudget,
   type DiffOp,
   diffTokens,
@@ -29,37 +32,20 @@ import {
   renderReviewPair,
   useCompareService,
 } from '@/features/compare/services/compareService';
+import { defaultHtmlParser } from '@/lib/htmlParser';
+import { loadPartNameMap, partNameOf } from '@/lib/partNames';
 import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
-import { businessLabel, loadPartNameMap } from './partNames';
 
-/** 承認画面の 1 パーツ行(= `DiffBlock` を presentation 用に写したもの)。 */
-export interface ReviewPartRow {
-  key: string;
+/** 承認画面の 1 変更パーツ行(番号つきの `ChangedPart` に表示名と本文語句差分を足したもの)。 */
+export interface ReviewChangeRow extends ChangedPart {
+  /** 表示名。業務名 → 先頭の文字 → 「ページN・パーツM」の順(`partDisplayName`)。 */
+  name: string;
   /**
-   * 表示ラベル。パーツカタログの業務名へ突合できれば「<業務名>（N ページ目）」、
-   * できなければ現行の機械採番「ページN・パーツM」(`partLabelMap` と同採番、`partNames.ts`
-   * の `businessLabel` フォールバック)。
-   */
-  label: string;
-  status: BlockStatus;
-  /** このパーツだけの着色済み変更前 HTML(added では空)。 */
-  beforeHtml: string;
-  /** このパーツだけの着色済み変更後 HTML(removed では空)。 */
-  afterHtml: string;
-  /** 比較元の装飾されていないパーツHTML。addedでは空。 */
-  rawBeforeHtml: string;
-  /** 申請版の装飾されていないパーツHTML。removedでは空。 */
-  rawAfterHtml: string;
-
-  /**
-   * 申請者スタイルの影響を受けない**本文テキストの語句差分**。承認画面はこれを親アプリの
-   * DOM に(エスケープした上で)描く。着色済みプレビューは申請者 CSS を載せた sandbox
-   * iframe で描くため、申請者は装飾クラスでなく自分の要素の selector に未保護プロパティ
-   * (`display` / `opacity` / `transform` / `font-size` / `-webkit-text-fill-color` 等)を当てて
-   * 変更箇所を隠せる(装飾の `!important` 保護は列挙済みプロパティしか守れず、`@media screen`
-   * でも回避できる)。`textContent` は CSS を無視するので、この語句差分には隠された変更も
-   * 現れる。空配列 = このパーツは差分表示の対象外(status が `same`)。
+   * 申請者スタイルの影響を受けない**本文テキストの語句差分**。着色済みプレビューは申請者 CSS を
+   * 載せた iframe で描くため、申請者は未保護プロパティで変更箇所を隠せる。`textContent` は
+   * CSS を無視するので、この語句差分には隠された変更も現れる。移動したパーツは削除側の before と
+   * 追加側の after で作る。
    */
   textOps: DiffOp[];
 }
@@ -73,7 +59,10 @@ export interface ReviewChangeSummary {
 }
 interface ReviewDiffData {
   review: ReviewRequest;
-  rows: ReviewPartRow[];
+  /** 変更のあるパーツ(`numberChangedParts` の順)。 */
+  changes: ReviewChangeRow[];
+  /** 差分そのもの(手元で最終候補・判定の不足を出すのに使う)。 */
+  diff: HtmlDiff;
   summary: ReviewChangeSummary;
   /** before ペイン(現行版)のファンド CSS。 */
   cssBefore: string;
@@ -83,15 +72,6 @@ interface ReviewDiffData {
   beforeBodyHtml: string;
   /** after(申請版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の右面に渡す。 */
   afterBodyHtml: string;
-  /** 保存済みパーツ判定を反映した、装飾なしの最終候補HTML。 */
-  reviewedBodyHtml: string;
-  /** 変更対象のうち判定が保存されていないパーツ識別子。 */
-  pendingPartKeys: string[];
-  /** 現在の差分対象に存在しない保存済みパーツ識別子。 */
-  unknownDecisionPartKeys: string[];
-  /** 同じパーツに複数ある保存済み判定。 */
-  duplicateDecisionPartKeys: string[];
-
   /**
    * 変更のあったページの index(0 始まり。`buildHtmlDiff` の `diff.pages` 由来)。
    * 見た目比較(`ReviewVisualCompare`)がマーカー・アンカーを付けるページの集合になる。
@@ -222,40 +202,32 @@ export function createReviewDiffService(
       // 本文語句差分の LCS 予算は**文書 1 件で 1 つ**(worker の `diffPairs` と同じ規律)。
       // 全パーツで使い切る形にして、ブロック数で計算量を青天井にできないようにする。
       const textBudget = createLcsBudget();
-      const rows: ReviewPartRow[] = diff.pages.flatMap((p) =>
-        p.blocks.map((b) => ({
-          key: b.partKey,
-          label: businessLabel(b.key, b.label, nameById),
-          status: b.status,
-          beforeHtml: b.beforeHtml,
-          afterHtml: b.afterHtml,
-          rawBeforeHtml: b.rawBeforeHtml,
-          rawAfterHtml: b.rawAfterHtml,
-
-          // 変更のあるパーツだけ本文語句差分を作る(same は表示対象外なので空)。
-          textOps: b.status === 'same' ? [] : textWordOps(b.beforeHtml, b.afterHtml, textBudget),
-        })),
-      );
+      const changes: ReviewChangeRow[] = numberChangedParts(diff).map((part) => ({
+        ...part,
+        name: partDisplayName({
+          catalogName: partNameOf(part.partKey, nameById),
+          firstText: partNameOfHtml(part.rawAfterHtml || part.rawBeforeHtml, defaultHtmlParser),
+          fallbackLabel: part.label,
+        }),
+        textOps: textWordOps(part.beforeHtml, part.afterHtml, textBudget),
+      }));
+      const blocks = diff.pages.flatMap((p) => p.blocks);
       const summary: ReviewChangeSummary = {
-        total: rows.length,
-        changed: rows.filter((r) => r.status === 'changed').length,
-        added: rows.filter((r) => r.status === 'added').length,
-        removed: rows.filter((r) => r.status === 'removed').length,
+        total: blocks.length,
+        changed: blocks.filter((b) => b.status === 'changed').length,
+        added: blocks.filter((b) => b.status === 'added').length,
+        removed: blocks.filter((b) => b.status === 'removed').length,
       };
-      const reviewed = buildReviewedHtmlCandidate(diff, review.partDecisions ?? []);
 
       return ok({
         review,
-        rows,
+        changes,
+        diff,
         summary,
         cssBefore: before.css,
         cssAfter: after.css,
         beforeBodyHtml: before.html,
         afterBodyHtml: after.html,
-        reviewedBodyHtml: reviewed.html,
-        pendingPartKeys: reviewed.pendingPartKeys,
-        unknownDecisionPartKeys: reviewed.unknownDecisionPartKeys,
-        duplicateDecisionPartKeys: reviewed.duplicateDecisionPartKeys,
 
         changedPageIndexes: diff.pages.filter((p) => p.changed).map((p) => p.index),
         beforePageCount: diff.beforePageCount,

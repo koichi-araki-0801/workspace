@@ -3,12 +3,7 @@
 // =============================================================================
 import { err, notFound, ok, type PartRepository } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  businessLabel,
-  loadPartNameMap,
-  partIdFromBlockKey,
-  partNameOf,
-} from '@/features/reviews/services/partNames';
+import { businessLabel, loadPartNameMap, partIdFromBlockKey, partNameOf } from '@/lib/partNames';
 
 describe('partIdFromBlockKey', () => {
   it('data-part-id 由来のキーから id を取り出す', () => {

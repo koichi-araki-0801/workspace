@@ -4,9 +4,7 @@ import { buildOpenApiDocument } from '../src/openapi/document.js';
 
 // OpenAPI document に意図的に未記載のパス(設計ギャップ)。将来パスを先に共有定数へ足して
 // document を後追いにする場合のみ、ここへ一時的に列挙する。
-// 旧パス `part-decision` は server のルートを外した(404)が、web がまだ `apiPaths` の定数を
-// 参照しているので定数だけ残っている。web を新パスへ移す Task で定数ごと消し、ここからも外す。
-const KNOWN_OPENAPI_GAPS: readonly string[] = ['/review-requests/:reqId/part-decision'];
+const KNOWN_OPENAPI_GAPS: readonly string[] = [];
 
 describe('openapi document', () => {
   const doc = buildOpenApiDocument();

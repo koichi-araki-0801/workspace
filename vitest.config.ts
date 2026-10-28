@@ -281,12 +281,14 @@ export default defineConfig({
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
         'editor/web/src/features/reviews/reviewPartMaps.ts',
-        'editor/web/src/features/reviews/services/partNames.ts',
+        'editor/web/src/lib/partNames.ts',
         'editor/web/src/features/reviews/services/changedSummary.ts',
         'editor/web/src/features/reviews/resolveReviewTarget.ts',
         'editor/web/src/features/reviews/reviewAccordion.ts',
         'editor/web/src/features/reviews/ReviewTabView.vue',
         'editor/web/src/features/reviews/useReviewDiff.ts',
+        'editor/web/src/features/reviews/reviewDecisionState.ts',
+        'editor/web/src/features/reviews/useReviewDecisions.ts',
         'editor/web/src/features/reviews/ReviewNoticeBar.vue',
         // rest トランスポートと 7 リポジトリ、DI 合成ルート。契約どおりに動くことを
         // 直接テストで固定する(rest e2e は挙動の一部しか通らない)。
