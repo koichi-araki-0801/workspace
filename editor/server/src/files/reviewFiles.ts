@@ -139,16 +139,9 @@ export async function countPendingReviews(): Promise<number> {
 }
 
 /**
- * 同じ id の承認待ちの作成申請(origin=create)があるか。あるうちに作り直すと、承認でその申請の
- * 内容が templates/ に入り、作り直した生成物と食い違う。照合は大文字小文字を区別しない。
- */
-export async function hasPendingCreateReview(templateId: string): Promise<boolean> {
-  return (await pendingCreateReviewLookup())(templateId);
-}
-
-/**
- * 申請の一覧を 1 度だけ走査し、id ごとの「承認待ちの作成申請があるか」を返す。1 回の要求で
- * 複数の版を問うときに、版ごとに reviews/ を走査し直さないため。照合は大文字小文字を区別しない。
+ * 申請の一覧を 1 度だけ走査し、id ごとの「同じ id の承認待ちの作成申請(origin=create)があるか」を
+ * 返す。あるうちに作り直すと、承認でその申請の内容が templates/ に入り、作り直した生成物と食い違う。
+ * 1 回の要求で複数の版を問うときに、版ごとに reviews/ を走査し直さない。照合は大文字小文字を区別しない。
  */
 export async function pendingCreateReviewLookup(): Promise<(templateId: string) => boolean> {
   const ids = new Set(
@@ -170,7 +163,7 @@ export function reviewContentHash(html: string, css: string): string {
  *
  * 本文を読むのはメタの 3 項目が一致した申請だけ(同じ人・同じテンプレの承認待ちは普通 0〜2 件)。
  * hash をメタに持たせないのは、メタが API 応答の型でもあり、足すと openapi と web の型が動くため。
- * templateId の照合は `hasPendingCreateReview` と同じく大文字小文字を区別しない。
+ * templateId の照合は `pendingCreateReviewLookup` と同じく大文字小文字を区別しない。
  */
 export async function findDuplicatePendingReview(p: {
   templateId: string;
