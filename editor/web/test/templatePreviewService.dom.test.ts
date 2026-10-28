@@ -296,6 +296,54 @@ describe('TemplatePreviewService.loadForPreview', () => {
       expect(templates.getSampleData).not.toHaveBeenCalled();
     }
   });
+  it('filled の body へ body ラッパ付き下書きの内側だけを差し替える', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok(filledTpl)),
+      getSampleData: vi.fn(async () => ok({})),
+      getDraft: vi.fn(async () =>
+        ok({
+          templateId: 't1',
+          html:
+            '<body class="page-root">' +
+            '<section class="part-a"><p>パーツA</p></section>' +
+            '<section class="part-b"><p>パーツB</p></section>' +
+            '</body>',
+          css: '.d{}',
+          savedAt: '',
+          savedBy: '',
+        }),
+      ),
+    } as unknown as TemplateRepository;
+
+    const svc = createTemplatePreviewService(templates, history, ownerOf(true));
+    const res = await svc.loadForPreview('t1');
+
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.restoredHtml).toBe(
+        '<html><head><title>値入り</title></head><body>' +
+          '<section class="part-a"><p>パーツA</p></section>' +
+          '<section class="part-b"><p>パーツB</p></section>' +
+          '</body></html>',
+      );
+
+      // draft の外側の body を本文要素として残さない。残る body は完成文書の 1 つだけ。
+      expect(res.value.restoredHtml.match(/<body[\s>]/gi)).toHaveLength(1);
+      expect(res.value.restoredHtml).not.toContain('<body><body');
+      expect(res.value.restoredHtml).not.toContain('class="page-root"');
+
+      const doc = new DOMParser().parseFromString(res.value.restoredHtml, 'text/html');
+      expect(Array.from(doc.body.children).map((element) => element.className)).toEqual([
+        'part-a',
+        'part-b',
+      ]);
+
+      expect(res.value.previewDoc).toContain('パーツA');
+      expect(res.value.previewDoc).toContain('パーツB');
+      expect(res.value.hasDraft).toBe(true);
+      expect(templates.getSampleData).not.toHaveBeenCalled();
+    }
+  });
 });
 
 describe('TemplatePreviewService.recordPdfExport', () => {

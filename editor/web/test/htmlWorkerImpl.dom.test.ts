@@ -16,9 +16,10 @@ const page = (n: number, body: string) => `<section id="p${n}">${body}</section>
 const build = (pages: string[]) =>
   `<!doctype html><html><body>${pages.join('<div class="pagebreak"></div>')}</body></html>`;
 
-// linkedom は table の暗黙 `<tbody>` を補わない(browser/jsdom は補う)。この差は比較画面の
-// 表示専用 HTML にのみ現れ、保存/PDF には出ず描画も同一なので、パリティ比較では `tbody`
-// タグを正規化(除去)して吸収する。
+// linkedom はtableの暗黙`<tbody>`を補わない(browser/jsdomは補う)。表示用HTMLと
+// 装飾前の生HTMLの両方に同じ直列化差が現れるため、このパリティ比較では`tbody`タグを
+// 正規化して、DOM実装によらない差分分類・キー・本文の一致を検証する。
+
 function stripTbody(diff: HtmlDiff): HtmlDiff {
   const s = (h: string) => h.replace(/<\/?tbody>/gi, '');
   return {
@@ -32,6 +33,8 @@ function stripTbody(diff: HtmlDiff): HtmlDiff {
         ...b,
         beforeHtml: s(b.beforeHtml),
         afterHtml: s(b.afterHtml),
+        rawBeforeHtml: s(b.rawBeforeHtml),
+        rawAfterHtml: s(b.rawAfterHtml),
       })),
     })),
   };
@@ -62,6 +65,55 @@ describe('htmlWorkerImpl linkedom parity', () => {
     // changedPageCount や status 分類は完全一致、表示 HTML は tbody 正規化後に一致。
     expect(viaLinkedom.changedPageCount).toBe(viaJsdom.changedPageCount);
     expect(stripTbody(viaLinkedom)).toEqual(stripTbody(viaJsdom));
+  });
+  it('buildHtmlDiff: 既存の直下パーツを維持し、申請版だけのパーツを added にする', () => {
+    const before =
+      '<!doctype html><html><head></head><body>' +
+      '<section class="cover_header"><p>表紙</p></section>' +
+      '<section class="cover_report"><p>報告書</p></section>' +
+      '<section class="cover_body"><p>本文</p></section>' +
+      '<div class="pagebreak"></div>' +
+      '<section class="report_item_1"><p>運用経過</p></section>' +
+      '<section class="report_item_2"><p>分配金</p></section>' +
+      '</body></html>';
+
+    const after =
+      '<!doctype html><html><head></head><body>' +
+      '<section class="cover_header"><p>表紙</p></section>' +
+      '<section class="cover_report"><p>報告書</p></section>' +
+      '<section class="cover_body"><p>本文</p></section>' +
+      '<div data-part-id="part-cost-table"><p>費用明細</p></div>' +
+      '<table class="data"><tbody><tr><td>100</td></tr></tbody></table>' +
+      '<table data-part-id="part-scheme-product"><tbody><tr><td>商品分類</td></tr></tbody></table>' +
+      '<div class="pagebreak"></div>' +
+      '<section class="report_item_1"><p>運用経過</p></section>' +
+      '<section class="report_item_2"><p>分配金</p></section>' +
+      '</body></html>';
+
+    const viaJsdom = buildHtmlDiff(before, after, css, css);
+    const viaLinkedom = htmlWorkerImpl.buildHtmlDiff(before, after, css, css);
+
+    const counts = (diff: HtmlDiff) => {
+      const blocks = diff.pages.flatMap((page) => page.blocks);
+
+      return {
+        changed: blocks.filter((block) => block.status === 'changed').length,
+        added: blocks.filter((block) => block.status === 'added').length,
+        removed: blocks.filter((block) => block.status === 'removed').length,
+        same: blocks.filter((block) => block.status === 'same').length,
+        addedKeys: blocks.filter((block) => block.status === 'added').map((block) => block.partKey),
+      };
+    };
+
+    expect(counts(viaJsdom)).toEqual({
+      changed: 0,
+      added: 3,
+      removed: 0,
+      same: 5,
+      addedKeys: ['part-cost-table#1', '.data#1', 'part-scheme-product#1'],
+    });
+
+    expect(counts(viaLinkedom)).toEqual(counts(viaJsdom));
   });
 
   it('toTemplate: jsdom と linkedom で復元結果が一致', () => {

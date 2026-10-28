@@ -15,7 +15,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
-import { login, openEditor, partLocator, waitForLoaded } from './helpers';
+import {
+  approvePendingParts,
+  finalizeReview,
+  login,
+  openEditor,
+  openReviewDetail,
+  partLocator,
+  waitForLoaded,
+} from './helpers';
 
 const SEED_ID = 'XX01_950037_20240710_交付版';
 const EDIT_MARK = 'restE2E追記';
@@ -101,14 +109,15 @@ test('approver が承認すると確定ファイルと git コミットへ反映
   // 申請者(editor)とは別ユーザーで入る。自己承認は職務分掌で拒否される。
   await login(page, 'approver');
 
-  // 承認タブの対象は「編集タブで開いているテンプレート」なので、先に編集画面を開く。
-  await openEditor(page, SEED_ID);
-  await page.getByRole('link', { name: '承認' }).click();
+  // 承認タブは全申請の一覧から入り、申請行を選んでテンプレートの詳細で精査する。
+  await openReviewDetail(page, SEED_ID);
 
   await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('1');
   const item = page.locator('[data-review-item]').first();
   await expect(item).toBeVisible();
-  await item.getByRole('button', { name: '承認する' }).click();
+  // 地の文への追記がパーツの変更として並ぶ。変更パーツを判定し終えるまで最終確定はできない。
+  await approvePendingParts(page, item);
+  await finalizeReview(page, item);
 
   // 決着すると既定フィルタ(承認待ち)から外れる。承認済みの箱へ絞って決着表示を確かめる。
   await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('0', {
@@ -131,4 +140,61 @@ test('approver が承認すると確定ファイルと git コミットへ反映
     encoding: 'utf8',
   });
   expect(log).toContain(`確定保存(承認): ${SEED_ID} 申請=editor 承認=approver`);
+});
+
+// ── 編集タブの申請の一部却下 ──
+// 最終確定は判定を当てた本文を書く。却下したパーツは申請時点の現行版へ戻り、承認したパーツと
+// パーツの外は申請のバイトのまま残る(`shared/src/html/reviewDiff/editReviewedHtml.ts`)。申請の
+// 本文を細かく作るため、申請は画面を通さず API で出す(判定と最終確定は画面で行う)。
+const PARTIAL_ID = 'XX01_950124_20251020_交付版';
+const APPROVED_MARK = '<p>承認する追記</p>';
+const REJECTED_MARK = '<p>却下する追記</p>';
+
+test('一部のパーツを却下して最終確定すると、却下したパーツだけが現行版に戻る', async ({ page }) => {
+  test.setTimeout(180_000);
+  const filledPath = path.join(E2E_REST_DATA_ROOT, 'filled', `${PARTIAL_ID}.html`);
+  const base = fs.readFileSync(filledPath, 'utf8');
+  const css = fs.readFileSync(
+    path.join(E2E_REST_DATA_ROOT, 'css', 'XX01_950124_交付版.css'),
+    'utf8',
+  );
+  const addTo = (html: string, cls: string, mark: string) => {
+    const open = `<section class="${cls}">`;
+    expect(html).toContain(open);
+    return html.replace(open, `${open}\n      ${mark}`);
+  };
+  const submitted = addTo(
+    addTo(base, 'cover_header', APPROVED_MARK),
+    'report_item_6',
+    REJECTED_MARK,
+  );
+
+  await login(page, 'editor');
+  const res = await page.request.post('/api/review-requests', {
+    data: { templateId: PARTIAL_ID, html: submitted, css, origin: 'edit' },
+  });
+  expect(res.ok(), `POST review-requests ${res.status()}`).toBeTruthy();
+
+  await login(page, 'approver');
+  await openReviewDetail(page, PARTIAL_ID);
+  const item = page.locator('[data-review-item]').first();
+  await expect(item).toBeVisible();
+  await item.getByRole('button', { name: '文字の変更を一覧で見る' }).click();
+
+  // 却下するパーツの行(本文の語句差分に追記が出る)で理由を書いて却下する。
+  const rejectedRow = item.locator('li', { hasText: '却下する追記' });
+  await expect(rejectedRow).toHaveCount(1);
+  await rejectedRow.locator('textarea').fill('この追記は載せない');
+  await rejectedRow.getByRole('button', { name: '却下する' }).click();
+  await expect(rejectedRow.getByText('却下済み').first()).toBeVisible({ timeout: 30_000 });
+
+  // 残り(表紙の追記)を承認して最終確定する。
+  await approvePendingParts(page, item);
+  await finalizeReview(page, item);
+  await expect(page.locator('[data-summary="pending"] .text-2xl')).toHaveText('0', {
+    timeout: 30_000,
+  });
+
+  // 却下したパーツは現行版、承認したパーツとパーツの外は申請のバイトのまま。
+  expect(fs.readFileSync(filledPath, 'utf8')).toBe(addTo(base, 'cover_header', APPROVED_MARK));
 });

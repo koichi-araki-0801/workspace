@@ -9,7 +9,7 @@
 // 字面そのものは shared の `MARKER_ATTRS`(`editingMarkers.ts`)が正典で、申請の関所の検出と
 // 同じ定数を使う。ここは web の書き手・読み手が使う名前を付けて並べる。
 
-import { JINJA_DELIMS, MARKER_ATTRS } from '@editor/shared';
+import { b64decodeUtf8, b64encodeUtf8, JINJA_DELIMS, MARKER_ATTRS } from '@editor/shared';
 
 /** Jinja の開始記号（式 `{{`・文 `{%`・コメント `{#`）。 */
 export const JINJA_OPEN_RE = /\{[{%#]/;
@@ -43,28 +43,8 @@ export type RtMarker =
   | { kind: 'x'; id: number }
   | { kind: 't'; payload: string };
 
-export function b64encodeUtf8(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-}
-
-// 不正な UTF-8 は置換文字へ化けると原文が変わるので、`fatal` で例外にして呼び元へ知らせる。
-export function b64decodeUtf8(b: string): string {
-  const bin = atob(b);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-}
-
-/** 壊れた base64・不正な UTF-8 は読めない原文として空文字にする。 */
-export function b64decodeSafe(s: string): string {
-  try {
-    return b64decodeUtf8(s);
-  } catch {
-    return '';
-  }
-}
+// base64 の変換は改ページの判定(shared の `pageSplit.ts`)も使うので shared に置く。
+export { b64decodeSafe, b64decodeUtf8, b64encodeUtf8 } from '@editor/shared';
 
 const B64 = '[A-Za-z0-9+/]*={0,2}';
 const RT_RE = new RegExp(`^${RT_COMMENT_PREFIX}(?:([oc]):(\\d+):(${B64})|x:(\\d+)|t:(${B64}))$`);

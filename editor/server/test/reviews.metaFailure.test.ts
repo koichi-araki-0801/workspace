@@ -57,10 +57,16 @@ d('review approve — meta 更新の部分失敗', () => {
   const approver = { username: 'approver1', role: 'approver' };
 
   // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
-  const submit = (templateId: string, html: string) => {
+  // 変わったパーツ(`p#1`)の判定が揃わないと最終確定できないので、申請と同時に承認しておく。
+  const submit = async (templateId: string, html: string) => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>既存の値入り</p>', 'utf8');
-    return reviews.submitReview({ templateId, html, css: '.x{}', origin: 'edit' }, submitter);
+    const meta = await reviews.submitReview(
+      { templateId, html, css: '.x{}', origin: 'edit' },
+      submitter,
+    );
+    await reviews.updatePartDecision(meta.id, { partKey: 'p#1', status: 'approved' }, approver);
+    return meta;
   };
 
   beforeAll(async () => {

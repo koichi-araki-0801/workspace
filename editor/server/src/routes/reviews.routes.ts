@@ -10,7 +10,9 @@ import {
   ReviewListQuery,
   ReviewRejectBody,
   SubmitReviewBody,
+  UpdateReviewPartDecisionRequest,
 } from '@editor/shared/schemas';
+
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
@@ -68,6 +70,42 @@ export const reviewsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'reviews'> }> 
   app.get<ReqIdParams>(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {
     return reviews.getReview(request.params.reqId, actor(request));
   });
+  // パーツ1件の判定更新(精査者限定)。最終確定前の判定保存だけを行う。
+  app.post<
+    ReqIdParams & {
+      Body: z.infer<typeof UpdateReviewPartDecisionRequest>;
+    }
+  >(
+    apiPaths.reviewRequestPartDecision,
+    {
+      preHandler: [requireAuth, requireApprover, validate(UpdateReviewPartDecisionRequest)],
+    },
+    async (request) => {
+      const reqId = request.params.reqId;
+      const body = request.body;
+
+      return auditedRethrow(
+        request,
+        'review.part-decision',
+        () => reviews.updatePartDecision(reqId, body, actor(request)),
+        {
+          success: (decision) => ({
+            resource: {
+              reqId,
+              partKey: decision.partKey,
+            },
+          }),
+          failure: () => ({
+            resource: {
+              reqId,
+              partKey: body.partKey,
+            },
+          }),
+          failureMessage: 'part decision update failed',
+        },
+      );
+    },
+  );
 
   // 承認 → 実ファイル反映 + git commit(精査者限定)。
   app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(

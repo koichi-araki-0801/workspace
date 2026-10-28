@@ -402,6 +402,94 @@ export const ReviewStatus = z
   .enum(['pending', 'approved', 'rejected'])
   .meta({ id: 'ReviewStatus' });
 
+/** review内のパーツ1件に対する現在の判定状態。 */
+export const ReviewPartDecisionStatus = z
+  .enum(['pending', 'approved', 'rejected'])
+  .meta({ id: 'ReviewPartDecisionStatus' });
+
+/**
+ * review内のパーツ判定を変更した履歴。初回判定も `pending` からの変更として記録する。
+ * 現在状態とは分離して保持し、最終確定前に判定を変更した経緯を追跡できるようにする。
+ */
+export const ReviewPartDecisionHistoryEntry = z
+  .object({
+    from: ReviewPartDecisionStatus.meta({ description: '変更前の判定状態' }),
+    to: ReviewPartDecisionStatus.meta({ description: '変更後の判定状態' }),
+    changedBy: z.string().meta({ description: '判定を変更したユーザ' }),
+    changedAt: z.string().meta({ description: '判定を変更したISOタイムスタンプ' }),
+    comment: z
+      .string()
+      .nullable()
+      .meta({ description: '判定時のメモまたは却下理由。無ければnull' }),
+  })
+  .meta({ id: 'ReviewPartDecisionHistoryEntry' });
+
+/**
+ * review内のパーツ1件について、現在有効な判定と変更履歴を保持する。
+ *
+ * `partKey` は申請時点の比較元と申請版から決定する、
+ * 文書全体での `<アンカー>#<通し番号>` 形式のパーツ構造キーである。
+ * ページ番号を含めず、`htmlBlockDiff.ts` の `DiffBlock.partKey` と同じ値を使用する。
+ *
+ * 状態ごとに判定者・日時・commentの必須条件を分け、不正な組合せを契約の段で拒否する。
+ */
+export const ReviewPartDecision = z
+  .discriminatedUnion('status', [
+    z.object({
+      partKey: z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' }),
+      status: z.literal('pending'),
+      decidedBy: z.null(),
+      decidedAt: z.null(),
+      comment: z.null(),
+      history: z.array(ReviewPartDecisionHistoryEntry),
+    }),
+    z.object({
+      partKey: z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' }),
+      status: z.literal('approved'),
+      decidedBy: z.string().min(1).meta({ description: '最後に判定したユーザ' }),
+      decidedAt: z.string().meta({ description: '最後に判定したISOタイムスタンプ' }),
+      comment: z.string().nullable().meta({ description: '現在の承認メモ。無ければnull' }),
+      history: z.array(ReviewPartDecisionHistoryEntry),
+    }),
+    z.object({
+      partKey: z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' }),
+      status: z.literal('rejected'),
+      decidedBy: z.string().min(1).meta({ description: '最後に判定したユーザ' }),
+      decidedAt: z.string().meta({ description: '最後に判定したISOタイムスタンプ' }),
+      comment: z.string().trim().min(1).meta({ description: '現在の却下理由' }),
+      history: z.array(ReviewPartDecisionHistoryEntry),
+    }),
+  ])
+  .meta({ id: 'ReviewPartDecision' });
+
+/**
+ * パーツ判定の更新入力。承認はメモを任意とし、却下は理由を必須にする。
+ * `pending` は初期状態であり、判定更新の遷移先としては受け付けない。
+ */
+export const UpdateReviewPartDecisionRequest = z
+  .discriminatedUnion('status', [
+    z.object({
+      partKey: z.string().min(1).meta({
+        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+      }),
+      status: z.literal('approved'),
+      comment: z
+        .string()
+        .trim()
+        .min(1)
+        .optional()
+        .meta({ description: '承認時の判定メモ。無ければ省略' }),
+    }),
+    z.object({
+      partKey: z.string().min(1).meta({
+        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+      }),
+      status: z.literal('rejected'),
+      comment: z.string().trim().min(1).meta({ description: 'パーツの却下理由' }),
+    }),
+  ])
+  .meta({ id: 'UpdateReviewPartDecisionRequest' });
+
 export const ReviewOrigin = z.enum(['edit', 'create']).meta({
   id: 'ReviewOrigin',
   description: '編集タブ(既存編集) / 作成タブ(新規) 由来。2 系統の区別を申請に保持する',
@@ -434,6 +522,10 @@ export const ReviewRequestMeta = z
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
     changedSummary: ReviewChangedSummary.nullable().optional(),
+    partDecisions: z.array(ReviewPartDecision).optional().meta({
+      description:
+        'パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う',
+    }),
   })
   .meta({ id: 'ReviewRequestMeta' });
 
@@ -442,6 +534,14 @@ export const ReviewRequest = ReviewRequestMeta.extend({
   html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
   css: z.string(),
   filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
+  baseHtml: z.string().optional().meta({
+    description:
+      '申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+  }),
+  baseCss: z.string().optional().meta({
+    description:
+      '申請時点の比較元CSS。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+  }),
 }).meta({ id: 'ReviewRequest' });
 
 /**

@@ -1,13 +1,13 @@
 // =============================================================================
 // htmlLex.ts — HTML の字句解析の小さな部品(文字の分類・コメントの終わり・属性 1 つ)
 // =============================================================================
-// タグを読む走査器は 6 本あり、用途ごとに失敗時の倒し方が違うので 1 本にはしない
+// タグを読む走査器は 7 本あり、用途ごとに失敗時の倒し方が違うので 1 本にはしない
 // (`docs/editor/src/設計正典.md` の却下済み設計「HTML の走査器を 1 本にまとめる」)。共有するのは、どの
 // 走査器でもブラウザと同じ答えになるべき部品だけで、ここに置く。raw text の終わり探しは
 // `html/rawText.ts`。使う側: `security/editingMarkers.ts`、`server/src/vivliostyle/inlineCss.ts`、
 // `server/src/security/templateScripts.ts`、`server/src/sync/partSync.ts`、`web/src/lib/htmlScan.ts`、
-// `html/partHtmlCompare.ts`。部品の意味を変えると 6 本の判定が同時に動くので、ブラウザの字句解析と
-// 違う向きへは変えない。
+// `html/partHtmlCompare.ts`、`html/reviewParts.ts`。部品の意味を変えると 7 本の判定が同時に
+// 動くので、ブラウザの字句解析と違う向きへは変えない。
 
 /** HTML の空白(TAB / LF / FF / CR / SP)。`\s` は NBSP なども含み、ブラウザと読みがずれる。 */
 export function isHtmlSpace(c: string | undefined): boolean {

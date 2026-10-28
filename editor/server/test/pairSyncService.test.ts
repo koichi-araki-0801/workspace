@@ -512,6 +512,58 @@ d('pairSyncService', () => {
     expect(Object.keys(state.parts)).not.toHaveLength(0);
   });
 
+  // edit 申請の最終確定は却下したパーツだけを切り貼りする(shared の `editReviewedHtml.ts`)。DOM で
+  // 書き直すと、触っていないパーツの書き方(引用符・`<br/>`)まで変わり、承認直後の同期がそれを
+  // 変更として写す。
+  it('edit 申請の一部却下を確定しても、触っていないパーツは写さず競合にもしない', {
+    timeout: 60_000,
+  }, async () => {
+    const { buildEditReviewedHtml } = await import('@editor/shared');
+    const { linkedomParser } = await import('../src/util/linkedomParser.js');
+    const { createPairSyncService } = await import('../src/sync/pairSyncService.js');
+    const catalog = ['a', 'b', 'c'].map((id) => ({ id, syncDefault: '同期', content: '' }));
+    const three = createPairSyncService(
+      { listParts: async () => catalog, getPartClassificationOptions: async () => ({}) } as never,
+      noValues,
+    );
+    const untouched = "<section data-part-id='c' class=box><p>不変<br/>のまま</p></section>";
+    const body = (a: string, b: string) =>
+      `<!doctype html>\n<html><head><title>t</title></head><body>\n${part('a', a)}\n` +
+      `<div class="pagebreak"></div>\n${part('b', b)}\n${untouched}\n</body></html>\n`;
+    const src = 'XX01_510300_20240710_交付版';
+    const dst = 'XX01_510300_20240710_全体版';
+    const base = body('旧A', '旧B');
+    put('filled', src, base);
+    put('filled', dst, base);
+    const opts = { css: null };
+    await three.syncPairAfterConfirm(src, 'approver1', 'filled', opts);
+
+    const confirmed = buildEditReviewedHtml(
+      {
+        baseHtml: base,
+        baseCss: '',
+        html: body('新A', '新B'),
+        partDecisions: [
+          { partKey: 'a#1', status: 'approved' },
+          { partKey: 'b#1', status: 'rejected' },
+        ],
+      },
+      linkedomParser,
+      base,
+    );
+    // DOM で書き直していれば `c` の書き方が変わる(この比較が同期の誤検知の元になる)。
+    expect(linkedomParser(confirmed).body.innerHTML).not.toContain(untouched);
+    expect(confirmed).toBe(body('新A', '旧B'));
+
+    put('filled', src, confirmed);
+    const r = await three.syncPairAfterConfirm(src, 'approver1', 'filled', opts);
+    expect(r?.error).toBeNull();
+    expect(r?.applied).toEqual(['a#1']);
+    expect(r?.skipped).toEqual([]);
+    expect((await three.getPairSyncStatus(src)).conflicts).toEqual([]);
+    expect(read('filled', dst)).toBe(body('新A', '旧B'));
+  });
+
   describe('編集タブで挿入した Jinja パーツ', () => {
     // カタログの `内容HTML` が Jinja を含むパーツ `j`。編集タブでは写し元の値で描いた地の HTML が
     // GrapesJS の書き出しの形(属性の順序・style の書き直し・`<br/>`・テキストの `'` は文字のまま)で

@@ -8,8 +8,7 @@
         "scripts/pdf-build-worker.mjs",
         "scripts/pdf-build-worker-daemon.mjs",
         "scripts/e2e-rest-server.ts"
-      ],
-      "ignoreDependencies": ["linkedom"]
+      ]
     },
     "pie-chart": {
       "entry": ["src/runtime/sqlserverv8Shim.cjs"]

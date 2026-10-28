@@ -10,12 +10,14 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  normalizeReviewPartDecisions,
   notFound,
   type ReviewRequestMeta,
   type StoredReviewRequest,
   toReviewMeta,
   unexpected,
 } from '@editor/shared';
+
 import { ReviewStatus } from '@editor/shared/schemas';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -35,6 +37,8 @@ const bodyHtmlPath = (reqId: string) => path.join(reviewDir(reqId), 'body.html')
 const bodyCssPath = (reqId: string) => path.join(reviewDir(reqId), 'body.css');
 const filledPath = (reqId: string) => path.join(reviewDir(reqId), 'filled.html');
 const baselineCssPath = (reqId: string) => path.join(reviewDir(reqId), 'baseline.css');
+const baseHtmlPath = (reqId: string) => path.join(reviewDir(reqId), 'base.html');
+const baseCssPath = (reqId: string) => path.join(reviewDir(reqId), 'base.css');
 
 /** 申請のメタ + 本体を新規作成する(申請=submit 時)。 */
 export async function writeReview(req: StoredReviewRequest): Promise<void> {
@@ -44,6 +48,9 @@ export async function writeReview(req: StoredReviewRequest): Promise<void> {
   await atomicWrite(bodyCssPath(req.id), req.css);
   if (req.filledHtml !== undefined) await atomicWrite(filledPath(req.id), req.filledHtml);
   if (req.cssBaseline !== undefined) await atomicWrite(baselineCssPath(req.id), req.cssBaseline);
+  if (req.baseHtml !== undefined) await atomicWrite(baseHtmlPath(req.id), req.baseHtml);
+  if (req.baseCss !== undefined) await atomicWrite(baseCssPath(req.id), req.baseCss);
+
   // 本体を先に書いてからメタを書く(メタが在れば本体も在る、を保つ)。
   await atomicWrite(metaPath(req.id), JSON.stringify(toReviewMeta(req), null, 2));
 }
@@ -72,7 +79,7 @@ async function readReviewMeta(reqId: string): Promise<ReviewRequestMeta | null> 
     }
     return null;
   }
-  return parsed;
+  return normalizeReviewPartDecisions(parsed);
 }
 
 /**
@@ -98,12 +105,17 @@ export async function readReview(reqId: string): Promise<StoredReviewRequest | n
   const filledHtml = await fs.readFile(filledPath(reqId), 'utf8').catch(() => undefined);
   // baseline.css も任意。無い(読めない)申請は承認でペアへの CSS の転写だけを飛ばす。
   const cssBaseline = await fs.readFile(baselineCssPath(reqId), 'utf8').catch(() => undefined);
+  const baseHtml = await fs.readFile(baseHtmlPath(reqId), 'utf8').catch(() => undefined);
+  const baseCss = await fs.readFile(baseCssPath(reqId), 'utf8').catch(() => undefined);
+
   return {
     ...meta,
     html,
     css,
     ...(filledHtml !== undefined ? { filledHtml } : {}),
     ...(cssBaseline !== undefined ? { cssBaseline } : {}),
+    ...(baseHtml !== undefined ? { baseHtml } : {}),
+    ...(baseCss !== undefined ? { baseCss } : {}),
   };
 }
 

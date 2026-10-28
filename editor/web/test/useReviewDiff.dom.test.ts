@@ -11,6 +11,7 @@ import { useReviewDiff } from '@/features/reviews/useReviewDiff';
 const buildDiff = vi.fn();
 const approveReviewFn = vi.fn();
 const rejectReviewFn = vi.fn();
+const updatePartDecisionFn = vi.fn();
 
 vi.mock('@/features/reviews/services/reviewDiffService', () => ({
   useReviewDiffService: () => ({ buildDiff }),
@@ -19,6 +20,7 @@ vi.mock('@/api/repositories', () => ({
   useReviewRepo: () => ({
     approveReview: approveReviewFn,
     rejectReview: rejectReviewFn,
+    updatePartDecision: updatePartDecisionFn,
   }),
 }));
 
@@ -37,6 +39,7 @@ beforeEach(() => {
   buildDiff.mockReset();
   approveReviewFn.mockReset();
   rejectReviewFn.mockReset();
+  updatePartDecisionFn.mockReset();
 });
 
 describe('useReviewDiff', () => {
@@ -82,5 +85,14 @@ describe('useReviewDiff', () => {
     await d.reject('NG');
 
     expect(rejectReviewFn).toHaveBeenCalledWith('r1', { comment: 'NG' });
+  });
+
+  it('updatePartDecision は reqId と判定で repo を呼び、保存後の判定を返す', async () => {
+    updatePartDecisionFn.mockResolvedValue(ok({ partKey: 'k#1', status: 'approved' }));
+    const d = useReviewDiff(() => 'r1');
+    const res = await d.updatePartDecision({ partKey: 'k#1', status: 'approved' });
+
+    expect(updatePartDecisionFn).toHaveBeenCalledWith('r1', { partKey: 'k#1', status: 'approved' });
+    expect(res.ok && res.value.partKey).toBe('k#1');
   });
 });

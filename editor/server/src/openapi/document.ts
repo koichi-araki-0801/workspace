@@ -599,6 +599,25 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      [toOpenApiPath(apiPaths.reviewRequestPartDecision)]: {
+        post: {
+          tags: ['reviews'],
+          summary: 'パーツ判定の更新(精査者限定・自分の申請は不可)',
+          operationId: 'updateReviewPartDecision',
+          requestParams: { path: z.object({ reqId: z.string() }) },
+          requestBody: {
+            content: { 'application/json': { schema: s.UpdateReviewPartDecisionRequest } },
+          },
+          responses: {
+            '200': json('更新後のパーツ判定(変更履歴つき)', s.ReviewPartDecision),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_403,
+            ...ERR_404,
+            ...ERR_409,
+          },
+        },
+      },
 
       // ── 6. history ──
       '/history/edit': {

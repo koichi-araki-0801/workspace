@@ -32,6 +32,32 @@ describe('buildHtmlDiff', () => {
     expect(diff.pages[0].afterHtml).not.toContain(HL_INS);
     expect(diff.pages[0].beforeHtml).not.toContain(HL_DEL);
   });
+  it('要素間の改行・インデントだけが異なる文書を変更扱いにしない', () => {
+    const before = doc(
+      [
+        '<section class="cover_header">',
+        ' <p class="cover-category">追加型投信／海外／債券</p>',
+        ' <h1 class="cover-title">ダミー高利回り債券オープン</h1>',
+        '</section>',
+      ].join('\n'),
+    );
+    const after = doc(
+      '<section class="cover_header">' +
+        '<p class="cover-category">追加型投信／海外／債券</p>' +
+        '<h1 class="cover-title">ダミー高利回り債券オープン</h1>' +
+        '</section>',
+    );
+
+    const diff = buildHtmlDiff(before, after);
+
+    expect(diff.changedPageCount).toBe(0);
+    expect(diff.pages[0].changedBlockCount).toBe(0);
+    expect(diff.pages[0].blocks[0]).toMatchObject({
+      status: 'same',
+      key: '.cover_header#1',
+      partKey: '.cover_header#1',
+    });
+  });
 
   it('body 直下の地の文もパーツとして拾う(要素だけを内容としない)', () => {
     // `<body>` 直下のテキストノードが要素で包まれていなくても、変更が差分に現れること。
@@ -268,6 +294,8 @@ describe('buildHtmlDiff', () => {
     const docs = buildCompareDocs({
       beforeHtml: html('red'),
       afterHtml: html('blue'),
+      beforeMarkerPartKeys: new Set<string>(),
+      afterMarkerPartKeys: new Set<string>(),
       cssBefore: '',
       cssAfter: '',
       changedPageIndexes: new Set([1]),

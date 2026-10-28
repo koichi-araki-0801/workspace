@@ -168,6 +168,49 @@ export async function submitOnce(page: Page, id: string): Promise<void> {
 }
 
 /**
+ * 承認タブ(`?template=` なしの全申請一覧)を開き、先頭の申請行から `id` のテンプレート詳細へ
+ * 進む。タブは押すたびに一覧を指す(`MainLayout.vue` の `tabTarget`)ので、編集画面から
+ * 押しても詳細には直行しない。一覧の既定の絞り込みは承認待ちで、行は新しい順に並ぶ。
+ * 詳細へ移ったことは URL の `?template=` で確かめる。
+ */
+export async function openReviewDetail(page: Page, id: string): Promise<void> {
+  await page.getByRole('link', { name: '承認' }).click();
+  await expect(page).toHaveURL(/\/reviews$/);
+  await page.locator('[data-review-item] [data-review-toggle]').first().click();
+  await expect(page).toHaveURL(new RegExp(`[?&]template=${encodeURIComponent(id)}`));
+}
+
+/**
+ * 承認タブ詳細の区画 `item` で、未判定パーツを一括承認する。一括承認のボタンは文字の変更の
+ * タブと下部の決着箱(`data-review-decision`)の両方に出るので、タブに依らない決着箱の方を押す。
+ * 確認ダイアログは確定ラベルで押す。
+ */
+export async function approvePendingParts(page: Page, item: Locator): Promise<void> {
+  await item
+    .locator('[data-review-decision]')
+    .getByRole('button', { name: '未判定を一括承認' })
+    .click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '一括承認する' }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'パーツを一括承認しました' }),
+  ).toBeVisible({ timeout: 30_000 });
+}
+
+/**
+ * 承認タブ詳細の区画 `item` で申請を最終確定する。決着箱の「最終確定する」は未判定パーツが
+ * 残る間は押せない(`ReviewDetail.vue` の `finalizationBlocked`)ので、押せることを先に
+ * 確かめる。確認ダイアログの確定ボタンも同じ名前なので、区画内の決着箱に絞って指す。
+ */
+export async function finalizeReview(page: Page, item: Locator): Promise<void> {
+  const finalize = item
+    .locator('[data-review-decision]')
+    .getByRole('button', { name: '最終確定する', exact: true });
+  await expect(finalize).toBeEnabled();
+  await finalize.click();
+  await page.getByRole('alertdialog').getByRole('button', { name: '最終確定する' }).click();
+}
+
+/**
  * 自動保存された下書きをサーバから読む(無ければ null)。下書きの実体は
  * `dataRoot/drafts/` にあり、localStorage には無い。
  */

@@ -18,6 +18,7 @@ import { defineComponent, h, reactive } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
 
 const TPL = 'XX01_950037_20240710_交付版';
+const CREATE_TPL = 'XX01_910024_交付版';
 const COVER = 'h1#1';
 
 /** `PartNoteEntry` の全項目を埋める fixture(`as` は使わない)。 */
@@ -50,7 +51,6 @@ const refresh = vi.fn();
 const gotoPage = vi.fn();
 const route = reactive({ query: {} as Record<string, string> });
 const auth = reactive({ isApprover: true });
-const editPath = { value: undefined as string | undefined };
 
 vi.mock('@/api/repositories', async () => {
   const { ok } = await import('@editor/shared');
@@ -68,9 +68,6 @@ vi.mock('@/api/repositories', async () => {
 });
 vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({ push }) }));
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }));
-vi.mock('@/stores/tabMemory', () => ({
-  useTabMemoryStore: () => ({ pathFor: () => editPath.value }),
-}));
 vi.mock('@/stores/pendingReviews', () => ({ usePendingReviewsStore: () => ({ refresh }) }));
 
 const ATTRS = {
@@ -150,7 +147,6 @@ beforeEach(() => {
   gotoPage.mockClear();
   route.query = {};
   auth.isApprover = true;
-  editPath.value = undefined;
 });
 
 async function mountTab(metas: ReviewRequestMeta[]) {
@@ -169,30 +165,87 @@ async function mountTab(metas: ReviewRequestMeta[]) {
 }
 
 describe('対象テンプレートの解決', () => {
-  it('query も編集タブの記憶も無ければ誘導の空状態を出し、「編集タブへ」で一覧へ戻る', async () => {
-    const w = await mountTab([]);
-    expect(w.text()).toContain('編集タブでテンプレートを開いてから');
-    expect(w.find('[data-review-summary]').exists()).toBe(false);
-    await w.find('button').trigger('click');
-    expect(push).toHaveBeenCalledWith({ name: 'edit' });
+  it('query なしで開くと全申請を状態別に表示する', async () => {
+    const w = await mountTab([
+      meta({ id: 'pending-edit' }),
+      meta({
+        id: 'approved-create',
+        templateId: CREATE_TPL,
+        attributes: {
+          companyCode: 'XX01',
+          fundCode: '910024',
+          editionType: '交付版',
+        },
+        origin: 'create',
+        status: 'approved',
+        reviewedBy: '管理者',
+        reviewedAt: '2026-10-20T03:30:34.000Z',
+      }),
+      meta({
+        id: 'rejected-other',
+        templateId: 'XX01_999999_20250101_全体版',
+        status: 'rejected',
+      }),
+    ]);
+
+    expect(w.find('[data-summary="pending"]').text()).toContain('1');
+    expect(w.find('[data-summary="approved"]').text()).toContain('1');
+    expect(w.find('[data-summary="rejected"]').text()).toContain('1');
+
+    await w.find('[data-summary="approved"]').trigger('click');
+
+    expect(w.find('[data-review-item="approved-create"]').exists()).toBe(true);
+    expect(w.text()).toContain('新規作成');
+  });
+  it('全件一覧で申請を選ぶと、その申請のテンプレート詳細を開く', async () => {
+    const w = await mountTab([
+      meta({
+        id: 'approved-create',
+        templateId: CREATE_TPL,
+        attributes: {
+          companyCode: 'XX01',
+          fundCode: '910024',
+          editionType: '交付版',
+        },
+        origin: 'create',
+        status: 'approved',
+      }),
+    ]);
+
+    await w.find('[data-summary="approved"]').trigger('click');
+    await w.find('[data-review-item="approved-create"] [data-review-toggle]').trigger('click');
+
+    expect(push).toHaveBeenCalledWith({
+      name: 'reviews',
+      query: { template: CREATE_TPL },
+    });
   });
 
-  it('編集タブの直前画面 /edit/:id から対象を取り、「編集画面へ」はその id へ飛ぶ', async () => {
-    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+  it('template query の対象から「編集画面へ」を押すと、その id へ飛ぶ', async () => {
+    route.query = { template: TPL };
+
     const w = await mountTab([meta({})]);
+
     expect(w.findAll('[data-review-item]')).toHaveLength(1);
+
     await w
       .findAll('button')
-      .find((b) => b.text() === '編集画面へ')
+      .find((button) => button.text() === '編集画面へ')
       ?.trigger('click');
-    expect(push).toHaveBeenCalledWith({ name: 'editor', params: { id: TPL } });
+
+    expect(push).toHaveBeenCalledWith({
+      name: 'editor',
+      params: { id: TPL },
+    });
   });
 
   it('対象が `status:"draft"`(pending だけ)なら「編集画面へ」は作成経路で開く', async () => {
-    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    route.query = { template: TPL };
+
     getTemplateFn.mockResolvedValue(
       ok(template({ meta: { ...template().meta, status: 'draft' } })),
     );
+
     const w = await mountTab([meta({})]);
     // `loadParts` はメタ取得を待つので、押す前に解決させる(押した時点のメタで経路が決まる)。
     await flushPromises();
@@ -208,7 +261,8 @@ describe('対象テンプレートの解決', () => {
   });
 
   it('メタが取れないとき、承認済みの作成申請しか無ければ編集経路で開く', async () => {
-    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    route.query = { template: TPL };
+
     getTemplateFn.mockResolvedValue(err(unexpected('読み取り失敗')));
     const w = await mountTab([meta({ origin: 'create', status: 'approved' })]);
     await flushPromises();
@@ -220,8 +274,10 @@ describe('対象テンプレートの解決', () => {
   });
 
   it('メタが取れないとき、承認待ちの作成申請があれば作成経路で開く', async () => {
-    editPath.value = `/edit/${encodeURIComponent(TPL)}`;
+    route.query = { template: TPL };
+
     getTemplateFn.mockResolvedValue(err(unexpected('読み取り失敗')));
+
     const w = await mountTab([meta({ origin: 'create', status: 'pending' })]);
     await flushPromises();
     await w
@@ -235,11 +291,43 @@ describe('対象テンプレートの解決', () => {
     });
   });
 
-  it('query の template が編集タブの記憶より優先される', async () => {
-    editPath.value = '/edit/OTHER';
+  it('query の template があれば対象テンプレートの詳細を表示する', async () => {
     route.query = { template: TPL };
+
     const w = await mountTab([meta({})]);
+
+    expect(w.text()).toContain(TPL);
     expect(w.findAll('[data-review-item]')).toHaveLength(1);
+    expect(w.findComponent(ReviewDetailStub).exists()).toBe(true);
+  });
+  it('query なしでは「すべての申請」を選択状態にし、「対象テンプレート」は無効にする', async () => {
+    const w = await mountTab([meta({ id: 'pending' })]);
+
+    const overview = w.find('[data-review-mode="overview"]');
+    const target = w.find('[data-review-mode="target"]');
+
+    expect(overview.attributes('aria-pressed')).toBe('true');
+    expect(target.attributes('aria-pressed')).toBe('false');
+    expect(target.attributes('disabled')).toBeDefined();
+  });
+  it('対象テンプレート詳細では現在位置を示し、全申請一覧へ戻れる', async () => {
+    route.query = { template: TPL };
+
+    const w = await mountTab([meta({})]);
+
+    const overview = w.find('[data-review-mode="overview"]');
+    const target = w.find('[data-review-mode="target"]');
+
+    expect(overview.attributes('aria-pressed')).toBe('false');
+    expect(target.attributes('aria-pressed')).toBe('true');
+    expect(target.attributes('disabled')).toBeUndefined();
+
+    await w
+      .findAll('button')
+      .find((button) => button.text() === 'すべての申請へ戻る')
+      ?.trigger('click');
+
+    expect(push).toHaveBeenCalledWith({ name: 'reviews' });
   });
 });
 
@@ -402,5 +490,70 @@ describe('宛先の区画別化(表示中の宛先へ投稿する)', () => {
     await w.find('[data-stub-add]').trigger('click');
     await flushPromises();
     expect(addNoteFn).not.toHaveBeenCalled();
+  });
+});
+describe('全申請一覧の検索', () => {
+  it('ファンドコードの部分一致で申請と状態別件数を絞り込む', async () => {
+    const w = await mountTab([
+      meta({
+        id: 'target-approved',
+        templateId: CREATE_TPL,
+        attributes: {
+          companyCode: 'XX01',
+          fundCode: '910024',
+          editionType: '交付版',
+        },
+        origin: 'create',
+        status: 'approved',
+      }),
+      meta({
+        id: 'other-pending',
+        templateId: 'XX01_950037_20251117_交付版',
+        status: 'pending',
+      }),
+    ]);
+
+    await w.find('input[aria-label="申請を検索"]').setValue('910024');
+
+    expect(w.find('[data-summary="pending"]').text()).toContain('0');
+    expect(w.find('[data-summary="approved"]').text()).toContain('1');
+
+    await w.find('[data-summary="approved"]').trigger('click');
+
+    expect(w.find('[data-review-item="target-approved"]').exists()).toBe(true);
+    expect(w.find('[data-review-item="other-pending"]').exists()).toBe(false);
+  });
+
+  it('検索をクリアすると全申請へ戻る', async () => {
+    const w = await mountTab([
+      meta({ id: 'first' }),
+      meta({
+        id: 'second',
+        templateId: CREATE_TPL,
+        attributes: {
+          companyCode: 'XX01',
+          fundCode: '910024',
+          editionType: '交付版',
+        },
+      }),
+    ]);
+
+    await w.find('input[aria-label="申請を検索"]').setValue('910024');
+    expect(w.find('[data-summary="pending"]').text()).toContain('1');
+
+    await w
+      .findAll('button')
+      .find((button) => button.text() === 'クリア')
+      ?.trigger('click');
+
+    expect(w.find('[data-summary="pending"]').text()).toContain('2');
+  });
+
+  it('検索結果が無い場合は専用の案内を表示する', async () => {
+    const w = await mountTab([meta({ id: 'pending' })]);
+
+    await w.find('input[aria-label="申請を検索"]').setValue('存在しないファンド');
+
+    expect(w.text()).toContain('検索条件に一致する申請はありません');
   });
 });

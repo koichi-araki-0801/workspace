@@ -18,6 +18,8 @@ import 'grapesjs/dist/css/grapes.min.css';
 import { toast } from '@/components/ui/toast';
 import { splitNestedFontFaces } from '@/lib/cssCarry';
 import { TEMPLATE_CSS_FROM } from '@/lib/fundImages';
+import { DATA_JINJA, JINJA_TOKEN_RE } from '@/lib/jinjaAttrs';
+import { toTemplate } from '@/lib/jinjaMask';
 import {
   cssRuleBreakSelector,
   findElementizingChips,
@@ -83,6 +85,47 @@ let quietParse = false;
  */
 function wrapFragmentInBody(html: string): string {
   return /^\s*<(?:!doctype|html|head|body)[\s>]/i.test(html) ? html : `<body>${html}</body>`;
+}
+
+/**
+ * 値入りHTMLがJinja chipと復元コメントだけで、復元後の原文にもHTML要素が無いか。
+ * この形だけは永続するElement境界を持たないため、挿入時に専用carrierを付ける。
+ */
+function needsPersistentPartCarrier(content: string): boolean {
+  // 空文字・空白だけの入力はパーツではない。専用carrierを作ると空のElementが挿入成功扱いになる。
+  if (content.trim() === '') return false;
+
+  const editable = document.createElement('template');
+  editable.innerHTML = content;
+
+  const editableElements = Array.from(editable.content.children);
+  if (
+    editableElements.length > 0 &&
+    editableElements.some((element) => !element.hasAttribute(DATA_JINJA))
+  ) {
+    return false;
+  }
+
+  let raw: string;
+  try {
+    raw = toTemplate(content, { asFragment: true });
+  } catch {
+    return false;
+  }
+
+  const withoutJinja = raw.replace(JINJA_TOKEN_RE, '');
+  const restored = document.createElement('template');
+  restored.innerHTML = withoutJinja;
+
+  return restored.content.children.length === 0;
+}
+
+/** `data-part-id`を持ち、`toTemplate`後も残る要素なしJinja専用の境界。 */
+function wrapPersistentPartCarrier(content: string, partId: string): string {
+  const carrier = document.createElement('span');
+  carrier.setAttribute('data-part-id', partId);
+  carrier.innerHTML = content;
+  return carrier.outerHTML;
 }
 
 /** ページの分け方が同じ要素の並びか(ページごとに要素の同一性で比べる)。 */
@@ -927,13 +970,32 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     if (!ed || !wrapper) return false;
     const at = insertIndex(wrapper, ed.getSelected());
     if (at === null) return false;
-    const added = wrapper.append(content, { at });
-    const root = Array.isArray(added) ? added[0] : added;
-    // catalog id を付与し、後の canvas 選択から docs を引けるようにする
-    root?.addAttributes?.({ 'data-part-id': partId });
-    if (!root) return false;
+    const needsCarrier = needsPersistentPartCarrier(content);
+    const insertedContent = needsCarrier ? wrapPersistentPartCarrier(content, partId) : content;
+
+    const added = wrapper.append(insertedContent, { at });
+    const inserted = Array.isArray(added) ? added : added ? [added] : [];
+
+    // `toFilled`したJinja断片は復元用コメントから始まることがある。先頭componentではなく、
+    // `data-part-id`を保持できる最初のElementをパーツ境界として選ぶ。
+    const root = inserted.find((component) => {
+      const el = component.getEl();
+      return el && typeof el.getAttribute === 'function';
+    });
+
+    if (!root) {
+      for (const component of inserted) component.remove();
+      return false;
+    }
+
+    // catalog idを固定し、編集canvasと申請・精査画面で同じパーツキーを使えるようにする。
+    root.addAttributes({ 'data-part-id': partId });
+
     recomputePages();
-    const page = root.getEl()?.getAttribute(PV_ATTR);
+    const rootEl = root.getEl();
+    const page =
+      rootEl && typeof rootEl.getAttribute === 'function' ? rootEl.getAttribute(PV_ATTR) : null;
+
     if (singlePageMode.value && page != null && Number(page) !== currentPageIndex.value) {
       goToPage(Number(page));
     }

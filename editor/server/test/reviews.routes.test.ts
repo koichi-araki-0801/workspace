@@ -94,6 +94,18 @@ d('review workflow (HTTP routes)', () => {
     });
   };
 
+  /**
+   * 変わったパーツ(既存の値入りとの差分は `p#1` の 1 つ)を承認する。判定が揃わない edit 申請は
+   * 最終確定できない。
+   */
+  const approvePart = (reqId: string, partKey = 'p#1') =>
+    app.inject({
+      method: 'POST',
+      url: `/review-requests/${reqId}/part-decision`,
+      headers: asUser('approver1', 'approver'),
+      payload: { partKey, status: 'approved' },
+    });
+
   beforeAll(async () => {
     app = await buildApp();
   });
@@ -185,6 +197,7 @@ d('review workflow (HTTP routes)', () => {
     const tplId = 'XX01_633333_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>{{ fund.name }} 反映済</p>');
     const reqId = sub.json().id;
+    await approvePart(reqId);
 
     const res = await app.inject({
       method: 'POST',
@@ -202,6 +215,86 @@ d('review workflow (HTTP routes)', () => {
       headers: asUser('approver1', 'approver'),
     });
     expect(got.json().status).toBe('approved');
+  });
+  it('POST part-decision: roleと自己申請の制約を強制する', async () => {
+    const otherRequest = await submit(
+      asUser('editor1', 'editor'),
+      'XX01_688881_20250101_交付版',
+      '<p>他者申請のパーツ判定</p>',
+    );
+    expect(otherRequest.statusCode).toBe(200);
+    const otherReqId = otherRequest.json().id as string;
+
+    const approvedByApprover = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${otherReqId}/part-decision`,
+      headers: asUser('approver1', 'approver'),
+      payload: {
+        partKey: 'page:0/p#1',
+        status: 'approved',
+        comment: '確認済み',
+      },
+    });
+    expect(approvedByApprover.statusCode).toBe(200);
+    expect(approvedByApprover.json()).toMatchObject({
+      partKey: 'page:0/p#1',
+      status: 'approved',
+      decidedBy: 'approver1',
+      comment: '確認済み',
+    });
+
+    for (const role of ['editor', 'viewer']) {
+      const forbidden = await app.inject({
+        method: 'POST',
+        url: `/review-requests/${otherReqId}/part-decision`,
+        headers: asUser(`${role}1`, role),
+        payload: {
+          partKey: `page:0/${role}#1`,
+          status: 'approved',
+        },
+      });
+      expect(forbidden.statusCode).toBe(403);
+    }
+
+    const approverRequest = await submit(
+      asUser('approver1', 'approver'),
+      'XX01_688882_20250101_交付版',
+      '<p>approver自己申請</p>',
+    );
+    expect(approverRequest.statusCode).toBe(200);
+
+    const approverSelf = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${approverRequest.json().id}/part-decision`,
+      headers: asUser('approver1', 'approver'),
+      payload: {
+        partKey: 'page:0/p#1',
+        status: 'approved',
+      },
+    });
+    expect(approverSelf.statusCode).toBe(403);
+
+    const adminRequest = await submit(
+      asUser('admin1', 'admin'),
+      'XX01_688883_20250101_交付版',
+      '<p>admin自己申請</p>',
+    );
+    expect(adminRequest.statusCode).toBe(200);
+
+    const adminSelf = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${adminRequest.json().id}/part-decision`,
+      headers: asUser('admin1', 'admin'),
+      payload: {
+        partKey: 'page:0/p#1',
+        status: 'approved',
+      },
+    });
+    expect(adminSelf.statusCode).toBe(200);
+    expect(adminSelf.json()).toMatchObject({
+      status: 'approved',
+      decidedBy: 'admin1',
+    });
   });
 
   it('GET /review-requests/:reqId: 他人の申請は editor から 403、本人/approver は 200', async () => {
@@ -273,6 +366,7 @@ d('review workflow (HTTP routes)', () => {
       '<p>y</p>',
     );
     const reqId = sub.json().id;
+    await approvePart(reqId);
     await app.inject({
       method: 'POST',
       url: `/review-requests/${reqId}/approve`,
@@ -286,6 +380,185 @@ d('review workflow (HTTP routes)', () => {
       payload: {},
     });
     expect(again.statusCode).toBe(409);
+  });
+  it('POST part-decision: 処理済み申請の判定変更は409', async () => {
+    const submitted = await submit(
+      asUser('editor1', 'editor'),
+      'XX01_688884_20250101_交付版',
+      '<p>処理済み申請</p>',
+    );
+    expect(submitted.statusCode).toBe(200);
+    const reqId = submitted.json().id as string;
+    await approvePart(reqId);
+
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${reqId}/approve`,
+      headers: asUser('approver1', 'approver'),
+      payload: {},
+    });
+    expect(approved.statusCode).toBe(200);
+
+    const changed = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${reqId}/part-decision`,
+      headers: asUser('approver1', 'approver'),
+      payload: {
+        partKey: 'page:0/p#1',
+        status: 'approved',
+      },
+    });
+    expect(changed.statusCode).toBe(409);
+  });
+  it('POST part-decision: 並行した2パーツの判定を両方保持する', async () => {
+    const submitted = await submit(
+      asUser('editor1', 'editor'),
+      'XX01_688885_20250101_交付版',
+      '<p>並行更新対象</p>',
+    );
+    expect(submitted.statusCode).toBe(200);
+    const reqId = submitted.json().id as string;
+
+    const [approved, rejected] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/review-requests/${reqId}/part-decision`,
+        headers: asUser('approver1', 'approver'),
+        payload: {
+          partKey: 'page:0/p#1',
+          status: 'approved',
+          comment: '1件目を確認',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/review-requests/${reqId}/part-decision`,
+        headers: asUser('approver1', 'approver'),
+        payload: {
+          partKey: 'page:0/p#2',
+          status: 'rejected',
+          comment: '2件目は修正が必要',
+        },
+      }),
+    ]);
+
+    expect(approved.statusCode).toBe(200);
+    expect(rejected.statusCode).toBe(200);
+
+    const reread = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(reread.statusCode).toBe(200);
+
+    const decisions = reread.json().partDecisions as Array<{
+      partKey: string;
+      status: string;
+      comment: string | null;
+    }>;
+
+    expect(decisions).toHaveLength(2);
+    expect(decisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          partKey: 'page:0/p#1',
+          status: 'approved',
+          comment: '1件目を確認',
+        }),
+        expect.objectContaining({
+          partKey: 'page:0/p#2',
+          status: 'rejected',
+          comment: '2件目は修正が必要',
+        }),
+      ]),
+    );
+  });
+  it('POST part-decision: 判定履歴と申請時点の比較元を再読込みできる', async () => {
+    const submitted = await submit(
+      asUser('editor1', 'editor'),
+      'XX01_688886_20250101_交付版',
+      '<p>判定履歴と比較元の保存確認</p>',
+    );
+    expect(submitted.statusCode).toBe(200);
+    const reqId = submitted.json().id as string;
+
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${reqId}/part-decision`,
+      headers: asUser('approver1', 'approver'),
+      payload: {
+        partKey: 'page:0/p#1',
+        status: 'approved',
+        comment: '初回承認メモ',
+      },
+    });
+    expect(approved.statusCode).toBe(200);
+
+    const rejected = await app.inject({
+      method: 'POST',
+      url: `/review-requests/${reqId}/part-decision`,
+      headers: asUser('approver1', 'approver'),
+      payload: {
+        partKey: 'page:0/p#1',
+        status: 'rejected',
+        comment: '判定変更後の却下理由',
+      },
+    });
+    expect(rejected.statusCode).toBe(200);
+
+    const reread = await app.inject({
+      method: 'GET',
+      url: `/review-requests/${reqId}`,
+      headers: asUser('approver1', 'approver'),
+    });
+    expect(reread.statusCode).toBe(200);
+
+    const review = reread.json() as {
+      baseHtml?: string;
+      baseCss?: string;
+      partDecisions?: Array<{
+        partKey: string;
+        status: string;
+        comment: string | null;
+        history: Array<{
+          from: string;
+          to: string;
+          changedBy: string;
+          comment: string | null;
+        }>;
+      }>;
+    };
+
+    expect(review.partDecisions).toHaveLength(1);
+    expect(review.partDecisions?.[0]).toMatchObject({
+      partKey: 'page:0/p#1',
+      status: 'rejected',
+      comment: '判定変更後の却下理由',
+      history: [
+        {
+          from: 'pending',
+          to: 'approved',
+          changedBy: 'approver1',
+          comment: '初回承認メモ',
+        },
+        {
+          from: 'approved',
+          to: 'rejected',
+          changedBy: 'approver1',
+          comment: '判定変更後の却下理由',
+        },
+      ],
+    });
+
+    const reviewDir = path.join(tmp, 'reviews', reqId);
+    const baseHtmlPath = path.join(reviewDir, 'base.html');
+    const baseCssPath = path.join(reviewDir, 'base.css');
+
+    expect(fs.existsSync(baseHtmlPath)).toBe(true);
+    expect(fs.existsSync(baseCssPath)).toBe(true);
+    expect(review.baseHtml).toBe(fs.readFileSync(baseHtmlPath, 'utf8'));
+    expect(review.baseCss).toBe(fs.readFileSync(baseCssPath, 'utf8'));
   });
 
   it('POST approve: 自己承認(申請者==承認者・非admin)は 403', async () => {
@@ -349,6 +622,7 @@ d('review workflow (HTTP routes)', () => {
   it('POST approve: メモが無くても通る', async () => {
     const tplId = 'XX01_668888_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>メモなしの承認</p>');
+    await approvePart(sub.json().id);
     const res = await app.inject({
       method: 'POST',
       url: `/review-requests/${sub.json().id}/approve`,

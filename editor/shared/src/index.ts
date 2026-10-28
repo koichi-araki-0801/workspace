@@ -93,6 +93,18 @@ export type TemplateVersionMeta = z.infer<typeof sch.TemplateVersionMeta>;
 
 export type ReviewStatus = z.infer<typeof sch.ReviewStatus>;
 
+/** review内のパーツ1件に対する現在の判定状態。 */
+export type ReviewPartDecisionStatus = z.infer<typeof sch.ReviewPartDecisionStatus>;
+
+/** review内のパーツ判定を変更した履歴。 */
+export type ReviewPartDecisionHistoryEntry = z.infer<typeof sch.ReviewPartDecisionHistoryEntry>;
+
+/** review内のパーツ1件について、現在有効な判定と変更履歴を保持する。 */
+export type ReviewPartDecision = z.infer<typeof sch.ReviewPartDecision>;
+
+/** パーツ判定を承認済みまたは却下済みへ更新する入力。 */
+export type UpdateReviewPartDecisionRequest = z.infer<typeof sch.UpdateReviewPartDecisionRequest>;
+
 /** 申請元の経路。`'edit'` は編集タブ、`'create'` は作成タブ。 */
 export type ReviewOrigin = z.infer<typeof sch.ReviewOrigin>;
 
@@ -274,11 +286,22 @@ export * from './domain/sampleData.js';
 export * from './domain/template.js';
 export * from './domain/user.js';
 export * from './errors.js';
-// HTML の字句解析の小さな部品と raw text の終わり探し。タグを読む走査器 5 本が共有する。
+// チップの原文を運ぶ base64(作成タブの往復と改ページの判定が読む)。
+export * from './html/base64Utf8.js';
+// HTML の字句解析の小さな部品と raw text の終わり探し。タグを読む走査器 7 本が共有する。
 export * from './html/htmlLex.js';
 // パーツの HTML の比較用の正規形(承認後のペア同期の「直していない」の判定)。
 export * from './html/partHtmlCompare.js';
 export * from './html/rawText.js';
+// 版の比較・承認画面・承認の確定が共有する差分(パーツの数え方とキーを画面とサーバで揃える)。
+export * from './html/reviewDiff/blockKey.js';
+export * from './html/reviewDiff/editReviewedHtml.js';
+export * from './html/reviewDiff/htmlDiff.js';
+export * from './html/reviewDiff/htmlParser.js';
+export * from './html/reviewDiff/pageSplit.js';
+export * from './html/reviewDiff/reviewedCandidate.js';
+export * from './html/reviewParts.js';
+
 // Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
 export * from './jinja/containsJinja.js';
 export * from './jinja/fillRender.js';

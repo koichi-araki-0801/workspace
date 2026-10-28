@@ -1,7 +1,7 @@
 // =============================================================================
-// mainLayout.reviewsTab.dom.test.ts — 上部の承認タブが編集タブのテンプレートを対象にすること
+// mainLayout.reviewsTab.dom.test.ts — 上部の承認タブが前回のテンプレートへ戻らないこと
 // =============================================================================
-// 承認タブは「編集タブで開いているテンプレート 1 件」の申請を扱う。前回の `?template=A` を
+// 上部の承認タブは query なしの `/reviews`(全申請の一覧)を指す。前回の `?template=A` を
 // タブの戻り先として覚えていると、編集タブで B を開いた後に上部の承認タブを押しても A が出る。
 import { ok } from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
@@ -62,7 +62,7 @@ beforeEach(() => {
 });
 
 describe('MainLayout の承認タブ', () => {
-  it('前に開いた ?template=A を戻り先に使わず、編集タブの現在のテンプレートへ解決させる', async () => {
+  it('前に開いた ?template=A を戻り先に使わず、query なしの全申請一覧を指す', async () => {
     const { w, router } = await mountAt('/reviews?template=A');
     await router.push('/edit/B');
     await flushPromises();

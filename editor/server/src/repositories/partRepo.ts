@@ -36,8 +36,18 @@ export function createPartRepo(sproc: SprocClient): PartRepo {
   return {
     async getPartClassificationOptions(q) {
       const rows = await sproc.callSproc(SP.part, '分類候補', classParams(q));
+      // 実DBには未使用の分類階層が空文字で入る。空値をSelect候補へ渡すとUIが例外になるため除外し、
+      // 前後空白だけが異なる候補も同じ分類としてまとめる。一覧側の分類値は変更しない。
       const pick = (kbn: string) =>
-        rows.filter((r) => asString(r.区分) === kbn).map((r) => asString(r.値));
+        Array.from(
+          new Set(
+            rows
+              .filter((r) => asString(r.区分) === kbn)
+              .map((r) => asString(r.値).trim())
+              .filter((value) => value.length > 0),
+          ),
+        );
+
       return {
         categories: pick('カテゴリ'),
         majorClasses: pick('大分類'),

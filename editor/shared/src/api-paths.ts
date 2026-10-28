@@ -66,6 +66,8 @@ export const apiPaths = {
   reviewRequestById: '/review-requests/:reqId',
   reviewRequestApprove: '/review-requests/:reqId/approve',
   reviewRequestReject: '/review-requests/:reqId/reject',
+  reviewRequestPartDecision: '/review-requests/:reqId/part-decision',
+
   // users
   users: '/users',
   userById: '/users/:id',

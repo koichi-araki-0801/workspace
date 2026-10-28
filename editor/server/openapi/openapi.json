@@ -1796,6 +1796,96 @@
         }
       }
     },
+    "/review-requests/{reqId}/part-decision": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "パーツ判定の更新(精査者限定・自分の申請は不可)",
+        "operationId": "updateReviewPartDecision",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReviewPartDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新後のパーツ判定(変更履歴つき)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewPartDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/history/edit": {
       "get": {
         "tags": [
@@ -3270,6 +3360,58 @@
           "comment"
         ]
       },
+      "UpdateReviewPartDecisionRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
+              },
+              "status": {
+                "type": "string",
+                "const": "approved"
+              },
+              "comment": {
+                "description": "承認時の判定メモ。無ければ省略",
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "partKey",
+              "status"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
+              },
+              "status": {
+                "type": "string",
+                "const": "rejected"
+              },
+              "comment": {
+                "type": "string",
+                "minLength": 1,
+                "description": "パーツの却下理由"
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "comment"
+            ]
+          }
+        ],
+        "type": "object"
+      },
       "RecordPdfExportRequest": {
         "type": "object",
         "properties": {
@@ -4390,6 +4532,13 @@
                 "type": "null"
               }
             ]
+          },
+          "partDecisions": {
+            "description": "パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewPartDecision"
+            }
           }
         },
         "required": [
@@ -4406,6 +4555,181 @@
           "baseHash"
         ],
         "additionalProperties": false
+      },
+      "ReviewPartDecision": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "review内で一意なパーツ識別子"
+              },
+              "status": {
+                "type": "string",
+                "const": "pending"
+              },
+              "decidedBy": {
+                "type": "null"
+              },
+              "decidedAt": {
+                "type": "null"
+              },
+              "comment": {
+                "type": "null"
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReviewPartDecisionHistoryEntry"
+                }
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "decidedBy",
+              "decidedAt",
+              "comment",
+              "history"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "review内で一意なパーツ識別子"
+              },
+              "status": {
+                "type": "string",
+                "const": "approved"
+              },
+              "decidedBy": {
+                "type": "string",
+                "minLength": 1,
+                "description": "最後に判定したユーザ"
+              },
+              "decidedAt": {
+                "type": "string",
+                "description": "最後に判定したISOタイムスタンプ"
+              },
+              "comment": {
+                "description": "現在の承認メモ。無ければnull",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReviewPartDecisionHistoryEntry"
+                }
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "decidedBy",
+              "decidedAt",
+              "comment",
+              "history"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "review内で一意なパーツ識別子"
+              },
+              "status": {
+                "type": "string",
+                "const": "rejected"
+              },
+              "decidedBy": {
+                "type": "string",
+                "minLength": 1,
+                "description": "最後に判定したユーザ"
+              },
+              "decidedAt": {
+                "type": "string",
+                "description": "最後に判定したISOタイムスタンプ"
+              },
+              "comment": {
+                "type": "string",
+                "minLength": 1,
+                "description": "現在の却下理由"
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReviewPartDecisionHistoryEntry"
+                }
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "decidedBy",
+              "decidedAt",
+              "comment",
+              "history"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "type": "object"
+      },
+      "ReviewPartDecisionHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "変更前の判定状態",
+            "$ref": "#/components/schemas/ReviewPartDecisionStatus"
+          },
+          "to": {
+            "description": "変更後の判定状態",
+            "$ref": "#/components/schemas/ReviewPartDecisionStatus"
+          },
+          "changedBy": {
+            "type": "string",
+            "description": "判定を変更したユーザ"
+          },
+          "changedAt": {
+            "type": "string",
+            "description": "判定を変更したISOタイムスタンプ"
+          },
+          "comment": {
+            "description": "判定時のメモまたは却下理由。無ければnull",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "changedBy",
+          "changedAt",
+          "comment"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewPartDecisionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ]
       },
       "ReviewRequest": {
         "type": "object",
@@ -4468,6 +4792,13 @@
               }
             ]
           },
+          "partDecisions": {
+            "description": "パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewPartDecision"
+            }
+          },
           "html": {
             "type": "string",
             "description": "確定保存しようとしている生 Jinja2 HTML"
@@ -4477,6 +4808,14 @@
           },
           "filledHtml": {
             "description": "値差込済みの成果物(任意)",
+            "type": "string"
+          },
+          "baseHtml": {
+            "description": "申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする",
+            "type": "string"
+          },
+          "baseCss": {
+            "description": "申請時点の比較元CSS。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする",
             "type": "string"
           }
         },

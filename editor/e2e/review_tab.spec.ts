@@ -1,21 +1,35 @@
 // =============================================================================
 // review_tab.spec.ts — 承認タブが対象テンプレートの申請を並べ、1 件ずつ決着できることの回帰網
 // =============================================================================
-// 対象の決め方(?template= → 編集タブの直前画面 → 空状態)、要約箱 3 つの件数、同時展開の上限、
-// 決着後に同じ画面へ留まることを実機で固定する。
+// 全申請一覧(申請が無ければ編集タブへの誘導)から行を選んでテンプレート詳細(?template=)へ
+// 進む経路、要約箱 3 つの件数、同時展開の上限、決着後に同じ画面へ留まることを実機で固定する。
 import type { FrameLocator, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor, pagePartLocator, selectPart, submitOnce } from './helpers';
+import {
+  login,
+  openEditor,
+  openReviewDetail,
+  pagePartLocator,
+  selectPart,
+  submitOnce,
+} from './helpers';
 
 const SEED_ID = 'XX01_950037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
-test('対象が無ければ誘導し、編集タブで開いたテンプレートの申請を要約箱つきで並べる', async ({
+test('申請が無ければ全申請一覧で誘導し、全申請一覧の行から対象テンプレートの詳細を開く', async ({
   page,
 }) => {
   // 組版を 2 面走らせる重いテストで、並列負荷下では既定 30s を超えるため他の重い spec と同じ 120s にする。
   test.setTimeout(120_000);
+  // 申請が 1 件も無い全申請一覧は、申請の出し方を案内して編集タブへ誘導する。
+  await login(page, 'approver');
+  await page.goto('/reviews');
+  await expect(page.getByText('編集タブでテンプレートを開いてから')).toBeVisible();
+  await page.getByRole('button', { name: '編集タブへ' }).click();
+  await expect(page).toHaveURL(/\/edit/);
+
   // 同じ人が同じ本文を 2 回申請すると、2 回目は重複(409 `REVIEW_DUPLICATE`)として断られる。
   // 承認待ちを 2 件作るために申請者を分ける — 重複の判定は申請者ごとなので、本文は同じでよい。
   await login(page, 'admin');
@@ -23,13 +37,19 @@ test('対象が無ければ誘導し、編集タブで開いたテンプレー�
   await login(page, 'editor');
   await submitOnce(page, SEED_ID);
 
+  // 全申請一覧は要約箱つきで申請を並べるが、区画は開かない(詳細へ進む行として並ぶ)。
   await login(page, 'approver');
-  await page.goto('/reviews');
-  await expect(page.getByText('編集タブでテンプレートを開いてから')).toBeVisible();
-
   await openEditor(page, SEED_ID);
   await page.getByRole('link', { name: '承認' }).click();
+  await expect(page).toHaveURL(/\/reviews$/);
+  await expect(page.getByText('編集タブでテンプレートを開いてから')).toHaveCount(0);
+  await expect(page.locator('[data-summary="pending"]')).toContainText('2');
+  await expect(page.locator('[data-review-item]')).toHaveCount(2);
+  await expect(page.locator('[data-review-item] iframe[title="プレビュー"]')).toHaveCount(0);
 
+  // 行を選ぶとそのテンプレートの詳細へ進み、同じテンプレートの申請 2 件が並ぶ。
+  await page.locator('[data-review-item] [data-review-toggle]').first().click();
+  await expect(page).toHaveURL(new RegExp(`[?&]template=${encodeURIComponent(SEED_ID)}`));
   await expect(page.locator('[data-summary="pending"]')).toContainText('2');
   await expect(page.locator('[data-review-item]')).toHaveCount(2);
   // 先頭だけ展開されている
@@ -106,8 +126,7 @@ test('承認タブの行クリックで見た目比較が該当ページ(2 ペ�
   await submitOnce(page, SEED_ID);
 
   await login(page, 'approver');
-  await openEditor(page, SEED_ID);
-  await page.getByRole('link', { name: '承認' }).click();
+  await openReviewDetail(page, SEED_ID);
 
   const item = page.locator('[data-review-item]').first();
   const row = item.locator('[data-comment-row]', { hasText: COMMENT_TEXT });

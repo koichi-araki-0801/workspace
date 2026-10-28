@@ -3,16 +3,50 @@
 // =============================================================================
 // web と `server` の双方で使える、依存なしの純関数を置く(`template.ts` と同方針)。
 
-import type { ReviewRequest, ReviewRequestMeta, StoredReviewRequest } from '../index.js';
+import type {
+  ReviewPartDecision,
+  ReviewRequest,
+  ReviewRequestMeta,
+  StoredReviewRequest,
+} from '../index.js';
 
 /**
- * 申請から本体(html/css/filledHtml/cssBaseline)を剥がした軽量メタを返す(一覧 API・meta.json 用)。
+ * `partDecisions` を必ず持つreview型。保存契約では旧reviewとの互換のためoptionalだが、
+ * 読取り後の処理では欠落を空配列へ正規化して分岐を重複させない。
+ */
+export type ReviewWithPartDecisions<T extends ReviewRequestMeta | ReviewRequest> = T & {
+  partDecisions: ReviewPartDecision[];
+};
+/**
+ * 旧reviewで欠落する `partDecisions` を空配列へ正規化する。
+ * server の `meta.json` の読取り境界で使う。
+ */
+export function normalizeReviewPartDecisions<T extends ReviewRequestMeta | ReviewRequest>(
+  review: T,
+): ReviewWithPartDecisions<T> {
+  return {
+    ...review,
+    partDecisions: review.partDecisions ?? [],
+  };
+}
+
+/**
+ * 申請から本体(html/css/filledHtml/cssBaseline/baseHtml/baseCss)を剥がした軽量メタを返す
+ * (一覧 API・meta.json 用)。
  * `ReviewRequest` は `ReviewRequestMeta` に本体系フィールドを足した定義(`schemas.ts`)なので、
  * 本体系フィールドを増やしたらここへも追記が要る。剥がす処理を各所に複製すると追記漏れの
  * 実装が型エラーなしで本文をメタ/一覧へ混入させる(肥大化・漏えい)ため、本関数へ集約する。
  */
 export function toReviewMeta(r: StoredReviewRequest): ReviewRequestMeta {
-  const { html: _h, css: _c, filledHtml: _f, cssBaseline: _b, ...meta } = r;
+  const {
+    html: _h,
+    css: _c,
+    filledHtml: _f,
+    cssBaseline: _baseline,
+    baseHtml: _baseHtml,
+    baseCss: _baseCss,
+    ...meta
+  } = r;
   return meta;
 }
 

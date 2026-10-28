@@ -284,6 +284,18 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
     expect(calls[4].body).toEqual({ comment: 'ok' });
     expect(calls[5].body).toEqual({ comment: 'ng' });
   });
+  it('reviews: パーツの判定は part-decision へ POST する', async () => {
+    const calls = stubFetch(() => json({ partKey: 'p#1', status: 'approved' }));
+    const saved = await restReviewRepo.updatePartDecision('r1', {
+      partKey: 'p#1',
+      status: 'approved',
+    });
+    expect(isOk(saved) && saved.value.partKey).toBe('p#1');
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST /api/review-requests/r1/part-decision',
+    ]);
+    expect(calls[0].body).toEqual({ partKey: 'p#1', status: 'approved' });
+  });
   it('users: 一覧 GET、作成 POST(201 ボディをそのまま返す)、更新 PATCH、リセット POST', async () => {
     const calls = stubFetch(() => json({ user: { id: 'u1' }, temporaryPassword: 'x' }, 201));
     const created = await restUserRepo.createUser({

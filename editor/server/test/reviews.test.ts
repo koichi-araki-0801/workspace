@@ -50,6 +50,64 @@ d('review workflow (reviewRepo)', () => {
     if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
     return reviews.submitReview({ templateId, html, css: '.x{}', origin }, submitter);
   };
+  /**
+   * edit 申請の変更パーツを全部承認する(判定の揃わない edit 申請は確定できない)。最終確定が
+   * 失敗することを確かめるテストは、判定を済ませてから `reviews.approveReview` を直接呼ぶ。
+   */
+  const decideAll = async (reqId: string) => {
+    const review = await reviews.getReview(reqId, approver);
+    if (review.origin !== 'edit' || review.baseHtml === undefined) return;
+    const { buildHtmlDiff } = await import('@editor/shared');
+    const { linkedomParser } = await import('../src/util/linkedomParser.js');
+    const diff = buildHtmlDiff(review.baseHtml, review.html, linkedomParser);
+    for (const block of diff.pages.flatMap((page) => page.blocks)) {
+      if (block.status === 'same') continue;
+      const saved = await reviews.updatePartDecision(
+        reqId,
+        { partKey: block.partKey, status: 'approved' },
+        approver,
+      );
+      expect(saved.status).toBe('approved');
+    }
+  };
+  /** `decideAll` のあとで最終確定する。判定の失敗は握りつぶさずに投げる。 */
+  const approveAll = async (
+    reqId: string,
+    decision: { comment?: string } = {},
+    actor: typeof approver = approver,
+  ) => {
+    await decideAll(reqId);
+    return reviews.approveReview(reqId, decision, actor);
+  };
+  /**
+   * create申請へ値入りHTMLを添付し、単一パーツを承認済みにする。
+   * createの最終確定は値入りHTML上の判定をJinja原文へ反映するため、承認テストで使用する。
+   */
+  const submitApprovedCreate = async (
+    templateId: string,
+    sourceHtml: string,
+    filledHtml: string,
+  ) => {
+    const meta = await reviews.submitReview(
+      {
+        templateId,
+        html: sourceHtml,
+        css: '.x{}',
+        origin: 'create',
+        filledHtml,
+      },
+      submitter,
+    );
+    await reviews.updatePartDecision(
+      meta.id,
+      {
+        partKey: 'p#1',
+        status: 'approved',
+      },
+      approver,
+    );
+    return meta;
+  };
 
   beforeAll(async () => {
     // DB(sproc)は本テストの対象外。承認直後の注記マスタ書き戻しが実 DB へ触れないよう
@@ -74,6 +132,7 @@ d('review workflow (reviewRepo)', () => {
 
   it('rejects self-approval unless admin (forbidden)', async () => {
     const meta = await submit('XX01_222222_20250101_交付版', '<p>x</p>');
+    await decideAll(meta.id);
     await expect(reviews.approveReview(meta.id, {}, submitter)).rejects.toMatchObject({
       kind: 'forbidden',
     });
@@ -86,7 +145,7 @@ d('review workflow (reviewRepo)', () => {
   }, async () => {
     const tplId = 'XX01_333333_20250101_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }} 反映済</p>');
-    const tplMeta = await reviews.approveReview(meta.id, { comment: 'ok' }, approver);
+    const tplMeta = await approveAll(meta.id, { comment: 'ok' }, approver);
 
     expect(tplMeta.meta.id).toBe(tplId);
     // 申請〜承認の間に現行版へ割り込みが無いので並行性警告は立たない。
@@ -116,16 +175,16 @@ d('review workflow (reviewRepo)', () => {
     const first = await submit(tplId, '<p>先行</p>');
     const second = await submit(tplId, '<p>後発</p>');
     // 先行を承認すると現行版(ディスク)が書き換わる。
-    await reviews.approveReview(first.id, {}, approver);
+    await approveAll(first.id, {}, approver);
     // 後発の baseHash は先行反映前の現行版なので、承認時点の現行版と食い違い警告が立つ。
-    const res = await reviews.approveReview(second.id, {}, approver);
+    const res = await approveAll(second.id, {}, approver);
     expect(res.staleWarning).toBe(true);
     expect(res.meta.id).toBe(tplId);
   });
 
   it('approving an already-decided request conflicts (409)', async () => {
     const meta = await submit('XX01_444444_20250101_交付版', '<p>y</p>');
-    await reviews.approveReview(meta.id, {}, approver);
+    await approveAll(meta.id, {}, approver);
     await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
       kind: 'conflict',
     });
@@ -163,6 +222,7 @@ d('review workflow (reviewRepo)', () => {
   it('同一申請への並行 approve は片方だけ成立し、承認コミットは 1 件になる', async () => {
     const tplId = 'XX01_777777_20250101_交付版';
     const meta = await submit(tplId, '<p>並行承認</p>');
+    await decideAll(meta.id);
     const results = await Promise.allSettled([
       reviews.approveReview(meta.id, {}, approver),
       reviews.approveReview(meta.id, {}, approver),
@@ -182,6 +242,7 @@ d('review workflow (reviewRepo)', () => {
   it('approve と reject の並行は片方だけ成立し、実ファイルと meta が矛盾しない', async () => {
     const tplId = 'XX01_999999_20250101_交付版';
     const meta = await submit(tplId, '<p>競合対象</p>');
+    await decideAll(meta.id);
     const results = await Promise.allSettled([
       reviews.approveReview(meta.id, {}, approver),
       reviews.rejectReview(meta.id, {}, approver),
@@ -310,8 +371,24 @@ d('review workflow (reviewRepo)', () => {
   it("filled 不在でも origin='create' の申請は通る", async () => {
     const tplId = 'XX01_212121_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
+
     expect(meta.status).toBe('pending');
     expect(fs.existsSync(filledFile(tplId))).toBe(false);
+  });
+
+  it("origin='create' は値入り HTML がなければ最終確定できない", async () => {
+    const tplId = 'XX01_212122_交付版';
+    const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
+
+    await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+      kind: 'validation',
+      message: '作成タブの最終確定には値入りHTMLが必要です',
+    });
+
+    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
+
+    const pending = await reviews.getReview(meta.id, approver);
+    expect(pending.status).toBe('pending');
   });
 
   // ── 承認の書込先は申請の `origin` で決まる ──
@@ -342,7 +419,7 @@ d('review workflow (reviewRepo)', () => {
   }, async () => {
     const tplId = 'XX01_161616_20250101_交付版';
     const meta = await submit(tplId, '<p>値入り本文</p>', 'edit');
-    await reviews.approveReview(meta.id, {}, approver);
+    await approveAll(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8')).toBe(
       '<p>値入り本文</p>',
     );
@@ -353,12 +430,76 @@ d('review workflow (reviewRepo)', () => {
     timeout: 60_000,
   }, async () => {
     const tplId = 'XX01_171717_交付版';
-    const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
-    await reviews.approveReview(meta.id, {}, approver);
+    const meta = await submitApprovedCreate(
+      tplId,
+      '<p>{{ fund.name }}</p>',
+      '<p>ダミー高利回り債券オープン</p>',
+    );
+
+    await approveAll(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
       '<p>{{ fund.name }}</p>',
     );
     expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
+  });
+
+  it('create申請の最終確定は承認済みパーツだけをJinja原文でtemplates/へ保存する', {
+    timeout: 60_000,
+  }, async () => {
+    const tplId = 'XX01_171718_交付版';
+    const sourceHtml =
+      '<body>' +
+      '<section data-part-id="approved">{{ fund.name }}</section>' +
+      '<div class="pagebreak"></div>' +
+      '<section data-part-id="rejected">費用 {{ fund.cost }}</section>' +
+      '</body>';
+    const filledHtml =
+      '<body>' +
+      '<section data-part-id="approved">ダミー高利回り債券オープン</section>' +
+      '<div class="pagebreak"></div>' +
+      '<section data-part-id="rejected">費用 1.25%</section>' +
+      '</body>';
+
+    const meta = await reviews.submitReview(
+      {
+        templateId: tplId,
+        html: sourceHtml,
+        css: '.x{}',
+        origin: 'create',
+        filledHtml,
+      },
+      submitter,
+    );
+
+    await reviews.updatePartDecision(
+      meta.id,
+      {
+        partKey: 'approved#1',
+        status: 'approved',
+      },
+      approver,
+    );
+
+    await reviews.updatePartDecision(
+      meta.id,
+      {
+        partKey: 'rejected#1',
+        status: 'rejected',
+        comment: '確定対象外',
+      },
+      approver,
+    );
+
+    await approveAll(meta.id, {}, approver);
+
+    const written = fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8');
+
+    expect(written).toContain('<section data-part-id="approved">{{ fund.name }}</section>');
+    expect(written).not.toContain('data-part-id="rejected"');
+    expect(written).toContain('<div class="pagebreak"></div>');
+
+    const approved = await reviews.getReview(meta.id, approver);
+    expect(approved.status).toBe('approved');
   });
 
   // ── pending(生成直後の Jinja スケルトン)の後始末も書込先で分かれる ──
@@ -369,7 +510,7 @@ d('review workflow (reviewRepo)', () => {
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
     const meta = await submit(tplId, '<p>値入り本文</p>', 'edit');
-    await reviews.approveReview(meta.id, {}, approver);
+    await approveAll(meta.id, {}, approver);
 
     expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(true);
@@ -379,8 +520,13 @@ d('review workflow (reviewRepo)', () => {
     const tplId = 'XX01_191919_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
-    const meta = await submit(tplId, '<p>{{ fund.name }} 確定</p>', 'create');
-    await reviews.approveReview(meta.id, {}, approver);
+    const meta = await submitApprovedCreate(
+      tplId,
+      '<p>{{ fund.name }} 確定</p>',
+      '<p>ダミー高利回り債券オープン 確定</p>',
+    );
+
+    await approveAll(meta.id, {}, approver);
 
     expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(true);
     expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
@@ -392,13 +538,18 @@ d('review workflow (reviewRepo)', () => {
     const tplId = 'XX01_222333_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
-    const meta = await submit(tplId, '<p>{{ fund.name }} 確定</p>', 'create');
+    const meta = await submitApprovedCreate(
+      tplId,
+      '<p>{{ fund.name }} 確定</p>',
+      '<p>ダミー高利回り債券オープン 確定</p>',
+    );
+
     expect(meta.attributes).toEqual({
       companyCode: 'XX01',
       fundCode: '222333',
       editionType: '交付版',
     });
-    await reviews.approveReview(meta.id, {}, approver);
+    await approveAll(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
       '<p>{{ fund.name }} 確定</p>',
     );
@@ -414,7 +565,7 @@ d('review workflow (reviewRepo)', () => {
       { templateId: tplId, html: '<p>x</p>', css: '.shared{}', origin: 'edit' },
       submitter,
     );
-    await reviews.approveReview(meta.id, {}, approver);
+    await approveAll(meta.id, {}, approver);
     const { readTemplateCss } = await import('../src/files/templateFiles.js');
     expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_515151_交付版.css'), 'utf8')).toBe(
       '.shared{}',
@@ -435,7 +586,7 @@ d('review workflow (reviewRepo)', () => {
     // 申請後に別の基準日の承認などで CSS が変わった状態を作る。
     fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'css', 'XX01_525252_交付版.css'), '.changed{}', 'utf8');
-    const r = await reviews.approveReview(meta.id, {}, approver);
+    const r = await approveAll(meta.id, {}, approver);
     expect(r.staleWarning).toBe(true);
   });
 
@@ -455,10 +606,10 @@ d('review workflow (reviewRepo)', () => {
       { templateId: tplB, html: '<p>b</p>', css: '.from-b{}', origin: 'edit' },
       submitter,
     );
-    const rb = await reviews.approveReview(b.id, {}, approver);
+    const rb = await approveAll(b.id, {}, approver);
     expect(rb.staleWarning).toBe(false);
     // B の承認で css/XX01_535353_交付版.css が変わった。A の申請時点の基準と食い違う。
-    const ra = await reviews.approveReview(a.id, {}, approver);
+    const ra = await approveAll(a.id, {}, approver);
     expect(ra.staleWarning).toBe(true);
     // ブロックはしない(承認は成立し、A の CSS が反映される。警告で利用者に知らせる)。
     expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_535353_交付版.css'), 'utf8')).toBe(
@@ -523,7 +674,7 @@ d('review workflow (reviewRepo)', () => {
     it('1 件目が承認済みなら同じ内容でも受け付ける', { timeout: 60_000 }, async () => {
       const tplId = 'XX01_610005_20250101_交付版';
       const first = await submitAs(submitter, tplId, '<p>承認後</p>');
-      await reviews.approveReview(first.id, {}, approver);
+      await approveAll(first.id, {}, approver);
       const again = await submitAs(submitter, tplId, '<p>承認後</p>');
       expect(again.status).toBe('pending');
     });
@@ -571,6 +722,246 @@ d('review workflow (reviewRepo)', () => {
         code: 'REVIEW_DUPLICATE',
       });
       expect(await pendingOf(tplId)).toHaveLength(1);
+    });
+  });
+
+  // ── edit 申請の最終確定: 画面と同じ差分で検査し、却下したパーツだけを現行版へ戻す ──
+  describe('edit 申請の最終確定(パーツ判定)', () => {
+    /** 申請時点の現行版。区切り・コメント・空白・head を持つ完全な文書。 */
+    const BASE =
+      '<!doctype html>\n<html lang="ja"><head><meta charset="utf-8"><title>t</title></head>\n' +
+      '<body>\n' +
+      '<section data-part-id="cover"><h1>表紙 2025年</h1></section>\n' +
+      '<div class="pagebreak"></div>\n' +
+      "<section data-part-id='cost'>費用 1.00%</section>\n" +
+      '<p class=note>注記<br/>そのまま</p>\n' +
+      '<!-- 区切りの前のコメント -->\n' +
+      '<div class="pagebreak"></div>\n' +
+      '<section data-part-id="gone">削除される</section>\n' +
+      '</body>\n</html>\n';
+    /** 申請。cover と cost を変え、added を足し、gone を消した(最後の区切りは残る)。 */
+    const SUBMITTED =
+      '<!doctype html>\n<html lang="ja"><head><meta charset="utf-8"><title>t</title></head>\n' +
+      '<body>\n' +
+      '<section data-part-id="cover"><h1>表紙 2026年</h1></section>\n' +
+      '<div class="pagebreak"></div>\n' +
+      "<section data-part-id='cost'>費用 1.25%</section>\n" +
+      '<p class=note>注記<br/>そのまま</p>\n' +
+      '<section data-part-id="added">追加</section>\n' +
+      '<!-- 区切りの前のコメント -->\n' +
+      '<div class="pagebreak"></div>\n' +
+      '</body>\n</html>\n';
+
+    const submitEdit = async (tplId: string, base: string, html: string) => {
+      fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+      fs.writeFileSync(filledFile(tplId), base, 'utf8');
+      return reviews.submitReview(
+        { templateId: tplId, html, css: '.x{}', origin: 'edit' },
+        submitter,
+      );
+    };
+    const decide = async (reqId: string, decisions: Record<string, 'approved' | 'rejected'>) => {
+      for (const [partKey, status] of Object.entries(decisions)) {
+        await reviews.updatePartDecision(
+          reqId,
+          status === 'approved' ? { partKey, status } : { partKey, status, comment: '戻す' },
+          approver,
+        );
+      }
+    };
+
+    it('却下したパーツは申請時点の現行版、承認したパーツとパーツの外は申請のバイトのまま書く', {
+      timeout: 60_000,
+    }, async () => {
+      const tplId = 'XX01_710001_20250101_交付版';
+      const meta = await submitEdit(tplId, BASE, SUBMITTED);
+      await decide(meta.id, {
+        'cover#1': 'approved',
+        'cost#1': 'rejected',
+        'added#1': 'rejected',
+        'gone#1': 'rejected',
+      });
+      await reviews.approveReview(meta.id, {}, approver);
+
+      expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(
+        '<!doctype html>\n<html lang="ja"><head><meta charset="utf-8"><title>t</title></head>\n' +
+          '<body>\n' +
+          '<section data-part-id="cover"><h1>表紙 2026年</h1></section>\n' +
+          '<div class="pagebreak"></div>\n' +
+          "<section data-part-id='cost'>費用 1.00%</section>\n" +
+          '<p class=note>注記<br/>そのまま</p>\n' +
+          '\n' +
+          '<!-- 区切りの前のコメント -->\n' +
+          '<div class="pagebreak"></div>\n' +
+          '<section data-part-id="gone">削除される</section>\n' +
+          '</body>\n</html>\n',
+      );
+    });
+
+    it('却下が無ければ申請の本文をそのまま書く', { timeout: 60_000 }, async () => {
+      const tplId = 'XX01_710002_20250101_交付版';
+      const meta = await submitEdit(tplId, BASE, SUBMITTED);
+      await decide(meta.id, {
+        'cover#1': 'approved',
+        'cost#1': 'approved',
+        'added#1': 'approved',
+        'gone#1': 'approved',
+      });
+      await reviews.approveReview(meta.id, {}, approver);
+      expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SUBMITTED);
+    });
+
+    it('未判定・本文に無い判定・判定の重複が残ると 400 で、該当キーを出す', async () => {
+      const tplId = 'XX01_710003_20250101_交付版';
+      const meta = await submitEdit(tplId, BASE, SUBMITTED);
+      await decide(meta.id, { 'cover#1': 'approved', 'cost#1': 'approved' });
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringMatching(/未判定の変更が 2 件.*added#1, gone#1.*画面を再読み込み/),
+      });
+
+      await decide(meta.id, { 'added#1': 'approved', 'gone#1': 'approved', 'nope#1': 'approved' });
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringContaining(
+          '一致しない保存済み判定が 1 件あるため最終確定できません: nope#1',
+        ),
+      });
+
+      const { updateReviewMeta, readReview } = await import('../src/files/reviewFiles.js');
+      const stored = await readReview(meta.id);
+      const cover = stored?.partDecisions?.find((p) => p.partKey === 'cover#1');
+      await updateReviewMeta(meta.id, {
+        partDecisions: [
+          ...(stored?.partDecisions ?? []).filter((p) => p.partKey !== 'nope#1'),
+          ...(cover ? [cover] : []),
+        ],
+      });
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringContaining(
+          '同じパーツの判定が複数あるため最終確定できません: cover#1',
+        ),
+      });
+      expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(BASE);
+      expect((await reviews.getReview(meta.id, approver)).status).toBe('pending');
+    });
+
+    it('保存済みの pending は未判定として 400', async () => {
+      const tplId = 'XX01_710004_20250101_交付版';
+      const meta = await submitEdit(tplId, '<body><p>a</p></body>', '<body><p>b</p></body>');
+      const { updateReviewMeta } = await import('../src/files/reviewFiles.js');
+      await updateReviewMeta(meta.id, {
+        partDecisions: [
+          {
+            partKey: 'p#1',
+            status: 'pending',
+            decidedBy: null,
+            decidedAt: null,
+            comment: null,
+            history: [],
+          },
+        ],
+      });
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringContaining('未判定の変更が 1 件あるため最終確定できません: p#1'),
+      });
+    });
+
+    it('差分が打ち切られた申請(本文直下の単位が上限超え)は 400', async () => {
+      const tplId = 'XX01_710005_20250101_交付版';
+      const many = (last: string) => `<body>${'<p>x</p>'.repeat(5_000)}<p>${last}</p></body>`;
+      const meta = await submitEdit(tplId, many('旧'), many('新'));
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringContaining('差分の上限を超えて'),
+      });
+    });
+
+    it('却下があり、申請後に現行版の HTML が変わっていれば 409(CSS だけの変化は通す)', {
+      timeout: 60_000,
+    }, async () => {
+      const tplId = 'XX01_710006_20250101_交付版';
+      const meta = await submitEdit(tplId, BASE, SUBMITTED);
+      await decide(meta.id, {
+        'cover#1': 'approved',
+        'cost#1': 'rejected',
+        'added#1': 'approved',
+        'gone#1': 'approved',
+      });
+      fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'css', 'XX01_710006_交付版.css'), '.later{}', 'utf8');
+      fs.writeFileSync(filledFile(tplId), `${BASE}<!-- 後から入った確定 -->`, 'utf8');
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_BASE_CHANGED',
+      });
+
+      fs.writeFileSync(filledFile(tplId), BASE, 'utf8');
+      const res = await reviews.approveReview(meta.id, {}, approver);
+      expect(res.staleWarning).toBe(true);
+      expect(fs.readFileSync(filledFile(tplId), 'utf8')).toContain('費用 1.00%');
+    });
+
+    it('切り貼りの対応が取れない本文(DOM の並びと原文の範囲が違う)は 409 で、書かない', async () => {
+      const tplId = 'XX01_710007_20250101_交付版';
+      // `<p>` の中の `<div>` はパーサが `<p>` を閉じ、閉じ忘れの `</p>` から空の `<p>` を作る。
+      const meta = await submitEdit(
+        tplId,
+        '<body><p class="x">旧</p><p>a<div>b</div></p></body>',
+        '<body><p class="x">新</p><p>a<div>b</div></p></body>',
+      );
+      await decide(meta.id, { '.x#1': 'rejected' });
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_SPLICE_MISMATCH',
+      });
+      expect(fs.readFileSync(filledFile(tplId), 'utf8')).toContain('旧');
+    });
+
+    it('削除と、それに代わる追加の両方を却下すると、追加を消して削除したパーツを戻す', {
+      timeout: 60_000,
+    }, async () => {
+      const tplId = 'XX01_710010_20250101_交付版';
+      const head = '<!doctype html>\n<html><head><title>t</title></head>\n<body>\n';
+      const meta = await submitEdit(
+        tplId,
+        `${head}<p>1</p>\n<div class="pagebreak"></div>\n<p id="z">Z</p>\n</body>\n</html>\n`,
+        `${head}<p>1</p>\n<div class="pagebreak"></div>\n<p id="n">N</p>\n</body>\n</html>\n`,
+      );
+      await decide(meta.id, { 'z#1': 'rejected', 'n#1': 'rejected' });
+      await reviews.approveReview(meta.id, {}, approver);
+      expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(
+        `${head}<p>1</p>\n<div class="pagebreak"></div>\n<p id="z">Z</p>\n\n</body>\n</html>\n`,
+      );
+    });
+
+    describe('比較元(baseHtml / baseCss)を持たない古い申請', () => {
+      const dropBase = (reqId: string) => {
+        fs.rmSync(path.join(tmp, 'reviews', reqId, 'base.html'));
+        fs.rmSync(path.join(tmp, 'reviews', reqId, 'base.css'));
+      };
+
+      it('判定が無ければ申請の本文をそのまま書く', { timeout: 60_000 }, async () => {
+        const tplId = 'XX01_710008_20250101_交付版';
+        const meta = await submitEdit(tplId, BASE, SUBMITTED);
+        dropBase(meta.id);
+        await reviews.approveReview(meta.id, {}, approver);
+        expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(SUBMITTED);
+      });
+
+      it('判定があれば 409 で申請し直しを求める', async () => {
+        const tplId = 'XX01_710009_20250101_交付版';
+        const meta = await submitEdit(tplId, BASE, SUBMITTED);
+        await decide(meta.id, { 'cost#1': 'rejected' });
+        dropBase(meta.id);
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+          kind: 'conflict',
+          code: 'REVIEW_BASE_MISSING',
+          message: expect.stringContaining('申請し直してください'),
+        });
+      });
     });
   });
 });

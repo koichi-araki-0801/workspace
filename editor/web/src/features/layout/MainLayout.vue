@@ -57,9 +57,9 @@ const flush = computed(() => route.meta.flush === true);
 // タブごとに「直前に見ていた画面」を覚え、タブを押したときそこへ戻す。記憶が無ければ
 // タブの既定画面。`immediate` は初期表示の画面も覚えるため。
 watch(() => route.fullPath, () => memory.remember(route), { immediate: true });
-// 承認タブだけは覚えた画面へ戻さない。承認タブの対象は「編集タブで開いているテンプレート」で、
-// 前回の `?template=` を戻すと、編集タブで別のテンプレートを開いた後も前のテンプレートが出る。
-// query なしで開けば `resolveReviewTarget` が編集タブの直前画面から対象を決める。
+// 承認タブだけは覚えた画面へ戻さず、query なしで開く。`resolveReviewTarget` は `?template=` が
+// 無ければ対象なしとし、承認タブは全申請の一覧を出す。前回の `?template=` を戻すと、編集タブで
+// 別のテンプレートを開いた後も、上部の承認タブが前のテンプレートの詳細を出す。
 // 点灯しているタブも覚えた画面へ戻さず一覧を指す。覚えた画面は今いる画面なので、戻すと押しても
 // 何も起きず、編集画面から一覧へ行く導線がタブから消える。
 function tabTarget(name: TabName): RouteLocationRaw {

@@ -3,8 +3,9 @@
 // ReviewVisualCompare.vue — 精査画面の主役: 修正前｜修正後の左右組版比較
 // =============================================================================
 // PreviewPanel(隔離 preview-host iframe)を 2 面並べ、実際の帳票と同じ組版で前後を
-// 見せる。ページ送りは左右連動、変更ブロックは黄マーカー(トグルで消して素の見た目も
-// 確認できる — 完全性要件)。新規作成申請(isCreate)は前面が存在しないため単面表示。
+// 見せる。ページ送りは左右連動し、変更・追加・削除の対象パーツ全体へ黄色の
+// マーカーを付ける。マーカーはトグルで消し、装飾のない見た目も確認できる。
+// 新規作成申請(isCreate)は前面が存在しないため単面表示。
 // 文書の組み立て(マーカー・アンカー)は `reviewCompareDocs.ts` に委譲する。
 import { ChevronLeft, ChevronRight, MapPin } from '@lucide/vue';
 import { computed, ref, watch } from 'vue';
@@ -16,6 +17,8 @@ import { buildCompareDocs } from './services/reviewCompareDocs';
 const props = defineProps<{
   beforeHtml: string;
   afterHtml: string;
+  beforeMarkerPartKeys: string[];
+  afterMarkerPartKeys: string[];
   cssBefore: string;
   cssAfter: string;
   /** 変更ページの index 集合(0 始まり。`buildHtmlDiff` の `diff.pages` の index 由来)。 */
@@ -34,12 +37,14 @@ const props = defineProps<{
 
 const showMarker = ref(true);
 
-// マーカーのレイヤ名は乱数だが、docs は入力とトグルにのみ依存する computed で組む
-// (`ReviewDetail` の renderedRows と同じ規律 — 無関係な再描画で全再組版を起こさない)。
+// 比較文書は本文、CSS、変更パーツキー、マーカートグルにだけ依存するcomputedで組む。
+// 無関係な再描画でPreviewPanelの文書を作り直し、全再組版しないようにする。
 const docs = computed(() =>
   buildCompareDocs({
     beforeHtml: props.beforeHtml,
     afterHtml: props.afterHtml,
+    beforeMarkerPartKeys: new Set(props.beforeMarkerPartKeys),
+    afterMarkerPartKeys: new Set(props.afterMarkerPartKeys),
     cssBefore: props.cssBefore,
     cssAfter: props.cssAfter,
     changedPageIndexes: new Set(props.changedPageIndexes),

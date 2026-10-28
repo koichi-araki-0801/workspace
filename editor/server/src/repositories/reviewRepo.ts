@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 import {
   type ApproveReviewResult,
   anyTemplateFileName,
+  buildCreateReviewedHtml,
+  buildEditReviewedHtml,
   conflict,
   duplicateReviewMessage,
   forbidden,
@@ -20,6 +22,7 @@ import {
   parseTemplateFileName,
   type ReviewDecisionRequest,
   type ReviewOrigin,
+  type ReviewPartDecision,
   type ReviewRequest,
   type ReviewRequestMeta,
   type ReviewStatus,
@@ -27,6 +30,7 @@ import {
   type SubmitReviewRequest,
   toReviewMeta,
   toReviewResponse,
+  type UpdateReviewPartDecisionRequest,
   type User,
   unexpected,
   validation,
@@ -48,6 +52,7 @@ import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
 import type { PairCssSource, PairSyncService } from '../sync/pairSyncService.js';
+import { linkedomParser } from '../util/linkedomParser.js';
 import {
   applyConfirmedWrite,
   baselineTemplateHtml,
@@ -103,6 +108,21 @@ async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSour
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
 function targetOfOrigin(origin: ReviewOrigin): ConfirmedTarget {
   return origin === 'edit' ? 'filled' : 'template';
+}
+/**
+ * 申請全体の承認で確定するHTML。作成経路は値入りHTMLで保存したパーツ判定をJinja原文へ
+ * 適用し、承認済みパーツだけを残す。編集経路は承認画面と同じ差分(linkedom で読む)で判定を
+ * 検査し、却下したパーツだけを申請時点の現行版へ戻す(shared の `editReviewedHtml.ts` の
+ * `buildEditReviewedHtml`。`currentHtml` は確定の直前の値入り HTML)。
+ */
+function confirmedHtmlOf(review: StoredReviewRequest, currentHtml: string): string {
+  if (review.origin === 'edit') return buildEditReviewedHtml(review, linkedomParser, currentHtml);
+
+  if (review.filledHtml === undefined) {
+    throw validation('作成タブの最終確定には値入りHTMLが必要です');
+  }
+
+  return buildCreateReviewedHtml(review.html, review.filledHtml, review.partDecisions ?? []);
 }
 
 /**
@@ -173,6 +193,11 @@ export interface ReviewRepo {
   submitReview(req: SubmitReviewRequest, actor: ReviewActor): Promise<ReviewRequestMeta>;
   listReviews(filter: { status?: ReviewStatus }, actor: ReviewActor): Promise<ReviewRequestMeta[]>;
   getReview(reqId: string, actor: ReviewActor): Promise<ReviewRequest>;
+  updatePartDecision(
+    reqId: string,
+    input: UpdateReviewPartDecisionRequest,
+    actor: ReviewActor,
+  ): Promise<ReviewPartDecision>;
   approveReview(
     reqId: string,
     decision: ReviewDecisionRequest,
@@ -224,6 +249,14 @@ export function createReviewRepo({
         templateId: req.templateId,
         where: 'review-submit',
       });
+      const baseSnapshot =
+        req.origin === 'create'
+          ? { baseHtml: '', baseCss: req.css }
+          : {
+              baseHtml: await readConfirmedHtml(target, anyTemplateFileName(attrs)),
+              baseCss: await readTemplateCss(req.templateId),
+            };
+
       return withSubmitLock(async () => {
         // 同じ内容の承認待ちが既にあれば作らない(二重クリック・再送)。印の検査などの後ろに置くので、
         // 入口で拒まれる申請は重複かどうかを見る前に止まる。件数上限より前に置くのは、上限ちょうどで
@@ -259,6 +292,8 @@ export function createReviewRepo({
           reviewedAt: null,
           comment: null,
           baseHash: await currentBaseHash(req.templateId, target),
+          ...baseSnapshot,
+
           ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
           html: req.html,
           css: req.css,
@@ -292,6 +327,70 @@ export function createReviewRepo({
       return toReviewResponse(review);
     },
 
+    /** review内のパーツ1件について、現在判定と変更履歴を更新する。 */
+    async updatePartDecision(reqId, input, actor) {
+      return withReviewLock(async () => {
+        const review = await readReview(reqId);
+        if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+
+        if (!isApprover(actor)) {
+          throw forbidden('パーツ判定には精査者権限が必要です');
+        }
+
+        if (review.submittedBy === actor.username && actor.role !== 'admin') {
+          throw forbidden('自分の申請は判定できません(職務分掌)');
+        }
+
+        assertUndecided(review);
+
+        const partDecisions = review.partDecisions ?? [];
+        const current = partDecisions.find(
+          (partDecision) => partDecision.partKey === input.partKey,
+        );
+        const decidedAt = new Date().toISOString();
+
+        const history: ReviewPartDecision['history'] = [
+          ...(current?.history ?? []),
+          {
+            from: current?.status ?? 'pending',
+            to: input.status,
+            changedBy: actor.username,
+            changedAt: decidedAt,
+            comment: input.comment ?? null,
+          },
+        ];
+
+        const nextDecision: ReviewPartDecision =
+          input.status === 'approved'
+            ? {
+                partKey: input.partKey,
+                status: 'approved',
+                decidedBy: actor.username,
+                decidedAt,
+                comment: input.comment ?? null,
+                history,
+              }
+            : {
+                partKey: input.partKey,
+                status: 'rejected',
+                decidedBy: actor.username,
+                decidedAt,
+                comment: input.comment,
+                history,
+              };
+
+        await updateReviewMeta(reqId, {
+          partDecisions: current
+            ? partDecisions.map((partDecision) =>
+                partDecision.partKey === input.partKey ? nextDecision : partDecision,
+              )
+            : [...partDecisions, nextDecision],
+        });
+
+        return nextDecision;
+      });
+    },
+
     /**
      * 承認して実ファイルへ反映する(approver|admin のみ。ルートで施錠済み)。pending でなければ
      * 409。職務分掌のため自己承認(申請者 == 承認者)は既定で拒否し、admin のみ例外とする。
@@ -320,11 +419,18 @@ export function createReviewRepo({
         // baseline(確定版の CSS を編集画面が読み込んだ直後の形)は申請に載ったものを使う。どちらかが
         // 欠けても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
         const cssSource = await pairCssSourceOf(review);
+        const confirmedHtml = confirmedHtmlOf(
+          review,
+          review.origin === 'edit'
+            ? await readConfirmedHtml(target, anyTemplateFileName(review.attributes))
+            : '',
+        );
+
         const meta = await applyConfirmedWrite({
           kind: 'review-approve',
           templateId: review.templateId,
           target,
-          html: review.html,
+          html: confirmedHtml,
           css: review.css,
           commitMessage,
           author: actor.username,

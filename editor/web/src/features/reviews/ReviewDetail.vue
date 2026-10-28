@@ -12,17 +12,22 @@
 import {
   type ApproveReviewResult,
   isOk,
+  type ReviewPartDecisionStatus,
   type ReviewRequest,
   type ReviewRequestMeta,
+  reviewFinalizationIssues,
   toReviewMeta,
 } from '@editor/shared';
 import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
+import { confirm } from '@/components/ui/confirm';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
+
 import { buildFramedDiffDoc } from '@/features/compare/framedDiffDoc';
 import { type BlockStatus, hasCoarseDiff } from '@/features/compare/htmlBlockDiff';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
@@ -50,9 +55,13 @@ const {
   cssAfter,
   beforeBodyHtml,
   afterBodyHtml,
+  reviewedBodyHtml,
+  pendingPartKeys,
+  unknownDecisionPartKeys,
+  duplicateDecisionPartKeys,
+  updatePartDecision,
   changedPageIndexes,
   beforePageCount,
-  afterPageCount,
   truncated,
   cssChanged,
   printOnlyCss,
@@ -78,6 +87,21 @@ const changedNames = computed(() => {
   const names = [...new Set(rows.value.filter((r) => r.status !== 'same').map((r) => r.label))];
   return names.slice(0, 5);
 });
+
+/** 見た目比較の修正前側に印を付けるパーツキー。 */
+const beforeMarkerPartKeys = computed(() =>
+  rows.value
+    .filter((row) => row.status === 'changed' || row.status === 'removed')
+    .map((row) => row.key),
+);
+
+/** 見た目比較の修正後側に印を付けるパーツキー。 */
+const afterMarkerPartKeys = computed(() =>
+  rows.value
+    .filter((row) => row.status === 'changed' || row.status === 'added')
+    .map((row) => row.key),
+);
+
 
 /**
  * 一度に描画するパーツ行数の上限。各行は申請者制御の CSS(最大 1 MiB)を丸ごとインライン
@@ -138,6 +162,204 @@ const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
 
 // pending は精査者が操作できる。処理済み(承認/却下)は閲覧のみ。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
+/**
+ * 未判定・本文に無い判定のほかに最終確定を止める理由(判定の重複・差分の打ち切り・比較元の無い
+ * 古い edit 申請の判定)。文言はサーバの 400/409 と同じ(shared の `reviewFinalizationIssues`)。
+ * 古い edit 申請は判定を当てる差分をサーバが作れないので、判定があると確定できない。
+ */
+const otherFinalizationIssues = computed(() => {
+  const r = review.value;
+  return reviewFinalizationIssues({
+    pendingPartKeys: [],
+    unknownDecisionPartKeys: [],
+    duplicateDecisionPartKeys: duplicateDecisionPartKeys.value,
+    truncated: truncated.value,
+    legacyDecisions:
+      r?.origin === 'edit' &&
+      (r.baseHtml === undefined || r.baseCss === undefined) &&
+      (r.partDecisions ?? []).length > 0,
+  });
+});
+/**
+ * 最終確定を禁止する状態。未判定または現在の差分対象と一致しない保存済み判定がある場合と、
+ * `otherFinalizationIssues` のどれかがある場合は、画面表示だけでなく実行handlerも停止し、
+ * 不完全な候補を確定保存へ渡さない。
+ */
+const finalizationBlocked = computed(
+  () =>
+    pendingPartKeys.value.length > 0 ||
+    unknownDecisionPartKeys.value.length > 0 ||
+    otherFinalizationIssues.value.length > 0,
+);
+/**
+ * 未判定パーツの案内文。新規作成は白紙を基点とした確定候補、既存編集は現行版との比較として
+ * 表示する。文字タブでは左右表示を前提とした表現を使わない。
+ */
+const pendingPartNotice = computed(() => {
+  const count = pendingPartKeys.value.length;
+
+  if (review.value?.origin === 'create') {
+    return activeTab.value === 'visual'
+      ? `未判定のパーツが ${count} 件あります。承認済みのパーツだけが、白紙を基点とした確定候補へ反映されています。`
+      : `未判定のパーツが ${count} 件あります。内容を確認し、パーツごとに承認または却下してください。`;
+  }
+
+  return activeTab.value === 'visual'
+    ? `未判定の変更が ${count} 件あります。右側には未判定の変更を採用せず、変更前の内容を表示しています。`
+    : `未判定の変更が ${count} 件あります。内容を確認し、パーツごとに承認または却下してください。`;
+});
+
+const partComments = reactive<Record<string, string>>({});
+
+/** 保存済みの現在判定から、パーツごとの入力欄を初期化する。 */
+function restorePartComments(): void {
+  for (const decision of review.value?.partDecisions ?? []) {
+    partComments[decision.partKey] = decision.comment ?? '';
+  }
+}
+
+/** 保存済み判定を優先して、対象行へ表示する現在状態を返す。 */
+function partDecisionStatus(row: ReviewPartRow): ReviewPartDecisionStatus {
+  return (
+    review.value?.partDecisions?.find((decision) => decision.partKey === row.key)?.status ??
+    'pending'
+  );
+}
+
+/** 変更対象パーツの現在判定を状態別に集計する。`same`は判定対象へ含めない。 */
+const partDecisionCounts = computed(() => {
+  const counts = {
+    pending: 0,
+    approved: 0,
+    rejected: 0,
+  };
+
+  for (const row of rows.value) {
+    if (row.status === 'same') continue;
+    counts[partDecisionStatus(row)]++;
+  }
+
+  return counts;
+});
+
+/** 未判定または承認済みの対象パーツを却下し、保存結果を現在の表示へ反映する。 */
+async function rejectPartRow(row: ReviewPartRow): Promise<void> {
+  const currentStatus = partDecisionStatus(row);
+  if (currentStatus === 'rejected' || !canDecide.value) return;
+
+  const partComment = partComments[row.key]?.trim() ?? '';
+  if (!partComment) {
+    toast('パーツの却下理由を入力してください。', 'error');
+    return;
+  }
+
+  if (currentStatus === 'approved') {
+    const accepted = await confirm({
+      title: `${row.label}を却下済みへ変更しますか？`,
+      description:
+        '現在の承認済み判定を覆します。変更内容と却下理由を確認してから確定してください。',
+      confirmLabel: '却下済みへ変更する',
+      variant: 'destructive',
+    });
+    if (!accepted) return;
+  }
+
+  const result = await updatePartDecision({
+    partKey: row.key,
+    status: 'rejected',
+    comment: partComment,
+  });
+  if (!isOk(result)) {
+    toast('パーツ判定の保存に失敗しました。', 'error');
+    return;
+  }
+
+  applySavedPartDecision(result.value);
+  await load();
+
+  toastSuccess(
+    currentStatus === 'approved'
+      ? `${row.label}を却下済みへ変更しました`
+      : `${row.label}を却下しました`,
+  );
+}
+
+/** 未判定または却下済みの対象パーツを承認し、保存結果を現在の表示へ反映する。 */
+async function approvePartRow(row: ReviewPartRow): Promise<void> {
+  const currentStatus = partDecisionStatus(row);
+  if (currentStatus === 'approved' || !canDecide.value) return;
+
+  if (currentStatus === 'rejected') {
+    const accepted = await confirm({
+      title: `${row.label}を承認済みへ変更しますか？`,
+      description:
+        '現在の却下済み判定を覆します。保存されている却下理由は変更履歴に残ります。',
+      confirmLabel: '承認済みへ変更する',
+    });
+    if (!accepted) return;
+  }
+
+  const partComment = partComments[row.key]?.trim();
+  const result = await updatePartDecision({
+    partKey: row.key,
+    status: 'approved',
+    comment: partComment || undefined,
+  });
+  if (!isOk(result)) {
+    toast('パーツ判定の保存に失敗しました。', 'error');
+    return;
+  }
+
+  applySavedPartDecision(result.value);
+  await load();
+
+  toastSuccess(
+    currentStatus === 'rejected'
+      ? `${row.label}を承認済みへ変更しました`
+      : `${row.label}を承認しました`,
+  );
+}
+
+/** 未判定の変更対象パーツを確認後に一括承認する。 */
+async function approvePendingParts(): Promise<void> {
+  if (!canDecide.value) return;
+
+  const targets = rows.value.filter(
+    (row) => row.status !== 'same' && partDecisionStatus(row) === 'pending',
+  );
+  if (targets.length === 0) return;
+
+  const accepted = await confirm({
+    title: `未判定の${targets.length}パーツを一括承認しますか？`,
+    description:
+      '承認済み・却下済みのパーツは変更しません。未判定のパーツだけを承認済みにします。',
+    confirmLabel: '一括承認する',
+  });
+  if (!accepted) return;
+
+  let completed = 0;
+  for (const row of targets) {
+    const partComment = partComments[row.key]?.trim();
+    const result = await updatePartDecision({
+      partKey: row.key,
+      status: 'approved',
+      comment: partComment || undefined,
+    });
+
+    if (!isOk(result)) {
+      await load();
+      toast(`${completed}件を承認した後、${row.label}の保存に失敗しました。`, 'error', 6000);
+      return;
+    }
+
+    applySavedPartDecision(result.value);
+    completed++;
+  }
+
+  await load();
+  toastSuccess(`${completed}パーツを一括承認しました`);
+}
+
 
 const visualRef = ref<InstanceType<typeof ReviewVisualCompare>>();
 
@@ -193,7 +415,60 @@ function isCoarseRow(row: ReviewPartRow): boolean {
   return hasCoarseDiff(row.beforeHtml, row.afterHtml);
 }
 
-async function approve() {
+function applySavedPartDecision(
+  saved: NonNullable<ReviewRequest['partDecisions']>[number],
+): void {
+  if (!review.value) return;
+
+  const decisions = review.value.partDecisions ?? [];
+  const exists = decisions.some((decision) => decision.partKey === saved.partKey);
+
+  review.value = {
+    ...review.value,
+    partDecisions: exists
+      ? decisions.map((decision) => (decision.partKey === saved.partKey ? saved : decision))
+      : [...decisions, saved],
+  };
+
+  partComments[saved.partKey] = saved.comment ?? '';
+}
+
+
+async function approve(): Promise<void> {
+  if (finalizationBlocked.value) {
+    toast(
+      otherFinalizationIssues.value[0] ??
+        '未判定の変更、または現在の差分と一致しない判定があるため、最終確定できません。',
+      'error',
+      6000,
+    );
+    return;
+  }
+
+  const targetRows = rows.value.filter((row) => row.status !== 'same');
+  const approvedCount = targetRows.filter(
+    (row) => partDecisionStatus(row) === 'approved',
+  ).length;
+  const rejectedCount = targetRows.filter(
+    (row) => partDecisionStatus(row) === 'rejected',
+  ).length;
+  const pendingCount = targetRows.filter(
+    (row) => partDecisionStatus(row) === 'pending',
+  ).length;
+
+  const accepted = await confirm({
+    title: 'この申請を最終確定しますか？',
+    description:
+      `承認済みパーツ: ${approvedCount}件、` +
+      `却下済みパーツ: ${rejectedCount}件、` +
+      `未判定パーツ: ${pendingCount}件、` +
+      `書式設定の変更: ${cssChanged.value ? 'あり' : 'なし'}。\n` +
+      '最終確定後はパーツ判定を変更できません。',
+    confirmLabel: '最終確定する',
+    variant: 'destructive',
+  });
+  if (!accepted) return;
+
   const res = await approveReview(comment.value.trim() || undefined);
   if (isOk(res)) {
     // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
@@ -206,8 +481,10 @@ async function approve() {
     } else {
       toastSuccess('承認しました（本番テンプレートへ反映しました）');
     }
+
     notifySyncResult(res.value.sync);
     notifyNoteMasterResult(res.value.noteMaster);
+
     // 承認の応答はテンプレートのメタしか持たない。決着後の申請は読み直して得る。
     const decided = review.value;
     await load();
@@ -343,19 +620,31 @@ async function openPdf() {
 
 onMounted(async () => {
   await load();
+  restorePartComments();
 });
+watch(
+  () => review.value?.partDecisions,
+  () => restorePartComments(),
+  { deep: true },
+);
+
+
 </script>
 
 <template>
   <div class="space-y-4">
-    <p v-if="loading" class="flex items-center gap-2 text-sm text-muted-foreground">
+    <p
+      v-if="loading && !review"
+      class="flex items-center gap-2 text-sm text-muted-foreground"
+    >
       <Loader2 class="h-4 w-4 animate-spin" /> 前後プレビューを生成中…
     </p>
-    <p v-else-if="loadError" class="text-sm text-destructive">
+    <p v-else-if="loadError && !review" class="text-sm text-destructive">
       申請の読み込みに失敗しました。時間をおいて再度お試しください。
     </p>
 
     <template v-else-if="review">
+
       <!-- 変更要約 1 行(実差分由来)。 -->
       <p class="text-sm">
         変更されたのは
@@ -386,7 +675,8 @@ onMounted(async () => {
           size="sm"
           @click="activeTab = 'visual'"
         >
-          見た目で比較
+          {{ review.origin === 'create' ? '見た目を確認' : '見た目で比較' }}
+
         </Button>
         <Button
           :variant="activeTab === 'text' ? 'default' : 'outline'"
@@ -398,16 +688,44 @@ onMounted(async () => {
         </Button>
       </div>
 
+      <div
+  v-if="pendingPartKeys.length > 0"
+  class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+>
+  {{ pendingPartNotice }}
+</div>
+
+
+      <div
+        v-if="unknownDecisionPartKeys.length > 0"
+        class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
+        現在の差分対象と一致しない保存済み判定が
+        {{ unknownDecisionPartKeys.length }} 件あります。最終確定できません。
+      </div>
+
+      <div
+        v-for="issue in otherFinalizationIssues"
+        :key="issue"
+        data-finalization-issue
+        class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+      >
+        {{ issue }}
+      </div>
+
+
       <ReviewVisualCompare
         v-if="activeTab === 'visual'"
         ref="visualRef"
         :before-html="beforeBodyHtml"
-        :after-html="afterBodyHtml"
+        :after-html="reviewedBodyHtml"
+        :before-marker-part-keys="beforeMarkerPartKeys"
+        :after-marker-part-keys="afterMarkerPartKeys"
         :css-before="cssBefore"
         :css-after="cssAfter"
         :changed-page-indexes="changedPageIndexes"
         :before-page-count="beforePageCount"
-        :after-page-count="afterPageCount"
+        :after-page-count="undefined"
         :is-create="review.origin === 'create'"
         :company-code="companyCodeOfTemplateId(review.templateId)"
       />
@@ -421,11 +739,33 @@ onMounted(async () => {
               （変更{{ summary.changed }} / 追加{{ summary.added }} / 削除{{ summary.removed }}）
             </span>
           </span>
+
+          <span class="text-xs text-muted-foreground">
+            判定:
+            承認待ち {{ partDecisionCounts.pending }} 件 /
+            承認済み {{ partDecisionCounts.approved }} 件 /
+            却下済み {{ partDecisionCounts.rejected }} 件
+          </span>
+
+          <Button
+            v-if="canDecide"
+            type="button"
+            size="sm"
+            variant="outline"
+            :disabled="partDecisionCounts.pending === 0 || deciding"
+            @click="approvePendingParts"
+            >
+            <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
+            <Check v-else class="h-4 w-4" />
+              未判定を一括承認
+          </Button>
+
           <label class="ml-auto flex cursor-pointer items-center gap-1.5">
             <Checkbox v-model="showUnchanged" />
             <span class="text-xs">変更なしも表示</span>
           </label>
         </div>
+
 
         <!-- 「変更なし」の空状態は CSS も同一のときだけ出す(CSS が変わっていれば通知バーが
              一級の変更として伝えるので、HTML パーツ差分が 0 でも「差分なし」とは言わない)。 -->
@@ -490,7 +830,10 @@ onMounted(async () => {
             </div>
             <div class="grid gap-3 p-3 md:grid-cols-2">
               <figure class="space-y-1">
-                <figcaption class="text-xs text-muted-foreground">変更前(現行版)</figcaption>
+                <figcaption class="text-xs text-muted-foreground">
+                  {{ review.origin === 'create' ? '追加前（白紙）' : '変更前（現行版）' }}
+                </figcaption>
+
                 <div
                   v-if="r.row.status === 'added'"
                   class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
@@ -515,7 +858,10 @@ onMounted(async () => {
                 </div>
               </figure>
               <figure class="space-y-1">
-                <figcaption class="text-xs text-muted-foreground">変更後(申請版)</figcaption>
+                <figcaption class="text-xs text-muted-foreground">
+                  {{ review.origin === 'create' ? '申請内容' : '変更後（申請版）' }}
+                </figcaption>
+
                 <div
                   v-if="r.row.status === 'removed'"
                   class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
@@ -535,12 +881,88 @@ onMounted(async () => {
                 </div>
               </figure>
             </div>
+            <div
+  v-if="r.row.status !== 'same'"
+  class="space-y-3 border-t bg-muted/20 px-4 py-3"
+>
+  <div class="flex flex-wrap items-center gap-2">
+    <span class="text-sm font-bold">パーツ判定</span>
+    <Badge
+      :variant="
+        partDecisionStatus(r.row) === 'approved'
+          ? 'success'
+          : partDecisionStatus(r.row) === 'rejected'
+            ? 'destructive'
+            : 'warning'
+      "
+    >
+      {{
+        partDecisionStatus(r.row) === 'approved'
+          ? '承認済み'
+          : partDecisionStatus(r.row) === 'rejected'
+            ? '却下済み'
+            : '承認待ち'
+      }}
+    </Badge>
+  </div>
+
+  <label class="block space-y-1">
+    <span class="text-xs font-medium">判定メモ</span>
+    <textarea
+      v-model="partComments[r.row.key]"
+      rows="2"
+      placeholder="このパーツの判定メモを入力します。却下時は理由の入力が必要です。"
+      :disabled="!canDecide"
+      class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+    />
+  </label>
+
+  <div class="flex flex-wrap items-center justify-end gap-2">
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      :disabled="!canDecide || partDecisionStatus(r.row) === 'rejected' || deciding"
+      @click="rejectPartRow(r.row)"
+    >
+      <X class="h-4 w-4" />
+      {{
+        partDecisionStatus(r.row) === 'rejected'
+          ? '却下済み'
+          : partDecisionStatus(r.row) === 'approved'
+            ? '却下へ変更'
+            : '却下する'
+      }}
+    </Button>
+
+    <Button
+      type="button"
+      size="sm"
+      :disabled="!canDecide || partDecisionStatus(r.row) === 'approved' || deciding"
+      @click="approvePartRow(r.row)"
+    >
+      <Check class="h-4 w-4" />
+      {{
+        partDecisionStatus(r.row) === 'approved'
+          ? '承認済み'
+          : partDecisionStatus(r.row) === 'rejected'
+            ? '承認へ変更'
+            : '承認する'
+      }}
+    </Button>
+  </div>
+</div>
+
           </li>
         </ul>
       </template>
 
       <!-- 承認/却下(精査者のみ・pending のみ) -->
-      <div v-if="canDecide" class="space-y-2 rounded-[12px] border bg-muted/30 p-4">
+      <div
+        v-if="canDecide"
+        data-review-decision
+        class="space-y-2 rounded-[12px] border bg-muted/30 p-4"
+      >
         <label class="text-sm font-medium" :for="`review-comment-${reqId}`">
           却下理由（却下するときは必須です）
         </label>
@@ -558,13 +980,24 @@ onMounted(async () => {
           却下には理由の入力が必要です。
         </p>
         <div class="flex items-center justify-end gap-2">
+          <!-- 一括承認は文字の変更タブにもある。見た目比較タブからも最終確定まで進めるよう、
+               未判定が残る間だけここにも出す。 -->
+          <Button
+            v-if="partDecisionCounts.pending > 0"
+            variant="outline"
+            :disabled="deciding"
+            @click="approvePendingParts"
+          >
+            <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
+            <Check v-else class="h-4 w-4" /> 未判定を一括承認
+          </Button>
           <Button variant="outline" :disabled="deciding" @click="reject">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
             <X v-else class="h-4 w-4" /> 却下する
           </Button>
-          <Button :disabled="deciding" @click="approve">
+          <Button :disabled="deciding || finalizationBlocked" @click="approve">
             <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <Check v-else class="h-4 w-4" /> 承認する
+            <Check v-else class="h-4 w-4" /> 最終確定する
           </Button>
         </div>
       </div>

@@ -210,8 +210,8 @@ test('capture review screens (申請 → 承認タブ → 精査)', async ({ pag
     page.getByRole('status').filter({ hasText: '確定保存を申請しました' }),
   ).toBeVisible();
 
-  // approver で入り直し、承認タブを対象テンプレートで開く(編集タブで開いたテンプレートの
-  // 申請を縦に並べる画面。先頭 1 件は既定で展開される)
+  // approver で入り直し、承認タブを `?template=` 付きで開く(全申請の一覧の行から進む、
+  // 対象テンプレートの申請を縦に並べる詳細画面。先頭 1 件は既定で展開される)
   await login(page, 'approver');
   await page.goto(`/reviews?template=${encodeURIComponent(SEED_ID)}`);
   await waitForLoaded(page);

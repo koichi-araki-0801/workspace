@@ -1,8 +1,7 @@
 // =============================================================================
-// redlineAttr.ts — 赤入れの削除要素に付ける属性の名前
+// redlineAttr.ts — 赤入れの削除要素に付ける属性の名前(shared の再 export)
 // =============================================================================
 // 赤入れの装飾(`features/editor/redline/redlineApply.ts`)と、それを数えずに飛ばす判定
-// (`lib/pageBreaks.ts` など)の両方が読む。lib は features に依存しないので、名前だけをここに置く。
-
-/** 赤入れで削除を表すために生 DOM へ差し込んだ要素の印。文書(モデル・保存)には載らない。 */
-export const REDLINE_ATTR = 'data-redline';
+// (shared の `pageSplit.ts` の `pageItems` など)の両方が読む。名前の実体は判定と同じ
+// `pageSplit.ts` にあり、web の import 先を変えないためここから出す。
+export { REDLINE_ATTR } from '@editor/shared';

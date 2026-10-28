@@ -65,6 +65,10 @@ export default defineConfig({
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/partHtmlCompare.ts',
         'editor/shared/src/html/rawText.ts',
+        'editor/shared/src/html/base64Utf8.ts',
+        // 版の比較・承認画面・承認の確定(edit 経路)が共有する差分。画面とサーバで数え方が
+        // ずれると、画面で判定し終えた申請をサーバが確定できない。切り貼りの書込もここにある。
+        'editor/shared/src/html/reviewDiff/*.ts',
         'editor/shared/src/css/cssRules.ts',
         // editor/server (vivliostyle は pure layer のみ。build.ts 等は browser+socket 依存で対象外)
         'editor/server/src/auth/password.ts',
@@ -138,6 +142,7 @@ export default defineConfig({
         'editor/server/src/files/confirmedHtml.ts',
         'editor/server/src/util/mapLimit.ts',
         'editor/server/src/util/inlineBundle.ts',
+        'editor/server/src/util/linkedomParser.ts',
         'editor/server/src/vivliostyle/workDir.ts',
         'editor/server/src/files/historyFiles.ts',
         'editor/server/src/files/notesFile.ts',
@@ -153,7 +158,6 @@ export default defineConfig({
         // 作成タブの往復の判断の土台(HTML 構造の走査・固める要素の決定)。
         'editor/web/src/lib/htmlScan.ts',
         'editor/web/src/lib/fillAnalysis.ts',
-        'editor/web/src/lib/blockKey.ts',
         'editor/web/src/lib/newId.ts',
         'editor/web/src/lib/dom.ts',
         // 改ページの位置の判定。canvas・承認・比較・ページ線・警告が共有し、ずれるとページ数と
