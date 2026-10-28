@@ -46,10 +46,10 @@ beforeEach(() => {
 
 describe('useAuthStore.reset()', () => {
   it('sample cache(editor:sample:*)を消す(共有端末で次の利用者へファンド名を残さない)', () => {
-    sessionStorage.setItem('editor:sample:510037', '{"fund":{"code":"510037","name":"F"}}');
+    sessionStorage.setItem('editor:sample:950037', '{"fund":{"code":"950037","name":"F"}}');
     const store = setupStore();
     store.reset();
-    expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
+    expect(sessionStorage.getItem('editor:sample:950037')).toBeNull();
   });
 });
 
@@ -93,7 +93,7 @@ describe('useAuthStore.logout()', () => {
     await store.login(admin.username, admin.password);
     localStorage.setItem(undoStacksKey(), '{}');
     localStorage.setItem(draftOwnerKey(), '{}');
-    sessionStorage.setItem('editor:sample:510037', '{}');
+    sessionStorage.setItem('editor:sample:950037', '{}');
     const key = undoStacksKey();
     const ownerKey = draftOwnerKey();
     await store.logout();
@@ -102,7 +102,7 @@ describe('useAuthStore.logout()', () => {
     // キーごと消すと移行の猶予(`belongsToSession`)が再び開くため、空の記録を残す。
     expect(localStorage.getItem(ownerKey)).toBe('{}');
     expect(localStorage.getItem('editor:authEpoch')).toBeNull();
-    expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
+    expect(sessionStorage.getItem('editor:sample:950037')).toBeNull();
   });
 
   it('ログアウト後に別タブで開いた下書きを、移行の猶予で引き継がない', async () => {

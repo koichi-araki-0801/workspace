@@ -79,42 +79,42 @@ describe('restTemplateRepo', () => {
     const calls = stubFetch(() => json([]));
     await restTemplateRepo.listCompanies();
     expect(calls[0].url).toBe('/api/templates/companies');
-    await restTemplateRepo.listFunds('R-AM01');
-    expect(calls[1].url).toBe('/api/templates/funds?rep1CompanyCode=R-AM01');
+    await restTemplateRepo.listFunds('R-XX01');
+    expect(calls[1].url).toBe('/api/templates/funds?rep1CompanyCode=R-XX01');
     await restTemplateRepo.getCreatableInfo({
-      companyCode: 'AM01',
-      rep1CompanyCode: 'R-AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      rep1CompanyCode: 'R-XX01',
+      fundCode: '950037',
       editionType: '交付版',
     });
     expect(calls[2].url).toBe(
-      `/api/templates/creatable?companyCode=AM01&rep1CompanyCode=R-AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+      `/api/templates/creatable?companyCode=XX01&rep1CompanyCode=R-XX01&fundCode=950037&editionType=${encodeURIComponent('交付版')}`,
     );
   });
 
   it('一覧・候補は未指定のクエリを付けず、指定分だけを query string にする', async () => {
     const calls = stubFetch(() => json([]));
     await restTemplateRepo.listTemplates({
-      companyCode: 'AM01',
+      companyCode: 'XX01',
       fundCode: undefined,
       baseDate: '',
     });
-    expect(calls[0].url).toBe('/api/templates?companyCode=AM01');
+    expect(calls[0].url).toBe('/api/templates?companyCode=XX01');
     await restTemplateRepo.getDropdownOptions({}, 'edit');
     expect(calls[1].url).toBe('/api/templates/options?scope=edit');
-    await restTemplateRepo.getDropdownOptions({ companyCode: 'AM01' }, 'published');
-    expect(calls[2].url).toBe('/api/templates/options?companyCode=AM01&scope=published');
+    await restTemplateRepo.getDropdownOptions({ companyCode: 'XX01' }, 'published');
+    expect(calls[2].url).toBe('/api/templates/options?companyCode=XX01&scope=published');
   });
   it(':id は encodeURIComponent される(日本語 id)', async () => {
     const calls = stubFetch(() => json({ meta: {}, html: '', css: '', filled: '' }));
-    await restTemplateRepo.getTemplate('AM01_510037_20240710_交付版');
+    await restTemplateRepo.getTemplate('XX01_950037_20240710_交付版');
     expect(calls[0].url).toBe(
-      `/api/templates/${encodeURIComponent('AM01_510037_20240710_交付版')}`,
+      `/api/templates/${encodeURIComponent('XX01_950037_20240710_交付版')}`,
     );
   });
   it('saveDraft は PUT /templates/:id/draft にボディごと送り、204 を ok(undefined) に写す', async () => {
     const calls = stubFetch(() => new Response(null, { status: 204 }));
-    const req = { templateId: 'AM01_510037_20240710_交付版', html: '<p>x</p>', css: '.a{}' };
+    const req = { templateId: 'XX01_950037_20240710_交付版', html: '<p>x</p>', css: '.a{}' };
     const r = await restTemplateRepo.saveDraft(req);
     expect(isOk(r) && r.value).toBeUndefined();
     expect(calls[0]).toMatchObject({
@@ -127,17 +127,17 @@ describe('restTemplateRepo', () => {
     const calls = stubFetch(() => json(null));
     await restTemplateRepo.getDraft('t1');
     await restTemplateRepo.discardDraft('t1');
-    await restTemplateRepo.getSampleData('510037');
+    await restTemplateRepo.getSampleData('950037');
     await restTemplateRepo.getSyncStatus('t1');
     await restTemplateRepo.generate({
-      companyCode: 'AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      fundCode: '950037',
       editionType: '交付版',
     });
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       'GET /api/templates/t1/draft',
       'DELETE /api/templates/t1/draft',
-      'GET /api/templates/510037/sample-data',
+      'GET /api/templates/950037/sample-data',
       'GET /api/templates/t1/sync-status',
       'POST /api/generate',
     ]);
@@ -145,66 +145,66 @@ describe('restTemplateRepo', () => {
   it('getSampleData は同じテンプレート ID の 2 回目を sessionStorage から返し、clear で捨てる', async () => {
     sessionStorage.clear();
     const calls = stubFetch(() =>
-      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+      json({ sample: { fund: { code: '950037', name: 'F' } }, warnings: [] }),
     );
-    const first = await restTemplateRepo.getSampleData('510037');
-    const second = await restTemplateRepo.getSampleData('510037');
+    const first = await restTemplateRepo.getSampleData('950037');
+    const second = await restTemplateRepo.getSampleData('950037');
     expect(calls).toHaveLength(1);
     expect(isOk(second) && second.value).toEqual(isOk(first) && first.value);
-    expect(sessionStorage.getItem('editor:sample:510037')).not.toBeNull();
+    expect(sessionStorage.getItem('editor:sample:950037')).not.toBeNull();
     clearSampleDataCache();
-    expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
-    await restTemplateRepo.getSampleData('510037');
+    expect(sessionStorage.getItem('editor:sample:950037')).toBeNull();
+    await restTemplateRepo.getSampleData('950037');
     expect(calls).toHaveLength(2);
   });
   it('getSampleData は sessionStorage に配列が入っていてもそれを返さず API から取り直す', async () => {
     sessionStorage.clear();
-    sessionStorage.setItem('editor:sample:510037', '[]');
+    sessionStorage.setItem('editor:sample:950037', '[]');
     const calls = stubFetch(() =>
-      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+      json({ sample: { fund: { code: '950037', name: 'F' } }, warnings: [] }),
     );
-    const res = await restTemplateRepo.getSampleData('510037');
+    const res = await restTemplateRepo.getSampleData('950037');
     expect(calls).toHaveLength(1);
     expect(isOk(res) && res.value).toEqual({
-      sample: { fund: { code: '510037', name: 'F' } },
+      sample: { fund: { code: '950037', name: 'F' } },
       warnings: [],
     });
     // 取り直した値で上書きされている(配列は残らない)。
-    expect(JSON.parse(sessionStorage.getItem('editor:sample:510037') ?? 'null')).toEqual({
-      sample: { fund: { code: '510037', name: 'F' } },
+    expect(JSON.parse(sessionStorage.getItem('editor:sample:950037') ?? 'null')).toEqual({
+      sample: { fund: { code: '950037', name: 'F' } },
       warnings: [],
     });
   });
   it('getSampleData は旧形式のキャッシュ(sample 本体だけ)を返さず取り直す', async () => {
     sessionStorage.clear();
-    sessionStorage.setItem('editor:sample:510037', JSON.stringify({ fund: { code: '510037' } }));
+    sessionStorage.setItem('editor:sample:950037', JSON.stringify({ fund: { code: '950037' } }));
     const calls = stubFetch(() =>
-      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+      json({ sample: { fund: { code: '950037', name: 'F' } }, warnings: [] }),
     );
-    const res = await restTemplateRepo.getSampleData('510037');
+    const res = await restTemplateRepo.getSampleData('950037');
     expect(calls).toHaveLength(1);
     expect(isOk(res) && res.value.warnings).toEqual([]);
   });
   it('getSampleData は失敗を保存しない', async () => {
     sessionStorage.clear();
     stubFetch(() => new Response('{}', { status: 500 }));
-    expect(isErr(await restTemplateRepo.getSampleData('510037'))).toBe(true);
-    expect(sessionStorage.getItem('editor:sample:510037')).toBeNull();
+    expect(isErr(await restTemplateRepo.getSampleData('950037'))).toBe(true);
+    expect(sessionStorage.getItem('editor:sample:950037')).toBeNull();
   });
   it('getSampleData は壊れたキャッシュ(オブジェクトでない JSON)を無視して再取得する', async () => {
     sessionStorage.clear();
-    sessionStorage.setItem('editor:sample:510037', '"broken"');
+    sessionStorage.setItem('editor:sample:950037', '"broken"');
     const calls = stubFetch(() =>
-      json({ sample: { fund: { code: '510037', name: 'F' } }, warnings: [] }),
+      json({ sample: { fund: { code: '950037', name: 'F' } }, warnings: [] }),
     );
-    const r = await restTemplateRepo.getSampleData('510037');
+    const r = await restTemplateRepo.getSampleData('950037');
     expect(calls).toHaveLength(1);
     expect(isOk(r) && r.value).toEqual({
-      sample: { fund: { code: '510037', name: 'F' } },
+      sample: { fund: { code: '950037', name: 'F' } },
       warnings: [],
     });
     // 取り直した値で上書きされ、以後は正常にキャッシュから返る。
-    expect(sessionStorage.getItem('editor:sample:510037')).not.toBe('"broken"');
+    expect(sessionStorage.getItem('editor:sample:950037')).not.toBe('"broken"');
   });
 });
 
@@ -315,14 +315,14 @@ describe('restPartRepo / restHistoryRepo / restNoteRepo / restReviewRepo / restU
 
 describe('restFundAssetRepo', () => {
   it('inspect は POST /api/fund-assets/inspect に { refs } を送り、結果の配列を返す', async () => {
-    const results = [{ dir: 'smtam', file: 'qr.svg', status: 'svg_rejected', violations: ['v'] }];
+    const results = [{ dir: 'xxam', file: 'qr.svg', status: 'svg_rejected', violations: ['v'] }];
     const calls = stubFetch(() => json({ results }));
-    const r = await restFundAssetRepo.inspect([{ dir: 'smtam', file: 'qr.svg' }]);
+    const r = await restFundAssetRepo.inspect([{ dir: 'xxam', file: 'qr.svg' }]);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       url: '/api/fund-assets/inspect',
       method: 'POST',
-      body: { refs: [{ dir: 'smtam', file: 'qr.svg' }] },
+      body: { refs: [{ dir: 'xxam', file: 'qr.svg' }] },
     });
     expect(isOk(r) && r.value).toEqual(results);
   });

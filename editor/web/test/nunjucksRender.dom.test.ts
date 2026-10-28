@@ -77,13 +77,13 @@ describe('assemblePreviewDocument — 文書の正規化と CSS の inline 化',
 
   it('strips the external stylesheet <link> (CSS is inlined; the link would 404 in the viewer)', () => {
     const html = assemblePreviewDocument(
-      '<html><head><link rel="stylesheet" href="../css/AM01_110024_交付版.css" /></head><body>x</body></html>',
+      '<html><head><link rel="stylesheet" href="../css/XX01_910024_交付版.css" /></head><body>x</body></html>',
       '.a{color:red}',
     );
     const doc = parse(html);
     // 除去しているのは後段の正規表現ではなくサニタイザの許可リスト(+ 構造の上での二重化)。
     expect(doc.querySelectorAll('link')).toHaveLength(0);
-    expect(html).not.toContain('AM01_110024_交付版.css');
+    expect(html).not.toContain('XX01_910024_交付版.css');
     expect(doc.querySelector('style[data-preview-css]')?.textContent).toMatch(/color:\s*red/);
   });
 

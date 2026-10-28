@@ -27,8 +27,8 @@ const CR = String.fromCharCode(0x0d);
 
 describe('findExternalRefsInTag — 同梱資産への相対参照は通る', () => {
   it.each([
-    ['link', 'href', 'css/510037.css'],
-    ['link', 'href', './css/510037.css'],
+    ['link', 'href', 'css/950037.css'],
+    ['link', 'href', './css/950037.css'],
     ['script', 'src', 'js/column-width.js'],
     ['img', 'src', 'img/logo.png'],
     ['img', 'src', 'data:image/png;base64,AAAA'],
@@ -361,7 +361,7 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
 
   it.each([
     ['../css/A_1_交付版.css', 'css/A_1_交付版.css'],
-    ['../images/smtam/qr.svg', 'images/smtam/qr.svg'],
+    ['../images/xxam/qr.svg', 'images/xxam/qr.svg'],
     ['../images/logo.png', 'images/logo.png'],
     ['../js/column-width.js?v=1#top', 'js/column-width.js'],
     ['../css/%E4%BA%A4%E4%BB%98%E7%89%88.css', 'css/交付版.css'],
@@ -400,7 +400,7 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
     ['fonts/a.woff2', 'css/A_1_交付版.css', 'css/fonts/a.woff2'],
     ['../images/b.png', 'css/A.css', 'images/b.png'],
     ['./fonts/b.woff', 'css/A.css', 'css/fonts/b.woff'],
-    ['x.svg', 'images/smtam/a.svg', 'images/smtam/x.svg'],
+    ['x.svg', 'images/xxam/a.svg', 'images/xxam/x.svg'],
   ])('%s を %s から → %s', (url, from, expected) => {
     expect(resolveDocAssetPath(url, from)).toBe(expected);
   });
@@ -418,10 +418,10 @@ describe('resolveDocAssetPath — 文書(doc/)や CSS の位置を基準に論�
 
   // ── 日本語ファイル名と百分率符号化 ──
   it('HTML に百分率符号化で書かれた日本語名は、生の綴りと同じ論理パスへ解ける', () => {
-    expect(resolveDocAssetPath('../images/110024_%E5%9F%BA%E6%BA%96.svg', 'doc')).toBe(
-      'images/110024_基準.svg',
+    expect(resolveDocAssetPath('../images/910024_%E5%9F%BA%E6%BA%96.svg', 'doc')).toBe(
+      'images/910024_基準.svg',
     );
-    expect(resolveDocAssetPath('../images/110024_基準.svg', 'doc')).toBe('images/110024_基準.svg');
+    expect(resolveDocAssetPath('../images/910024_基準.svg', 'doc')).toBe('images/910024_基準.svg');
   });
 
   it.each([

@@ -6,10 +6,10 @@ import { formatCompanyLabel, UNREGISTERED } from '@/lib/companyLabel';
 
 describe('formatCompanyLabel', () => {
   it('略称（コード）を全角括弧で組む', () => {
-    expect(formatCompanyLabel('AM01', '0001')).toBe('AM01（0001）');
+    expect(formatCompanyLabel('XX01', '0001')).toBe('XX01（0001）');
   });
 
   it('未登録の文言は同じ括弧書きになる', () => {
-    expect(formatCompanyLabel('AM01', '未登録')).toBe(`AM01${UNREGISTERED}`);
+    expect(formatCompanyLabel('XX01', '未登録')).toBe(`XX01${UNREGISTERED}`);
   });
 });

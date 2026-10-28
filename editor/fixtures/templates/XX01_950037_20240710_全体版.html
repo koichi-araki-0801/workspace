@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <title>{{ fund.name }} 運用報告書（全体版）</title>
-    <link rel="stylesheet" href="../css/AM01_510124_全体版.css" />
+    <link rel="stylesheet" href="../css/XX01_950037_全体版.css" />
   </head>
   <body>
     <!-- ===== Page 1: 表紙 ===== -->
@@ -33,9 +33,9 @@
         </div>
         <div class="right">
           <p>受益者のみなさまへ</p>
-          <p>平素は格別のご愛顧を賜り、厚くお礼申しあげます。さて、当ファンドは、このたび、上記の決算を行いました。当ファンドは、主としてわが国の金融商品取引所等に上場されている株式に投資し、ＪＰＸ日経中小型株指数（配当込み）に連動する投資成果を目指して運用を行いました。ここに期間中の運用状況についてご報告申しあげます。今後とも一層のご愛顧を賜りますよう、お願い申しあげます。</p>
+          <p>平素は格別のご愛顧を賜り、厚くお礼申しあげます。さて、当ファンドは、このたび、上記の決算を行いました。当ファンドは、国内外の株式・債券、リート、コモディティ、ヘッジファンド等を実質的な投資対象とする投資対象ファンドに分散投資しました。ここに期間中の運用状況についてご報告申しあげます。今後とも一層のご愛顧を賜りますよう、お願い申しあげます。</p>
           <p class="sign">{{ company.name }}</p>
-          <p>〒105-0011　東京都港区芝公園一丁目1番1号　ホームページ　https://www.smtam.jp/</p>
+          <p>〒105-0011　東京都港区芝公園一丁目1番1号　ホームページ　https://www.xxam.jp/</p>
         </div>
       </div>
     </section>
@@ -49,11 +49,15 @@
           <tr><th>商品分類</th><td>{{ product.category }}</td></tr>
           <tr><th>信託期間</th><td>{{ product.trustPeriod }}</td></tr>
           <tr><th>運用方針</th><td>{{ product.policy }}</td></tr>
-          <tr><th>主要運用対象</th><td>{{ product.mainTarget }}</td></tr>
           <tr><th>分配方針</th><td>{{ product.distributionPolicy }}</td></tr>
           <tr><th>組入制限</th><td>{{ product.investmentLimit }}</td></tr>
         </tbody>
       </table>
+    </section>
+
+    <section class="fund_structure">
+      <div class="sub"><span class="no">主</span><h3>主要運用対象</h3></div>
+      <ul class="main-assets">{% for m in mainAssets %}<li>{{ m.name }}</li>{% endfor %}</ul>
     </section>
     <div class="pagebreak"></div>
 
@@ -72,29 +76,29 @@
         <polygon class="area" points="50,140 143,141 275,140 407,142 580,139 580,159 50,159" />
         <polyline class="line-dash" points="55,72 99,68 143,58 187,52 231,64 275,56 319,80 363,86 407,102 451,114 495,104 539,86 575,82" />
         <polyline class="line" points="55,78 99,74 143,64 187,58 231,70 275,62 319,86 363,92 407,108 451,120 495,110 539,92 575,88" />
-        <text class="lbl-r" x="46" y="27">22,000</text>
-        <text class="lbl-r" x="46" y="54">20,000</text>
-        <text class="lbl-r" x="46" y="81">18,000</text>
-        <text class="lbl-r" x="46" y="108">16,000</text>
-        <text class="lbl-r" x="46" y="135">14,000</text>
-        <text class="lbl-r" x="46" y="162">12,000</text>
-        <text class="lbl" x="584" y="27">10</text>
-        <text class="lbl" x="584" y="54">8</text>
-        <text class="lbl" x="584" y="81">6</text>
-        <text class="lbl" x="584" y="108">4</text>
-        <text class="lbl" x="584" y="135">2</text>
+        <text class="lbl-r" x="46" y="27">16,000</text>
+        <text class="lbl-r" x="46" y="54">15,000</text>
+        <text class="lbl-r" x="46" y="81">14,000</text>
+        <text class="lbl-r" x="46" y="108">13,000</text>
+        <text class="lbl-r" x="46" y="135">12,000</text>
+        <text class="lbl-r" x="46" y="162">11,000</text>
+        <text class="lbl" x="584" y="27">1,000</text>
+        <text class="lbl" x="584" y="54">800</text>
+        <text class="lbl" x="584" y="81">600</text>
+        <text class="lbl" x="584" y="108">400</text>
+        <text class="lbl" x="584" y="135">200</text>
         <text class="lbl" x="584" y="162">0</text>
-        <text class="lbl-x" x="55" y="174">25/4</text>
-        <text class="lbl-x" x="143" y="174">25/5</text>
-        <text class="lbl-x" x="231" y="174">25/6</text>
-        <text class="lbl-x" x="319" y="174">25/7</text>
-        <text class="lbl-x" x="407" y="174">25/8</text>
-        <text class="lbl-x" x="495" y="174">25/9</text>
-        <text class="lbl-x" x="575" y="174">25/10</text>
+        <text class="lbl-x" x="55" y="174">24/7</text>
+        <text class="lbl-x" x="143" y="174">24/9</text>
+        <text class="lbl-x" x="231" y="174">24/11</text>
+        <text class="lbl-x" x="319" y="174">25/1</text>
+        <text class="lbl-x" x="407" y="174">25/3</text>
+        <text class="lbl-x" x="495" y="174">25/5</text>
+        <text class="lbl-x" x="575" y="174">25/7</text>
       </svg>
       <p class="chart-note">― 基準価額（左軸）　- - 分配金再投資基準価額（左軸）　▨ 純資産総額（右軸）</p>
       <p class="chart-annot">{{ report.term }}首：{{ report.termStartNav }} 円　／　{{ report.term }}末：{{ report.termEndNav }} 円（既払分配金 {{ fund.distribution }} 円）　／　騰落率：{{ fund.returnRate }} ％</p>
-      <p class="notes">（注1）分配金再投資基準価額は、分配金（税引前）を分配時に再投資したものとみなして計算したもので、ファンド運用の実質的なパフォーマンスを示すものです。（注2）分配金再投資基準価額は、期首の値を基準価額に合わせて指数化しています。ベンチマークはＪＰＸ日経中小型株指数（配当込み）です。</p>
+      <p class="notes">（注1）分配金再投資基準価額は、分配金（税引前）を分配時に再投資したものとみなして計算したもので、ファンド運用の実質的なパフォーマンスを示すものです。（注2）分配金再投資基準価額は、期首の値を基準価額に合わせて指数化しています。</p>
     </section>
 
     <section class="report_item_2">
@@ -110,13 +114,13 @@
     </section>
     <div class="pagebreak"></div>
 
-    <!-- ===== Page 4: 組入資産の状況 ===== -->
+    <!-- ===== Page 4: 投資対象ファンドの状況 ===== -->
     <section class="report_item_3">
-      <h2 class="band">組入資産の状況</h2>
-      <div class="sub"><span class="no">3</span><h3>組入上位銘柄と騰落率</h3></div>
+      <h2 class="band">投資対象ファンドの状況</h2>
+      <div class="sub"><span class="no">3</span><h3>組入上位ファンドと騰落率</h3></div>
       <table class="data">
         <thead>
-          <tr><th>順位</th><th>銘柄名</th><th>投資資産</th><th>組入比率</th><th>騰落率</th></tr>
+          <tr><th>順位</th><th>組入ファンド</th><th>投資資産</th><th>組入比率</th><th>騰落率</th></tr>
         </thead>
         <tbody>
           {% for h in holdings %}

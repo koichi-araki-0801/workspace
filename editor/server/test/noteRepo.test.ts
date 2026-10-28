@@ -24,8 +24,8 @@ async function importRepo(): Promise<{
   };
 }
 
-const KOUFU = 'AM01_510037_20240710_交付版';
-const ZENTAI = 'AM01_510037_20240710_全体版';
+const KOUFU = 'XX01_950037_20240710_交付版';
+const ZENTAI = 'XX01_950037_20240710_全体版';
 const KEY = '.page#1/cover#1';
 const OTHER_KEY = '.page#1/.summary#1';
 const PARENT = { replyTo: null };

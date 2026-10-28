@@ -69,7 +69,7 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
     const { createSessionStub } = await import('./helpers/sessionStub.js');
     const sproc = createSprocClient(async (sql, values) => {
       if (sql.includes(SP.template) && values[0] === '委託会社一覧') {
-        return [{ 委託会社コード: 'R-AM01', 委託会社名: '会社 1', 委託会社略称: 'AM01' }];
+        return [{ 委託会社コード: 'R-XX01', 委託会社名: '会社 1', 委託会社略称: 'XX01' }];
       }
       if (sql.includes(SP.template)) templateCalls += 1;
       return [];
@@ -99,16 +99,16 @@ describe('POST /api/generate は local モード(AUTH_REQUIRED=false)では spro
       method: 'POST',
       url: '/generate',
       payload: {
-        companyCode: 'AM01',
-        rep1CompanyCode: 'R-AM01',
-        fundCode: '510037',
+        companyCode: 'XX01',
+        rep1CompanyCode: 'R-XX01',
+        fundCode: '950037',
         editionType: '全体版',
       },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().template.meta.id).toBe('AM01_510037_全体版');
+    expect(res.json().template.meta.id).toBe('XX01_950037_全体版');
     expect(res.json().template.html).toContain('生成物 全体版');
-    expect(res.json().importedIds).toEqual(['AM01_510037_交付版', 'AM01_510037_全体版']);
+    expect(res.json().importedIds).toEqual(['XX01_950037_交付版', 'XX01_950037_全体版']);
     expect(templateCalls).toBe(0);
     // 確定領域(`templatesDir`)へ書かないことは `generate.routes.test.ts` が認証オンで
     // 主張する。ここは local の非到達(sproc・pending・作成記録)と output/ の後始末だけを見る。

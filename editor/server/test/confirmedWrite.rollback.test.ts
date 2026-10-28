@@ -36,9 +36,9 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-cw-rollback-'));
 process.env.DATA_ROOT = path.join(root, 'data');
 process.env.GIT_REPO_DIR = path.join(root, 'data');
 
-const SKELETON_ID = 'AM01_510037_交付版';
-const FILLED_ID = 'AM01_510037_20240710_交付版';
-const CSS_NAME = 'AM01_510037_交付版.css';
+const SKELETON_ID = 'XX01_950037_交付版';
+const FILLED_ID = 'XX01_950037_20240710_交付版';
+const CSS_NAME = 'XX01_950037_交付版.css';
 const templatesDir = path.join(root, 'data', 'templates');
 const filledDir = path.join(root, 'data', 'filled');
 const cssDir = path.join(root, 'data', 'css');
@@ -105,7 +105,7 @@ describe('applyConfirmedWrite の補償', () => {
   });
 
   it('afterWrite が失敗したら新規に作った転写先を残さない', async () => {
-    const PAIR = 'AM01_510037_全体版';
+    const PAIR = 'XX01_950037_全体版';
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',

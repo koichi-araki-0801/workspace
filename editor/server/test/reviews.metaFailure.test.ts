@@ -74,7 +74,7 @@ d('review approve — meta 更新の部分失敗', () => {
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   it('一時失敗(1 回)はリトライで回復し approved になる', async () => {
-    const tplId = 'AM01_111111_20250101_交付版';
+    const tplId = 'XX01_111111_20250101_交付版';
     const meta = await submit(tplId, '<p>リトライ回復</p>');
     metaFail.remaining = 1;
 
@@ -85,7 +85,7 @@ d('review approve — meta 更新の部分失敗', () => {
   });
 
   it('恒常失敗は REVIEW_META_UPDATE_FAILED を投げ、実ファイルは反映済みのまま残る', async () => {
-    const tplId = 'AM01_222222_20250101_交付版';
+    const tplId = 'XX01_222222_20250101_交付版';
     const meta = await submit(tplId, '<p>恒常失敗</p>');
     metaFail.remaining = Number.MAX_SAFE_INTEGER;
 

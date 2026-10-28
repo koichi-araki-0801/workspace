@@ -16,7 +16,7 @@ export const sampleCommon: SampleData = {
   // 委託会社。code/name は buildSampleData がマスタで上書きする(placeholder)。
   // address/url は Rep1 に無いので上書きされず、作成タブでは常にこのダミーが出る。
   company: {
-    code: 'AM01',
+    code: 'XX01',
     name: 'サンプル委託会社',
     address: '〒000-0000　東京都千代田区サンプル一丁目1番1号',
     url: 'https://www.example.com/',

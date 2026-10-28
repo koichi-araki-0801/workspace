@@ -32,13 +32,13 @@ vi.mock('@/features/preview/services/templatePreviewService', async (importOrigi
   };
 });
 
-const ID = 'SMTAM_510037_20240710_交付版';
+const ID = 'XXAM_950037_20240710_交付版';
 const tpl: Template = {
   meta: {
     id: ID,
     attributes: {
-      companyCode: 'SMTAM',
-      fundCode: '510037',
+      companyCode: 'XXAM',
+      fundCode: '950037',
       baseDate: '20240710',
       editionType: '交付版',
     },
@@ -54,8 +54,8 @@ const tpl: Template = {
 };
 
 const DOC =
-  '<html><body><img src="../images/smtam/qr_code.svg"><img src="../images/510037_logo.png">' +
-  '<img src="../images/am01/x.svg"></body></html>';
+  '<html><body><img src="../images/xxam/qr_code.svg"><img src="../images/950037_logo.png">' +
+  '<img src="../images/xx01/x.svg"></body></html>';
 
 const SVG_MSG =
   'SVG の検査で配信しない画像があります（qr_code.svg: 許可されていない属性 name）。' +
@@ -117,8 +117,8 @@ describe('プレビューの警告欄: SVG の検査で配信しない画像', (
     const w = await mountView({ inspect });
     expect(inspect).toHaveBeenCalledTimes(1);
     expect(inspect).toHaveBeenCalledWith([
-      { dir: 'smtam', file: 'qr_code.svg' },
-      { dir: null, file: '510037_logo.png' },
+      { dir: 'xxam', file: 'qr_code.svg' },
+      { dir: null, file: '950037_logo.png' },
     ]);
     const texts = warningTexts(w);
     expect(texts).toHaveLength(3);

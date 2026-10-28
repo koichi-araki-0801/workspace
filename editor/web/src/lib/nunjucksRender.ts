@@ -39,7 +39,7 @@ export function assemblePreviewDocument(
   // なければならず、js-beautify を後段に置くと保証がそこで途切れる。Jinja 解決済みの純
   // HTML なので整形は安全 — プレビュー/PDF 入力を読める形にする。
   const root = sanitizePreviewRoot(formatHtml(renderedHtml));
-  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="../css/AM01_110024_交付版.css">`)は
+  // 外部 stylesheet `<link>`(例: `<link rel="stylesheet" href="../css/XX01_910024_交付版.css">`)は
   // サニタイザの許可リストが既に落としている。CSS は直後に inline 化するため不要で, 残ると
   // viewer が Blob 相対 URL で解決して 404 になり `@vivliostyle/core` のフェッチャが
   // ページ分割を中断する。ここは構造の上での二重化(版差と非サニタイズ経路の保険)。

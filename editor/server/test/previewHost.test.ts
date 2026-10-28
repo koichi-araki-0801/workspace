@@ -32,14 +32,14 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
   fs.mkdirSync(path.join(tmp, 'images'), { recursive: true });
   fs.writeFileSync(
-    path.join(tmp, 'images', '510037_logo.svg'),
+    path.join(tmp, 'images', '950037_logo.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>',
     'utf8',
   );
   fs.writeFileSync(path.join(tmp, 'js', 'app.js'), 'window.FIT=1;', 'utf8');
   // 許可外拡張子。同じ置き場でも配ってはならない。
   fs.writeFileSync(path.join(tmp, 'js', 'secret.env'), 'TOKEN=zz', 'utf8');
-  fs.writeFileSync(path.join(tmp, 'css', '510037.css'), 'body{}', 'utf8');
+  fs.writeFileSync(path.join(tmp, 'css', '950037.css'), 'body{}', 'utf8');
   fs.writeFileSync(path.join(tmp, 'css', 'A_1_交付版.css'), 'body{}', 'utf8');
   // URL で意味を持つ字を含むフォント名(ルートの引数は復号済みなので、字面のまま実体を引く)。
   fs.writeFileSync(path.join(tmp, 'css', 'fonts', 'a#b.woff2'), 'FONT_HASH', 'utf8');
@@ -131,7 +131,7 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
     expect(js.statusCode).toBe(200);
     expect(js.body).toBe('window.FIT=1;');
     expect(js.headers['content-type']).toContain('text/javascript');
-    const css = await app.inject({ method: 'GET', url: '/api/preview-host/css/510037.css' });
+    const css = await app.inject({ method: 'GET', url: '/api/preview-host/css/950037.css' });
     expect(css.statusCode).toBe(200);
     expect(css.headers['content-type']).toContain('text/css');
   });
@@ -183,9 +183,9 @@ describe('GET /api/preview-host/* — 同梱資産の配信', () => {
 
   it('images/ は配らない(画像の配信経路は /api/fund-assets/images/ の 1 本)', async () => {
     for (const url of [
-      '/api/preview-host/images/510037_logo.svg',
-      '/api/preview-host/Images/510037_logo.svg',
-      '/api/preview-host/images/smtam/qr.svg',
+      '/api/preview-host/images/950037_logo.svg',
+      '/api/preview-host/Images/950037_logo.svg',
+      '/api/preview-host/images/xxam/qr.svg',
     ]) {
       const res = await app.inject({ method: 'GET', url });
       expect(res.statusCode, url).toBe(404);

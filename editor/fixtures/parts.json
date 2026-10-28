@@ -303,23 +303,23 @@
     "content": "<footer class=\"report-footer\"><p>委託会社: {{ company.name }}（{{ company.code }}）　〈{{ fund.code }}〉</p></footer>"
   },
   {
-    "id": "part-am02-cover-company",
+    "id": "part-xx02-cover-company",
     "companyCode": "00002",
     "classification": { "category": "表紙", "majorClass": "表紙右側", "middleClass": "会社名・住所", "minorClass": "会社名" },
-    "name": "委託会社名（AM02 様式）",
-    "description": "AM02 の表紙右側の署名にあたる委託会社名です。",
-    "usageNotes": "AM02 のテンプレートでだけ一覧に出ます。会社名は自動入力（{{ company.name }}）で差し替わります。",
+    "name": "委託会社名（XX02 様式）",
+    "description": "XX02 の表紙右側の署名にあたる委託会社名です。",
+    "usageNotes": "XX02 のテンプレートでだけ一覧に出ます。会社名は自動入力（{{ company.name }}）で差し替わります。",
     "updatedAt": "2026-05-20T09:00:00.000Z",
     "updatedBy": "佐藤 花子",
     "content": "<p class=\"sign\">{{ company.name }}　代表取締役</p>"
   },
   {
-    "id": "part-am02-cost-footer",
+    "id": "part-xx02-cost-footer",
     "companyCode": "00002",
     "classification": { "category": "費用および運用コメント", "majorClass": "フッター", "middleClass": "委託会社情報", "minorClass": "標準" },
-    "name": "フッター（AM02 様式）",
-    "description": "AM02 のページ下部の委託会社名・ファンドコードのフッター行です。",
-    "usageNotes": "AM02 のテンプレートでだけ一覧に出ます。会社名・コードは自動入力で差し替わります。",
+    "name": "フッター（XX02 様式）",
+    "description": "XX02 のページ下部の委託会社名・ファンドコードのフッター行です。",
+    "usageNotes": "XX02 のテンプレートでだけ一覧に出ます。会社名・コードは自動入力で差し替わります。",
     "updatedAt": "2026-05-20T09:00:00.000Z",
     "updatedBy": "山田 太郎",
     "content": "<footer class=\"report-footer\"><p>{{ company.name }}　ファンドコード {{ fund.code }}</p></footer>"

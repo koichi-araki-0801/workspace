@@ -112,13 +112,13 @@ describe('POST /history/pdf は出力記録を残す', () => {
       method: 'POST',
       url: '/history/pdf',
       headers: { 'x-test-user': 'editor1' },
-      payload: { templateId: 'AM01_510037_20240710_交付版' },
+      payload: { templateId: 'XX01_950037_20240710_交付版' },
     });
     expect(ok.statusCode).toBe(204);
 
     const list = await app.inject({ method: 'GET', url: '/history/pdf' });
     expect(list.json()).toEqual([
-      expect.objectContaining({ templateId: 'AM01_510037_20240710_交付版', user: 'editor1' }),
+      expect.objectContaining({ templateId: 'XX01_950037_20240710_交付版', user: 'editor1' }),
     ]);
   });
 
@@ -129,14 +129,14 @@ describe('POST /history/pdf は出力記録を残す', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/history/pdf',
-      payload: { templateId: 'AM01_520037_20240710_交付版' },
+      payload: { templateId: 'XX01_520037_20240710_交付版' },
     });
     expect(res.statusCode).toBe(204);
 
     const list = await app.inject({ method: 'GET', url: '/history/pdf' });
     expect(list.json()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ templateId: 'AM01_520037_20240710_交付版', user: 'system' }),
+        expect.objectContaining({ templateId: 'XX01_520037_20240710_交付版', user: 'system' }),
       ]),
     );
   });
@@ -155,7 +155,7 @@ describe('POST /history/pdf は出力記録を残す', () => {
 d('history routes still serve valid ids', () => {
   let app: FastifyInstance;
   let hash: string;
-  const templateId = 'AM01_999999_20250101_交付版';
+  const templateId = 'XX01_999999_20250101_交付版';
 
   beforeAll(async () => {
     const git = await import('../src/git/gitRepo.js');
@@ -163,7 +163,7 @@ d('history routes still serve valid ids', () => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
     fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>本文</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', 'AM01_999999_交付版.css'), 'p{color:#000}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'XX01_999999_交付版.css'), 'p{color:#000}', 'utf8');
     hash = await git.commitAll(`確定保存: ${templateId} by tester`, { name: 'tester' });
     app = await buildApp();
   });
@@ -198,7 +198,7 @@ d('history routes still serve valid ids', () => {
   it('テンプレート(3 つ区切り)の版の一覧は 200 で空(編集タブの一覧が pending の行の版数を問うため)', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/templates/${encodeURIComponent('AM01_999999_交付版')}/versions`,
+      url: `/templates/${encodeURIComponent('XX01_999999_交付版')}/versions`,
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual([]);

@@ -7,7 +7,7 @@ import type { FrameLocator, Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { login, openEditor, pagePartLocator, selectPart, submitOnce } from './helpers';
 
-const SEED_ID = 'AM01_510037_20240710_交付版';
+const SEED_ID = 'XX01_950037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 

@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { login, openEditor as openEditorAt, partLocator, readDraft } from './helpers';
 
-const SEED_ID = 'AM01_510037_20240710_交付版';
+const SEED_ID = 'XX01_950037_20240710_交付版';
 
 // 編集後に reload するテストがある。dirty な編集画面は閉じる前の警告(`beforeunload`)を出し、
 // Playwright はリスナ無しのダイアログを dismiss(= ページに留まる)するため、reload が止まる。

@@ -73,7 +73,7 @@ const HTML =
   '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
   '<link rel="stylesheet" href="css/x.css">' +
   '<script src="../js/app.js"></script></head><body>' +
-  '<img src="../images/smtam/qr.svg">' +
+  '<img src="../images/xxam/qr.svg">' +
   '<div style="background:url(../images/b.png)"></div>' +
   '</body></html>';
 
@@ -94,7 +94,7 @@ beforeAll(async () => {
   write('css/x.css', 'p{}');
   write('js/app.js', 'window.APP=1;');
   write('images/b.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  write('images/SMTAM/qr.svg', GOOD_SVG);
+  write('images/XXAM/qr.svg', GOOD_SVG);
   build = await import('../src/vivliostyle/build.js');
   merge = await import('../src/vivliostyle/mergeInput.js');
   ({ cleanupProject } = await import('../src/vivliostyle/projectInput.js'));
@@ -137,9 +137,9 @@ describe('buildInlinePdf — 作業フォルダの形', () => {
     expect(run.files).not.toContain('css/fonts/G.woff2');
   });
 
-  it('会社フォルダの画像も参照の綴りで images/ の 1 段下に置く(実フォルダは SMTAM)', async () => {
+  it('会社フォルダの画像も参照の綴りで images/ の 1 段下に置く(実フォルダは XXAM)', async () => {
     await build.buildInlinePdf({ html: HTML });
-    expect(runs[0].files).toContain('images/smtam/qr.svg');
+    expect(runs[0].files).toContain('images/xxam/qr.svg');
   });
 
   it('実体のある <link> は残し、実体の無い文書直下基準の <link> は落とし、JS は展開する', async () => {

@@ -50,7 +50,7 @@ describe('SPA フォールバック', () => {
   it('SPA のルートは index.html', async () => {
     const res = await app.inject({
       method: 'GET',
-      url: `/edit/${encodeURIComponent('AM01_510037_20240710_交付版')}`,
+      url: `/edit/${encodeURIComponent('XX01_950037_20240710_交付版')}`,
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('SPA-SHELL');

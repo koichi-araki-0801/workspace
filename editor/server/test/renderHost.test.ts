@@ -115,7 +115,7 @@ describe('GET /api/render-host/* — 配信面は完全一致 1 件だけ', () =
       '/api/render-host/%2e%2e/%2e%2e/package.json',
       // preview-host では配る面がある置き場。ここでは配ってはならない。
       '/api/render-host/js/app.js',
-      '/api/render-host/css/510037.css',
+      '/api/render-host/css/950037.css',
       '/api/render-host/css/fonts/x.woff2',
       // 完全一致からの逸脱(前方一致・後方一致・大文字化で通らないこと)
       '/api/render-host/nunjucks.js.map',

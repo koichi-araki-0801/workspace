@@ -42,8 +42,8 @@ const newLog = (): string => path.join(dir, `run${n++}.log`);
 
 describe('generatorLogPath', () => {
   it('スクリプトの隣の log フォルダに 会社_ファンド_基準日 で組む', () => {
-    expect(generatorLogPath('/r/template/src/build.py', 'R-AM01', '510037', '2026-10-23')).toBe(
-      path.resolve('/r/template/log/build_R-AM01_510037_2026-10-23.log'),
+    expect(generatorLogPath('/r/template/src/build.py', 'R-XX01', '950037', '2026-10-23')).toBe(
+      path.resolve('/r/template/log/build_R-XX01_950037_2026-10-23.log'),
     );
   });
 });
@@ -53,11 +53,11 @@ describe('generatorLogPath の名前の頭', () => {
     expect(
       generatorLogPath(
         '/r/template/src/fake_generate_template.py',
-        'R-AM01',
-        '510037',
+        'R-XX01',
+        '950037',
         '2026-10-23',
       ),
-    ).toBe(path.resolve('/r/template/log/build_R-AM01_510037_2026-10-23.log'));
+    ).toBe(path.resolve('/r/template/log/build_R-XX01_950037_2026-10-23.log'));
   });
 });
 
@@ -197,8 +197,8 @@ describe('readRunLog', () => {
 describe('parseOutputNames', () => {
   it('印の後ろをファイル名として取り、CRLF を落とす', () => {
     expect(
-      parseOutputNames('2026-10-23 10:00:00 INFO [OUTPUT] AM01_510037_交付版.html\r\n'),
-    ).toEqual(['AM01_510037_交付版.html']);
+      parseOutputNames('2026-10-23 10:00:00 INFO [OUTPUT] XX01_950037_交付版.html\r\n'),
+    ).toEqual(['XX01_950037_交付版.html']);
   });
   it('印の無い行・空行は無視', () => {
     expect(parseOutputNames('start\n\n[OUTPUT] a_b_交付版.html\nend')).toEqual(['a_b_交付版.html']);

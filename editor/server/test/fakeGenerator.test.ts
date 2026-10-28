@@ -19,8 +19,8 @@ const [BIN, BIN_ARGS]: [string, string[]] =
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-fake-generator-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-const REP1 = 'R-AM01';
-const FUND = '510037';
+const REP1 = 'R-XX01';
+const FUND = '950037';
 const DATE = '2026-10-23';
 
 interface Sandbox {
@@ -81,13 +81,13 @@ describe('fake_generate_template.py', () => {
     const r = await run(sb, [REP1, FUND, DATE]);
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
-    expect(files(sb)).toEqual(['AM01_510037_交付版.html', 'AM01_510037_全体版.html']);
-    const html = fs.readFileSync(path.join(sb.output, 'AM01_510037_交付版.html'), 'utf8');
+    expect(files(sb)).toEqual(['XX01_950037_交付版.html', 'XX01_950037_全体版.html']);
+    const html = fs.readFileSync(path.join(sb.output, 'XX01_950037_交付版.html'), 'utf8');
     expect(html).toContain('{{ fund.name }}');
-    expect(html).toContain('href="../css/AM01_510037_交付版.css"');
+    expect(html).toContain('href="../css/XX01_950037_交付版.css"');
     expect(parseOutputNames(readLog(sb))).toEqual([
-      'AM01_510037_交付版.html',
-      'AM01_510037_全体版.html',
+      'XX01_950037_交付版.html',
+      'XX01_950037_全体版.html',
     ]);
   }, 30_000);
 
@@ -102,7 +102,7 @@ describe('fake_generate_template.py', () => {
     const sb = sandbox('empty-arg');
     const r = await run(sb, [REP1, FUND, DATE, '', '1']);
     expect(r.code).toBe(0);
-    expect(argsLines(readLog(sb))[0]).toContain('args=["R-AM01","510037","2026-10-23","","1"]');
+    expect(argsLines(readLog(sb))[0]).toContain('args=["R-XX01","950037","2026-10-23","","1"]');
   }, 30_000);
 
   it('償還の旗は出力を変えない(引数としてログに残るだけ)', async () => {
@@ -111,7 +111,7 @@ describe('fake_generate_template.py', () => {
     expect((await run(plain, [REP1, FUND, DATE])).code).toBe(0);
     expect((await run(flagged, [REP1, FUND, DATE, '', '1'])).code).toBe(0);
     expect(files(flagged)).toEqual(files(plain));
-    expect(files(plain)).toEqual(['AM01_510037_交付版.html', 'AM01_510037_全体版.html']);
+    expect(files(plain)).toEqual(['XX01_950037_交付版.html', 'XX01_950037_全体版.html']);
     for (const name of files(plain)) {
       expect(fs.readFileSync(path.join(flagged.output, name))).toEqual(
         fs.readFileSync(path.join(plain.output, name)),
@@ -122,41 +122,41 @@ describe('fake_generate_template.py', () => {
 
   it('コピー元があれば TEMPLATES_DIR の両版を写す(会社の大小は問わない)', async () => {
     const sb = sandbox('source');
-    fs.writeFileSync(path.join(sb.templates, 'am01_510037_交付版.html'), '<p>src-d</p>', 'utf8');
-    fs.writeFileSync(path.join(sb.templates, 'AM01_510037_全体版.html'), '<p>src-z</p>', 'utf8');
-    const r = await run(sb, [REP1, '510155', DATE, '510037']);
+    fs.writeFileSync(path.join(sb.templates, 'xx01_950037_交付版.html'), '<p>src-d</p>', 'utf8');
+    fs.writeFileSync(path.join(sb.templates, 'XX01_950037_全体版.html'), '<p>src-z</p>', 'utf8');
+    const r = await run(sb, [REP1, '950155', DATE, '950037']);
     expect(r.code).toBe(0);
-    expect(fs.readFileSync(path.join(sb.output, 'AM01_510155_交付版.html'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(sb.output, 'XX01_950155_交付版.html'), 'utf8')).toBe(
       '<p>src-d</p>',
     );
-    expect(fs.readFileSync(path.join(sb.output, 'AM01_510155_全体版.html'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(sb.output, 'XX01_950155_全体版.html'), 'utf8')).toBe(
       '<p>src-z</p>',
     );
   }, 30_000);
 
   it('コピー元が無ければ exit 2 で何も書かない', async () => {
     const sb = sandbox('nosource');
-    fs.writeFileSync(path.join(sb.templates, 'AM01_510037_交付版.html'), '<p>d</p>', 'utf8');
-    const r = await run(sb, [REP1, '510155', DATE, '510037']);
+    fs.writeFileSync(path.join(sb.templates, 'XX01_950037_交付版.html'), '<p>d</p>', 'utf8');
+    const r = await run(sb, [REP1, '950155', DATE, '950037']);
     expect(r.code).toBe(2);
     expect(files(sb)).toEqual([]);
   }, 30_000);
 
-  it('LocalDB の Rep1 コード(00001)は表で略称(AM01)へ引く', async () => {
+  it('LocalDB の Rep1 コード(00001)は表で略称(XX01)へ引く', async () => {
     const sb = sandbox('rep1-code');
     const r = await run(sb, ['00001', FUND, DATE]);
     expect(r.code).toBe(0);
-    expect(files(sb)).toEqual(['AM01_510037_交付版.html', 'AM01_510037_全体版.html']);
+    expect(files(sb)).toEqual(['XX01_950037_交付版.html', 'XX01_950037_全体版.html']);
   }, 30_000);
 
   it('999001 は組入先 999000 の両版も書く', async () => {
     const sb = sandbox('f1');
     expect((await run(sb, [REP1, '999001', DATE])).code).toBe(0);
     expect(files(sb)).toEqual([
-      'AM01_999000_交付版.html',
-      'AM01_999000_全体版.html',
-      'AM01_999001_交付版.html',
-      'AM01_999001_全体版.html',
+      'XX01_999000_交付版.html',
+      'XX01_999000_全体版.html',
+      'XX01_999001_交付版.html',
+      'XX01_999001_全体版.html',
     ]);
     expect(parseOutputNames(readLog(sb, '999001'))).toHaveLength(4);
   }, 30_000);
@@ -171,16 +171,16 @@ describe('fake_generate_template.py', () => {
   it('999003 は交付版しか書かない', async () => {
     const sb = sandbox('f3');
     expect((await run(sb, [REP1, '999003', DATE])).code).toBe(0);
-    expect(files(sb)).toEqual(['AM01_999003_交付版.html']);
+    expect(files(sb)).toEqual(['XX01_999003_交付版.html']);
   }, 30_000);
 
   it('999004 は全体版をログに載せるが書かない', async () => {
     const sb = sandbox('f4');
     expect((await run(sb, [REP1, '999004', DATE])).code).toBe(0);
-    expect(files(sb)).toEqual(['AM01_999004_交付版.html']);
+    expect(files(sb)).toEqual(['XX01_999004_交付版.html']);
     expect(parseOutputNames(readLog(sb, '999004'))).toEqual([
-      'AM01_999004_交付版.html',
-      'AM01_999004_全体版.html',
+      'XX01_999004_交付版.html',
+      'XX01_999004_全体版.html',
     ]);
   }, 30_000);
 
@@ -200,7 +200,7 @@ describe('fake_generate_template.py', () => {
 
   it('コピー元を指定して TEMPLATES_DIR が無ければエラー', async () => {
     const sb = sandbox('nodir');
-    const r = await run(sb, [REP1, '510155', DATE, '510037'], { TEMPLATES_DIR: '' });
+    const r = await run(sb, [REP1, '950155', DATE, '950037'], { TEMPLATES_DIR: '' });
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('TEMPLATES_DIR');
   }, 30_000);

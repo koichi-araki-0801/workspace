@@ -63,7 +63,7 @@ d('review workflow (reviewRepo)', () => {
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   it('submit creates a pending request and does NOT touch the template file', async () => {
-    const tplId = 'AM01_111111_20250101_交付版';
+    const tplId = 'XX01_111111_20250101_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }} 申請</p>');
     expect(meta.status).toBe('pending');
     expect(meta.submittedBy).toBe('editor1');
@@ -73,7 +73,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('rejects self-approval unless admin (forbidden)', async () => {
-    const meta = await submit('AM01_222222_20250101_交付版', '<p>x</p>');
+    const meta = await submit('XX01_222222_20250101_交付版', '<p>x</p>');
     await expect(reviews.approveReview(meta.id, {}, submitter)).rejects.toMatchObject({
       kind: 'forbidden',
     });
@@ -84,7 +84,7 @@ d('review workflow (reviewRepo)', () => {
   it('approve writes the template file, commits, and marks the request approved', {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_333333_20250101_交付版';
+    const tplId = 'XX01_333333_20250101_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }} 反映済</p>');
     const tplMeta = await reviews.approveReview(meta.id, { comment: 'ok' }, approver);
 
@@ -111,7 +111,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('submit 後に現行版が変わっていると承認時に staleWarning=true(ブロックはしない)', async () => {
-    const tplId = 'AM01_888888_20250101_交付版';
+    const tplId = 'XX01_888888_20250101_交付版';
     // 同一テンプレへ 2 件申請。両者の baseHash は「まだ現行版が無い」時点の値で揃う。
     const first = await submit(tplId, '<p>先行</p>');
     const second = await submit(tplId, '<p>後発</p>');
@@ -124,7 +124,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('approving an already-decided request conflicts (409)', async () => {
-    const meta = await submit('AM01_444444_20250101_交付版', '<p>y</p>');
+    const meta = await submit('XX01_444444_20250101_交付版', '<p>y</p>');
     await reviews.approveReview(meta.id, {}, approver);
     await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
       kind: 'conflict',
@@ -132,7 +132,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('reject marks the request rejected without writing the template file', async () => {
-    const tplId = 'AM01_555555_20250101_交付版';
+    const tplId = 'XX01_555555_20250101_交付版';
     const meta = await submit(tplId, '<p>却下対象</p>');
     const rejected = await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
 
@@ -142,7 +142,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('本体(body.html)欠損の申請は承認できず、実ファイルも書かれない', async () => {
-    const tplId = 'AM01_666666_20250101_交付版';
+    const tplId = 'XX01_666666_20250101_交付版';
     const meta = await submit(tplId, '<p>欠損対象</p>');
     // メタだけ残して本体を失う異常(部分削除・隔離など)を再現する。
     fs.rmSync(path.join(tmp, 'reviews', meta.id, 'body.html'));
@@ -161,7 +161,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('同一申請への並行 approve は片方だけ成立し、承認コミットは 1 件になる', async () => {
-    const tplId = 'AM01_777777_20250101_交付版';
+    const tplId = 'XX01_777777_20250101_交付版';
     const meta = await submit(tplId, '<p>並行承認</p>');
     const results = await Promise.allSettled([
       reviews.approveReview(meta.id, {}, approver),
@@ -180,7 +180,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it('approve と reject の並行は片方だけ成立し、実ファイルと meta が矛盾しない', async () => {
-    const tplId = 'AM01_999999_20250101_交付版';
+    const tplId = 'XX01_999999_20250101_交付版';
     const meta = await submit(tplId, '<p>競合対象</p>');
     const results = await Promise.allSettled([
       reviews.approveReview(meta.id, {}, approver),
@@ -210,7 +210,7 @@ d('review workflow (reviewRepo)', () => {
     const spy = vi.spyOn(files, 'MAX_PENDING_REVIEWS', 'get').mockReturnValue(pending);
     try {
       await expect(
-        submit('AM01_121212_20250101_交付版', '<p>上限テスト</p>'),
+        submit('XX01_121212_20250101_交付版', '<p>上限テスト</p>'),
       ).rejects.toMatchObject({ kind: 'validation' });
     } finally {
       spy.mockRestore();
@@ -219,12 +219,12 @@ d('review workflow (reviewRepo)', () => {
 
   it('上限ちょうどで同じ内容を再送したら、上限ではなく REVIEW_DUPLICATE を返す', async () => {
     const files = await import('../src/files/reviewFiles.js');
-    await submit('AM01_141414_20250101_交付版', '<p>上限で二重</p>');
+    await submit('XX01_141414_20250101_交付版', '<p>上限で二重</p>');
     const pending = await files.countPendingReviews();
     const spy = vi.spyOn(files, 'MAX_PENDING_REVIEWS', 'get').mockReturnValue(pending);
     try {
       await expect(
-        submit('AM01_141414_20250101_交付版', '<p>上限で二重</p>'),
+        submit('XX01_141414_20250101_交付版', '<p>上限で二重</p>'),
       ).rejects.toMatchObject({ kind: 'conflict', code: 'REVIEW_DUPLICATE' });
     } finally {
       spy.mockRestore();
@@ -234,7 +234,7 @@ d('review workflow (reviewRepo)', () => {
   it('決着済みの申請は未処理件数に数えない(承認が進めばまた申請できる)', async () => {
     const files = await import('../src/files/reviewFiles.js');
     const before = await files.countPendingReviews();
-    const meta = await submit('AM01_131313_20250101_交付版', '<p>数え方</p>');
+    const meta = await submit('XX01_131313_20250101_交付版', '<p>数え方</p>');
     expect(await files.countPendingReviews()).toBe(before + 1);
     await reviews.rejectReview(meta.id, { comment: '理由' }, approver);
     // 却下しても実体は残るが、行列(= 攻撃者が伸ばせる量)からは外れる。
@@ -249,8 +249,8 @@ d('review workflow (reviewRepo)', () => {
     };
 
     it('status が held の申請は 1 件ずつ読み飛ばし、他の申請の一覧は落とさない', async () => {
-      const held = await submit('AM01_141414_20250101_交付版', '<p>旧保留</p>');
-      const kept = await submit('AM01_232323_20250101_交付版', '<p>残る</p>');
+      const held = await submit('XX01_141414_20250101_交付版', '<p>旧保留</p>');
+      const kept = await submit('XX01_232323_20250101_交付版', '<p>残る</p>');
       markHeld(held.id);
       const files = await import('../src/files/reviewFiles.js');
       const ids = (await files.listReviewMetas()).map((m) => m.id);
@@ -260,7 +260,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('読み飛ばしの警告は申請ごとに 1 回だけ出す(一覧を開くたびにログを埋めない)', async () => {
-      const held = await submit('AM01_242424_20250101_交付版', '<p>旧保留</p>');
+      const held = await submit('XX01_242424_20250101_交付版', '<p>旧保留</p>');
       markHeld(held.id);
       const files = await import('../src/files/reviewFiles.js');
       const { logger } = await import('../src/logger.js');
@@ -278,7 +278,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('status が held の申請は承認できず、見つからない扱いになる', async () => {
-      const meta = await submit('AM01_151515_20250101_交付版', '<p>旧保留→承認</p>');
+      const meta = await submit('XX01_151515_20250101_交付版', '<p>旧保留→承認</p>');
       markHeld(meta.id);
       await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
         kind: 'not_found',
@@ -288,7 +288,7 @@ d('review workflow (reviewRepo)', () => {
 
   // ── 編集経路は値入り HTML の存在が前提 ──
   it("filled 不在 + origin='edit' の申請は拒否される", async () => {
-    const tplId = 'AM01_202020_20250101_交付版';
+    const tplId = 'XX01_202020_20250101_交付版';
     expect(fs.existsSync(filledFile(tplId))).toBe(false);
     await expect(
       reviews.submitReview(
@@ -308,7 +308,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it("filled 不在でも origin='create' の申請は通る", async () => {
-    const tplId = 'AM01_212121_交付版';
+    const tplId = 'XX01_212121_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
     expect(meta.status).toBe('pending');
     expect(fs.existsSync(filledFile(tplId))).toBe(false);
@@ -319,7 +319,7 @@ d('review workflow (reviewRepo)', () => {
   // 確定させる。取り違えると編集タブの実値が Jinja を上書きする(またはその逆)。
   it('作成タブの申請(origin=create)は値入り HTML の id(4 つ区切り)を 400 で拒む', async () => {
     await expect(
-      submit('AM01_232323_20250101_交付版', '<p>{{ x }}</p>', 'create'),
+      submit('XX01_232323_20250101_交付版', '<p>{{ x }}</p>', 'create'),
     ).rejects.toMatchObject({ kind: 'validation' });
   });
 
@@ -327,7 +327,7 @@ d('review workflow (reviewRepo)', () => {
     await expect(
       reviews.submitReview(
         {
-          templateId: 'AM01_242424_交付版',
+          templateId: 'XX01_242424_交付版',
           html: '<p>x</p>',
           css: '',
           origin: 'edit',
@@ -340,7 +340,7 @@ d('review workflow (reviewRepo)', () => {
   it("origin='edit' の承認は filled/ に書き、templates/ には触れない", {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_161616_20250101_交付版';
+    const tplId = 'XX01_161616_20250101_交付版';
     const meta = await submit(tplId, '<p>値入り本文</p>', 'edit');
     await reviews.approveReview(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8')).toBe(
@@ -352,7 +352,7 @@ d('review workflow (reviewRepo)', () => {
   it("origin='create' の承認は templates/ に書き、filled/ には触れない", {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_171717_交付版';
+    const tplId = 'XX01_171717_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
     await reviews.approveReview(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
@@ -365,7 +365,7 @@ d('review workflow (reviewRepo)', () => {
   // 編集タブの一覧は確定分と pending を合成して出す。値入り HTML の承認で pending を
   // 捨てると、まだ `templates/` へ昇格していない骨組みごと一覧から消える。
   it("origin='edit' の承認は pending を残す", { timeout: 60_000 }, async () => {
-    const tplId = 'AM01_181818_20250101_交付版';
+    const tplId = 'XX01_181818_20250101_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
     const meta = await submit(tplId, '<p>値入り本文</p>', 'edit');
@@ -376,7 +376,7 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it("origin='create' の承認は pending を捨てる", { timeout: 60_000 }, async () => {
-    const tplId = 'AM01_191919_交付版';
+    const tplId = 'XX01_191919_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
     const meta = await submit(tplId, '<p>{{ fund.name }} 確定</p>', 'create');
@@ -389,12 +389,12 @@ d('review workflow (reviewRepo)', () => {
   it("origin='create' のテンプレート(3 つ区切り)の承認は templates/<id>.html に書き、pending を捨てる", {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_222333_交付版';
+    const tplId = 'XX01_222333_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
     const meta = await submit(tplId, '<p>{{ fund.name }} 確定</p>', 'create');
     expect(meta.attributes).toEqual({
-      companyCode: 'AM01',
+      companyCode: 'XX01',
       fundCode: '222333',
       editionType: '交付版',
     });
@@ -408,7 +408,7 @@ d('review workflow (reviewRepo)', () => {
   it('承認した CSS は同じテンプレの他の基準日にも効く(CSS はテンプレ単位)', {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_515151_20250101_交付版';
+    const tplId = 'XX01_515151_20250101_交付版';
     seedFilled(tplId);
     const meta = await reviews.submitReview(
       { templateId: tplId, html: '<p>x</p>', css: '.shared{}', origin: 'edit' },
@@ -416,17 +416,17 @@ d('review workflow (reviewRepo)', () => {
     );
     await reviews.approveReview(meta.id, {}, approver);
     const { readTemplateCss } = await import('../src/files/templateFiles.js');
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_515151_交付版.css'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_515151_交付版.css'), 'utf8')).toBe(
       '.shared{}',
     );
-    expect(await readTemplateCss('AM01_515151_20250201_交付版')).toBe('.shared{}');
-    expect(await readTemplateCss('AM01_515151_20250101_全体版')).toBe('');
+    expect(await readTemplateCss('XX01_515151_20250201_交付版')).toBe('.shared{}');
+    expect(await readTemplateCss('XX01_515151_20250101_全体版')).toBe('');
   });
 
   it('申請の baseHash はテンプレの CSS を含む(CSS だけ変わっても staleWarning)', {
     timeout: 60_000,
   }, async () => {
-    const tplId = 'AM01_525252_20250101_交付版';
+    const tplId = 'XX01_525252_20250101_交付版';
     seedFilled(tplId);
     const meta = await reviews.submitReview(
       { templateId: tplId, html: '<p>x</p>', css: '.a{}', origin: 'edit' },
@@ -434,7 +434,7 @@ d('review workflow (reviewRepo)', () => {
     );
     // 申請後に別の基準日の承認などで CSS が変わった状態を作る。
     fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'css', 'AM01_525252_交付版.css'), '.changed{}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'XX01_525252_交付版.css'), '.changed{}', 'utf8');
     const r = await reviews.approveReview(meta.id, {}, approver);
     expect(r.staleWarning).toBe(true);
   });
@@ -443,8 +443,8 @@ d('review workflow (reviewRepo)', () => {
     timeout: 60_000,
   }, async () => {
     // CSS はテンプレ単位。A の下書きを開いたまま B の承認が同じ CSS を書き換えうる。
-    const tplA = 'AM01_535353_20250101_交付版';
-    const tplB = 'AM01_535353_20250201_交付版';
+    const tplA = 'XX01_535353_20250101_交付版';
+    const tplB = 'XX01_535353_20250201_交付版';
     seedFilled(tplA);
     seedFilled(tplB);
     const a = await reviews.submitReview(
@@ -457,11 +457,11 @@ d('review workflow (reviewRepo)', () => {
     );
     const rb = await reviews.approveReview(b.id, {}, approver);
     expect(rb.staleWarning).toBe(false);
-    // B の承認で css/AM01_535353_交付版.css が変わった。A の申請時点の基準と食い違う。
+    // B の承認で css/XX01_535353_交付版.css が変わった。A の申請時点の基準と食い違う。
     const ra = await reviews.approveReview(a.id, {}, approver);
     expect(ra.staleWarning).toBe(true);
     // ブロックはしない(承認は成立し、A の CSS が反映される。警告で利用者に知らせる)。
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_535353_交付版.css'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_535353_交付版.css'), 'utf8')).toBe(
       '.from-a{}',
     );
   });
@@ -486,7 +486,7 @@ d('review workflow (reviewRepo)', () => {
       );
 
     it('同じ人の同じ内容の 2 回目は 409 REVIEW_DUPLICATE で、申請は 1 件のまま', async () => {
-      const tplId = 'AM01_610001_20250101_交付版';
+      const tplId = 'XX01_610001_20250101_交付版';
       const first = await submitAs(submitter, tplId, '<p>重複</p>');
       await expect(submitAs(submitter, tplId, '<p>重複</p>')).rejects.toMatchObject({
         kind: 'conflict',
@@ -498,7 +498,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('HTML か CSS が 1 文字でも違えば受け付ける', async () => {
-      const tplId = 'AM01_610002_20250101_交付版';
+      const tplId = 'XX01_610002_20250101_交付版';
       await submitAs(submitter, tplId, '<p>a</p>', '.x{}');
       await submitAs(submitter, tplId, '<p>b</p>', '.x{}');
       await submitAs(submitter, tplId, '<p>a</p>', '.y{}');
@@ -506,14 +506,14 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('別の人の同じ内容は受け付ける', async () => {
-      const tplId = 'AM01_610003_20250101_交付版';
+      const tplId = 'XX01_610003_20250101_交付版';
       await submitAs(submitter, tplId, '<p>同じ</p>');
       await submitAs(other, tplId, '<p>同じ</p>');
       expect(await pendingOf(tplId)).toHaveLength(2);
     });
 
     it('1 件目が却下済みなら同じ内容でも受け付ける', async () => {
-      const tplId = 'AM01_610004_20250101_交付版';
+      const tplId = 'XX01_610004_20250101_交付版';
       const first = await submitAs(submitter, tplId, '<p>再申請</p>');
       await reviews.rejectReview(first.id, { comment: '理由' }, approver);
       const again = await submitAs(submitter, tplId, '<p>再申請</p>');
@@ -521,7 +521,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('1 件目が承認済みなら同じ内容でも受け付ける', { timeout: 60_000 }, async () => {
-      const tplId = 'AM01_610005_20250101_交付版';
+      const tplId = 'XX01_610005_20250101_交付版';
       const first = await submitAs(submitter, tplId, '<p>承認後</p>');
       await reviews.approveReview(first.id, {}, approver);
       const again = await submitAs(submitter, tplId, '<p>承認後</p>');
@@ -529,7 +529,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('同じ内容を同時に 2 回出すと 1 件だけ作られ、もう一方は 409', async () => {
-      const tplId = 'AM01_610006_20250101_交付版';
+      const tplId = 'XX01_610006_20250101_交付版';
       seedFilled(tplId);
       const results = await Promise.allSettled([
         submitAs(submitter, tplId, '<p>同時</p>'),
@@ -546,7 +546,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('409 の文言に先の申請の日時(YYYY/MM/DD HH:mm)を載せる', async () => {
-      const tplId = 'AM01_610008_20250101_交付版';
+      const tplId = 'XX01_610008_20250101_交付版';
       await submitAs(submitter, tplId, '<p>日時</p>');
       await expect(submitAs(submitter, tplId, '<p>日時</p>')).rejects.toMatchObject({
         message: expect.stringMatching(
@@ -556,7 +556,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('本文の読めない承認待ちは重複の判定から外す(壊れた 1 件で申請を止めない)', async () => {
-      const tplId = 'AM01_610009_20250101_交付版';
+      const tplId = 'XX01_610009_20250101_交付版';
       const first = await submitAs(submitter, tplId, '<p>壊れ</p>');
       fs.rmSync(path.join(tmp, 'reviews', first.id, 'body.css'));
       const again = await submitAs(submitter, tplId, '<p>壊れ</p>');
@@ -564,7 +564,7 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('templateId の大文字小文字だけが違うものは重複とみなす', async () => {
-      const tplId = 'AM01_610007_20250101_交付版';
+      const tplId = 'XX01_610007_20250101_交付版';
       await submitAs(submitter, tplId, '<p>大小</p>');
       await expect(submitAs(submitter, tplId.toLowerCase(), '<p>大小</p>')).rejects.toMatchObject({
         kind: 'conflict',

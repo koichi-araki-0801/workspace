@@ -1,12 +1,12 @@
 {
   "company": {
-    "code": "AM01",
+    "code": "XX01",
     "name": "三井住友トラスト・アセットマネジメント株式会社",
     "address": "〒105-0011　東京都港区芝公園一丁目1番1号",
-    "url": "https://www.smtam.jp/"
+    "url": "https://www.xxam.jp/"
   },
   "fund": {
-    "code": "110024",
+    "code": "910024",
     "name": "高金利ソブリンオープン",
     "nickname": "",
     "category": "追加型投信／海外／債券",
@@ -17,7 +17,7 @@
     "distribution": "60"
   },
   "report": {
-    "editionType": "全体版",
+    "editionType": "交付版",
     "term": "第246期～第251期",
     "settlementDate": "2025年11月17日",
     "period": "2025年5月20日～2025年11月17日",

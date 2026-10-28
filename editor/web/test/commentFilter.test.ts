@@ -10,7 +10,7 @@ import {
   threadsOf,
 } from '@/features/editor/comments/commentFilter';
 
-const TPL = 'AM01_510037_20240710_交付版';
+const TPL = 'XX01_950037_20240710_交付版';
 const COVER = '.page#1/cover#1';
 const SUMMARY = '.page#1/.summary#1';
 

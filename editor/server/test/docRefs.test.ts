@@ -16,10 +16,10 @@ describe('collectDocumentAssetRefs — 取得系属性', () => {
       refs(
         '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
           '<script src="../js/column-width.js"></script></head>' +
-          '<body><img src="../images/smtam/qr.svg"></body></html>',
+          '<body><img src="../images/xxam/qr.svg"></body></html>',
       ),
     ).toEqual(
-      expect.arrayContaining(['css/A_1_交付版.css', 'js/column-width.js', 'images/smtam/qr.svg']),
+      expect.arrayContaining(['css/A_1_交付版.css', 'js/column-width.js', 'images/xxam/qr.svg']),
     );
   });
 

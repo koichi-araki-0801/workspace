@@ -19,8 +19,8 @@ import { jinjaChipCanvasCss } from '@/features/editor/jinjaComponents';
 import { pagebreakCanvasCss } from '@/features/editor/pagebreakCanvas';
 import { renderPartForInsert } from '@/features/editor/partRender';
 import { tabOf } from '@/features/layout/tabOf';
-import sample110024 from '../../fixtures/sample/110024.json';
-import sample510037 from '../../fixtures/sample/510037.json';
+import sample910024 from '../../fixtures/sample/910024.json';
+import sample950037 from '../../fixtures/sample/950037.json';
 
 /** CSS を `セレクタ → 宣言ブロック本文` の素朴な対に分解する(コメント除去・ネスト無し前提)。 */
 function cssRules(css: string): { selector: string; body: string }[] {
@@ -84,8 +84,8 @@ describe('editor 2系統の原則: 改ページの帯', () => {
 
 describe('editor 2系統の原則: 編集タブの値はファンド別実値(共通ダミー化しない)', () => {
   it('異なるファンドの `fund.nav` は異なる(全ファンド同一ダミーでない)', () => {
-    const a = (sample110024 as { fund?: { nav?: string } }).fund?.nav;
-    const b = (sample510037 as { fund?: { nav?: string } }).fund?.nav;
+    const a = (sample910024 as { fund?: { nav?: string } }).fund?.nav;
+    const b = (sample950037 as { fund?: { nav?: string } }).fund?.nav;
     expect(a).toBeTruthy();
     expect(b).toBeTruthy();
     expect(a).not.toBe(b);
@@ -112,12 +112,12 @@ describe('editor 2系統の原則: カタログのパーツの挿入', () => {
   it('編集タブで挿入したパーツはハイライトの対象にならない', () => {
     const r = renderPartForInsert(part, {
       route: 'edit',
-      values: sample510037 as SampleData,
+      values: sample950037 as SampleData,
       valuesFound: true,
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.html).toContain(String((sample510037 as { fund: { name: string } }).fund.name));
+    expect(r.html).toContain(String((sample950037 as { fund: { name: string } }).fund.name));
     expect(r.html).not.toMatch(/jinja-chip|jinja-var|data-jinja|data-opaque/);
     expect(findEditingMarkers(r.html)).toEqual([]);
     // 経路の見分けは `route.query.created === '1'` だけ。挿入の描画も同じ判定から経路を選ぶ。

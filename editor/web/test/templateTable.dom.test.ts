@@ -9,14 +9,14 @@ import { describe, expect, it } from 'vitest';
 import TemplateTable from '@/features/templates/components/TemplateTable.vue';
 
 const row: TemplateMeta = {
-  id: 'AM01_510037_20240710_交付版',
+  id: 'XX01_950037_20240710_交付版',
   attributes: {
-    companyCode: 'AM01',
-    fundCode: '510037',
+    companyCode: 'XX01',
+    fundCode: '950037',
     baseDate: '20240710',
     editionType: '交付版',
   },
-  fileName: 'AM01_510037_20240710_交付版.html',
+  fileName: 'XX01_950037_20240710_交付版.html',
   status: 'draft',
   updatedAt: null,
   updatedBy: null,
@@ -51,9 +51,9 @@ describe('TemplateTable の action ボタン', () => {
 describe('TemplateTable の基準日の列(回帰網)', () => {
   it('基準日を持たないテンプレートの行は基準日の欄が空になる', () => {
     const skeleton: TemplateMeta = {
-      id: 'AM01_510037_交付版',
-      attributes: { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' },
-      fileName: 'AM01_510037_交付版.html',
+      id: 'XX01_950037_交付版',
+      attributes: { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' },
+      fileName: 'XX01_950037_交付版.html',
       status: 'draft',
       updatedAt: null,
       updatedBy: null,

@@ -2122,7 +2122,7 @@
         ],
         "summary": "画像(images/ の会社フォルダ 1 段)を 1 つ返す",
         "operationId": "getFundAssetImageInDir",
-        "description": "`imagesDir/<dir>/<file>` の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。フォルダは 1 段まで(2 段以上は経路が無く 404)。フォルダ名は大小文字を区別せずに実フォルダを探す(`smtam` で `SMTAM` を引く)。ファイル名は区別する。フォルダ名とテンプレの会社コードの照合はしない(テンプレ ID を持たない経路のため)。`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名・リンクのフォルダ・許可外の拡張子は 404。末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答ヘッダは `/fund-assets/images/{file}` と同じ。",
+        "description": "`imagesDir/<dir>/<file>` の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。フォルダは 1 段まで(2 段以上は経路が無く 404)。フォルダ名は大小文字を区別せずに実フォルダを探す(`xxam` で `XXAM` を引く)。ファイル名は区別する。フォルダ名とテンプレの会社コードの照合はしない(テンプレ ID を持たない経路のため)。`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名・リンクのフォルダ・許可外の拡張子は 404。末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答ヘッダは `/fund-assets/images/{file}` と同じ。",
         "parameters": [
           {
             "in": "path",
@@ -3048,7 +3048,7 @@
       },
       "TemplateId": {
         "type": "string",
-        "example": "AM01_510037_20240710_交付版",
+        "example": "XX01_950037_20240710_交付版",
         "description": "ファイル名規約(拡張子なし)。値入り HTML は `<会社コード>_<ファンドコード>_<基準日>_<版種>`、テンプレートは `<会社コード>_<ファンドコード>_<版種>`。パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る(判定は `isValidAnyTemplateId`)。"
       },
       "GenerateRequest": {
@@ -3606,7 +3606,7 @@
           },
           "fileName": {
             "type": "string",
-            "example": "AM01_510037_20240710_kr.html"
+            "example": "XX01_950037_20240710_kr.html"
           },
           "status": {
             "$ref": "#/components/schemas/TemplateStatus"

@@ -113,7 +113,7 @@ describe('findDocumentExternalRefs — 検査面の網羅', () => {
   it('同梱資産への相対参照は通す(css/ fonts/ js/)', () => {
     const html =
       '<html><head>' +
-      '<link rel="stylesheet" href="css/510037.css">' +
+      '<link rel="stylesheet" href="css/950037.css">' +
       '<script src="js/column-width.js"></scr' +
       'ipt>' +
       '</head><body><img src="img/logo.png"><use xlink:href="#m"/></body></html>';
@@ -124,7 +124,7 @@ describe('findDocumentExternalRefs — 検査面の網羅', () => {
     const html =
       '<html><head><link rel="stylesheet" href="../css/A_1_交付版.css">' +
       '<script src="../js/column-width.js"></scr' +
-      'ipt></head><body><img src="../images/smtam/qr.svg">' +
+      'ipt></head><body><img src="../images/xxam/qr.svg">' +
       '<div style="background:url(../images/b.png)"></div></body></html>';
     expect(findDocumentExternalRefs(html, '@font-face{src:url("../css/fonts/a.woff2")}')).toEqual(
       [],
@@ -280,7 +280,7 @@ describe('findDocumentExternalRefs — 実体参照・制御文字・srcdoc で�
   });
 
   it('srcdoc の中身が同梱資産への相対参照なら通る(遮断しすぎない)', () => {
-    const html = '<iframe srcdoc="<link rel=stylesheet href=css/510037.css>"></iframe>';
+    const html = '<iframe srcdoc="<link rel=stylesheet href=css/950037.css>"></iframe>';
     expect(findDocumentExternalRefs(html, '')).toEqual([]);
   });
 

@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { toTemplateMetaVm } from '@/features/templates/viewmodels/templateVm';
 
 const meta = (status: TemplateMeta['status']): TemplateMeta => ({
-  id: 'AM01_510037_20240710_kr',
-  attributes: { companyCode: 'AM01', fundCode: '510037', baseDate: '20240710', editionType: 'kr' },
-  fileName: 'AM01_510037_20240710_kr.html',
+  id: 'XX01_950037_20240710_kr',
+  attributes: { companyCode: 'XX01', fundCode: '950037', baseDate: '20240710', editionType: 'kr' },
+  fileName: 'XX01_950037_20240710_kr.html',
   status,
   updatedAt: null,
   updatedBy: null,

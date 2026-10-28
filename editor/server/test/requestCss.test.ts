@@ -9,8 +9,8 @@ describe('rebaseRequestCss', () => {
     expect(rebaseRequestCss('@font-face{src:url(fonts/a.woff2)}')).toBe(
       '@font-face{src:url("../css/fonts/a.woff2")}',
     );
-    expect(rebaseRequestCss('.q{background:url(../images/smtam/qr.svg)}')).toBe(
-      '.q{background:url("../images/smtam/qr.svg")}',
+    expect(rebaseRequestCss('.q{background:url(../images/xxam/qr.svg)}')).toBe(
+      '.q{background:url("../images/xxam/qr.svg")}',
     );
   });
 

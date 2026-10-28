@@ -7,10 +7,10 @@ import { ReviewRequestMeta, ReviewStatus, SubmitReviewBody } from '../src/schema
 
 const baseMeta = {
   id: 'rv1',
-  templateId: 'AM01_510037_20240710_交付版',
+  templateId: 'XX01_950037_20240710_交付版',
   attributes: {
-    companyCode: 'AM01',
-    fundCode: '510037',
+    companyCode: 'XX01',
+    fundCode: '950037',
     baseDate: '20240710',
     editionType: '交付版',
   },
@@ -50,7 +50,7 @@ describe('ReviewRequestMeta', () => {
 describe('SubmitReviewBody', () => {
   it('changedSummary は任意で、件数は非負整数のみ', () => {
     const body = {
-      templateId: 'AM01_510037_20240710_交付版',
+      templateId: 'XX01_950037_20240710_交付版',
       html: '<p>x</p>',
       css: '',
       origin: 'edit',

@@ -162,15 +162,15 @@ IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタ
   VALUES (N'part-cost-footer', N'費用および運用コメント', N'フッター', N'委託会社情報', N'標準',
     N'フッター（委託会社情報）', N'ページ下部の委託会社名・会社コード・ファンドコードのフッター行です。', N'ページの末尾に置きます。会社名・コードは自動入力で差し替わります。', N'<footer class="report-footer"><p>委託会社: {{ company.name }}（{{ company.code }}）　〈{{ fund.code }}〉</p></footer>', CONVERT(datetime2(3), N'2026-05-17T09:00:00.000'), N'山田 太郎', NULL, NULL, NULL, N'00001');
 GO
-IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-am02-cover-company')
+IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-xx02-cover-company')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
     ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定],[次回反映既定],[対象版種],[委託会社コード])
-  VALUES (N'part-am02-cover-company', N'表紙', N'表紙右側', N'会社名・住所', N'会社名',
-    N'委託会社名（AM02 様式）', N'AM02 の表紙右側の署名にあたる委託会社名です。', N'AM02 のテンプレートでだけ一覧に出ます。会社名は自動入力（{{ company.name }}）で差し替わります。', N'<p class="sign">{{ company.name }}　代表取締役</p>', CONVERT(datetime2(3), N'2026-05-20T09:00:00.000'), N'佐藤 花子', NULL, NULL, NULL, N'00002');
+  VALUES (N'part-xx02-cover-company', N'表紙', N'表紙右側', N'会社名・住所', N'会社名',
+    N'委託会社名（XX02 様式）', N'XX02 の表紙右側の署名にあたる委託会社名です。', N'XX02 のテンプレートでだけ一覧に出ます。会社名は自動入力（{{ company.name }}）で差し替わります。', N'<p class="sign">{{ company.name }}　代表取締役</p>', CONVERT(datetime2(3), N'2026-05-20T09:00:00.000'), N'佐藤 花子', NULL, NULL, NULL, N'00002');
 GO
-IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-am02-cost-footer')
+IF NOT EXISTS (SELECT 1 FROM [ug01].[Rep1_運報自動化_Editor_パーツカタログ] WHERE [パーツID] = N'part-xx02-cost-footer')
   INSERT INTO [ug01].[Rep1_運報自動化_Editor_パーツカタログ]
     ([パーツID],[カテゴリ],[大分類],[中分類],[小分類],[名称],[説明],[使用上の注意],[内容HTML],[更新日時],[更新者],[同期既定],[次回反映既定],[対象版種],[委託会社コード])
-  VALUES (N'part-am02-cost-footer', N'費用および運用コメント', N'フッター', N'委託会社情報', N'標準',
-    N'フッター（AM02 様式）', N'AM02 のページ下部の委託会社名・ファンドコードのフッター行です。', N'AM02 のテンプレートでだけ一覧に出ます。会社名・コードは自動入力で差し替わります。', N'<footer class="report-footer"><p>{{ company.name }}　ファンドコード {{ fund.code }}</p></footer>', CONVERT(datetime2(3), N'2026-05-20T09:00:00.000'), N'山田 太郎', NULL, NULL, NULL, N'00002');
+  VALUES (N'part-xx02-cost-footer', N'費用および運用コメント', N'フッター', N'委託会社情報', N'標準',
+    N'フッター（XX02 様式）', N'XX02 のページ下部の委託会社名・ファンドコードのフッター行です。', N'XX02 のテンプレートでだけ一覧に出ます。会社名・コードは自動入力で差し替わります。', N'<footer class="report-footer"><p>{{ company.name }}　ファンドコード {{ fund.code }}</p></footer>', CONVERT(datetime2(3), N'2026-05-20T09:00:00.000'), N'山田 太郎', NULL, NULL, NULL, N'00002');
 GO

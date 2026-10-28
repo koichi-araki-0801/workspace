@@ -125,8 +125,8 @@ function answerRaw(
 describe('generatorArgs', () => {
   it('Rep1 コードを前後の空白を除いて、ファンド・基準日の順に並べる', () => {
     expect(
-      generatorArgs({ ...attrs, rep1CompanyCode: ' 00001 ', fundCode: '110024' }, BASE),
-    ).toEqual(['00001', '110024', BASE]);
+      generatorArgs({ ...attrs, rep1CompanyCode: ' 00001 ', fundCode: '910024' }, BASE),
+    ).toEqual(['00001', '910024', BASE]);
   });
 
   it('コピー元だけ・償還だけ・両方で後ろの位置引数が変わる', () => {

@@ -28,17 +28,17 @@ describe('templateRepo.getDropdownOptions の scope', () => {
     for (const d of ['templates', 'filled', 'pending']) {
       fs.mkdirSync(path.join(tmp, d), { recursive: true });
     }
-    put('filled', 'smtam_110024_2024-05-17_交付版');
-    put('filled', 'SMTAM_510037_2024-05-17_全体版');
-    put('filled', 'AM01_510155_20240710_交付版');
+    put('filled', 'xxam_910024_2024-05-17_交付版');
+    put('filled', 'XXAM_950037_2024-05-17_全体版');
+    put('filled', 'XX01_950155_20240710_交付版');
     put('filled', 'not-a-template'); // 規約外は黙って除く
     // pending/ のメタは pending/<id>.html と同名の JSON 等の形式に合わせる(下の注記)。
     const { writePending } = await import('../src/files/pendingFiles.js');
-    await writePending('AM02_999999_20261001_交付版', '<p>未確定</p>', '');
+    await writePending('XX02_999999_20261001_交付版', '<p>未確定</p>', '');
     // filled/ と同じ id の pending は filled/ 側で数える(二重にしない)。
-    await writePending('AM01_510155_20240710_交付版', '<p>消し残り</p>', '');
+    await writePending('XX01_950155_20240710_交付版', '<p>消し残り</p>', '');
     // 大文字小文字だけが違う id の消し残りも filled/ 側で数える(NTFS では承認が既存の綴りへ上書きする)。
-    await writePending('am01_510155_20240710_交付版', '<p>綴り違いの消し残り</p>', '');
+    await writePending('xx01_950155_20240710_交付版', '<p>綴り違いの消し残り</p>', '');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     repo = createTemplateRepo(createOfflineSproc());
@@ -47,43 +47,43 @@ describe('templateRepo.getDropdownOptions の scope', () => {
 
   it('edit は filled/ と pending/ から作り、DB に触れない', async () => {
     const o = await repo.getDropdownOptions({}, 'edit');
-    // smtam / SMTAM のどちらが残るかは readdir の順に依る。1 つにまとまることだけを見る。
-    expect(o.companyCodes.map((c) => c.toLowerCase())).toEqual(['am01', 'am02', 'smtam']);
+    // xxam / XXAM のどちらが残るかは readdir の順に依る。1 つにまとまることだけを見る。
+    expect(o.companyCodes.map((c) => c.toLowerCase())).toEqual(['xx01', 'xx02', 'xxam']);
   });
 
   it('published は pending/ を含めない', async () => {
     const o = await repo.getDropdownOptions({}, 'published');
-    expect(o.companyCodes.map((c) => c.toLowerCase())).toEqual(['am01', 'smtam']);
+    expect(o.companyCodes.map((c) => c.toLowerCase())).toEqual(['xx01', 'xxam']);
   });
 
   it('大文字小文字だけが違う値は 1 つにまとめ、絞り込みも区別しない', async () => {
-    const o = await repo.getDropdownOptions({ companyCode: 'SMTAM' }, 'edit');
-    expect(o.fundCodes).toEqual(['110024', '510037']);
+    const o = await repo.getDropdownOptions({ companyCode: 'XXAM' }, 'edit');
+    expect(o.fundCodes).toEqual(['910024', '950037']);
   });
 
   it('各候補は自分より上位の選択だけで絞る', async () => {
     const o = await repo.getDropdownOptions(
-      { companyCode: 'smtam', fundCode: '110024', baseDate: '2024-05-17', editionType: '交付版' },
+      { companyCode: 'xxam', fundCode: '910024', baseDate: '2024-05-17', editionType: '交付版' },
       'edit',
     );
-    expect(o.companyCodes.map((c) => c.toLowerCase())).toEqual(['am01', 'am02', 'smtam']);
-    expect(o.fundCodes).toEqual(['110024', '510037']);
+    expect(o.companyCodes.map((c) => c.toLowerCase())).toEqual(['xx01', 'xx02', 'xxam']);
+    expect(o.fundCodes).toEqual(['910024', '950037']);
     expect(o.baseDates).toEqual(['2024-05-17']);
     expect(o.editionTypes).toEqual(['交付版']);
   });
 
   it('pending/ と filled/ に同じ id があっても二重にならない', async () => {
-    const o = await repo.getDropdownOptions({ companyCode: 'AM01' }, 'edit');
-    expect(o.fundCodes).toEqual(['510155']);
+    const o = await repo.getDropdownOptions({ companyCode: 'XX01' }, 'edit');
+    expect(o.fundCodes).toEqual(['950155']);
   });
 
   it('一覧は大文字小文字だけが違う pending の消し残りを二重に出さない', async () => {
-    const ids = (await repo.listTemplates({ fundCode: '510155' })).map((m) => m.id);
-    expect(ids).toEqual(['AM01_510155_20240710_交付版']);
+    const ids = (await repo.listTemplates({ fundCode: '950155' })).map((m) => m.id);
+    expect(ids).toEqual(['XX01_950155_20240710_交付版']);
   });
 
   it('一覧の絞り込みも大文字小文字を区別しない', async () => {
-    const ids = (await repo.listTemplates({ companyCode: 'Smtam' })).map((m) => m.id);
-    expect(ids).toEqual(['smtam_110024_2024-05-17_交付版', 'SMTAM_510037_2024-05-17_全体版']);
+    const ids = (await repo.listTemplates({ companyCode: 'Xxam' })).map((m) => m.id);
+    expect(ids).toEqual(['xxam_910024_2024-05-17_交付版', 'XXAM_950037_2024-05-17_全体版']);
   });
 });

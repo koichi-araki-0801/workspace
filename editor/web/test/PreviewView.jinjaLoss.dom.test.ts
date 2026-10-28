@@ -35,14 +35,14 @@ vi.mock('@/features/preview/services/templatePreviewService', async (importOrigi
   };
 });
 
-const ID = 'AM01_510037_交付版';
+const ID = 'XX01_950037_交付版';
 const LOSS = '元のテンプレートより Jinja のブロック（{% if %} など）が';
 
 function tpl(html: string): Template {
   return {
     meta: {
       id: ID,
-      attributes: { companyCode: 'AM01', fundCode: '510037', baseDate: '', editionType: '交付版' },
+      attributes: { companyCode: 'XX01', fundCode: '950037', baseDate: '', editionType: '交付版' },
       fileName: `${ID}.html`,
       status: 'confirmed',
       updatedAt: null,

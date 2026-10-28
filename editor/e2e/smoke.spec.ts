@@ -42,7 +42,7 @@ test('direct preview navigation survives early viewport resizes', async ({ page 
   await page.getByRole('button', { name: 'ログイン' }).click();
   await page.waitForURL(/\/edit/);
 
-  await page.goto(`/preview/${encodeURIComponent('AM01_510037_20240710_交付版')}`);
+  await page.goto(`/preview/${encodeURIComponent('XX01_950037_20240710_交付版')}`);
   for (let i = 0; i < 20; i++) {
     await page.setViewportSize({ width: 1280 + (i % 2 === 0 ? 16 : -16), height: 720 });
     await page.waitForTimeout(100);
@@ -70,7 +70,7 @@ test('preview shows the edited body after an autosaved draft exists', async ({ p
   await page.getByRole('button', { name: 'ログイン' }).click();
   await page.waitForURL(/\/edit/);
 
-  const id = encodeURIComponent('AM01_510037_20240710_交付版');
+  const id = encodeURIComponent('XX01_950037_20240710_交付版');
   await page.goto(`/edit/${id}`, { waitUntil: 'commit' });
   const frame = page.frameLocator('iframe.gjs-frame');
   await partLocator(frame).first().waitFor({ state: 'visible', timeout: 30_000 });

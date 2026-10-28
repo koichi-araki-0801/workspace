@@ -17,7 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, reactive } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
 
-const TPL = 'AM01_510037_20240710_交付版';
+const TPL = 'XX01_950037_20240710_交付版';
 const COVER = 'h1#1';
 
 /** `PartNoteEntry` の全項目を埋める fixture(`as` は使わない)。 */
@@ -74,8 +74,8 @@ vi.mock('@/stores/tabMemory', () => ({
 vi.mock('@/stores/pendingReviews', () => ({ usePendingReviewsStore: () => ({ refresh }) }));
 
 const ATTRS = {
-  companyCode: 'AM01',
-  fundCode: '510037',
+  companyCode: 'XX01',
+  fundCode: '950037',
   baseDate: '20240710',
   editionType: '交付版',
 };

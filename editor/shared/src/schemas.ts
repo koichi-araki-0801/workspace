@@ -70,7 +70,7 @@ export const TemplateId = z
   .refine(isValidAnyTemplateId, { message: '不正なテンプレート id です' })
   .meta({
     id: 'TemplateId',
-    example: 'AM01_510037_20240710_交付版',
+    example: 'XX01_950037_20240710_交付版',
     // 制約の実体は `refine` で、JSON Schema へは `minLength` すら書き出されない。散文で
     // 添えないと、公開 OpenAPI 上は「ただの string」に見えて外部クライアントが素の文字列を
     // 送れると誤解する(`$ref` へ寄せると `minLength` のような字面上の制約は消える)。
@@ -104,7 +104,7 @@ export const TemplateMeta = z
   .object({
     id: z.string().meta({ description: 'ファイル名(拡張子なし)由来の安定 ID' }),
     attributes: TemplateAttributes,
-    fileName: z.string().meta({ example: 'AM01_510037_20240710_kr.html' }),
+    fileName: z.string().meta({ example: 'XX01_950037_20240710_kr.html' }),
     status: TemplateStatus,
     updatedAt: z.string().nullable().meta({ description: '最終確定保存の ISO タイムスタンプ' }),
     updatedBy: z.string().nullable(),
@@ -447,7 +447,7 @@ export const ReviewRequest = ReviewRequestMeta.extend({
 /**
  * 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。
  * `templateId` を素の文字列にすると、トークン内部に空白を持つ id
- * (`AM01 _510037_…`)が承認経路へ通ってしまう。契約の段で `TemplateId` に通す。
+ * (`XX01 _950037_…`)が承認経路へ通ってしまう。契約の段で `TemplateId` に通す。
  */
 export const SubmitReviewBody = z
   .object({

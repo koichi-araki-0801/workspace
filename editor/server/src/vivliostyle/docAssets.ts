@@ -149,7 +149,7 @@ function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefine
 
 /**
  * Windows のファイル API が別の実体へ読み替えるセグメントか。末尾の `.` と空白は黙って削られ
- * (`smtam./x.svg` が `smtam/x.svg` に届く)、`:` は NTFS の代替データストリームを指す
+ * (`xxam./x.svg` が `xxam/x.svg` に届く)、`:` は NTFS の代替データストリームを指す
  * (`x.svg:s` は `x.svg` の別ストリーム)。照合した名前と違う実体を開かせないため、実体に触れる
  * 前にどの OS でも拒む。
  */
@@ -159,8 +159,8 @@ function isAliasingSegment(seg: string): boolean {
 
 /**
  * images の 1 段下の参照を、フォルダ名だけ小文字へ畳んだ照合キーにする
- * (`images/SMTAM/qr.svg` → `images/smtam/qr.svg`)。それ以外の形は `undefined`。
- * 参照は会社コードの綴り(`smtam`)で書かれ、実フォルダは外部ツールが別の綴り(`SMTAM`)で作る
+ * (`images/XXAM/qr.svg` → `images/xxam/qr.svg`)。それ以外の形は `undefined`。
+ * 参照は会社コードの綴り(`xxam`)で書かれ、実フォルダは外部ツールが別の綴り(`XXAM`)で作る
  * ことがあるため、フォルダ名だけは大小文字を問わない。ファイル名は区別する。
  */
 function foldImageDirKey(rel: string): string | undefined {
@@ -203,7 +203,7 @@ const MAX_ASSET_BYTES = envPositiveNumber(
   { integer: true },
 );
 
-/** 走査で拾った 1 ファイル。`rel` は mount を含む配信ルート相対パス(`css/AM01_510037_交付版.css`)。 */
+/** 走査で拾った 1 ファイル。`rel` は mount を含む配信ルート相対パス(`css/XX01_950037_交付版.css`)。 */
 interface AssetFile {
   rel: string;
   source: string;

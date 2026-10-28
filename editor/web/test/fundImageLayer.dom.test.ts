@@ -28,8 +28,8 @@ import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
 import { type FundImageRef, TEMPLATE_CSS_FROM } from '@/lib/fundImages';
 import { toTemplate } from '@/lib/jinjaMask';
 
-const JINJA: FundImageContext = { mode: 'jinja', fundCode: '510037', companyCode: 'AM01' };
-const FILLED: FundImageContext = { mode: 'filled', fundCode: '510037', companyCode: 'AM01' };
+const JINJA: FundImageContext = { mode: 'jinja', fundCode: '950037', companyCode: 'XX01' };
+const FILLED: FundImageContext = { mode: 'filled', fundCode: '950037', companyCode: 'XX01' };
 
 /** `on` で張られた handler を名前で呼べる最小の editor。canvas の document は jsdom のもの。 */
 function fakeHost(doc: Document) {
@@ -57,7 +57,7 @@ beforeEach(() => {
 describe('attachFundImages', () => {
   it('Jinja 本文: 対象の <img> にだけ規則を書き、先読み後に再計測を呼ぶ', async () => {
     document.body.innerHTML =
-      '<img src="../images/{{ fund.code }}_logo.svg"><img src="../images/510037_seal.png">' +
+      '<img src="../images/{{ fund.code }}_logo.svg"><img src="../images/950037_seal.png">' +
       '<img src="photos/x.png"><img src="../images/{{ report.x }}.svg">';
     const { host, emit } = fakeHost(document);
     const preload = vi.fn(async () => {});
@@ -72,14 +72,14 @@ describe('attachFundImages', () => {
     emit('load');
     const css = styleText();
     expect(css).toContain(
-      'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
+      'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/950037_logo.svg")}',
     );
-    expect(css).toContain('/api/fund-assets/images/510037_seal.png');
+    expect(css).toContain('/api/fund-assets/images/950037_seal.png');
     expect(css).not.toContain('photos');
     expect(css).not.toContain('report');
     expect(preload.mock.calls.map(([u]) => u).sort()).toEqual([
-      '/api/fund-assets/images/510037_logo.svg',
-      '/api/fund-assets/images/510037_seal.png',
+      '/api/fund-assets/images/950037_logo.svg',
+      '/api/fund-assets/images/950037_seal.png',
     ]);
     await vi.waitFor(() => expect(onImagesReady).toHaveBeenCalledTimes(1));
     // 属性は 1 つも書き換えていない。
@@ -88,7 +88,7 @@ describe('attachFundImages', () => {
 
   it('値入り本文: {{ の残る参照は差さずに警告し、消えたら警告を下ろす', () => {
     document.body.innerHTML =
-      '<img id="bad" src="../images/{{ fund.code }}_logo.svg"><img src="../images/510037_logo.svg">';
+      '<img id="bad" src="../images/{{ fund.code }}_logo.svg"><img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const onWarningsChange = vi.fn();
     attachFundImages(host, {
@@ -101,14 +101,14 @@ describe('attachFundImages', () => {
     emit('load');
     expect(onWarningsChange).toHaveBeenLastCalledWith([FUND_IMAGE_WARNING_MESSAGE]);
     expect(styleText()).not.toContain('{{');
-    expect(styleText()).toContain('img[src="../images/510037_logo.svg"]');
+    expect(styleText()).toContain('img[src="../images/950037_logo.svg"]');
     document.getElementById('bad')?.remove();
     emit('component:remove');
     expect(onWarningsChange).toHaveBeenLastCalledWith([]);
   });
 
   it('同じ内容では style を書き直さず、同じ URL は 1 度しか先読みしない', () => {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const preload = vi.fn(async () => {});
     attachFundImages(host, {
@@ -127,7 +127,7 @@ describe('attachFundImages', () => {
   });
 
   it('canvas の document が作り直されたら style を作り直す', () => {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
@@ -139,11 +139,11 @@ describe('attachFundImages', () => {
     emit('load');
     document.head.innerHTML = '';
     layer.refresh();
-    expect(styleText()).toContain('img[src="../images/510037_logo.svg"]');
+    expect(styleText()).toContain('img[src="../images/950037_logo.svg"]');
   });
 
   it('書いたセレクタは引用符・空白を含む src の <img> に実際に一致する', () => {
-    const src = '../images/510037_a"b c.svg';
+    const src = '../images/950037_a"b c.svg';
     const img = document.createElement('img');
     img.setAttribute('src', src);
     document.body.appendChild(img);
@@ -151,7 +151,7 @@ describe('attachFundImages', () => {
   });
 
   it('destroy の後は、予約済みの走査も以後の契機も canvas に触れない', () => {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const getDocument = vi.spyOn(host.Canvas, 'getDocument');
     const queued: Array<() => void> = [];
@@ -176,7 +176,7 @@ describe('attachFundImages', () => {
   });
 
   it('先読みの既定実装(Image)でも落ちない', () => {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     attachFundImages(host, {
       getContext: () => FILLED,
@@ -188,8 +188,8 @@ describe('attachFundImages', () => {
 });
 
 describe('先読みに失敗した画像の確認(SVG の検査の警告)', () => {
-  const QR = '/api/fund-assets/images/AM01/qr.svg';
-  const SEAL = '/api/fund-assets/images/510037_seal.png';
+  const QR = '/api/fund-assets/images/XX01/qr.svg';
+  const SEAL = '/api/fund-assets/images/950037_seal.png';
   const SVG_MSG =
     'SVG の検査で配信しない画像があります（qr.svg: 許可されていない属性 name）。' +
     '外部ツールの出力を直してください';
@@ -214,8 +214,8 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
 
   it('失敗した URL の ref だけを 1 回にまとめて問い合わせ、svg_rejected を警告の後ろに足す', async () => {
     document.body.innerHTML =
-      '<img src="../images/AM01/qr.svg"><img src="../images/510037_seal.png">' +
-      '<img src="../images/510037_logo.svg"><img src="../images/other/x.svg">';
+      '<img src="../images/XX01/qr.svg"><img src="../images/950037_seal.png">' +
+      '<img src="../images/950037_logo.svg"><img src="../images/other/x.svg">';
     const { host, emit } = fakeHost(document);
     const inspect = inspectRejecting('qr.svg');
     const onWarningsChange = vi.fn();
@@ -236,13 +236,13 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
     );
     expect(inspect).toHaveBeenCalledTimes(1);
     expect(inspect).toHaveBeenCalledWith([
-      { dir: 'AM01', file: 'qr.svg' },
-      { dir: null, file: '510037_seal.png' },
+      { dir: 'XX01', file: 'qr.svg' },
+      { dir: null, file: '950037_seal.png' },
     ]);
   });
 
   it('同じ ref は 2 度問い合わせず、画像が消えたら SVG の警告も下ろす', async () => {
-    document.body.innerHTML = '<img id="qr" src="../images/AM01/qr.svg">';
+    document.body.innerHTML = '<img id="qr" src="../images/XX01/qr.svg">';
     const { host, emit } = fakeHost(document);
     const inspect = inspectRejecting('qr.svg');
     const onWarningsChange = vi.fn();
@@ -258,10 +258,10 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
     await vi.waitFor(() => expect(onWarningsChange).toHaveBeenLastCalledWith([SVG_MSG]));
     // document が作り直されて先読みをやり直しても、確認済みの ref は問い合わせない。
     document.head.innerHTML = '';
-    document.body.insertAdjacentHTML('beforeend', '<img src="../images/510037_seal.png">');
+    document.body.insertAdjacentHTML('beforeend', '<img src="../images/950037_seal.png">');
     layer.refresh();
     await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
-    expect(inspect.mock.calls[1]?.[0]).toEqual([{ dir: null, file: '510037_seal.png' }]);
+    expect(inspect.mock.calls[1]?.[0]).toEqual([{ dir: null, file: '950037_seal.png' }]);
     await new Promise((r) => setTimeout(r, 0));
     expect(inspect).toHaveBeenCalledTimes(2);
     document.getElementById('qr')?.remove();
@@ -270,7 +270,7 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
   });
 
   it('先読みが成功した画像は問い合わせない', async () => {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const inspect = vi.fn(async (refs: FundImageRef[]) =>
       ok(refs.map((r) => ({ ...r, status: 'ok' as const }))),
@@ -299,7 +299,7 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
       },
     ],
   ])('問い合わせが%sときは警告を足さない', async (_label, impl) => {
-    document.body.innerHTML = '<img src="../images/AM01/qr.svg">';
+    document.body.innerHTML = '<img src="../images/XX01/qr.svg">';
     const { host, emit } = fakeHost(document);
     const inspect = vi.fn(impl);
     const onWarningsChange = vi.fn();
@@ -318,7 +318,7 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
   });
 
   it('破棄の後に返ってきた結果は警告にしない', async () => {
-    document.body.innerHTML = '<img src="../images/AM01/qr.svg">';
+    document.body.innerHTML = '<img src="../images/XX01/qr.svg">';
     const { host, emit } = fakeHost(document);
     let resolve: (v: Result<FundAssetInspectResult[]>) => void = () => {};
     const inspect = vi.fn(
@@ -336,7 +336,7 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
     emit('load');
     await vi.waitFor(() => expect(inspect).toHaveBeenCalledTimes(1));
     layer.destroy();
-    resolve(ok([{ dir: 'AM01', file: 'qr.svg', status: 'svg_rejected', violations: ['v'] }]));
+    resolve(ok([{ dir: 'XX01', file: 'qr.svg', status: 'svg_rejected', violations: ['v'] }]));
     await new Promise((r) => setTimeout(r, 0));
     expect(onWarningsChange.mock.calls.every(([m]) => m.length === 0)).toBe(true);
   });
@@ -403,8 +403,8 @@ describe('CSS の url() 規則の複製層', () => {
     });
     layer.setCss(tpl('.p{color:red}'));
     expect(assetStyle()).toBeNull();
-    layer.setCss(tpl('.p{background:url(../images/510037_bg.svg)}'));
-    expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/510037_bg.svg');
+    layer.setCss(tpl('.p{background:url(../images/950037_bg.svg)}'));
+    expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/950037_bg.svg');
     layer.setCss(tpl('.p{color:red}'));
     expect(assetStyle()?.textContent).toBe('');
   });
@@ -418,10 +418,10 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss(tpl('.p{background:url(../images/510037_bg.svg)}'));
+    layer.setCss(tpl('.p{background:url(../images/950037_bg.svg)}'));
     document.body.innerHTML = '';
     layer.refresh();
-    expect(assetStyle()?.textContent).toContain('510037_bg.svg');
+    expect(assetStyle()?.textContent).toContain('950037_bg.svg');
   });
 
   it('canvas の文書ができる前に setCss しても、body が描かれた時点で複製を置く', () => {
@@ -480,9 +480,9 @@ describe('CSS の url() 規則の複製層', () => {
       preload: async () => {},
       schedule: (cb) => cb(),
     });
-    layer.setCss(tpl('.p{background:url(../images/am01/qr.svg)}'));
-    expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/am01/qr.svg');
-    ctx = { ...FILLED, companyCode: 'SMTAM' };
+    layer.setCss(tpl('.p{background:url(../images/xx01/qr.svg)}'));
+    expect(assetStyle()?.textContent).toContain('/api/fund-assets/images/xx01/qr.svg');
+    ctx = { ...FILLED, companyCode: 'XXAM' };
     layer.refresh();
     expect(assetStyle()?.textContent).toBe('');
   });
@@ -499,7 +499,7 @@ describe('CSS の url() 規則の複製層', () => {
     });
     layer.setCss(tpl('.p{background:url(../images/other/q.svg)}'));
     expect(onWarningsChange).toHaveBeenLastCalledWith([
-      '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/other/q.svg）',
+      '会社フォルダ名がテンプレの会社コード（XX01）と違うため表示しません（../images/other/q.svg）',
     ]);
   });
 
@@ -520,14 +520,14 @@ describe('CSS の url() 規則の複製層', () => {
           '.q{background:url(../images/other/b.svg)}',
         from: DOC_DIR,
       },
-      { css: '.p{background:url(../images/510037_bg.svg)}', from: TEMPLATE_CSS_FROM },
+      { css: '.p{background:url(../images/950037_bg.svg)}', from: TEMPLATE_CSS_FROM },
     ]);
     expect(assetStyle()?.textContent).toBe(
       '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}\n' +
-        '.p{background:url("/api/fund-assets/images/510037_bg.svg")}',
+        '.p{background:url("/api/fund-assets/images/950037_bg.svg")}',
     );
     expect(onWarningsChange).toHaveBeenLastCalledWith([
-      '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/other/b.svg）',
+      '会社フォルダ名がテンプレの会社コード（XX01）と違うため表示しません（../images/other/b.svg）',
     ]);
   });
 
@@ -542,12 +542,12 @@ describe('CSS の url() 規則の複製層', () => {
       schedule: (cb) => cb(),
     });
     layer.setCss([
-      { css: '.q{background:url(../images/am01/q.svg)}', from: DOC_DIR },
-      { css: '.p{background:url(../images/am01/p.svg)}', from: TEMPLATE_CSS_FROM },
+      { css: '.q{background:url(../images/xx01/q.svg)}', from: DOC_DIR },
+      { css: '.p{background:url(../images/xx01/p.svg)}', from: TEMPLATE_CSS_FROM },
     ]);
-    expect(assetStyle()?.textContent).toContain('am01/q.svg');
-    expect(assetStyle()?.textContent).toContain('am01/p.svg');
-    ctx = { ...FILLED, companyCode: 'SMTAM' };
+    expect(assetStyle()?.textContent).toContain('xx01/q.svg');
+    expect(assetStyle()?.textContent).toContain('xx01/p.svg');
+    ctx = { ...FILLED, companyCode: 'XXAM' };
     layer.refresh();
     expect(assetStyle()?.textContent).toBe('');
   });
@@ -559,7 +559,7 @@ describe('canvas の大きさの変化で測り直す', () => {
   });
 
   function attachWithResize() {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const onCanvasResize = vi.fn();
     const layer = attachFundImages(host, {
@@ -626,7 +626,7 @@ describe('canvas の大きさの変化で測り直す', () => {
   });
 
   it('ResizeObserver が無い環境では何もしない', () => {
-    document.body.innerHTML = '<img src="../images/510037_logo.svg">';
+    document.body.innerHTML = '<img src="../images/950037_logo.svg">';
     const { host, emit } = fakeHost(document);
     const layer = attachFundImages(host, {
       getContext: () => FILLED,
@@ -670,10 +670,10 @@ describe('useGrapes との結合', () => {
     // RTE の終了時と同じく、編集後の innerHTML でテキスト component の中身を作り直す。
     p?.components('見出し改<img src="../images/{{ fund.code }}_logo.svg" alt="">');
     // ペースト相当(兄弟へ HTML を足す)。
-    p?.parent()?.append('<img src="../images/510037_seal.png">');
+    p?.parent()?.append('<img src="../images/950037_seal.png">');
     const saved = toTemplate(g.getBodyHtml(), { asFragment: true });
     expect(saved).toContain('src="../images/{{ fund.code }}_logo.svg"');
-    expect(saved).toContain('src="../images/510037_seal.png"');
+    expect(saved).toContain('src="../images/950037_seal.png"');
     expect(saved).not.toContain('fund-assets');
     expect(g.getCss()).not.toContain('fund-assets');
   });
@@ -681,12 +681,12 @@ describe('useGrapes との結合', () => {
   it('CSS の url() を直した複製は保存出力(getCss・getBodyHtml)に載らない', () => {
     const css =
       '@font-face{font-family:a;src:url(fonts/biz.woff2)}' +
-      '.page{background:url(../images/510037_bg.svg)}';
+      '.page{background:url(../images/950037_bg.svg)}';
     // 複製は load の中で同期に作る(rAF を待たない)ので、ここで保存出力を読めば足りる。
     expect(g.load('<div class="page"><p>x</p></div>', css)).toBe(true);
     expect(g.getCss()).not.toContain('/api/');
     // jsdom の CSSOM は `@font-face` の記述子を落とすので、原文の参照は背景画像の側で確かめる。
-    expect(g.getCss()).toContain('url("../images/510037_bg.svg")');
+    expect(g.getCss()).toContain('url("../images/950037_bg.svg")');
     expect(g.getBodyHtml()).not.toContain(CANVAS_CSS_ASSET_ATTR);
     expect(g.getBodyHtml()).not.toContain('/api/');
   });
@@ -700,11 +700,11 @@ describe('useGrapes との結合', () => {
     const canvas = g.editor.value?.Canvas;
     if (!canvas) throw new Error('editor が無い');
     vi.spyOn(canvas, 'getDocument').mockReturnValue(doc);
-    expect(g.load(body, '.page{background:url(../images/510037_bg.svg)}')).toBe(true);
+    expect(g.load(body, '.page{background:url(../images/950037_bg.svg)}')).toBe(true);
     const copy = doc.body.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`)?.textContent;
     expect(copy).toBe(
       '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}\n' +
-        '.page{background:url("/api/fund-assets/images/510037_bg.svg")}',
+        '.page{background:url("/api/fund-assets/images/950037_bg.svg")}',
     );
     expect(g.getCss()).not.toContain('/api/');
     expect(g.getBodyHtml()).not.toContain('/api/');

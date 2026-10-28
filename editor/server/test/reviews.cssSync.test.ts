@@ -71,13 +71,13 @@ d('承認とペアの CSS 転写', () => {
   it('値入り HTML の承認で変わった CSS 規則が全体版の CSS へ写る', {
     timeout: 60_000,
   }, async () => {
-    put('filled', 'AM01_580000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'AM01_580000_20240710_全体版.html', '<p>全体</p>');
-    put('css', 'AM01_580000_交付版.css', '.a{color:red}\n.b{color:blue}');
-    put('css', 'AM01_580000_全体版.css', '.a{color:red}\n.b{color:navy}');
+    put('filled', 'XX01_580000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'XX01_580000_20240710_全体版.html', '<p>全体</p>');
+    put('css', 'XX01_580000_交付版.css', '.a{color:red}\n.b{color:blue}');
+    put('css', 'XX01_580000_全体版.css', '.a{color:red}\n.b{color:navy}');
     const meta = await reviews.submitReview(
       {
-        templateId: 'AM01_580000_20240710_交付版',
+        templateId: 'XX01_580000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:green}\n.b{color:blue}',
         cssBaseline: '.a{color:red}\n.b{color:blue}',
@@ -87,7 +87,7 @@ d('承認とペアの CSS 転写', () => {
     );
     const r = await reviews.approveReview(meta.id, {}, { username: 'approver1', role: 'approver' });
     expect(r.sync?.css?.applied).toHaveLength(1);
-    const pairCss = fs.readFileSync(path.join(tmp, 'css', 'AM01_580000_全体版.css'), 'utf8');
+    const pairCss = fs.readFileSync(path.join(tmp, 'css', 'XX01_580000_全体版.css'), 'utf8');
     expect(pairCss).toContain('.a{color:green}');
     expect(pairCss).toContain('.b{color:navy}');
   });
@@ -95,13 +95,13 @@ d('承認とペアの CSS 転写', () => {
   it('承認の直前の CSS を読めなくても承認は成立し、CSS の転写だけを飛ばす', {
     timeout: 60_000,
   }, async () => {
-    put('filled', 'AM01_581000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'AM01_581000_20240710_全体版.html', '<p>全体</p>');
-    put('css', 'AM01_581000_交付版.css', '.a{color:red}');
-    put('css', 'AM01_581000_全体版.css', '.a{color:red}');
+    put('filled', 'XX01_581000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'XX01_581000_20240710_全体版.html', '<p>全体</p>');
+    put('css', 'XX01_581000_交付版.css', '.a{color:red}');
+    put('css', 'XX01_581000_全体版.css', '.a{color:red}');
     const meta = await reviews.submitReview(
       {
-        templateId: 'AM01_581000_20240710_交付版',
+        templateId: 'XX01_581000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:green}',
         cssBaseline: '.a{color:red}',
@@ -113,25 +113,25 @@ d('承認とペアの CSS 転写', () => {
     cssReadPlan.push('ok', 'fail');
     const r = await reviews.approveReview(meta.id, {}, { username: 'approver1', role: 'approver' });
     expect(cssReadPlan).toEqual([]);
-    expect(r.meta.id).toBe('AM01_581000_20240710_交付版');
+    expect(r.meta.id).toBe('XX01_581000_20240710_交付版');
     expect(r.sync?.error).toBeNull();
     expect(r.sync?.css).toBeNull();
     // 承認した CSS は反映され、ペアの CSS は変わらない('' を base にした誤転写をしない)。
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_581000_交付版.css'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_581000_交付版.css'), 'utf8')).toBe(
       '.a{color:green}',
     );
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_581000_全体版.css'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_581000_全体版.css'), 'utf8')).toBe(
       '.a{color:red}',
     );
   });
   it('baseline は申請本体として保存して承認で読み、一覧のメタにも単件の取得にも載せない', {
     timeout: 60_000,
   }, async () => {
-    put('filled', 'AM01_582000_20240710_交付版.html', '<p>交付</p>');
-    put('css', 'AM01_582000_交付版.css', '.a{color:red}');
+    put('filled', 'XX01_582000_20240710_交付版.html', '<p>交付</p>');
+    put('css', 'XX01_582000_交付版.css', '.a{color:red}');
     const meta = await reviews.submitReview(
       {
-        templateId: 'AM01_582000_20240710_交付版',
+        templateId: 'XX01_582000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:green;}',
         cssBaseline: '.a{color:red;}',
@@ -153,13 +153,13 @@ d('承認とペアの CSS 転写', () => {
   }, async () => {
     const { logger } = await import('../src/logger.js');
     const warn = vi.spyOn(logger, 'warn');
-    put('filled', 'AM01_583000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'AM01_583000_20240710_全体版.html', '<p>全体</p>');
-    put('css', 'AM01_583000_交付版.css', '.a{color:red}');
-    put('css', 'AM01_583000_全体版.css', '.a{color:red}');
+    put('filled', 'XX01_583000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'XX01_583000_20240710_全体版.html', '<p>全体</p>');
+    put('css', 'XX01_583000_交付版.css', '.a{color:red}');
+    put('css', 'XX01_583000_全体版.css', '.a{color:red}');
     const meta = await reviews.submitReview(
       {
-        templateId: 'AM01_583000_20240710_交付版',
+        templateId: 'XX01_583000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:green}',
         origin: 'edit',
@@ -172,20 +172,20 @@ d('承認とペアの CSS 転写', () => {
         {},
         { username: 'approver1', role: 'approver' },
       );
-      expect(r.meta.id).toBe('AM01_583000_20240710_交付版');
+      expect(r.meta.id).toBe('XX01_583000_20240710_交付版');
       expect(r.sync?.error).toBeNull();
       expect(r.sync?.css).toBeNull();
       expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({ templateId: 'AM01_583000_20240710_交付版' }),
+        expect.objectContaining({ templateId: 'XX01_583000_20240710_交付版' }),
         expect.stringContaining('baseline'),
       );
     } finally {
       warn.mockRestore();
     }
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_583000_交付版.css'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_583000_交付版.css'), 'utf8')).toBe(
       '.a{color:green}',
     );
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_583000_全体版.css'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_583000_全体版.css'), 'utf8')).toBe(
       '.a{color:red}',
     );
   });
@@ -194,13 +194,13 @@ d('承認とペアの CSS 転写', () => {
   }, async () => {
     // 並びの中の重複(.a, .a)は展開しないので、編集画面の書き出し(.a が 2 つ)のキーと合わない。
     const raw = '.a, .a{color:red}\n.c{color:red}\n';
-    put('filled', 'AM01_584000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'AM01_584000_20240710_全体版.html', '<p>全体</p>');
-    put('css', 'AM01_584000_交付版.css', raw);
-    put('css', 'AM01_584000_全体版.css', raw);
+    put('filled', 'XX01_584000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'XX01_584000_20240710_全体版.html', '<p>全体</p>');
+    put('css', 'XX01_584000_交付版.css', raw);
+    put('css', 'XX01_584000_全体版.css', raw);
     const meta = await reviews.submitReview(
       {
-        templateId: 'AM01_584000_20240710_交付版',
+        templateId: 'XX01_584000_20240710_交付版',
         html: '<p>交付</p>',
         css: '.a{color:red}\n.a{color:blue}\n.c{color:red}\n',
         cssBaseline: '.a{color:red}\n.a{color:red}\n.c{color:red}\n',
@@ -210,13 +210,13 @@ d('承認とペアの CSS 転写', () => {
     );
     const r = await reviews.approveReview(meta.id, {}, { username: 'approver1', role: 'approver' });
     expect(r.sync?.css?.conflicts).toEqual(['[".a"]']);
-    expect(fs.readFileSync(path.join(tmp, 'css', 'AM01_584000_全体版.css'), 'utf8')).toBe(raw);
-    const state = JSON.parse(fs.readFileSync(path.join(tmp, 'sync', 'AM01_584000.json'), 'utf8'));
+    expect(fs.readFileSync(path.join(tmp, 'css', 'XX01_584000_全体版.css'), 'utf8')).toBe(raw);
+    const state = JSON.parse(fs.readFileSync(path.join(tmp, 'sync', 'XX01_584000.json'), 'utf8'));
     expect(state.css.conflicts).toEqual([
       expect.objectContaining({ ruleKey: '[".a"]', kind: '照合不可', sourceEdition: '交付版' }),
     ]);
     // 状態 API(バナーの元)も同じ記録を、照合不可の種別つきで返す。
-    const status = await pairSync.getPairSyncStatus('AM01_584000_20240710_全体版');
+    const status = await pairSync.getPairSyncStatus('XX01_584000_20240710_全体版');
     expect(status.cssConflicts[0]?.kind).toBe('照合不可');
   });
 });

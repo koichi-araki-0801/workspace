@@ -30,7 +30,7 @@ import { fixtureSample } from './helpers/fundSample';
 
 vi.mock('@/components/ui/toast', () => ({ toast: vi.fn(), toastError: vi.fn() }));
 
-const sample = fixtureSample('510037');
+const sample = fixtureSample('950037');
 
 const STYLE = '<style>.a{color:red}</style>';
 const BODY = `<p>x</p>${STYLE}`;

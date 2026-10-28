@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveReviewTarget } from '@/features/reviews/resolveReviewTarget';
 
-const ID = 'AM01_510037_20240710_交付版';
+const ID = 'XX01_950037_20240710_交付版';
 
 describe('resolveReviewTarget', () => {
   it('query の template を最優先にする', () => {

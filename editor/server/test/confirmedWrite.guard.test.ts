@@ -39,9 +39,9 @@ process.env.CSS_DIR = path.join(root, 'data', 'css');
 process.env.PENDING_DIR = path.join(root, 'data', 'pending');
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'src');
-const SOURCE = 'AM01_510037_交付版';
-const PAIR = 'AM01_510037_全体版';
-const OTHER = 'AM01_999999_全体版';
+const SOURCE = 'XX01_950037_交付版';
+const PAIR = 'XX01_950037_全体版';
+const OTHER = 'XX01_999999_全体版';
 
 /** `src` 配下の .ts を再帰列挙し、`src` からの相対 POSIX パスで返す。 */
 function listSources(dir = SRC, base = SRC): string[] {
@@ -145,42 +145,42 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     ).rejects.toSatisfy(isAppError);
     expect(read(OTHER)).toBe('<p>他人のテンプレ</p>');
     expect(auditCalls).toEqual([]);
-    expect(fs.existsSync(path.join(cssDir, 'AM01_999999_全体版.css'))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'XX01_999999_全体版.css'))).toBe(false);
   });
 
   it('review-approve の CSS は id から決まり、同じファンドの別の版種や別のファンドの CSS に触れない', async () => {
-    fs.writeFileSync(path.join(cssDir, 'AM01_510037_全体版.css'), '.zentai{}', 'utf8');
-    fs.writeFileSync(path.join(cssDir, 'AM01_999999_交付版.css'), '.other{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'XX01_950037_全体版.css'), '.zentai{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'XX01_999999_交付版.css'), '.other{}', 'utf8');
     await confirmedWrite.applyConfirmedWrite({
       kind: 'review-approve',
       target: 'filled',
-      templateId: 'AM01_510037_20240710_交付版',
+      templateId: 'XX01_950037_20240710_交付版',
       html: '<p>x</p>',
       css: '.kofu{}',
       author: 'approver1',
       commitMessage: 'm',
     });
-    expect(fs.readFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), 'utf8')).toBe('.kofu{}');
-    expect(fs.readFileSync(path.join(cssDir, 'AM01_510037_全体版.css'), 'utf8')).toBe('.zentai{}');
-    expect(fs.readFileSync(path.join(cssDir, 'AM01_999999_交付版.css'), 'utf8')).toBe('.other{}');
+    expect(fs.readFileSync(path.join(cssDir, 'XX01_950037_交付版.css'), 'utf8')).toBe('.kofu{}');
+    expect(fs.readFileSync(path.join(cssDir, 'XX01_950037_全体版.css'), 'utf8')).toBe('.zentai{}');
+    expect(fs.readFileSync(path.join(cssDir, 'XX01_999999_交付版.css'), 'utf8')).toBe('.other{}');
     expect(fs.readdirSync(cssDir).sort()).toEqual(
-      ['AM01_510037_交付版.css', 'AM01_510037_全体版.css', 'AM01_999999_交付版.css'].sort(),
+      ['XX01_950037_交付版.css', 'XX01_950037_全体版.css', 'XX01_999999_交付版.css'].sort(),
     );
   });
 
-  it('既存の CSS の綴り(am01_…)があればその綴りで書き、別名を増やさない', async () => {
-    fs.writeFileSync(path.join(cssDir, 'am01_510037_交付版.css'), '.old{}', 'utf8');
+  it('既存の CSS の綴り(xx01_…)があればその綴りで書き、別名を増やさない', async () => {
+    fs.writeFileSync(path.join(cssDir, 'xx01_950037_交付版.css'), '.old{}', 'utf8');
     await confirmedWrite.applyConfirmedWrite({
       kind: 'review-approve',
       target: 'template',
-      templateId: 'AM01_510037_交付版',
+      templateId: 'XX01_950037_交付版',
       html: '<p>x</p>',
       css: '.new{}',
       author: 'approver1',
       commitMessage: 'm',
     });
-    expect(fs.readdirSync(cssDir)).toEqual(['am01_510037_交付版.css']);
-    expect(fs.readFileSync(path.join(cssDir, 'am01_510037_交付版.css'), 'utf8')).toBe('.new{}');
+    expect(fs.readdirSync(cssDir)).toEqual(['xx01_950037_交付版.css']);
+    expect(fs.readFileSync(path.join(cssDir, 'xx01_950037_交付版.css'), 'utf8')).toBe('.new{}');
   });
 
   it('承認経路でも実行コードの追加は拒否する(承認を通しても JS は変えられない)', async () => {
@@ -233,7 +233,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
   });
 
   it('値入り HTML への確定でも、往復用の印が残った本文は書かない', async () => {
-    const id = 'AM01_510037_20250101_交付版';
+    const id = 'XX01_950037_20250101_交付版';
     await expect(
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
@@ -246,7 +246,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toMatchObject({ kind: 'validation' });
     expect(fs.existsSync(path.join(filledDir, `${id}.html`))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, 'AM01_510037_交付版.css'))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'XX01_950037_交付版.css'))).toBe(false);
   });
 
   it('ペア転写でも、往復用の印が残った本文は書かない', async () => {
@@ -307,15 +307,15 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
         target: 'filled',
-        templateId: 'AM01_510037_交付版',
+        templateId: 'XX01_950037_交付版',
         html: '<p>x</p>',
         css: '',
         author: 'approver1',
         commitMessage: 'm',
       }),
     ).rejects.toSatisfy(isAppError);
-    expect(fs.existsSync(path.join(filledDir, 'AM01_510037_交付版.html'))).toBe(false);
-    expect(fs.existsSync(path.join(cssDir, 'AM01_510037_交付版.css'))).toBe(false);
+    expect(fs.existsSync(path.join(filledDir, 'XX01_950037_交付版.html'))).toBe(false);
+    expect(fs.existsSync(path.join(cssDir, 'XX01_950037_交付版.css'))).toBe(false);
   });
 
   it('テンプレート(target=template)に値入り HTML の id(4 つ区切り)は書けない', async () => {
@@ -323,7 +323,7 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       confirmedWrite.applyConfirmedWrite({
         kind: 'review-approve',
         target: 'template',
-        templateId: 'AM01_510037_20240710_交付版',
+        templateId: 'XX01_950037_20240710_交付版',
         html: '<p>x</p>',
         css: '',
         author: 'approver1',
@@ -337,8 +337,8 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
 
   it('ペア転写の CSS は転写先 id から決まる CSS にだけ書く', async () => {
     seed(PAIR, '<p>ペア側</p>');
-    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.old{}', 'utf8');
-    fs.writeFileSync(cssFile('AM01_510037_交付版.css'), '.source{}', 'utf8');
+    fs.writeFileSync(cssFile('XX01_950037_全体版.css'), '.old{}', 'utf8');
+    fs.writeFileSync(cssFile('XX01_950037_交付版.css'), '.source{}', 'utf8');
     await confirmedWrite.applyConfirmedWrite({
       kind: 'pair-sync',
       target: 'template',
@@ -350,15 +350,15 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       appliedParts: [],
       appliedCssRules: ['.new'],
     });
-    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.new{}');
-    expect(fs.readFileSync(cssFile('AM01_510037_交付版.css'), 'utf8')).toBe('.source{}');
+    expect(fs.readFileSync(cssFile('XX01_950037_全体版.css'), 'utf8')).toBe('.new{}');
+    expect(fs.readFileSync(cssFile('XX01_950037_交付版.css'), 'utf8')).toBe('.source{}');
     const ev = auditCalls.at(-1) as { detail: Record<string, number> };
     expect(ev.detail.appliedCssRules).toBe(1);
   });
 
   it('css を渡さないペア転写は CSS に触れない', async () => {
     seed(PAIR, '<p>元</p>');
-    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.keep{}', 'utf8');
+    fs.writeFileSync(cssFile('XX01_950037_全体版.css'), '.keep{}', 'utf8');
     await confirmedWrite.applyConfirmedWrite({
       kind: 'pair-sync',
       target: 'template',
@@ -368,12 +368,12 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       actor: 'approver1',
       appliedParts: ['p1'],
     });
-    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.keep{}');
+    expect(fs.readFileSync(cssFile('XX01_950037_全体版.css'), 'utf8')).toBe('.keep{}');
   });
 
   it('afterWrite が失敗したらペアの CSS も元へ戻す(無かった CSS は消す)', async () => {
     seed(PAIR, '<p>元</p>');
-    fs.writeFileSync(cssFile('AM01_510037_全体版.css'), '.old{}', 'utf8');
+    fs.writeFileSync(cssFile('XX01_950037_全体版.css'), '.old{}', 'utf8');
     const fail = () =>
       confirmedWrite.applyConfirmedWrite({
         kind: 'pair-sync',
@@ -389,9 +389,9 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
         },
       });
     await expect(fail()).rejects.toThrow('同期状態の書込に失敗');
-    expect(fs.readFileSync(cssFile('AM01_510037_全体版.css'), 'utf8')).toBe('.old{}');
-    fs.rmSync(cssFile('AM01_510037_全体版.css'));
+    expect(fs.readFileSync(cssFile('XX01_950037_全体版.css'), 'utf8')).toBe('.old{}');
+    fs.rmSync(cssFile('XX01_950037_全体版.css'));
     await expect(fail()).rejects.toThrow('同期状態の書込に失敗');
-    expect(fs.existsSync(cssFile('AM01_510037_全体版.css'))).toBe(false);
+    expect(fs.existsSync(cssFile('XX01_950037_全体版.css'))).toBe(false);
   });
 });

@@ -58,9 +58,9 @@ describe('build の本文上限', () => {
 
 describe('確定保存申請の本文上限', () => {
   const base = {
-    templateId: 'AM01_510037_20240710_交付版',
+    templateId: 'XX01_950037_20240710_交付版',
     css: '',
-    fundCode: '510037',
+    fundCode: '950037',
     origin: 'edit' as const,
   };
 
@@ -91,7 +91,7 @@ describe('PDF 監査記録の templateId', () => {
   // それ以前の履歴が API の視界から落ちる(= 監査フィードの消去)。
   it('id 規約に一致する値だけを受ける(素の文字列ではない)', () => {
     expect(
-      RecordPdfExportRequest.safeParse({ templateId: 'AM01_510037_20240710_交付版' }).success,
+      RecordPdfExportRequest.safeParse({ templateId: 'XX01_950037_20240710_交付版' }).success,
     ).toBe(true);
     expect(RecordPdfExportRequest.safeParse({ templateId: chars(8 * 1024 * 1024) }).success).toBe(
       false,
@@ -147,7 +147,7 @@ describe('ストアドの NVARCHAR(32) へ渡す委託会社コードの上限',
   // コードポイントで数えるので、サロゲートペアを含む値は UTF-16 の長さでも縛る。
   const ok = '𠮷'.repeat(16); // 16 文字 = UTF-16 で 32 単位
   const ng = '𠮷'.repeat(17); // 17 文字 = UTF-16 で 34 単位(コードポイントでは 32 以下)
-  const base = { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' };
+  const base = { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' };
   it.each([
     [
       'PartClassificationQuery.companyCode',

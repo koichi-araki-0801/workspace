@@ -222,13 +222,13 @@ function fetcherForUrls(routes: Record<string, string | Uint8Array>) {
   });
 }
 
-const LOGO_URL = '/api/fund-assets/images/510037_logo.svg';
+const LOGO_URL = '/api/fund-assets/images/950037_logo.svg';
 const LOGO_SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>';
 
 describe('ファンド別画像の data: URI 化', () => {
   it('<img src="../images/…svg"> を data:image/svg+xml に置き換える(取得先は単体配信ルート)', async () => {
     const fetcher = fetcherForUrls({ [LOGO_URL]: LOGO_SVG });
-    const out = await selfContainPreviewDoc(DOC('<img src="../images/510037_logo.svg">'), fetcher);
+    const out = await selfContainPreviewDoc(DOC('<img src="../images/950037_logo.svg">'), fetcher);
     expect(fetcher).toHaveBeenCalledWith(LOGO_URL);
     expect(out).toContain('src="data:image/svg+xml;base64,');
     expect(out).not.toContain('src="../images/');
@@ -236,16 +236,16 @@ describe('ファンド別画像の data: URI 化', () => {
 
   it('png も data:image/png に置き換える', async () => {
     const fetcher = fetcherForUrls({
-      '/api/fund-assets/images/510037_photo.png': new Uint8Array([0x89, 0x50]),
+      '/api/fund-assets/images/950037_photo.png': new Uint8Array([0x89, 0x50]),
     });
-    const out = await selfContainPreviewDoc(DOC('<img src="../images/510037_photo.png">'), fetcher);
+    const out = await selfContainPreviewDoc(DOC('<img src="../images/950037_photo.png">'), fetcher);
     expect(out).toContain('src="data:image/png;base64,');
   });
 
   it('<style> 内の url(../images/…) を置き換える(付け替え後の引用形でも)', async () => {
     const fetcher = fetcherForUrls({ [LOGO_URL]: LOGO_SVG });
     const out = await selfContainPreviewDoc(
-      DOC('<p class="a">x</p>', '<style>.a{background:url("../images/510037_logo.svg")}</style>'),
+      DOC('<p class="a">x</p>', '<style>.a{background:url("../images/950037_logo.svg")}</style>'),
       fetcher,
     );
     expect(out).toContain('url(data:image/svg+xml;base64,');
@@ -253,8 +253,8 @@ describe('ファンド別画像の data: URI 化', () => {
 
   it('違反 SVG(単体配信ルートが 404)は埋めず原文のまま', async () => {
     const fetcher = fetcherForUrls({});
-    const out = await selfContainPreviewDoc(DOC('<img src="../images/510037_bad.svg">'), fetcher);
-    expect(out).toContain('src="../images/510037_bad.svg"');
+    const out = await selfContainPreviewDoc(DOC('<img src="../images/950037_bad.svg">'), fetcher);
+    expect(out).toContain('src="../images/950037_bad.svg"');
   });
 
   it('2 段以上の下・許可外拡張子・images 以外・文書直下基準・会社コード不明の会社フォルダは取りに行かない', async () => {
@@ -262,7 +262,7 @@ describe('ファンド別画像の data: URI 化', () => {
     await selfContainPreviewDoc(
       DOC(
         '<img src="../images/a/b/c.svg"><img src="../images/a.gif"><img src="../photos/a.png">' +
-          '<img src="images/510037_logo.svg"><img src="../images/smtam/qr_code.svg">',
+          '<img src="images/950037_logo.svg"><img src="../images/xxam/qr_code.svg">',
       ),
       fetcher,
     );
@@ -271,14 +271,14 @@ describe('ファンド別画像の data: URI 化', () => {
 
   it('上限を超える画像は埋めない', async () => {
     const big = new Uint8Array(8 * 1024 * 1024 + 1);
-    const fetcher = fetcherForUrls({ '/api/fund-assets/images/510037_big.png': big });
-    const out = await selfContainPreviewDoc(DOC('<img src="../images/510037_big.png">'), fetcher);
-    expect(out).toContain('src="../images/510037_big.png"');
+    const fetcher = fetcherForUrls({ '/api/fund-assets/images/950037_big.png': big });
+    const out = await selfContainPreviewDoc(DOC('<img src="../images/950037_big.png">'), fetcher);
+    expect(out).toContain('src="../images/950037_big.png"');
   });
 
   it('同じ画像は 1 回しか取りに行かない', async () => {
     const fetcher = fetcherForUrls({ [LOGO_URL]: LOGO_SVG });
-    const doc = DOC('<img src="../images/510037_logo.svg"><img src="../images/510037_logo.svg">');
+    const doc = DOC('<img src="../images/950037_logo.svg"><img src="../images/950037_logo.svg">');
     await selfContainPreviewDoc(doc, fetcher);
     await selfContainPreviewDoc(doc, fetcher);
     expect(fetcher).toHaveBeenCalledTimes(1);
@@ -289,19 +289,19 @@ describe('ファンド別画像の data: URI 化', () => {
   });
 
   it('会社フォルダの画像は会社コードと大文字小文字の違いだけで一致するときだけ埋める', async () => {
-    const QR = '/api/fund-assets/images/smtam/qr_code.svg';
+    const QR = '/api/fund-assets/images/xxam/qr_code.svg';
     const fetcher = fetcherForUrls({ [QR]: LOGO_SVG });
-    const doc = DOC('<img src="../images/smtam/qr_code.svg">');
-    const other = await selfContainPreviewDoc(doc, fetcher, { companyCode: 'AM01' });
-    expect(other).toContain('src="../images/smtam/qr_code.svg"');
+    const doc = DOC('<img src="../images/xxam/qr_code.svg">');
+    const other = await selfContainPreviewDoc(doc, fetcher, { companyCode: 'XX01' });
+    expect(other).toContain('src="../images/xxam/qr_code.svg"');
     expect(fetcher).not.toHaveBeenCalled();
-    const same = await selfContainPreviewDoc(doc, fetcher, { companyCode: 'SMTAM' });
+    const same = await selfContainPreviewDoc(doc, fetcher, { companyCode: 'XXAM' });
     expect(fetcher).toHaveBeenCalledWith(QR);
     expect(same).toContain('src="data:image/svg+xml;base64,');
   });
 
   it('付け替え済みの本文 CSS(../css/fonts/…)と CSS 内の会社フォルダ画像も埋める', async () => {
-    const QR = '/api/fund-assets/images/SMTAM/bg.svg';
+    const QR = '/api/fund-assets/images/XXAM/bg.svg';
     const fetcher = vi.fn(async (url: string): Promise<Response> => {
       if (url === QR) return new Response(LOGO_SVG, { status: 200 });
       if (url === '/api/preview-host/css/fonts/a.woff2') {
@@ -310,12 +310,12 @@ describe('ファンド別画像の data: URI 化', () => {
       return new Response(null, { status: 404 });
     });
     const css =
-      '@font-face{src:url("../css/fonts/a.woff2")}.p{background:url("../images/SMTAM/bg.svg")}';
+      '@font-face{src:url("../css/fonts/a.woff2")}.p{background:url("../images/XXAM/bg.svg")}';
     const out = await selfContainPreviewDoc(
       DOC('<p class="p">x</p>', `<style>${css}</style>`),
       fetcher,
       {
-        companyCode: 'smtam',
+        companyCode: 'xxam',
       },
     );
     expect(out).toContain('data:font/woff2;base64,');
@@ -323,13 +323,13 @@ describe('ファンド別画像の data: URI 化', () => {
   });
 
   it('日本語名は部分ごとに符号化した URL で取り、符号化済みの参照も同じ URL で取る', async () => {
-    const JA = '110024_基準価額等の推移.svg';
-    const url = `/api/fund-assets/images/smtam/${encodeURIComponent(JA)}`;
+    const JA = '910024_基準価額等の推移.svg';
+    const url = `/api/fund-assets/images/xxam/${encodeURIComponent(JA)}`;
     const fetcher = fetcherForUrls({ [url]: LOGO_SVG });
     const out = await selfContainPreviewDoc(
-      DOC(`<img src="../images/smtam/${JA}"><img src="../images/smtam/${encodeURIComponent(JA)}">`),
+      DOC(`<img src="../images/xxam/${JA}"><img src="../images/xxam/${encodeURIComponent(JA)}">`),
       fetcher,
-      { companyCode: 'SMTAM' },
+      { companyCode: 'XXAM' },
     );
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledWith(url);

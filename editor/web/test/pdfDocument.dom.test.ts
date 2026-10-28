@@ -53,13 +53,13 @@ describe('renderPdfDocument', () => {
   // ディスクの旧 per-fund CSS から復活し、プレビューと PDF が食い違う。
   it('同梱資産への相対参照(link / script src)は残す', async () => {
     const html =
-      '<html><head><link rel="stylesheet" href="../css/AM01_510037_交付版.css">' +
+      '<html><head><link rel="stylesheet" href="../css/XX01_950037_交付版.css">' +
       '<script src="../js/column-width.js"></scr' +
       'ipt></head><body>x</body></html>';
     const res = await renderPdfDocument(html, '', {});
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
-      expect(res.value.html).toContain('../css/AM01_510037_交付版.css');
+      expect(res.value.html).toContain('../css/XX01_950037_交付版.css');
       expect(res.value.html).toContain('../js/column-width.js');
     }
   });
@@ -136,19 +136,18 @@ describe('renderPdfDocument', () => {
   it('会社フォルダが会社コードと合わない画像は <img src>・<style>・css の url() から落とす', async () => {
     const html =
       '<html><head><style>.h{background:url(../images/other/h.svg)}</style></head><body>' +
-      '<img src="../images/smtam/qr.svg"><img src="../images/other/x.svg">' +
-      '<img src="../images/510037_logo.svg"></body></html>';
-    const css =
-      '.b{background:url(../images/other/c.svg)}.c{background:url(../images/SMTAM/d.svg)}';
-    const res = await renderPdfDocument(html, css, {}, { skipJinja: true, companyCode: 'SMTAM' });
+      '<img src="../images/xxam/qr.svg"><img src="../images/other/x.svg">' +
+      '<img src="../images/950037_logo.svg"></body></html>';
+    const css = '.b{background:url(../images/other/c.svg)}.c{background:url(../images/XXAM/d.svg)}';
+    const res = await renderPdfDocument(html, css, {}, { skipJinja: true, companyCode: 'XXAM' });
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
-    expect(res.value.html).toContain('src="../images/smtam/qr.svg"');
-    expect(res.value.html).toContain('src="../images/510037_logo.svg"');
+    expect(res.value.html).toContain('src="../images/xxam/qr.svg"');
+    expect(res.value.html).toContain('src="../images/950037_logo.svg"');
     expect(res.value.html).not.toContain('other/x.svg');
     expect(res.value.html).not.toContain('other/h.svg');
     expect(res.value.css).not.toContain('other/c.svg');
-    expect(res.value.css).toContain('url(../images/SMTAM/d.svg)');
+    expect(res.value.css).toContain('url(../images/XXAM/d.svg)');
   });
 
   it('外部参照の文言は文書基準の相対パスを案内する', () => {
@@ -158,34 +157,34 @@ describe('renderPdfDocument', () => {
   it('会社フォルダが会社コードと合わない画像は style 属性の url() からも落とし、合うものは残す', async () => {
     const html =
       '<html><body><div style="background:url(../images/other/s.svg)">a</div>' +
-      '<div style="background:url(../images/smtam/t.svg)">b</div>' +
-      '<div style="background:url(../images/510037_u.svg)">c</div></body></html>';
-    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'SMTAM' });
+      '<div style="background:url(../images/xxam/t.svg)">b</div>' +
+      '<div style="background:url(../images/950037_u.svg)">c</div></body></html>';
+    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'XXAM' });
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.html).not.toContain('other/s.svg');
-    expect(res.value.html).toContain('url(../images/smtam/t.svg)');
-    expect(res.value.html).toContain('url(../images/510037_u.svg)');
+    expect(res.value.html).toContain('url(../images/xxam/t.svg)');
+    expect(res.value.html).toContain('url(../images/950037_u.svg)');
   });
 
   it('会社フォルダが合わない画像は srcset・<source srcset>・<input src>・<video poster> からも落とす', async () => {
     const html =
       '<html><body>' +
-      '<img src="../images/smtam/a.svg" srcset="../images/smtam/a.svg 1x, ../images/other/a2.svg 2x">' +
-      '<picture><source srcset="../images/other/p.svg"><img src="../images/smtam/p.svg"></picture>' +
+      '<img src="../images/xxam/a.svg" srcset="../images/xxam/a.svg 1x, ../images/other/a2.svg 2x">' +
+      '<picture><source srcset="../images/other/p.svg"><img src="../images/xxam/p.svg"></picture>' +
       '<input type="image" src="../images/other/i.svg" alt="i">' +
       '<video poster="../images/other/v.svg"></video>' +
-      '<video poster="../images/SMTAM/ok.svg"></video>' +
-      '<img srcset="../images/smtam/k.svg 1x">' +
+      '<video poster="../images/XXAM/ok.svg"></video>' +
+      '<img srcset="../images/xxam/k.svg 1x">' +
       '</body></html>';
-    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'SMTAM' });
+    const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'XXAM' });
     expect(isOk(res)).toBe(true);
     if (!isOk(res)) return;
     expect(res.value.html).not.toContain('other/');
-    expect(res.value.html).toContain('src="../images/smtam/a.svg"');
-    expect(res.value.html).toContain('src="../images/smtam/p.svg"');
-    expect(res.value.html).toContain('poster="../images/SMTAM/ok.svg"');
-    expect(res.value.html).toContain('srcset="../images/smtam/k.svg 1x"');
+    expect(res.value.html).toContain('src="../images/xxam/a.svg"');
+    expect(res.value.html).toContain('src="../images/xxam/p.svg"');
+    expect(res.value.html).toContain('poster="../images/XXAM/ok.svg"');
+    expect(res.value.html).toContain('srcset="../images/xxam/k.svg 1x"');
   });
 });
 

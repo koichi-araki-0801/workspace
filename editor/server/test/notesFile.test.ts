@@ -6,7 +6,7 @@ import { readNotes } from '../src/files/notesFile.js';
 describe('notesFile templateId validation', () => {
   it('accepts a templateId whose editionType is non-ASCII', async () => {
     // 4 トークンの命名規則に一致(版種が日本語)。ファイルは無いので {} が返る。
-    await expect(readNotes('AM01_510037_20240710_全体版')).resolves.toEqual({});
+    await expect(readNotes('XX01_950037_20240710_全体版')).resolves.toEqual({});
   });
 
   it('rejects path-traversal / separator-bearing ids', async () => {
@@ -17,11 +17,11 @@ describe('notesFile templateId validation', () => {
 
   it('rejects ids that are neither a template (3 tokens) nor a filled id (4 tokens)', async () => {
     await expect(readNotes('notatemplate')).rejects.toMatchObject({ kind: 'validation' });
-    await expect(readNotes('AM01_510037')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(readNotes('XX01_950037')).rejects.toMatchObject({ kind: 'validation' });
     await expect(readNotes('A_B_C_D_E')).rejects.toMatchObject({ kind: 'validation' });
   });
 
   it('accepts a template id without a base date (3 tokens)', async () => {
-    await expect(readNotes('AM01_510037_全体版')).resolves.toEqual({});
+    await expect(readNotes('XX01_950037_全体版')).resolves.toEqual({});
   });
 });

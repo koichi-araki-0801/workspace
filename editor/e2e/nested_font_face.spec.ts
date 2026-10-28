@@ -8,7 +8,7 @@
 import { expect, test } from './fixtures';
 import { login, openEditor, readDraft, selectPart } from './helpers';
 
-const SEED_ID = 'AM01_510037_20240710_交付版';
+const SEED_ID = 'XX01_950037_20240710_交付版';
 const FACE = '@font-face{font-family:"E2E Nested";src:url(fonts/none.woff2) format("woff2")}';
 const CSS = `.pagebreak { break-after: page; }\n@media print{${FACE}.part-a{color:#123456}}`;
 const BODY = '<p class="part-a">A</p><p class="part-b">B</p>';

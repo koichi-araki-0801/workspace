@@ -328,12 +328,12 @@ describe('PreviewPanel — postMessage クライアント', () => {
     const spy = selfContainPreviewDoc as ReturnType<typeof vi.fn>;
     spy.mockClear();
     const wrapper = mount(PreviewPanel, {
-      props: { html: '<p>c</p>', companyCode: 'SMTAM' },
+      props: { html: '<p>c</p>', companyCode: 'XXAM' },
       attachTo: document.body,
     });
     deliver({ type: 'editor:preview-ready' }, frameWindow(wrapper));
     await flushPromises();
-    expect(spy).toHaveBeenCalledWith('<p>c</p>', undefined, { companyCode: 'SMTAM' });
+    expect(spy).toHaveBeenCalledWith('<p>c</p>', undefined, { companyCode: 'XXAM' });
     wrapper.unmount();
   });
 });

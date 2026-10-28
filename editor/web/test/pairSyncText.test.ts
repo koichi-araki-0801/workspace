@@ -8,7 +8,7 @@ import { cssRuleLabel, pairSyncConflictText, pairSyncResultText } from '@/lib/pa
 const k = (...parts: Array<string | number>): string => JSON.stringify(parts);
 
 const status = (over: Partial<PairSyncStatus>): PairSyncStatus => ({
-  pairTemplateId: 'AM01_510037_20240710_全体版',
+  pairTemplateId: 'XX01_950037_20240710_全体版',
   pairExists: true,
   conflicts: [],
   valueChecks: [],
@@ -16,7 +16,7 @@ const status = (over: Partial<PairSyncStatus>): PairSyncStatus => ({
   ...over,
 });
 const summary = (over: Partial<PairSyncSummary>): PairSyncSummary => ({
-  pairTemplateId: 'AM01_510037_20240710_全体版',
+  pairTemplateId: 'XX01_950037_20240710_全体版',
   applied: [],
   skipped: [],
   valueWarnings: [],
@@ -38,7 +38,7 @@ describe('pairSyncConflictText', () => {
         status({ valueChecks: [{ partKey: 'j#1', reasons: [reason], detectedAt: 't' }] }),
       ),
     ).toBe(
-      `ペア（AM01_510037_20240710_全体版）から写した 1 件のパーツの値を確かめてください: j#1〔${reason}〕`,
+      `ペア（XX01_950037_20240710_全体版）から写した 1 件のパーツの値を確かめてください: j#1〔${reason}〕`,
     );
   });
 
@@ -50,7 +50,7 @@ describe('pairSyncConflictText', () => {
       }),
     );
     expect(text).toContain('p#1〔両側変更〕');
-    expect(text).toContain('。ペア（AM01_510037_20240710_全体版）から写した 1 件のパーツの値を');
+    expect(text).toContain('。ペア（XX01_950037_20240710_全体版）から写した 1 件のパーツの値を');
     expect(text).toContain('j#1〔a。b〕');
   });
 
@@ -60,7 +60,7 @@ describe('pairSyncConflictText', () => {
         status({ conflicts: [{ partKey: 'p#1', kind: '両側変更', detectedAt: 't' }] }),
       ),
     ).toBe(
-      'ペア（AM01_510037_20240710_全体版）と 1 件のパーツが競合しています（自動同期停止中）: p#1〔両側変更〕',
+      'ペア（XX01_950037_20240710_全体版）と 1 件のパーツが競合しています（自動同期停止中）: p#1〔両側変更〕',
     );
   });
 
@@ -73,12 +73,12 @@ describe('pairSyncConflictText', () => {
         }),
       ),
     ).toBe(
-      'ペア（AM01_510037_20240710_全体版）と 1 件のパーツと書式の規則 1 件が競合しています（自動同期停止中）: p#1〔初期差分〕、書式 .a',
+      'ペア（XX01_950037_20240710_全体版）と 1 件のパーツと書式の規則 1 件が競合しています（自動同期停止中）: p#1〔初期差分〕、書式 .a',
     );
     expect(
       pairSyncConflictText(status({ cssConflicts: [{ ruleKey: k('.a'), detectedAt: 't' }] })),
     ).toBe(
-      'ペア（AM01_510037_20240710_全体版）と 書式の規則 1 件が競合しています（自動同期停止中）: 書式 .a',
+      'ペア（XX01_950037_20240710_全体版）と 書式の規則 1 件が競合しています（自動同期停止中）: 書式 .a',
     );
   });
 
@@ -167,21 +167,21 @@ describe('pairSyncResultText', () => {
 
   it('失敗は error', () => {
     expect(pairSyncResultText(summary({ error: '読めない' }))).toEqual({
-      text: 'ペア(AM01_510037_20240710_全体版)への自動同期に失敗しました: 読めない',
+      text: 'ペア(XX01_950037_20240710_全体版)への自動同期に失敗しました: 読めない',
       variant: 'error',
     });
   });
 
   it('パーツだけなら今の文言のまま、CSS を写したら規則数を添える', () => {
     expect(pairSyncResultText(summary({ applied: ['p#1'] }))?.text).toBe(
-      'ペア AM01_510037_20240710_全体版 へ 1 パーツを自動同期しました',
+      'ペア XX01_950037_20240710_全体版 へ 1 パーツを自動同期しました',
     );
     expect(
       pairSyncResultText(
         summary({ applied: ['p#1'], css: { applied: ['.a', '.b'], conflicts: ['.c'] } }),
       )?.text,
     ).toBe(
-      'ペア AM01_510037_20240710_全体版 へ 1 パーツ・書式 2 規則を自動同期しました・スキップ 1 件(要確認)',
+      'ペア XX01_950037_20240710_全体版 へ 1 パーツ・書式 2 規則を自動同期しました・スキップ 1 件(要確認)',
     );
   });
 
@@ -197,7 +197,7 @@ describe('pairSyncResultText', () => {
         }),
       )?.text,
     ).toBe(
-      'ペア AM01_510037_20240710_全体版 へ 2 パーツを自動同期しました。値の確認: ' +
+      'ペア XX01_950037_20240710_全体版 へ 2 パーツを自動同期しました。値の確認: ' +
         'j#1〔交付版の値のまま写したので、値を確かめてください〕、' +
         'k#1〔次の値が見つからないため空欄で写しました: fund.name〕',
     );

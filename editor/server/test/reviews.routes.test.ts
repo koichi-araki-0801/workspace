@@ -103,7 +103,7 @@ d('review workflow (HTTP routes)', () => {
   });
 
   it('POST /review-requests: 申請を積むが実ファイルは書かない', async () => {
-    const tplId = 'AM01_611111_20250101_交付版';
+    const tplId = 'XX01_611111_20250101_交付版';
     const res = await submit(asUser('editor1', 'editor'), tplId, '<p>{{ fund.name }} 申請</p>');
     expect(res.statusCode).toBe(200);
     const meta = res.json();
@@ -126,9 +126,9 @@ d('review workflow (HTTP routes)', () => {
   // 空白を持つ id が承認経路へ通る。SQL Server の `=` は末尾空白を無視するので、
   // 「ファイルは 2 つ・台帳は 1 行」の食い違いを作れる。
   it.each([
-    'AM01 _611111_20250101_交付版',
-    'AM01_611111_20250101_交付版 ',
-    'AM01._611111_20250101_交付版',
+    'XX01 _611111_20250101_交付版',
+    'XX01_611111_20250101_交付版 ',
+    'XX01._611111_20250101_交付版',
     '../etc/passwd',
   ])('POST /review-requests: 規約外の templateId(%j)は 400', async (templateId) => {
     const res = await app.inject({
@@ -141,7 +141,7 @@ d('review workflow (HTTP routes)', () => {
   });
 
   it('GET /review-requests: editor は自分の申請のみ、approver は全件', async () => {
-    await submit(asUser('editor2', 'editor'), 'AM01_622222_20250101_交付版', '<p>e2</p>');
+    await submit(asUser('editor2', 'editor'), 'XX01_622222_20250101_交付版', '<p>e2</p>');
 
     const mine = await app.inject({
       method: 'GET',
@@ -182,7 +182,7 @@ d('review workflow (HTTP routes)', () => {
   });
 
   it('POST approve: approver が承認すると実ファイルへ反映し approved になる', async () => {
-    const tplId = 'AM01_633333_20250101_交付版';
+    const tplId = 'XX01_633333_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>{{ fund.name }} 反映済</p>');
     const reqId = sub.json().id;
 
@@ -207,7 +207,7 @@ d('review workflow (HTTP routes)', () => {
   it('GET /review-requests/:reqId: 他人の申請は editor から 403、本人/approver は 200', async () => {
     const sub = await submit(
       asUser('editor1', 'editor'),
-      'AM01_677777_20250101_交付版',
+      'XX01_677777_20250101_交付版',
       '<p>秘</p>',
     );
     const reqId = sub.json().id;
@@ -236,7 +236,7 @@ d('review workflow (HTTP routes)', () => {
 
   it('GET /review-requests/:reqId は cssBaseline を返さない(承認画面は使わない。保存はする)', async () => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-    const templateId = 'AM01_678888_20250101_交付版';
+    const templateId = 'XX01_678888_20250101_交付版';
     fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
     const sub = await app.inject({
       method: 'POST',
@@ -258,7 +258,7 @@ d('review workflow (HTTP routes)', () => {
   });
 
   it('POST: 同じ人の同じ内容の 2 回目は 409 で、body.code は REVIEW_DUPLICATE', async () => {
-    const tplId = 'AM01_633333_20250101_交付版';
+    const tplId = 'XX01_633333_20250101_交付版';
     const first = await submit(asUser('editor1', 'editor'), tplId, '<p>重複 HTTP</p>');
     expect(first.statusCode).toBe(200);
     const second = await submit(asUser('editor1', 'editor'), tplId, '<p>重複 HTTP</p>');
@@ -269,7 +269,7 @@ d('review workflow (HTTP routes)', () => {
   it('POST approve: 決定済みの申請は 409', async () => {
     const sub = await submit(
       asUser('editor1', 'editor'),
-      'AM01_644444_20250101_交付版',
+      'XX01_644444_20250101_交付版',
       '<p>y</p>',
     );
     const reqId = sub.json().id;
@@ -291,7 +291,7 @@ d('review workflow (HTTP routes)', () => {
   it('POST approve: 自己承認(申請者==承認者・非admin)は 403', async () => {
     const sub = await submit(
       asUser('editor1', 'editor'),
-      'AM01_655555_20250101_交付版',
+      'XX01_655555_20250101_交付版',
       '<p>z</p>',
     );
     const reqId = sub.json().id;
@@ -305,7 +305,7 @@ d('review workflow (HTTP routes)', () => {
   });
 
   it('POST reject: 実ファイルを書かず rejected になる', async () => {
-    const tplId = 'AM01_666666_20250101_交付版';
+    const tplId = 'XX01_666666_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>却下対象</p>');
     const reqId = sub.json().id;
     const res = await app.inject({
@@ -323,7 +323,7 @@ d('review workflow (HTTP routes)', () => {
   // 申請のやり直しが当てずっぽうになり、監査ログにも判断の根拠が残らない。
   // 画面側で入力を必須にするだけでは、API を直接叩く経路が素通りする。
   it('POST reject: 理由が無ければ 400 で拒否し、申請を未決のまま残す', async () => {
-    const tplId = 'AM01_667777_20250101_交付版';
+    const tplId = 'XX01_667777_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>理由なしの却下</p>');
     const reqId = sub.json().id;
     // 空ボディ・空文字・空白のみは、いずれも「理由を書いた」ことにならない。
@@ -347,7 +347,7 @@ d('review workflow (HTTP routes)', () => {
   // 必須にするのは却下理由だけ。承認メモまで必須にすると、通すだけの承認で
   // 意味のない文字列を書かせることになる。
   it('POST approve: メモが無くても通る', async () => {
-    const tplId = 'AM01_668888_20250101_交付版';
+    const tplId = 'XX01_668888_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>メモなしの承認</p>');
     const res = await app.inject({
       method: 'POST',
@@ -389,7 +389,7 @@ d('review workflow (HTTP routes)', () => {
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
       payload: {
-        templateId: 'AM01_611111_20250101_交付版',
+        templateId: 'XX01_611111_20250101_交付版',
         html: '<p>x</p>',
         css: '',
         origin: 'create',

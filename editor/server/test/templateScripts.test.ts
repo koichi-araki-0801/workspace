@@ -15,7 +15,7 @@ import {
   expandEncodedChips,
 } from '../src/security/templateScripts.js';
 
-const CTX = { templateId: 'AM01_510037_20240710_交付版', where: 'test' };
+const CTX = { templateId: 'XX01_950037_20240710_交付版', where: 'test' };
 
 describe('走査の作業量が入力長に対して線形に収まる(DoS)', () => {
   // いずれも二次だった実装では数分〜停止に達した形。線形化と byte 予算で必ず返ることを

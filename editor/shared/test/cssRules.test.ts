@@ -488,7 +488,7 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
   // 外部ツールが書いた原文(承認前のファイル)。一括指定・16 進色・引用符なしの url を含む。
   const rawBase = [
     '.cover-title{color:#003366}',
-    '.bg{background:url(../images/110024_bg.svg) center}',
+    '.bg{background:url(../images/910024_bg.svg) center}',
     '.page{padding:10mm}',
     '@font-face{font-family:T;src:url(fonts/t.woff2)}',
     '',
@@ -497,7 +497,7 @@ describe('mergeCssRuleChangesFromBaseline — 変更は GrapesJS 形、ペア側
   // @font-face の末尾移動)。
   const gjs = (coverTitle: string): string =>
     `.cover-title{${coverTitle}}` +
-    '.bg{background-image:url("../images/110024_bg.svg");background-position-x:center;' +
+    '.bg{background-image:url("../images/910024_bg.svg");background-position-x:center;' +
     'background-position-y:center;background-repeat:initial;background-attachment:initial;' +
     'background-origin:initial;background-clip:initial;background-size:initial;' +
     'background-color:initial;}' +

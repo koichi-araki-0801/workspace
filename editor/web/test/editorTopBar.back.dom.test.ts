@@ -11,7 +11,7 @@ import { REPOS_KEY } from '@/api/repositories';
 import EditorTopBar from '@/features/editor/EditorTopBar.vue';
 
 const props = {
-  fundName: 'AM01_510037_20240710_交付版',
+  fundName: 'XX01_950037_20240710_交付版',
   dirty: false,
   saveState: 'idle',
   statusText: '',

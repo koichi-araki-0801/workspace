@@ -87,7 +87,7 @@ describe('本文の検証', () => {
 
 describe('POST /templates/:templateId/notes(HTTP 結合)', () => {
   let app: FastifyInstance;
-  const ID = 'AM01_510037_20240710_交付版';
+  const ID = 'XX01_950037_20240710_交付版';
   const url = `/templates/${encodeURIComponent(ID)}/notes`;
 
   beforeAll(async () => {

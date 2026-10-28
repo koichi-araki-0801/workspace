@@ -19,7 +19,7 @@ afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 describe('readSyncState', () => {
   it('未作成なら空状態、書けば同じ内容が読み戻る(Zod の形で検証される)', async () => {
     const { readSyncState, writeSyncState } = await import('../src/files/syncFiles.js');
-    const key = 'AM01_510037_20240710';
+    const key = 'XX01_950037_20240710';
     const empty = await readSyncState(key);
     expect(empty.parts).toEqual({});
     await writeSyncState({
@@ -35,7 +35,7 @@ describe('readSyncState', () => {
 
   it('CSS の競合(css 欄)を持つ状態ファイルを書いて読み戻せる', async () => {
     const { readSyncState, writeSyncState } = await import('../src/files/syncFiles.js');
-    const key = 'AM01_510037_20240712';
+    const key = 'XX01_950037_20240712';
     await writeSyncState({
       pairKey: key,
       parts: {},
@@ -49,7 +49,7 @@ describe('readSyncState', () => {
 
   it('競合「ペア側先行」を持つ状態ファイルを読める(同期エンジンが書く種別)', async () => {
     const { readSyncState, writeSyncState } = await import('../src/files/syncFiles.js');
-    const key = 'AM01_510037_20240713';
+    const key = 'XX01_950037_20240713';
     await writeSyncState({
       pairKey: key,
       parts: {
@@ -62,7 +62,7 @@ describe('readSyncState', () => {
 
   it('新しい競合の種類(ペア側削除・照合不可)を含む状態ファイルを読める', async () => {
     const { readSyncState } = await import('../src/files/syncFiles.js');
-    const key = 'AM01_510037_20240715';
+    const key = 'XX01_950037_20240715';
     fs.mkdirSync(path.join(root, 'sync'), { recursive: true });
     fs.writeFileSync(
       path.join(root, 'sync', `${key}.json`),
@@ -96,7 +96,7 @@ describe('readSyncState', () => {
 
   it('新しい項目を持たない古い状態ファイルもそのまま読める', async () => {
     const { readSyncState } = await import('../src/files/syncFiles.js');
-    const key = 'AM01_510037_20240716';
+    const key = 'XX01_950037_20240716';
     fs.mkdirSync(path.join(root, 'sync'), { recursive: true });
     fs.writeFileSync(
       path.join(root, 'sync', `${key}.json`),
@@ -115,7 +115,7 @@ describe('readSyncState', () => {
 
   it('知らない競合の種類は形の崩れとして throw する', async () => {
     const { readSyncState } = await import('../src/files/syncFiles.js');
-    const key = 'AM01_510037_20240717';
+    const key = 'XX01_950037_20240717';
     fs.mkdirSync(path.join(root, 'sync'), { recursive: true });
     fs.writeFileSync(
       path.join(root, 'sync', `${key}.json`),
@@ -132,15 +132,15 @@ describe('readSyncState', () => {
   it('形の壊れたファイルは例外(黙って空状態にしない = 書き込み経路の入力にしない)', async () => {
     const { readSyncState } = await import('../src/files/syncFiles.js');
     fs.mkdirSync(path.join(root, 'sync'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'sync', 'AM01_510037_20240711.json'), '{"pairKey":1}', 'utf8');
-    await expect(readSyncState('AM01_510037_20240711')).rejects.toThrow();
+    fs.writeFileSync(path.join(root, 'sync', 'XX01_950037_20240711.json'), '{"pairKey":1}', 'utf8');
+    await expect(readSyncState('XX01_950037_20240711')).rejects.toThrow();
   });
 
   it('未作成以外の読み取り失敗は例外(空状態にして承認が記録を上書きしない)', async () => {
     const { readSyncState } = await import('../src/files/syncFiles.js');
     // 同名のディレクトリを置くと readFile は EISDIR で落ちる。空状態へ倒すと、承認が
     // lastSynced と競合の記録を失った状態で書き戻す。
-    fs.mkdirSync(path.join(root, 'sync', 'AM01_510037_20240714.json'), { recursive: true });
-    await expect(readSyncState('AM01_510037_20240714')).rejects.toThrow();
+    fs.mkdirSync(path.join(root, 'sync', 'XX01_950037_20240714.json'), { recursive: true });
+    await expect(readSyncState('XX01_950037_20240714')).rejects.toThrow();
   });
 });

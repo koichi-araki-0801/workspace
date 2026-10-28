@@ -24,28 +24,28 @@ describe('TEMPLATE_CSS_FROM', () => {
 
 describe('fundImageRefOf', () => {
   it('images 直下と 1 段下の許可拡張子だけを ref にする', () => {
-    expect(fundImageRefOf('images/510037_logo.svg')).toEqual({
+    expect(fundImageRefOf('images/950037_logo.svg')).toEqual({
       dir: null,
-      file: '510037_logo.svg',
+      file: '950037_logo.svg',
     });
-    expect(fundImageRefOf('images/110024_基準価額等の推移.svg')).toEqual({
+    expect(fundImageRefOf('images/910024_基準価額等の推移.svg')).toEqual({
       dir: null,
-      file: '110024_基準価額等の推移.svg',
+      file: '910024_基準価額等の推移.svg',
     });
-    expect(fundImageRefOf('images/510037_photo.JPG')).toEqual({
+    expect(fundImageRefOf('images/950037_photo.JPG')).toEqual({
       dir: null,
-      file: '510037_photo.JPG',
+      file: '950037_photo.JPG',
     });
-    expect(fundImageRefOf('images/smtam/qr_code.svg')).toEqual({
-      dir: 'smtam',
+    expect(fundImageRefOf('images/xxam/qr_code.svg')).toEqual({
+      dir: 'xxam',
       file: 'qr_code.svg',
     });
   });
 
   it.each([
     'images/a/b/x.svg',
-    'images/510037_anim.gif',
-    'css/510037_logo.svg',
+    'images/950037_anim.gif',
+    'css/950037_logo.svg',
     'images/',
     'images',
     'images//x.svg',
@@ -57,12 +57,12 @@ describe('fundImageRefOf', () => {
 
 describe('fundImageUrl / fundImageMime', () => {
   it('直下は :file、会社フォルダは :dir/:file の経路で、各部分を符号化する', () => {
-    expect(fundImageUrl({ dir: null, file: '510037_logo.svg' })).toBe(
-      '/api/fund-assets/images/510037_logo.svg',
+    expect(fundImageUrl({ dir: null, file: '950037_logo.svg' })).toBe(
+      '/api/fund-assets/images/950037_logo.svg',
     );
     expect(fundImageUrl({ dir: null, file: 'a b.svg' })).toBe('/api/fund-assets/images/a%20b.svg');
-    expect(fundImageUrl({ dir: 'smtam', file: 'qr_code.svg' })).toBe(
-      '/api/fund-assets/images/smtam/qr_code.svg',
+    expect(fundImageUrl({ dir: 'xxam', file: 'qr_code.svg' })).toBe(
+      '/api/fund-assets/images/xxam/qr_code.svg',
     );
     expect(fundImageUrl({ dir: 's m', file: 'a/b.svg' })).toBe(
       '/api/fund-assets/images/s%20m/a%2Fb.svg',
@@ -80,47 +80,47 @@ describe('fundImageUrl / fundImageMime', () => {
 describe('companyFolderMatches', () => {
   it('直下の画像は会社コードに関係なく表示してよい', () => {
     expect(companyFolderMatches({ dir: null, file: 'x.svg' }, null)).toBe(true);
-    expect(companyFolderMatches({ dir: null, file: 'x.svg' }, 'SMTAM')).toBe(true);
+    expect(companyFolderMatches({ dir: null, file: 'x.svg' }, 'XXAM')).toBe(true);
   });
 
   it('会社フォルダは大文字小文字の違いだけを許す', () => {
-    expect(companyFolderMatches({ dir: 'smtam', file: 'x.svg' }, 'SMTAM')).toBe(true);
-    expect(companyFolderMatches({ dir: 'SMTAM', file: 'x.svg' }, 'smtam')).toBe(true);
-    expect(companyFolderMatches({ dir: 'smtam', file: 'x.svg' }, 'AM01')).toBe(false);
-    expect(companyFolderMatches({ dir: 'smtam', file: 'x.svg' }, null)).toBe(false);
+    expect(companyFolderMatches({ dir: 'xxam', file: 'x.svg' }, 'XXAM')).toBe(true);
+    expect(companyFolderMatches({ dir: 'XXAM', file: 'x.svg' }, 'xxam')).toBe(true);
+    expect(companyFolderMatches({ dir: 'xxam', file: 'x.svg' }, 'XX01')).toBe(false);
+    expect(companyFolderMatches({ dir: 'xxam', file: 'x.svg' }, null)).toBe(false);
   });
 });
 
 describe('companyCodeOfTemplateId', () => {
   it('値入り HTML(4 つ区切り)とテンプレ(3 つ区切り)の ID から会社コードを取る', () => {
-    expect(companyCodeOfTemplateId('SMTAM_110024_2024-05-17_交付版')).toBe('SMTAM');
-    expect(companyCodeOfTemplateId('SMTAM_110024_交付版')).toBe('SMTAM');
+    expect(companyCodeOfTemplateId('XXAM_910024_2024-05-17_交付版')).toBe('XXAM');
+    expect(companyCodeOfTemplateId('XXAM_910024_交付版')).toBe('XXAM');
     expect(companyCodeOfTemplateId('規約外')).toBeNull();
   });
 });
 
 describe('servedFundImageOf', () => {
   it('文書からの ../images/… と CSS からの ../images/… を同じ ref に解く', () => {
-    expect(servedFundImageOf('../images/510037_logo.svg', 'doc', null)).toEqual({
+    expect(servedFundImageOf('../images/950037_logo.svg', 'doc', null)).toEqual({
       dir: null,
-      file: '510037_logo.svg',
+      file: '950037_logo.svg',
     });
-    expect(servedFundImageOf('../images/510037_logo.svg', TEMPLATE_CSS_FROM, null)).toEqual({
+    expect(servedFundImageOf('../images/950037_logo.svg', TEMPLATE_CSS_FROM, null)).toEqual({
       dir: null,
-      file: '510037_logo.svg',
+      file: '950037_logo.svg',
     });
-    expect(servedFundImageOf('../images/smtam/qr_code.svg', 'doc', 'SMTAM')).toEqual({
-      dir: 'smtam',
+    expect(servedFundImageOf('../images/xxam/qr_code.svg', 'doc', 'XXAM')).toEqual({
+      dir: 'xxam',
       file: 'qr_code.svg',
     });
   });
 
   it.each([
-    ['images/510037_logo.svg', 'SMTAM'],
-    ['../../images/510037_logo.svg', 'SMTAM'],
-    ['../images/smtam/qr_code.svg', 'AM01'],
-    ['../images/a/b/c.svg', 'SMTAM'],
-    ['https://evil.example/images/x.svg', 'SMTAM'],
+    ['images/950037_logo.svg', 'XXAM'],
+    ['../../images/950037_logo.svg', 'XXAM'],
+    ['../images/xxam/qr_code.svg', 'XX01'],
+    ['../images/a/b/c.svg', 'XXAM'],
+    ['https://evil.example/images/x.svg', 'XXAM'],
   ])('%s(会社 %s)は表示しない', (url, company) => {
     expect(servedFundImageOf(url, 'doc', company)).toBeUndefined();
   });
@@ -130,12 +130,12 @@ describe('dropUnmatchedCompanyImageUrls', () => {
   it('会社フォルダが合わない画像の url() だけを none にする', () => {
     const css =
       '.a{background:url(../images/other/a.svg)}' +
-      '.b{background:url(../images/SMTAM/b.svg)}' +
+      '.b{background:url(../images/XXAM/b.svg)}' +
       '.c{background:url(../images/c.svg)}' +
       '@font-face{src:url(fonts/x.woff2)}';
-    expect(dropUnmatchedCompanyImageUrls(css, TEMPLATE_CSS_FROM, 'smtam')).toBe(
+    expect(dropUnmatchedCompanyImageUrls(css, TEMPLATE_CSS_FROM, 'xxam')).toBe(
       '.a{background:none}' +
-        '.b{background:url(../images/SMTAM/b.svg)}' +
+        '.b{background:url(../images/XXAM/b.svg)}' +
         '.c{background:url(../images/c.svg)}' +
         '@font-face{src:url(fonts/x.woff2)}',
     );
@@ -145,13 +145,13 @@ describe('dropUnmatchedCompanyImageUrls', () => {
 // サーバは配信ルートの :dir / :file を復号して元の綴りで探す。日本語名は各部分を
 // 符号化した URL で取りに行き、HTML に符号化済みで書かれた参照も同じ URL にする(二重符号化しない)。
 describe('日本語名の配信 URL', () => {
-  const JA = '110024_基準価額等の推移.svg';
+  const JA = '910024_基準価額等の推移.svg';
   const JA_ENC = encodeURIComponent(JA);
 
   it('直下・会社フォルダとも部分ごとに符号化する', () => {
     expect(fundImageUrl({ dir: null, file: JA })).toBe(`/api/fund-assets/images/${JA_ENC}`);
-    expect(fundImageUrl({ dir: 'smtam', file: 'qr_code.svg' })).toBe(
-      '/api/fund-assets/images/smtam/qr_code.svg',
+    expect(fundImageUrl({ dir: 'xxam', file: 'qr_code.svg' })).toBe(
+      '/api/fund-assets/images/xxam/qr_code.svg',
     );
     expect(fundImageUrl({ dir: '会社', file: JA })).toBe(
       `/api/fund-assets/images/${encodeURIComponent('会社')}/${JA_ENC}`,
@@ -168,25 +168,25 @@ describe('日本語名の配信 URL', () => {
   });
 
   it('会社フォルダの日本語名も符号化済みと生の綴りで同じ URL', () => {
-    const raw = servedFundImageOf(`../images/smtam/${JA}`, 'doc', 'SMTAM');
-    const enc = servedFundImageOf(`../images/smtam/${JA_ENC}`, TEMPLATE_CSS_FROM, 'SMTAM');
-    expect(raw).toEqual({ dir: 'smtam', file: JA });
+    const raw = servedFundImageOf(`../images/xxam/${JA}`, 'doc', 'XXAM');
+    const enc = servedFundImageOf(`../images/xxam/${JA_ENC}`, TEMPLATE_CSS_FROM, 'XXAM');
+    expect(raw).toEqual({ dir: 'xxam', file: JA });
     expect(enc).toEqual(raw);
-    expect(fundImageUrl(raw as FundImageRef)).toBe(`/api/fund-assets/images/smtam/${JA_ENC}`);
+    expect(fundImageUrl(raw as FundImageRef)).toBe(`/api/fund-assets/images/xxam/${JA_ENC}`);
   });
 });
 
 describe('classifyImageRel', () => {
   it('images/ の外・解けない参照は outside', () => {
-    expect(classifyImageRel('css/x.png', 'AM01')).toEqual({ kind: 'outside' });
-    expect(classifyImageRel('imagesx/a.png', 'AM01')).toEqual({ kind: 'outside' });
-    expect(classifyImageRel(undefined, 'AM01')).toEqual({ kind: 'outside' });
+    expect(classifyImageRel('css/x.png', 'XX01')).toEqual({ kind: 'outside' });
+    expect(classifyImageRel('imagesx/a.png', 'XX01')).toEqual({ kind: 'outside' });
+    expect(classifyImageRel(undefined, 'XX01')).toEqual({ kind: 'outside' });
   });
 
   it('images/ の中でも配信しない形(深さ・拡張子)は other', () => {
-    expect(classifyImageRel('images/a/b/c.png', 'AM01')).toEqual({ kind: 'other' });
-    expect(classifyImageRel('images/a.gif', 'AM01')).toEqual({ kind: 'other' });
-    expect(classifyImageRel('images/', 'AM01')).toEqual({ kind: 'other' });
+    expect(classifyImageRel('images/a/b/c.png', 'XX01')).toEqual({ kind: 'other' });
+    expect(classifyImageRel('images/a.gif', 'XX01')).toEqual({ kind: 'other' });
+    expect(classifyImageRel('images/', 'XX01')).toEqual({ kind: 'other' });
   });
 
   it('配信する画像は ref と会社フォルダの一致を返す', () => {
@@ -195,8 +195,8 @@ describe('classifyImageRel', () => {
       ref: { dir: null, file: 'a.png' },
       companyMatches: true,
     });
-    expect(classifyImageRel('images/am01/a.png', 'AM01')).toMatchObject({ companyMatches: true });
-    expect(classifyImageRel('images/zz/a.png', 'AM01')).toMatchObject({ companyMatches: false });
-    expect(classifyImageRel('images/am01/a.png', null)).toMatchObject({ companyMatches: false });
+    expect(classifyImageRel('images/xx01/a.png', 'XX01')).toMatchObject({ companyMatches: true });
+    expect(classifyImageRel('images/zz/a.png', 'XX01')).toMatchObject({ companyMatches: false });
+    expect(classifyImageRel('images/xx01/a.png', null)).toMatchObject({ companyMatches: false });
   });
 });

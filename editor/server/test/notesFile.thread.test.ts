@@ -16,7 +16,7 @@ async function importNotesFile(): Promise<typeof import('../src/files/notesFile.
   return import('../src/files/notesFile.js');
 }
 
-const TPL = 'AM01_510037_20240710_交付版';
+const TPL = 'XX01_950037_20240710_交付版';
 const KEY = '.page#1/cover#1';
 const KEY2 = '.page#1/cover#2';
 const notesPath = (): string => path.join(tmpRoot, 'notes', `${TPL}.json`);

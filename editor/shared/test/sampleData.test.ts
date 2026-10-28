@@ -66,15 +66,15 @@ describe('buildSampleData', () => {
   it('指定したパスへ実名を被せ、base は変えない', () => {
     const out = buildSampleData(
       BASE,
-      { fundName: '実ファンド', companyCode: 'AM01', companyName: '実会社' },
-      '510037',
+      { fundName: '実ファンド', companyCode: 'XX01', companyName: '実会社' },
+      '950037',
       { fundCode: 'f.c', fundName: 'f.n', companyCode: 'co.c', companyName: 'co.n' },
     );
     expect(out).toEqual({
       fund: { code: 'x', name: '共通名', keep: 1 },
       other: [1, 2],
-      f: { c: '510037', n: '実ファンド' },
-      co: { c: 'AM01', n: '実会社' },
+      f: { c: '950037', n: '実ファンド' },
+      co: { c: 'XX01', n: '実会社' },
     });
     expect(BASE).toEqual({ fund: { code: 'x', name: '共通名', keep: 1 }, other: [1, 2] });
   });
@@ -83,9 +83,9 @@ describe('buildSampleData', () => {
     const out = buildSampleData(
       BASE,
       { fundName: '実', companyCode: 'C', companyName: '社' },
-      '510037',
+      '950037',
     );
-    expect(out.fund).toEqual({ code: '510037', name: '実', keep: 1 });
+    expect(out.fund).toEqual({ code: '950037', name: '実', keep: 1 });
     expect(out.company).toEqual({ code: 'C', name: '社' });
   });
 
@@ -123,15 +123,15 @@ describe('buildSampleData', () => {
   });
 
   it('共通サンプルに版種・基準日を被せられる(applyTemplateAttributes と併用)', () => {
-    const out = applyTemplateAttributes(buildSampleData(sampleCommon, undefined, '510037'), ATTRS);
+    const out = applyTemplateAttributes(buildSampleData(sampleCommon, undefined, '950037'), ATTRS);
     const report = out.report as Record<string, unknown>;
     expect(report.editionType).toBe('交付版');
     expect(report.baseDate).toBe('2024年7月10日');
-    expect((out.fund as Record<string, unknown>).code).toBe('510037');
+    expect((out.fund as Record<string, unknown>).code).toBe('950037');
   });
 
   it('fund.navChange は number(テンプレの符号分岐 `>= 0` が動く型)', () => {
-    const out = buildSampleData(sampleCommon, undefined, '510037');
+    const out = buildSampleData(sampleCommon, undefined, '950037');
     expect(typeof (out.fund as Record<string, unknown>).navChange).toBe('number');
   });
 });
@@ -152,7 +152,7 @@ describe('生成器の骨組みの変数が、基準日の無いテンプレの�
   ];
   it.each(sources.map((s, i) => [i, s] as const))('骨組み %s', (_i, src) => {
     const loopVars = new Set([...src.matchAll(/\{%\s*for\s+(\w+)\s+in/g)].map((m) => m[1]));
-    const sample = applyTemplateAttributes(buildSampleData(sampleCommon, undefined, '510037'), {
+    const sample = applyTemplateAttributes(buildSampleData(sampleCommon, undefined, '950037'), {
       editionType: '全体版',
     });
     for (const [, expr] of src.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) {

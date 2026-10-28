@@ -37,13 +37,13 @@ vi.mock('@/features/preview/services/templatePreviewService', async (importOrigi
   };
 });
 
-const ID = 'AM01_510037_20240710_交付版';
+const ID = 'XX01_950037_20240710_交付版';
 const tpl: Template = {
   meta: {
     id: ID,
     attributes: {
-      companyCode: 'AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      fundCode: '950037',
       baseDate: '20240710',
       editionType: '交付版',
     },

@@ -34,8 +34,8 @@ const d = gitAvailable ? describe : describe.skip;
 d('申請本文の編集用の印(両経路)', () => {
   let reviews: import('../src/repositories/reviewRepo.js').ReviewRepo;
   const submitter = { username: 'editor1', role: 'editor' };
-  const CREATE_ID = 'AM01_510037_交付版';
-  const EDIT_ID = 'AM01_510037_20240710_交付版';
+  const CREATE_ID = 'XX01_950037_交付版';
+  const EDIT_ID = 'XX01_950037_20240710_交付版';
   const RT = '<p><!--jinja-rt:o:1:e3sgaWYgYSAlfQ==-->x</p>';
   const CHIP = '<p><span data-gjs-type="jinja-var" data-jinja="e3sgYSB9fQ==">1</span></p>';
   const CLONE = '<table><tbody><tr data-jinja-loop-clone=""><td>1</td></tr></tbody></table>';

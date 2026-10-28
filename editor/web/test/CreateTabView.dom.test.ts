@@ -33,14 +33,14 @@ vi.mock('@/components/ui/toast', () => ({
 vi.mock('@/components/ui/confirm', () => ({ confirm: confirmMock }));
 
 const COMPANIES: CompanyOption[] = [
-  { companyCode: 'AM01', companyName: '会社 1', rep1CompanyCode: 'R-AM01' },
+  { companyCode: 'XX01', companyName: '会社 1', rep1CompanyCode: 'R-XX01' },
 ];
-const FUNDS: FundOption[] = [{ fundCode: '510037', fundName: 'ファンド' }];
-const SERIES = [{ fundCode: '510003', fundName: '安定型', hasTemplate: true }];
-const ID = 'AM01_510037_交付版';
+const FUNDS: FundOption[] = [{ fundCode: '950037', fundName: 'ファンド' }];
+const SERIES = [{ fundCode: '950003', fundName: '安定型', hasTemplate: true }];
+const ID = 'XX01_950037_交付版';
 
 function mountWith(info: CreatableInfo) {
-  Object.assign(routeQuery, { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' });
+  Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' });
   const templates = {
     listCompanies: vi.fn(async () => ok(COMPANIES)),
     listFunds: vi.fn(async () => ok(FUNDS)),
@@ -50,7 +50,7 @@ function mountWith(info: CreatableInfo) {
         template: {
           meta: {
             id: ID,
-            attributes: { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' },
+            attributes: { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' },
             fileName: `${ID}.html`,
             status: 'draft',
             updatedAt: null,
@@ -138,7 +138,7 @@ describe('CreateTabView', () => {
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
     expect(templates.generate).toHaveBeenCalledWith(
-      expect.objectContaining({ fundCode: '510037', replaceExisting: true }),
+      expect.objectContaining({ fundCode: '950037', replaceExisting: true }),
     );
     expect(router.push).toHaveBeenCalledWith({
       name: 'editor',
@@ -166,7 +166,7 @@ describe('CreateTabView', () => {
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
     expect(templates.generate).toHaveBeenCalledWith(
-      expect.objectContaining({ rep1CompanyCode: 'R-AM01' }),
+      expect.objectContaining({ rep1CompanyCode: 'R-XX01' }),
     );
   });
 
@@ -236,8 +236,8 @@ describe('CreateTabView', () => {
       ok({
         ...(first as { value: object }).value,
         skipped: [
-          { templateId: 'AM01_510003_交付版', reason: 'created' },
-          { templateId: 'AM01_510155_全体版', reason: 'pendingReview' },
+          { templateId: 'XX01_950003_交付版', reason: 'created' },
+          { templateId: 'XX01_950155_全体版', reason: 'pendingReview' },
         ],
       }) as never,
     );
@@ -245,7 +245,7 @@ describe('CreateTabView', () => {
     await buttonNamed(w, '属性から新規作成')?.trigger('click');
     await settle();
     expect(toastMock).toHaveBeenCalledWith(
-      '組入先の次のテンプレートは既にあるため取り込みませんでした: AM01_510003_交付版、AM01_510155_全体版',
+      '組入先の次のテンプレートは既にあるため取り込みませんでした: XX01_950003_交付版、XX01_950155_全体版',
     );
   });
 
@@ -282,15 +282,15 @@ describe('CreateTabView', () => {
     await settle();
     const select = w.findComponent(CreateFundSelect);
     select.vm.$emit('update', {
-      companyCode: 'AM01',
-      rep1CompanyCode: 'R-AM01',
+      companyCode: 'XX01',
+      rep1CompanyCode: 'R-XX01',
       fundCode: '510099',
       editionType: '交付版',
     });
     await settle();
     select.vm.$emit('update', {
-      companyCode: 'AM01',
-      rep1CompanyCode: 'R-AM01',
+      companyCode: 'XX01',
+      rep1CompanyCode: 'R-XX01',
       fundCode: undefined,
       editionType: undefined,
     });

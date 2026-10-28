@@ -23,7 +23,7 @@ const run = (
     syncDefaults: new Map(Object.entries(defaults)),
     sourceEdition: '交付版',
     targetEdition: '全体版',
-    state: emptySyncState('AM01_510037_20240710'),
+    state: emptySyncState('XX01_950037_20240710'),
     now: '2026-08-02T00:00:00.000Z',
     ...over,
   });
@@ -201,7 +201,7 @@ describe('computePairSync: ポリシーと状態管理', () => {
 
   it('両版から消えたキーの状態は掃除する', () => {
     const state: PairSyncState = {
-      pairKey: 'AM01_510037_20240710',
+      pairKey: 'XX01_950037_20240710',
       parts: { 'gone#1': { lastSynced: 'deadbeef' } },
       updatedAt: '2026-01-01T00:00:00.000Z',
     };

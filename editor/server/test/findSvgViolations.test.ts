@@ -18,12 +18,12 @@ function seed(): string {
     fs.writeFileSync(path.join(root, rel), s);
   };
   w('images/top_bad.svg', BAD_ATTR);
-  w('images/AM01/bad.svg', BAD_SCRIPT);
-  w('images/AM01/UPPER.SVG', BAD_SCRIPT);
-  w('images/AM01/ok.svg', OK);
-  w('images/AM01/qr.svg', NAMED);
-  w('images/AM01/deep/too_deep.svg', BAD_SCRIPT);
-  w('images/AM01/raster.png', BAD_SCRIPT);
+  w('images/XX01/bad.svg', BAD_SCRIPT);
+  w('images/XX01/UPPER.SVG', BAD_SCRIPT);
+  w('images/XX01/ok.svg', OK);
+  w('images/XX01/qr.svg', NAMED);
+  w('images/XX01/deep/too_deep.svg', BAD_SCRIPT);
+  w('images/XX01/raster.png', BAD_SCRIPT);
   return root;
 }
 
@@ -42,20 +42,20 @@ describe('find-svg-violations', () => {
     const root = seed();
     const found = await scanImages(path.join(root, 'images'));
     const files = found.map((f) => f.file.replaceAll(path.sep, '/'));
-    expect(files).toEqual(['images/AM01/UPPER.SVG', 'images/AM01/bad.svg', 'images/top_bad.svg']);
+    expect(files).toEqual(['images/XX01/UPPER.SVG', 'images/XX01/bad.svg', 'images/top_bad.svg']);
     expect(found.every((f) => f.violation.length > 0)).toBe(true);
   });
 
   it('読み取り専用(中身も更新時刻も変わらない)', async () => {
     const root = seed();
-    const target = path.join(root, 'images/AM01/bad.svg');
+    const target = path.join(root, 'images/XX01/bad.svg');
     const past = new Date('2020-01-01T00:00:00Z');
     fs.utimesSync(target, past, past);
     const before = fs.readFileSync(target, 'utf8');
     await scanImages(path.join(root, 'images'));
     expect(fs.readFileSync(target, 'utf8')).toBe(before);
     expect(fs.statSync(target).mtimeMs).toBe(past.getTime());
-    expect(fs.readdirSync(path.join(root, 'images/AM01')).length).toBe(6);
+    expect(fs.readdirSync(path.join(root, 'images/XX01')).length).toBe(6);
   });
 
   it('フォルダが無くても落ちない', async () => {

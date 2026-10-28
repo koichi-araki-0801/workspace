@@ -30,8 +30,8 @@ process.env.PENDING_DIR = path.join(root, 'data', 'pending');
 process.env.SYNC_DIR = path.join(root, 'data', 'sync');
 
 const OUTSIDE = path.join(root, 'outside');
-const VALID_ID = 'AM01_510037_20240710_交付版';
-const VALID_SKELETON_ID = 'AM01_510037_交付版';
+const VALID_ID = 'XX01_950037_20240710_交付版';
+const VALID_SKELETON_ID = 'XX01_950037_交付版';
 
 /** 管理ディレクトリの外を狙う id。相対 1 段上がると `data/` 直下、2 段で `root/outside`。 */
 const ESCAPES = [
@@ -48,8 +48,8 @@ const ESCAPES = [
 const ESCAPE_PAIR_KEYS = [
   '../outside/pwned',
   '..\\..\\outside\\pwned',
-  'AM01_../../outside_pwned',
-  'AM01_510037_../../outside/pwned',
+  'XX01_../../outside_pwned',
+  'XX01_950037_../../outside/pwned',
   '/etc/passwd',
   'C:\\Windows\\Temp\\pwned',
 ];
@@ -140,7 +140,7 @@ describe('files/*.ts のパス封じ込め', () => {
     fs.writeFileSync(secret, 'TOP SECRET');
     await expect(pendingFiles.readPending('../outside/secret')).resolves.toBeNull();
     await expect(pendingFiles.pendingMtime('../outside/secret')).resolves.toBeNull();
-    await expect(pendingFiles.pendingMtime('AM01_510037_20240799_交付版')).resolves.toBeNull();
+    await expect(pendingFiles.pendingMtime('XX01_950037_20240799_交付版')).resolves.toBeNull();
     fs.rmSync(secret);
   });
 
@@ -159,7 +159,7 @@ describe('files/*.ts のパス封じ込め', () => {
   it('draftExists/draftMtime は書き込み前後で fs.stat の成否を反映する(then/catch とも実行)', async () => {
     // pathGuards の他ケースは規約外 id の早期 return(fs.stat に触れない分岐)だけを通る。
     // ここでは規約内 id で実際に fs.stat を呼ばせ、無い→ある→消す、の 3 状態を確かめる。
-    const id = 'AM01_510037_20240711_交付版';
+    const id = 'XX01_950037_20240711_交付版';
     expect(await draftFiles.draftExists(id)).toBe(false);
     expect(await draftFiles.draftMtime(id)).toBeNull();
     await draftFiles.writeDraft(id, '<p>x</p>', '');
@@ -171,12 +171,12 @@ describe('files/*.ts のパス封じ込め', () => {
   });
 
   it('readDraft は下書きが無ければ null を返す', async () => {
-    const id = 'AM01_510037_20240712_交付版';
+    const id = 'XX01_950037_20240712_交付版';
     expect(await draftFiles.readDraft(id)).toBeNull();
   });
 
   it('pending・下書きはテンプレート(3 つ区切り)の id も受け、置き場の中に書く', async () => {
-    const id = 'AM01_510037_交付版';
+    const id = 'XX01_950037_交付版';
     await pendingFiles.writePending(id, '<p>骨組み</p>', '');
     expect(await pendingFiles.readPending(id)).toEqual({
       html: '<p>骨組み</p>',
@@ -229,7 +229,7 @@ describe('files/syncFiles.ts のパス封じ込め', () => {
   });
 
   it('readSyncState/writeSyncState accept a valid pairKey and stay inside syncDir', async () => {
-    const pairKey = 'AM01_510037_20240710';
+    const pairKey = 'XX01_950037_20240710';
     const state = await syncFiles.readSyncState(pairKey);
     expect(state.pairKey).toBe(pairKey);
     await syncFiles.writeSyncState({ ...state, updatedAt: new Date().toISOString() });

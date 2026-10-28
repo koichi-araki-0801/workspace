@@ -84,7 +84,7 @@ describe('バックスラッシュで書いた scheme 相対 URL', () => {
 
   it('同梱資産への相対参照は通す(遮断しすぎない)', () => {
     expect(isSelfContainedUrl('fonts/BIZUDPGothic.woff2')).toBe(true);
-    expect(isSelfContainedUrl('./css/510037.css')).toBe(true);
+    expect(isSelfContainedUrl('./css/950037.css')).toBe(true);
     expect(isSelfContainedUrl('#clip1')).toBe(true);
   });
 });

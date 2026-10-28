@@ -88,47 +88,47 @@ export const DEFAULT_USERS: readonly FakeUserSeed[] = [
 export const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
 export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
   {
-    code: '110024',
+    code: '910024',
     name: '高金利ソブリンオープン',
     nickname: '',
-    companyCode: 'AM01',
+    companyCode: 'XX01',
     companyName: TRUST_AM,
   },
   {
-    code: '510003',
+    code: '950003',
     name: 'コア投資戦略ファンド（安定型）',
     nickname: 'コアラップ（安定型）',
-    companyCode: 'AM01',
+    companyCode: 'XX01',
     companyName: TRUST_AM,
     seriesCode: 'CORE',
   },
   {
-    code: '510037',
+    code: '950037',
     name: 'コア投資戦略ファンド（切替型）',
     nickname: 'コアラップ（切替型）',
-    companyCode: 'AM01',
+    companyCode: 'XX01',
     companyName: TRUST_AM,
     seriesCode: 'CORE',
   },
   {
-    code: '510124',
+    code: '950124',
     name: 'ＳＭＴ ＪＰＸ日経中小型株インデックス・オープン',
     nickname: '',
-    companyCode: 'AM01',
+    companyCode: 'XX01',
     companyName: TRUST_AM,
   },
   {
-    code: '510155',
+    code: '950155',
     name: 'コア投資戦略ファンド（切替型ワイド）',
     nickname: 'コアラップ（切替型ワイド）',
-    companyCode: 'AM01',
+    companyCode: 'XX01',
     companyName: TRUST_AM,
     seriesCode: 'CORE',
   },
 ];
 
 // 既定は「未判断」= ペア同期も次回反映もしない。承認フローで機械転写が勝手に走らない側へ倒す。
-// 既定のパーツは既定ファンドの Rep1 委託会社コード(`R-AM01`)のもの。パーツ一覧は委託会社で
+// 既定のパーツは既定ファンドの Rep1 委託会社コード(`R-XX01`)のもの。パーツ一覧は委託会社で
 // 絞るので、コードが無いと e2e で一覧が空になる。
 const DEFAULT_PARTS: readonly FakePartSeed[] = [
   {
@@ -142,7 +142,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: null,
-    companyCode: 'R-AM01',
+    companyCode: 'R-XX01',
   },
   {
     id: 'p-note-tax',
@@ -155,7 +155,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: null,
-    companyCode: 'R-AM01',
+    companyCode: 'R-XX01',
   },
   {
     id: 'p-guide-delivery',
@@ -168,7 +168,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: '交付版',
-    companyCode: 'R-AM01',
+    companyCode: 'R-XX01',
   },
   {
     id: 'p-guide-whole',
@@ -181,7 +181,7 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: '全体版',
-    companyCode: 'R-AM01',
+    companyCode: 'R-XX01',
   },
   // Jinja を含むパーツ。名前と内容は local の `fixtures/parts.json` の同じパーツに揃え、
   // 挿入時の描画を確かめる e2e が local / rest のどちらでも同じ名前で選べるようにする。
@@ -198,21 +198,21 @@ const DEFAULT_PARTS: readonly FakePartSeed[] = [
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: null,
-    companyCode: 'R-AM01',
+    companyCode: 'R-XX01',
   },
-  // 他社のパーツ。AM01 のテンプレートの一覧には出ない。
+  // 他社のパーツ。XX01 のテンプレートの一覧には出ない。
   {
-    id: 'part-am02-cover-company',
+    id: 'part-xx02-cover-company',
     category: '表紙',
     majorClass: '表紙右側',
     middleClass: '会社名・住所',
     minorClass: '会社名',
-    name: '委託会社名（AM02 様式）',
+    name: '委託会社名（XX02 様式）',
     content: '<p class="sign">{{ company.name }}　代表取締役</p>',
     syncDefault: null,
     masterReflectDefault: null,
     targetEdition: null,
-    companyCode: 'R-AM02',
+    companyCode: 'R-XX02',
   },
 ];
 

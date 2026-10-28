@@ -11,7 +11,7 @@ import { login, openEditor } from './helpers';
 
 // 長いファンド名(SMT JPX日経中小型株インデックス・オープン)を持つ seed。ファンド名は
 // ヘッダ左ゾーンの幅を決めるので、短い名前の seed では余裕の不足を検出できない。
-const LONG_NAME_ID = 'AM01_510124_20251020_交付版';
+const LONG_NAME_ID = 'XX01_950124_20251020_交付版';
 
 // 通常系で最も長い保存状態の文言(`EditorView.vue` の `statusText`)。実際にこれを出すには
 // 本文を編集して自動保存を待つ必要があり、GrapesJS の RTE 操作を挟むと測定が不安定に

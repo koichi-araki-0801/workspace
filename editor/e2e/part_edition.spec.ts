@@ -5,7 +5,7 @@
 import { expect, test } from './fixtures';
 import { login, openEditor } from './helpers';
 
-const SEED_ID = 'AM01_510037_20240710_交付版';
+const SEED_ID = 'XX01_950037_20240710_交付版';
 
 test('交付版のテンプレートでは、全体版専用のパーツを一覧に出さない', async ({ page }) => {
   await login(page);

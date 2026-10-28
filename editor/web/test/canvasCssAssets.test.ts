@@ -16,20 +16,20 @@ describe('canvasAssetUrl', () => {
     expect(canvasAssetUrl('css/fonts/BIZ UD.woff2', null)).toBe(
       '/api/preview-host/css/fonts/BIZ%20UD.woff2',
     );
-    expect(canvasAssetUrl('images/510037_bg.svg', null)).toBe(
-      '/api/fund-assets/images/510037_bg.svg',
+    expect(canvasAssetUrl('images/950037_bg.svg', null)).toBe(
+      '/api/fund-assets/images/950037_bg.svg',
     );
-    expect(canvasAssetUrl('images/am01/qr.svg', 'AM01')).toBe(
-      '/api/fund-assets/images/am01/qr.svg',
+    expect(canvasAssetUrl('images/xx01/qr.svg', 'XX01')).toBe(
+      '/api/fund-assets/images/xx01/qr.svg',
     );
   });
 
   it.each([
-    ['images/smtam/qr.svg', 'AM01'],
-    ['images/a/b/c.svg', 'AM01'],
-    ['images/x.gif', 'AM01'],
-    ['css/other.css', 'AM01'],
-    ['js/x.js', 'AM01'],
+    ['images/xxam/qr.svg', 'XX01'],
+    ['images/a/b/c.svg', 'XX01'],
+    ['images/x.gif', 'XX01'],
+    ['css/other.css', 'XX01'],
+    ['js/x.js', 'XX01'],
   ])('%s(会社 %s)は配らない', (rel, company) => {
     expect(canvasAssetUrl(rel, company)).toBeUndefined();
   });
@@ -40,13 +40,13 @@ describe('canvasCssAssetCopy', () => {
     const css =
       '@font-face{font-family:biz;src:url(fonts/biz.woff2) format("woff2")}' +
       '.page{color:red}' +
-      '.logo{background:url(../images/510037_bg.svg) no-repeat}';
-    const out = canvasCssAssetCopy(css, 'AM01', TEMPLATE_CSS_FROM);
+      '.logo{background:url(../images/950037_bg.svg) no-repeat}';
+    const out = canvasCssAssetCopy(css, 'XX01', TEMPLATE_CSS_FROM);
     expect(out).toContain(
       '@font-face{font-family:biz;src:url("/api/preview-host/css/fonts/biz.woff2") format("woff2")}',
     );
     expect(out).toContain(
-      '.logo{background:url("/api/fund-assets/images/510037_bg.svg") no-repeat}',
+      '.logo{background:url("/api/fund-assets/images/950037_bg.svg") no-repeat}',
     );
     expect(out).not.toContain('color:red');
   });
@@ -62,10 +62,10 @@ describe('canvasCssAssetCopy', () => {
 
   it('配らない参照だけの規則・data: やルート外の参照は複製しない', () => {
     const css =
-      '.x{background:url(../images/smtam/q.svg)}' +
+      '.x{background:url(../images/xxam/q.svg)}' +
       '.y{background:url(data:image/png;base64,AA)}' +
       '.z{background:url(../../x.png)}';
-    expect(canvasCssAssetCopy(css, 'AM01', TEMPLATE_CSS_FROM)).toBe('');
+    expect(canvasCssAssetCopy(css, 'XX01', TEMPLATE_CSS_FROM)).toBe('');
   });
 
   it('url() を持たない宣言は複製に入れない(後ろの規則との優先順位を canvas で変えない)', () => {
@@ -158,17 +158,17 @@ describe('canvasCssAssetCopy', () => {
 
   it('日本語のファイル名は区切りごとに 1 回だけ percent-encode する(既に %XX でも二重にしない)', () => {
     const font = '/api/preview-host/css/fonts/%E6%98%8E%E6%9C%9D.woff2';
-    const img = '/api/fund-assets/images/am01/%E8%83%8C%E6%99%AF.svg';
+    const img = '/api/fund-assets/images/xx01/%E8%83%8C%E6%99%AF.svg';
     const raw =
       '@font-face{font-family:m;src:url(fonts/明朝.woff2)}' +
-      '.a{background:url("../images/AM01/背景.svg")}';
-    const raw2 = canvasCssAssetCopy(raw, 'AM01', TEMPLATE_CSS_FROM);
+      '.a{background:url("../images/XX01/背景.svg")}';
+    const raw2 = canvasCssAssetCopy(raw, 'XX01', TEMPLATE_CSS_FROM);
     expect(raw2).toContain(`url("${font}")`);
-    expect(raw2).toContain('url("/api/fund-assets/images/AM01/%E8%83%8C%E6%99%AF.svg")');
+    expect(raw2).toContain('url("/api/fund-assets/images/XX01/%E8%83%8C%E6%99%AF.svg")');
     const escaped =
       '@font-face{font-family:m;src:url(fonts/%E6%98%8E%E6%9C%9D.woff2)}' +
-      '.a{background:url(../images/am01/%E8%83%8C%E6%99%AF.svg)}';
-    const out = canvasCssAssetCopy(escaped, 'AM01', TEMPLATE_CSS_FROM);
+      '.a{background:url(../images/xx01/%E8%83%8C%E6%99%AF.svg)}';
+    const out = canvasCssAssetCopy(escaped, 'XX01', TEMPLATE_CSS_FROM);
     expect(out).toContain(`url("${font}")`);
     expect(out).toContain(`url("${img}")`);
     expect(out).not.toContain('%25');
@@ -178,10 +178,10 @@ describe('canvasCssAssetCopy', () => {
     const css =
       '﻿@font-face {\r\n  font-family: biz;\r\n  src: url(fonts/biz.woff2);\r\n}\r\n' +
       '.p {\r\n  color: red;\r\n}\r\n' +
-      '.logo {\r\n  background: url(../images/510037_bg.svg);\r\n}\r\n';
+      '.logo {\r\n  background: url(../images/950037_bg.svg);\r\n}\r\n';
     const out = canvasCssAssetCopy(css, null, TEMPLATE_CSS_FROM);
     expect(out).toContain('url("/api/preview-host/css/fonts/biz.woff2")');
-    expect(out).toContain('url("/api/fund-assets/images/510037_bg.svg")');
+    expect(out).toContain('url("/api/fund-assets/images/950037_bg.svg")');
     expect(out).not.toContain('color: red');
     expect(out.startsWith('@font-face')).toBe(true);
     expect(out.match(/url\(/g)).toHaveLength(2);
@@ -189,28 +189,28 @@ describe('canvasCssAssetCopy', () => {
 
   it('参照元に文書の位置を渡すと、本文の <style> の url() を文書基準で解く', () => {
     const css = '@font-face{font-family:F;src:url(../css/fonts/f.woff2)}';
-    expect(canvasCssAssetCopy(css, 'AM01', DOC_DIR)).toBe(
+    expect(canvasCssAssetCopy(css, 'XX01', DOC_DIR)).toBe(
       '@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}',
     );
     // 参照元を省くと今どおり CSS の位置(`css/`)で解く。
     expect(
       canvasCssAssetCopy(
         '@font-face{font-family:F;src:url(fonts/f.woff2)}',
-        'AM01',
+        'XX01',
         TEMPLATE_CSS_FROM,
       ),
     ).toBe('@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}');
     // 同じ `url(fonts/…)` でも、文書の位置からは `doc/fonts/…` を指すので配らない。
     expect(
-      canvasCssAssetCopy('@font-face{font-family:F;src:url(fonts/f.woff2)}', 'AM01', DOC_DIR),
+      canvasCssAssetCopy('@font-face{font-family:F;src:url(fonts/f.woff2)}', 'XX01', DOC_DIR),
     ).toBe('');
   });
 
   it('文書基準の画像も会社フォルダの照合を通る', () => {
-    expect(canvasCssAssetCopy('.a{background:url(../images/AM01/x.svg)}', 'AM01', DOC_DIR)).toBe(
-      '.a{background:url("/api/fund-assets/images/AM01/x.svg")}',
+    expect(canvasCssAssetCopy('.a{background:url(../images/XX01/x.svg)}', 'XX01', DOC_DIR)).toBe(
+      '.a{background:url("/api/fund-assets/images/XX01/x.svg")}',
     );
-    expect(canvasCssAssetCopy('.a{background:url(../images/SMTAM/x.svg)}', 'AM01', DOC_DIR)).toBe(
+    expect(canvasCssAssetCopy('.a{background:url(../images/XXAM/x.svg)}', 'XX01', DOC_DIR)).toBe(
       '',
     );
   });
@@ -218,7 +218,7 @@ describe('canvasCssAssetCopy', () => {
 
 describe('canvasCssFullCopy(本文の <style> の全規則)', () => {
   it('url() の無い規則も囲む at-rule ごと複製する', () => {
-    expect(canvasCssFullCopy('.a{color:red}\n@media print{.b{margin:0}}', 'AM01', DOC_DIR)).toBe(
+    expect(canvasCssFullCopy('.a{color:red}\n@media print{.b{margin:0}}', 'XX01', DOC_DIR)).toBe(
       '.a{color:red}\n@media print{.b{margin:0}}',
     );
   });
@@ -226,22 +226,22 @@ describe('canvasCssFullCopy(本文の <style> の全規則)', () => {
   it('url() は文書の位置を基準に配信 URL へ直し、他の宣言も残す', () => {
     expect(
       canvasCssFullCopy(
-        '.p{color:red;background:url(../images/AM01/x.svg) no-repeat}',
-        'AM01',
+        '.p{color:red;background:url(../images/XX01/x.svg) no-repeat}',
+        'XX01',
         DOC_DIR,
       ),
-    ).toBe('.p{color:red;background:url("/api/fund-assets/images/AM01/x.svg") no-repeat}');
+    ).toBe('.p{color:red;background:url("/api/fund-assets/images/XX01/x.svg") no-repeat}');
     expect(
-      canvasCssFullCopy('@font-face{font-family:F;src:url(../css/fonts/f.woff2)}', 'AM01', DOC_DIR),
+      canvasCssFullCopy('@font-face{font-family:F;src:url(../css/fonts/f.woff2)}', 'XX01', DOC_DIR),
     ).toBe('@font-face{font-family:F;src:url("/api/preview-host/css/fonts/f.woff2")}');
   });
 
   it('直せない url() の宣言だけを落とし、@font-face は規則ごと落とす', () => {
-    expect(canvasCssFullCopy('.p{color:red;background:url(x.png)}', 'AM01', DOC_DIR)).toBe(
+    expect(canvasCssFullCopy('.p{color:red;background:url(x.png)}', 'XX01', DOC_DIR)).toBe(
       '.p{color:red}',
     );
     expect(
-      canvasCssFullCopy('.p{background:url(../images/SMTAM/x.svg);margin:0}', 'AM01', DOC_DIR),
+      canvasCssFullCopy('.p{background:url(../images/XXAM/x.svg);margin:0}', 'XX01', DOC_DIR),
     ).toBe('.p{margin:0}');
     expect(
       canvasCssFullCopy('@font-face{font-family:F;src:url(f.woff2)}.a{color:red}', null, DOC_DIR),

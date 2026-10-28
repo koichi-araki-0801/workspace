@@ -5,7 +5,7 @@
 //   pnpm exec playwright test --project docs
 // `playwright.config.ts` の webServer が sproc フェイクのサーバ(:24680)と Vite(:24681)を
 // 起動する。ログインはサーバ発行の cookie で、編集/プレビューは seed テンプレ
-// (AM01_510037_20240710_交付版)へ直接遷移して撮る。承認系(reviews-list/review-diff)は
+// (XX01_950037_20240710_交付版)へ直接遷移して撮る。承認系(reviews-list/review-diff)は
 // admin で申請 → approver で承認タブを開く(`login()` が cookie を捨てて切り替える)。
 // 撮影は `animations: 'disabled'` で行う。スピナーの回転角やタブ切替のトランジション途中が
 // 写ると、内容が同じでもバイト列が run ごとに変わり、pre-push の再撮影が毎回作業ツリーを汚す。
@@ -20,7 +20,7 @@ import { login, openEditor, partLocator, waitForLoaded, waitForStableBox } from 
 
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
-const SEED_ID = 'AM01_510037_20240710_交付版';
+const SEED_ID = 'XX01_950037_20240710_交付版';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -97,12 +97,12 @@ test('capture editor screens', async ({ page }) => {
   // 作成済みのテンプレート(3 つ区切り)を置き、「既存のテンプレートを開く」が出る状態を写す。
   fs.mkdirSync(resolve(E2E_REST_DATA_ROOT, 'templates'), { recursive: true });
   fs.writeFileSync(
-    resolve(E2E_REST_DATA_ROOT, 'templates', 'AM01_510037_交付版.html'),
+    resolve(E2E_REST_DATA_ROOT, 'templates', 'XX01_950037_交付版.html'),
     '<html><body><h1 class="report-title">{{ fund.name }}</h1></body></html>',
     'utf8',
   );
   await page.goto(
-    `/create?companyCode=AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+    `/create?companyCode=XX01&fundCode=950037&editionType=${encodeURIComponent('交付版')}`,
   );
   await page.getByText('作成するファンドを指定').first().waitFor();
   await expect(page.getByRole('button', { name: '既存のテンプレートを開く' })).toBeVisible();

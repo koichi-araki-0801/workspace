@@ -23,16 +23,16 @@ vi.mock('vue-router', () => ({
 const templates = {
   getDropdownOptions: vi.fn(async () =>
     ok({
-      companyCodes: ['AM01', 'ZZ99'],
-      fundCodes: ['510037', '999999'],
+      companyCodes: ['XX01', 'ZZ99'],
+      fundCodes: ['950037', '999999'],
       baseDates: [],
       editionTypes: [],
     }),
   ),
   listCompanies: vi.fn(async () =>
-    ok([{ companyCode: 'AM01', companyName: '会社', rep1CompanyCode: '0001' }]),
+    ok([{ companyCode: 'XX01', companyName: '会社', rep1CompanyCode: '0001' }]),
   ),
-  listFunds: vi.fn(async () => ok([{ fundCode: '510037', fundName: '切替型' }])),
+  listFunds: vi.fn(async () => ok([{ fundCode: '950037', fundName: '切替型' }])),
 };
 
 beforeEach(() => {
@@ -42,7 +42,7 @@ beforeEach(() => {
 
 describe('SearchFilters の候補ラベル', () => {
   it('委託会社は略称（コード）、ファンドは選択中の会社の Rep1 の名前', async () => {
-    routeQuery.companyCode = 'AM01';
+    routeQuery.companyCode = 'XX01';
     const w = mount(SearchFilters, {
       props: { dropdownScope: 'edit' },
       global: { provide: { [REPOS_KEY as symbol]: { templates } } },
@@ -52,11 +52,11 @@ describe('SearchFilters の候補ラベル', () => {
     expect(w.text()).not.toContain('委託会社コード');
     const [company, fund] = w.findAllComponents(Combobox);
     expect(company.props('options')).toEqual([
-      { label: 'AM01（0001）', value: 'AM01' },
+      { label: 'XX01（0001）', value: 'XX01' },
       { label: 'ZZ99（未登録）', value: 'ZZ99' },
     ]);
     expect(fund.props('options')).toEqual([
-      { label: '510037 切替型', value: '510037' },
+      { label: '950037 切替型', value: '950037' },
       { label: '999999 （未登録）', value: '999999' },
     ]);
   });

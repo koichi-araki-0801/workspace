@@ -23,8 +23,8 @@ try {
 }
 const d = gitAvailable ? describe : describe.skip;
 
-const FIRST = 'AM01_999999_20250101_交付版';
-const SECOND = 'AM01_999999_20250101_全体版';
+const FIRST = 'XX01_999999_20250101_交付版';
+const SECOND = 'XX01_999999_20250101_全体版';
 
 d('複数テンプレを含む版のスナップショット', () => {
   let history: typeof import('../src/repositories/historyRepo.js');
@@ -39,8 +39,8 @@ d('複数テンプレを含む版のスナップショット', () => {
     fs.writeFileSync(path.join(tmp, 'filled', `${FIRST}.html`), '<p>交付版の本文</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'filled', `${SECOND}.html`), '<p>全体版の本文</p>', 'utf8');
     fs.writeFileSync(path.join(tmp, 'css', '999999.css'), 'p{color:#000}', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', 'AM01_999999_交付版.css'), 'p{color:#111}', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', 'AM01_999999_全体版.css'), 'p{color:#222}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'XX01_999999_交付版.css'), 'p{color:#111}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'XX01_999999_全体版.css'), 'p{color:#222}', 'utf8');
     hash = await git.commitAll('確定保存 + ペア転写', { name: 'tester' });
   });
 
@@ -59,7 +59,7 @@ d('複数テンプレを含む版のスナップショット', () => {
   });
 
   it('版に含まれない templateId は明示エラー(先頭のテンプレで代用しない)', async () => {
-    await expect(history.getSnapshot(hash, 'AM01_999999_20250101_運用報告書')).rejects.toThrow();
+    await expect(history.getSnapshot(hash, 'XX01_999999_20250101_運用報告書')).rejects.toThrow();
   });
 
   it('templateId 未指定で対象が絞れないときは黙って先頭を選ばない', async () => {
@@ -96,7 +96,7 @@ d('複数テンプレを含む版のスナップショット', () => {
     execFileSync('git', ['config', 'core.quotepath', 'true'], { cwd: tmp });
     const { applyConfirmedWrite } = await import('../src/repositories/confirmedWrite.js');
     const git = await import('../src/git/gitRepo.js');
-    const id = 'SMTAM_110024_20240517_交付版';
+    const id = 'XXAM_910024_20240517_交付版';
     await applyConfirmedWrite({
       kind: 'review-approve',
       target: 'filled',
@@ -108,7 +108,7 @@ d('複数テンプレを含む版のスナップショット', () => {
     });
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
     expect(await git.commitFiles(head)).toEqual(
-      expect.arrayContaining(['css/SMTAM_110024_交付版.css', `filled/${id}.html`]),
+      expect.arrayContaining(['css/XXAM_910024_交付版.css', `filled/${id}.html`]),
     );
     const snap = await history.getSnapshot(head, id);
     expect(snap.html).toBe('<p>日本語名</p>');

@@ -114,7 +114,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       if (sql.includes(SP.template) && values[0] === '委託会社一覧') {
         if (companiesThrow) throw new Error('Rep1 に届かない');
         return [
-          { 委託会社コード: 'R-AM01', 委託会社名: '会社 1', 委託会社略称: 'AM01' },
+          { 委託会社コード: 'R-XX01', 委託会社名: '会社 1', 委託会社略称: 'XX01' },
           { 委託会社コード: 'R-BM02', 委託会社名: '会社 2', 委託会社略称: 'BM02' },
         ];
       }
@@ -174,10 +174,10 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   // テンプレートは基準日を持たない。生成の ID は会社_ファンド_版種で、日付に依らず決まる。
-  const ID = 'AM01_510037_交付版';
-  const ZENTAI = 'AM01_510037_全体版';
-  const FILLED_ID = 'AM01_510037_20240710_交付版';
-  const ATTRS = { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' };
+  const ID = 'XX01_950037_交付版';
+  const ZENTAI = 'XX01_950037_全体版';
+  const FILLED_ID = 'XX01_950037_20240710_交付版';
+  const ATTRS = { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' };
 
   /** 承認待ち(または決着済み)の申請を 1 件置く。id は reviewFiles の REQ_ID_PATTERN に合う形。 */
   async function putReview(
@@ -209,9 +209,9 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     app.inject({ method: 'POST', url: '/generate', payload: body });
 
   const validBody = {
-    companyCode: 'AM01',
-    rep1CompanyCode: 'R-AM01',
-    fundCode: '510037',
+    companyCode: 'XX01',
+    rep1CompanyCode: 'R-XX01',
+    fundCode: '950037',
     editionType: '交付版',
   };
 
@@ -225,7 +225,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   /** コピー元の確定テンプレートを両版置く。 */
   const putSource = (fund: string) => {
     for (const e of EDITIONS) {
-      fs.writeFileSync(path.join(templatesDir, `AM01_${fund}_${e}.html`), '<p>元</p>', 'utf8');
+      fs.writeFileSync(path.join(templatesDir, `XX01_${fund}_${e}.html`), '<p>元</p>', 'utf8');
     }
   };
 
@@ -238,8 +238,8 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('両版を pending に書き、応答は押した版を開き、importedIds に両版', async () => {
     const res = await generate({ ...validBody, editionType: '全体版' });
     expect(res.statusCode).toBe(200);
-    expect(pendingHtml(ID)).toContain('生成物 510037 交付版');
-    expect(pendingHtml(ZENTAI)).toContain('生成物 510037 全体版');
+    expect(pendingHtml(ID)).toContain('生成物 950037 交付版');
+    expect(pendingHtml(ZENTAI)).toContain('生成物 950037 全体版');
     expect(res.json().template.meta.id).toBe(ZENTAI);
     expect(res.json().template.html).toContain('全体版');
     expect(res.json().importedIds).toEqual([ID, ZENTAI]);
@@ -283,16 +283,16 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     // 編集タブは値入り HTML(基準日あり)だけを扱う。生成直後の id を見失わないよう、
     // 作成タブの creatable が作業中(inProgressId)として返す。到達不能は復旧手段が無いので退行扱い。
     await generate(validBody);
-    const list = await app.inject({ method: 'GET', url: '/templates?fundCode=510037' });
+    const list = await app.inject({ method: 'GET', url: '/templates?fundCode=950037' });
     expect(list.statusCode).toBe(200);
     const rows = list.json() as { id: string; status: string }[];
     expect(rows.map((r) => r.id)).not.toContain(ID);
     const info = await app.inject({
       method: 'GET',
       url: `/templates/creatable?${new URLSearchParams({
-        companyCode: 'AM01',
-        rep1CompanyCode: 'R-AM01',
-        fundCode: '510037',
+        companyCode: 'XX01',
+        rep1CompanyCode: 'R-XX01',
+        fundCode: '950037',
         editionType: '交付版',
       })}`,
     });
@@ -303,7 +303,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('値入り HTML と同じ id の pending が残っていても、一覧は published の 1 行だけ', async () => {
     fs.writeFileSync(path.join(filledDir, `${FILLED_ID}.html`), '<p>確定版(値入り)</p>', 'utf8');
     fs.writeFileSync(path.join(pendingDir, `${FILLED_ID}.html`), '<p>消し残り</p>', 'utf8');
-    const list = await app.inject({ method: 'GET', url: '/templates?fundCode=510037' });
+    const list = await app.inject({ method: 'GET', url: '/templates?fundCode=950037' });
     const rows = list.json() as { id: string; status: string }[];
     expect(rows.filter((r) => r.id === FILLED_ID)).toHaveLength(1);
     expect(rows.find((r) => r.id === FILLED_ID)?.status).toBe('published');
@@ -330,7 +330,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     ['..\\..\\outside', 'companyCode'],
     ['/etc/passwd', 'fundCode'],
     ['C:\\Windows\\Temp\\pwned', 'fundCode'],
-    ['AM01/../../outside', 'editionType'],
+    ['XX01/../../outside', 'editionType'],
   ])('トラバーサル属性 %s (%s) は 400 で、管理外に痕跡を残さない', async (value, field) => {
     const res = await generate({ ...validBody, [field]: value });
     expect(res.statusCode).toBe(400);
@@ -338,7 +338,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     expect(fs.readdirSync(templatesDir)).toEqual([]);
   });
 
-  it.each(['AM01 ', ' AM01', 'AM01.'])(
+  it.each(['XX01 ', ' XX01', 'XX01.'])(
     '末尾/先頭の空白・ドットを持つ会社コード %s は 400',
     async (companyCode) => {
       // ファイル名全体しか trim 検査していない `assertTemplateFileName` は素通しするが、
@@ -350,7 +350,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   );
 
   it('アンダースコアを含む属性は 400(ファイル名規約のトークン境界を偽装させない)', async () => {
-    const res = await generate({ ...validBody, fundCode: '510037_20240710' });
+    const res = await generate({ ...validBody, fundCode: '950037_20240710' });
     expect(res.statusCode).toBe(400);
   });
 
@@ -370,17 +370,17 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('生成器へは Rep1 コード・ファンド・基準日だけを渡す(本文の他のキーや廃止した basedOnTemplateId も渡らない)', async () => {
     const res = await generate({
       ...validBody,
-      rep1CompanyCode: ' R-AM01 ',
+      rep1CompanyCode: ' R-XX01 ',
       replaceExisting: true,
-      basedOnTemplateId: 'AM01_510037_20240710_交付版',
+      basedOnTemplateId: 'XX01_950037_20240710_交付版',
       evil: '<script>',
     });
     expect(res.statusCode).toBe(200);
     expect(generateMock).toHaveBeenCalledTimes(1);
     expect(generateMock.mock.calls[0][0]).toEqual({
-      companyCode: 'AM01',
-      rep1CompanyCode: 'R-AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      rep1CompanyCode: 'R-XX01',
+      fundCode: '950037',
     });
     expect(generateMock.mock.calls[0][1]).toBe('2026-10-23');
   });
@@ -416,7 +416,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('略称の大文字小文字が違っても Rep1 の組として通す', async () => {
-    const res = await generate({ ...validBody, companyCode: 'am01' });
+    const res = await generate({ ...validBody, companyCode: 'xx01' });
     expect(res.statusCode).toBe(200);
   });
 
@@ -428,7 +428,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('sourceFundCode のコピー元テンプレートが templates/ に無ければ生成器を呼ばずに 400', async () => {
-    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '999999' });
+    const res = await generate({ ...validBody, fundCode: '950155', sourceFundCode: '999999' });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({
       kind: 'validation',
@@ -438,37 +438,37 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('コピー元が片方の版しか無ければ 400', async () => {
-    fs.writeFileSync(path.join(templatesDir, 'AM01_510037_交付版.html'), '<p>元</p>', 'utf8');
-    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    fs.writeFileSync(path.join(templatesDir, 'XX01_950037_交付版.html'), '<p>元</p>', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '950155', sourceFundCode: '950037' });
     expect(res.statusCode).toBe(400);
     expect(generateMock).not.toHaveBeenCalled();
   });
 
   it('規約外の sourceFundCode は 400', async () => {
-    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '../x' });
+    const res = await generate({ ...validBody, fundCode: '950155', sourceFundCode: '../x' });
     expect(res.statusCode).toBe(400);
   });
 
   it('コピー元があれば sourceFundCode と isRedemption を生成器へ渡し、両版の作成記録に残す', async () => {
-    putSource('510037');
+    putSource('950037');
     const res = await generate({
       ...validBody,
-      fundCode: '510155',
-      sourceFundCode: '510037',
+      fundCode: '950155',
+      sourceFundCode: '950037',
       isRedemption: true,
     });
     expect(res.statusCode).toBe(200);
     expect(generateMock.mock.calls[0][0]).toMatchObject({
-      sourceFundCode: '510037',
+      sourceFundCode: '950037',
       isRedemption: true,
     });
     const entries = createHistory();
     expect(entries.map((e) => e.attributes)).toEqual([
-      { companyCode: 'AM01', fundCode: '510155', editionType: '交付版' },
-      { companyCode: 'AM01', fundCode: '510155', editionType: '全体版' },
+      { companyCode: 'XX01', fundCode: '950155', editionType: '交付版' },
+      { companyCode: 'XX01', fundCode: '950155', editionType: '全体版' },
     ]);
     for (const e of entries) {
-      expect(e.sourceFundCode).toBe('510037');
+      expect(e.sourceFundCode).toBe('950037');
       expect(e).not.toHaveProperty('requestedFundCode');
     }
   });
@@ -485,7 +485,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('会社コードの大文字小文字だけが違うテンプレートがあっても 409「作成済み」', async () => {
-    fs.writeFileSync(path.join(templatesDir, 'am01_510037_交付版.html'), '<p>既存</p>', 'utf8');
+    fs.writeFileSync(path.join(templatesDir, 'xx01_950037_交付版.html'), '<p>既存</p>', 'utf8');
     const res = await generate(validBody);
     expect(res.statusCode).toBe(409);
     expect(generateMock).not.toHaveBeenCalled();
@@ -565,7 +565,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('綴り違い(会社コードの大文字小文字)の pending を作り直しても、新しい生成物は残り編集で開ける', async () => {
     // 大文字小文字を区別しないファイルシステムでは、古い綴りの pending と新しい生成物は同じ
     // ファイルになる。書いた後で古い綴りを消すと、新しい生成物ごと消えて成功応答のまま 404 になる。
-    const OLD = 'am01_510037_交付版';
+    const OLD = 'xx01_950037_交付版';
     fs.writeFileSync(path.join(pendingDir, `${OLD}.html`), '<p>古い綴りの生成物</p>', 'utf8');
     const res = await generate({ ...validBody, replaceExisting: true });
     expect(res.statusCode).toBe(200);
@@ -580,13 +580,13 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   it('生成器が失敗したら、同意していても下書きも pending も output も触らない', async () => {
     fs.writeFileSync(path.join(draftsDir, `${ID}.html`), '<p>守る下書き</p>', 'utf8');
     fs.writeFileSync(path.join(pendingDir, `${ID}.html`), '<p>守る生成物</p>', 'utf8');
-    fs.writeFileSync(path.join(outputDir, 'AM01_510037_交付版.html'), '<p>残り</p>', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'XX01_950037_交付版.html'), '<p>残り</p>', 'utf8');
     generateMock.mockRejectedValueOnce(new Error('生成器が落ちた'));
     const res = await generate({ ...validBody, replaceExisting: true });
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
     expect(fs.readFileSync(path.join(draftsDir, `${ID}.html`), 'utf8')).toBe('<p>守る下書き</p>');
     expect(pendingHtml(ID)).toBe('<p>守る生成物</p>');
-    expect(fs.readdirSync(outputDir)).toEqual(['AM01_510037_交付版.html']);
+    expect(fs.readdirSync(outputDir)).toEqual(['XX01_950037_交付版.html']);
   });
 
   it('書いた後の段で失敗しても、書いた pending は残して失敗を返す', async () => {
@@ -598,56 +598,56 @@ describe('POST /api/generate は確定領域へ書かない', () => {
   });
 
   it('取り込んだファイルだけ output/ から消える', async () => {
-    fs.writeFileSync(path.join(outputDir, 'AM01_999999_交付版.html'), '<p>他</p>', 'utf8');
+    fs.writeFileSync(path.join(outputDir, 'XX01_999999_交付版.html'), '<p>他</p>', 'utf8');
     const res = await generate(validBody);
     expect(res.statusCode).toBe(200);
-    expect(fs.readdirSync(outputDir)).toEqual(['AM01_999999_交付版.html']);
+    expect(fs.readdirSync(outputDir)).toEqual(['XX01_999999_交付版.html']);
   });
 
   it('コピー元が旧形式(4 つ区切り)しか無ければ 400', async () => {
     fs.writeFileSync(
-      path.join(templatesDir, 'AM01_510037_20240710_交付版.html'),
+      path.join(templatesDir, 'XX01_950037_20240710_交付版.html'),
       '<p>旧</p>',
       'utf8',
     );
-    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    const res = await generate({ ...validBody, fundCode: '950155', sourceFundCode: '950037' });
     expect(res.statusCode).toBe(400);
   });
 
   it('CSS の初期値はコピー元テンプレの CSS(同名の既存 CSS より優先)', async () => {
-    putSource('510037');
-    fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.src{}', 'utf8');
-    fs.writeFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), '.own{}', 'utf8');
-    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    putSource('950037');
+    fs.writeFileSync(path.join(cssDir, 'XX01_950037_交付版.css'), '.src{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'XX01_950155_交付版.css'), '.own{}', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '950155', sourceFundCode: '950037' });
     expect(res.statusCode).toBe(200);
     expect(res.json().template.css).toBe('.src{}');
     // css/ は承認の専権。生成では書き換えない。
-    expect(fs.readFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), 'utf8')).toBe('.own{}');
+    expect(fs.readFileSync(path.join(cssDir, 'XX01_950155_交付版.css'), 'utf8')).toBe('.own{}');
   });
 
   it('コピー元テンプレはあるが CSS ファイルが無ければ、同じ名前の既存 CSS があっても空', async () => {
-    putSource('510037');
-    fs.writeFileSync(path.join(cssDir, 'AM01_510155_交付版.css'), '.own{}', 'utf8');
-    const res = await generate({ ...validBody, fundCode: '510155', sourceFundCode: '510037' });
+    putSource('950037');
+    fs.writeFileSync(path.join(cssDir, 'XX01_950155_交付版.css'), '.own{}', 'utf8');
+    const res = await generate({ ...validBody, fundCode: '950155', sourceFundCode: '950037' });
     expect(res.statusCode).toBe(200);
     expect(res.json().template.css).toBe('');
   });
 
   it('コピー元が無ければ同じ名前の既存 CSS を初期値にする', async () => {
-    fs.writeFileSync(path.join(cssDir, 'AM01_510037_交付版.css'), '.same{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, 'XX01_950037_交付版.css'), '.same{}', 'utf8');
     const res = await generate(validBody);
     expect(res.json().template.css).toBe('.same{}');
   });
 
   it('どちらも無ければ空', async () => {
-    fs.writeFileSync(path.join(cssDir, '510037.css'), '.old{}', 'utf8');
+    fs.writeFileSync(path.join(cssDir, '950037.css'), '.old{}', 'utf8');
     const res = await generate(validBody);
     expect(res.json().template.css).toBe('');
   });
 
   describe('組入先', () => {
-    const IN_KOFU = 'AM01_510100_交付版';
-    const IN_ZENTAI = 'AM01_510100_全体版';
+    const IN_KOFU = 'XX01_510100_交付版';
+    const IN_ZENTAI = 'XX01_510100_全体版';
     beforeEach(() => {
       state.extraFunds = ['510100'];
     });
@@ -705,25 +705,25 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     });
 
     it('組入先の作成記録には requestedFundCode が付き、コピー元は付かない', async () => {
-      putSource('510003');
-      const res = await generate({ ...validBody, sourceFundCode: '510003' });
+      putSource('950003');
+      const res = await generate({ ...validBody, sourceFundCode: '950003' });
       expect(res.statusCode).toBe(200);
       const entries = createHistory();
       expect(entries).toHaveLength(4);
       const inner = entries.filter((e) => e.attributes.fundCode === '510100');
       expect(inner).toHaveLength(2);
       for (const e of inner) {
-        expect(e.requestedFundCode).toBe('510037');
+        expect(e.requestedFundCode).toBe('950037');
         expect(e).not.toHaveProperty('sourceFundCode');
       }
     });
 
     it('組入先の CSS の初期値にコピー元を使わない', async () => {
-      putSource('510003');
-      fs.writeFileSync(path.join(cssDir, 'AM01_510003_交付版.css'), '.src{}', 'utf8');
-      fs.writeFileSync(path.join(cssDir, 'AM01_510003_全体版.css'), '.src{}', 'utf8');
+      putSource('950003');
+      fs.writeFileSync(path.join(cssDir, 'XX01_950003_交付版.css'), '.src{}', 'utf8');
+      fs.writeFileSync(path.join(cssDir, 'XX01_950003_全体版.css'), '.src{}', 'utf8');
       fs.writeFileSync(path.join(cssDir, `${IN_KOFU}.css`), '.own{}', 'utf8');
-      const res = await generate({ ...validBody, sourceFundCode: '510003' });
+      const res = await generate({ ...validBody, sourceFundCode: '950003' });
       expect(res.statusCode).toBe(200);
       expect(res.json().template.css).toBe('.src{}');
       expect(fs.readFileSync(path.join(pendingDir, `${IN_KOFU}.css`), 'utf8')).toBe('.own{}');
@@ -742,7 +742,7 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     });
     const first = generate(validBody);
     await vi.waitFor(() => expect(generateMock).toHaveBeenCalledTimes(1));
-    const second = generate({ ...validBody, fundCode: '510155' });
+    const second = generate({ ...validBody, fundCode: '950155' });
     const other = generate({ ...validBody, companyCode: 'BM02', rep1CompanyCode: 'R-BM02' });
     await vi.waitFor(() => expect(generateMock).toHaveBeenCalledTimes(2));
     // 少し待っても、同じ会社の 2 本目は 1 本目が終わるまで生成器へ届かない。
@@ -753,6 +753,6 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const results = await Promise.all([first, second, other]);
     expect(results.map((r) => r.statusCode)).toEqual([200, 200, 200]);
     expect(generateMock).toHaveBeenCalledTimes(3);
-    expect(generateMock.mock.calls[2][0]).toMatchObject({ fundCode: '510155' });
+    expect(generateMock.mock.calls[2][0]).toMatchObject({ fundCode: '950155' });
   });
 });

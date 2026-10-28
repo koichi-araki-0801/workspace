@@ -507,12 +507,12 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     };
 
     it('作成経路(3 区切りの ID)では EditorLoad.sampleWarnings に入れる', async () => {
-      const res = await withWarnings().loadForEdit('AM01_510037_交付版');
+      const res = await withWarnings().loadForEdit('XX01_950037_交付版');
       expect(isOk(res) && res.value.sampleWarnings).toEqual(['キー holdings が重複しています']);
     });
 
     it('編集経路(4 区切りの ID)では空にする', async () => {
-      const res = await withWarnings().loadForEdit('AM01_510037_20240710_交付版');
+      const res = await withWarnings().loadForEdit('XX01_950037_20240710_交付版');
       expect(isOk(res) && res.value.sampleWarnings).toEqual([]);
     });
 
@@ -520,13 +520,13 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
       const res = await createTemplateEditorService(
         repos({ draft: null }).templates,
         repos({ draft: null }).parts,
-      ).loadForEdit('AM01_510037_交付版');
+      ).loadForEdit('XX01_950037_交付版');
       expect(isOk(res) && res.value.sampleWarnings).toEqual([]);
     });
   });
 
   describe('値ファイル', () => {
-    const FILLED_ID = 'AM01_510037_20240710_交付版';
+    const FILLED_ID = 'XX01_950037_20240710_交付版';
     const withValues = (getTemplateValues: unknown) => {
       const { templates, parts } = repos({ draft: null });
       (templates as unknown as { getTemplateValues: unknown }).getTemplateValues =
@@ -536,12 +536,12 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
 
     it('4 区切りの ID では値ファイルを取得して EditorLoad.values に入れる', async () => {
       const getTemplateValues = vi.fn(async () =>
-        ok({ found: true, values: { fund: { code: '510037' } } }),
+        ok({ found: true, values: { fund: { code: '950037' } } }),
       );
       const { templates, parts } = withValues(getTemplateValues);
       const res = await createTemplateEditorService(templates, parts).loadForEdit(FILLED_ID);
       expect(getTemplateValues).toHaveBeenCalledWith(FILLED_ID);
-      expect(isOk(res) && res.value.values).toEqual({ fund: { code: '510037' } });
+      expect(isOk(res) && res.value.values).toEqual({ fund: { code: '950037' } });
       expect(isOk(res) && res.value.valuesFound).toBe(true);
     });
 
@@ -563,7 +563,7 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
       const getTemplateValues = vi.fn(async () => ok({ found: true, values: {} }));
       const { templates, parts } = withValues(getTemplateValues);
       const res = await createTemplateEditorService(templates, parts).loadForEdit(
-        'AM01_510037_交付版',
+        'XX01_950037_交付版',
       );
       expect(getTemplateValues).not.toHaveBeenCalled();
       expect(isOk(res) && res.value.values).toBeNull();

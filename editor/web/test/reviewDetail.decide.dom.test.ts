@@ -33,10 +33,10 @@ vi.mock('@/features/reviews/useReviewDiff', () => ({ useReviewDiff: () => state 
 
 const pendingReview: ReviewRequest = {
   id: 'r1',
-  templateId: 'AM01_510037_20240710_交付版',
+  templateId: 'XX01_950037_20240710_交付版',
   attributes: {
-    companyCode: 'AM01',
-    fundCode: '510037',
+    companyCode: 'XX01',
+    fundCode: '950037',
     baseDate: '20240710',
     editionType: '交付版',
   },

@@ -12,7 +12,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-filled-files-'));
 process.env.DATA_ROOT = tmp;
 process.env.FILLED_DIR = path.join(tmp, 'filled');
 
-const ID = 'AM01_510037_20240710_交付版';
+const ID = 'XX01_950037_20240710_交付版';
 
 describe('filled/ の読み取り層', () => {
   let mod: typeof import('../src/files/templateFiles.js');
@@ -36,13 +36,13 @@ describe('filled/ の読み取り層', () => {
 
   it('readFilledHtml は本文を返し、無いファイルと規約外の名前は空文字にする', async () => {
     expect(await mod.readFilledHtml(`${ID}.html`)).toBe('<p>値入り</p>');
-    expect(await mod.readFilledHtml('AM01_999999_20240710_交付版.html')).toBe('');
+    expect(await mod.readFilledHtml('XX01_999999_20240710_交付版.html')).toBe('');
     expect(await mod.readFilledHtml('../x.html')).toBe('');
   });
 
   it('filledExists / filledMtime は有無を返す', async () => {
     expect(await mod.filledExists(`${ID}.html`)).toBe(true);
-    expect(await mod.filledExists('AM01_999999_20240710_交付版.html')).toBe(false);
+    expect(await mod.filledExists('XX01_999999_20240710_交付版.html')).toBe(false);
     expect(await mod.filledMtime(`${ID}.html`)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(await mod.filledMtime('../x.html')).toBeNull();
   });

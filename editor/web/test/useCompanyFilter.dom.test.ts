@@ -11,7 +11,7 @@ import { useCompanyFilter } from '@/features/editor/useCompanyFilter';
 import { resetRep1NamesForTest } from '@/lib/useRep1Names';
 
 const COMPANIES: CompanyOption[] = [
-  { companyCode: 'AM01', companyName: '会社', rep1CompanyCode: '00001' },
+  { companyCode: 'XX01', companyName: '会社', rep1CompanyCode: '00001' },
 ];
 
 function setup(id: string, listCompanies = vi.fn(async () => ok(COMPANIES))) {
@@ -34,7 +34,7 @@ beforeEach(() => resetRep1NamesForTest());
 
 describe('useCompanyFilter', () => {
   it('解決するまで pending、略称を Rep1 の委託会社コードへ引いて ok にする', async () => {
-    const { filter } = setup('AM01_510037_20240710_交付版');
+    const { filter } = setup('XX01_950037_20240710_交付版');
     expect(filter.value).toEqual({ state: 'pending' });
     await flushPromises();
     expect(filter.value).toEqual({ state: 'ok', code: '00001' });
@@ -47,7 +47,7 @@ describe('useCompanyFilter', () => {
   });
 
   it('Rep1 に無い略称は none', async () => {
-    const { filter } = setup('ZZ99_510037_20240710_交付版');
+    const { filter } = setup('ZZ99_950037_20240710_交付版');
     await flushPromises();
     expect(filter.value).toEqual({ state: 'none' });
   });
@@ -57,8 +57,8 @@ describe('useCompanyFilter', () => {
     const listCompanies = vi.fn(
       () => new Promise<ReturnType<typeof ok<CompanyOption[]>>>((r) => (release = r)),
     );
-    const { templateId, filter } = setup('ZZ99_510037_20240710_交付版', listCompanies);
-    templateId.value = 'AM01_510037_20240710_交付版';
+    const { templateId, filter } = setup('ZZ99_950037_20240710_交付版', listCompanies);
+    templateId.value = 'XX01_950037_20240710_交付版';
     expect(filter.value).toEqual({ state: 'pending' });
     release(ok(COMPANIES));
     await flushPromises();

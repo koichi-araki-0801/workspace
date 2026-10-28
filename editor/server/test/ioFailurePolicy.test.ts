@@ -65,7 +65,7 @@ describe('templateFiles.readTemplateHtml', () => {
   });
 
   it('まだ無いテンプレは空文字(正常な「無い」)', async () => {
-    expect(await files.readTemplateHtml('AM01_777777_交付版.html')).toBe('');
+    expect(await files.readTemplateHtml('XX01_777777_交付版.html')).toBe('');
   });
 
   it('規約外の名前は空文字(パスを解決しないので読みに行かない)', async () => {
@@ -75,7 +75,7 @@ describe('templateFiles.readTemplateHtml', () => {
   it('解決できたパスの読み取り失敗は例外にする', async () => {
     // ディレクトリを同名で置くと readFile は EISDIR で落ちる。空文字へ倒すと、その値を
     // 基準にした実行コード照合や書き戻しが「本文が空」を前提に進む。
-    const id = 'AM01_888888_交付版';
+    const id = 'XX01_888888_交付版';
     fs.mkdirSync(path.join(templatesDir, `${id}.html`), { recursive: true });
     await expect(files.readTemplateHtml(`${id}.html`)).rejects.toThrow();
   });
@@ -97,7 +97,7 @@ describe('templateFiles.readFilledHtml', () => {
   it('解決できたパスの読み取り失敗は例外にする', async () => {
     // readTemplateHtml と同方針: EISDIR を空文字へ倒すと、値入り HTML が「本文は空」を
     // 前提にした承認差分・帰属検査の入力になる。
-    const id = 'AM01_888888_20250101_交付版';
+    const id = 'XX01_888888_20250101_交付版';
     fs.mkdirSync(path.join(filledDir, `${id}.html`), { recursive: true });
     await expect(files.readFilledHtml(`${id}.html`)).rejects.toThrow();
   });
@@ -113,11 +113,11 @@ describe('pendingFiles.readPending', () => {
   });
 
   it('pending が無ければ null(正常な「無い」)', async () => {
-    expect(await pending.readPending('AM01_777777_交付版')).toBeNull();
+    expect(await pending.readPending('XX01_777777_交付版')).toBeNull();
   });
 
   it('HTML だけ在って CSS が無ければ CSS は空文字(正常な「無い」)', async () => {
-    const id = 'AM01_666666_交付版';
+    const id = 'XX01_666666_交付版';
     fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
     expect(await pending.readPending(id)).toEqual({
       html: '<p>P</p>',
@@ -127,7 +127,7 @@ describe('pendingFiles.readPending', () => {
   });
 
   it('CSS が空のファイルとして在れば cssFound は true', async () => {
-    const id = 'AM01_666667_交付版';
+    const id = 'XX01_666667_交付版';
     fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
     fs.writeFileSync(path.join(pendingDir, `${id}.css`), '', 'utf8');
     expect(await pending.readPending(id)).toEqual({ html: '<p>P</p>', css: '', cssFound: true });
@@ -135,7 +135,7 @@ describe('pendingFiles.readPending', () => {
 
   it('CSS の読み取り失敗は例外にする', async () => {
     // 空文字へ倒すと、編集画面が空の CSS で開き、そのまま申請・承認すると CSS が空で確定する。
-    const id = 'AM01_555555_交付版';
+    const id = 'XX01_555555_交付版';
     fs.writeFileSync(path.join(pendingDir, `${id}.html`), '<p>P</p>', 'utf8');
     fs.mkdirSync(path.join(pendingDir, `${id}.css`), { recursive: true });
     await expect(pending.readPending(id)).rejects.toThrow();
@@ -143,7 +143,7 @@ describe('pendingFiles.readPending', () => {
 
   it('HTML の読み取り失敗は例外にする', async () => {
     // null へ倒すと「pending が無い」と読まれ、実行コード不変性の基準が空になる。
-    const id = 'AM01_444444_交付版';
+    const id = 'XX01_444444_交付版';
     fs.mkdirSync(path.join(pendingDir, `${id}.html`), { recursive: true });
     await expect(pending.readPending(id)).rejects.toThrow();
   });
@@ -159,20 +159,20 @@ describe('draftFiles.readDraft', () => {
   });
 
   it('下書きが無ければ null(正常な「無い」)', async () => {
-    const id = 'AM01_777777_交付版';
+    const id = 'XX01_777777_交付版';
     expect(await drafts.readDraft(id)).toBeNull();
   });
 
   it('CSS の読み取り失敗は例外にする', async () => {
     // 空文字へ倒すと、復元した下書きの CSS が空になり、次の自動保存で空のまま上書きされる。
-    const id = 'AM01_555555_交付版';
+    const id = 'XX01_555555_交付版';
     fs.writeFileSync(path.join(draftsDir, `${id}.html`), '<p>D</p>', 'utf8');
     fs.mkdirSync(path.join(draftsDir, `${id}.css`), { recursive: true });
     await expect(drafts.readDraft(id)).rejects.toThrow();
   });
 
   it('HTML の読み取り失敗は例外にする', async () => {
-    const id = 'AM01_444444_交付版';
+    const id = 'XX01_444444_交付版';
     fs.mkdirSync(path.join(draftsDir, `${id}.html`), { recursive: true });
     await expect(drafts.readDraft(id)).rejects.toThrow();
   });

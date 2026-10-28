@@ -81,7 +81,7 @@ async function buildApp(parts?: FakePartSeed[]): Promise<FastifyInstance> {
 
 describe('parts.routes', () => {
   let app: FastifyInstance;
-  const ID = 'AM01_510037_20240710_交付版';
+  const ID = 'XX01_950037_20240710_交付版';
 
   beforeAll(async () => {
     app = await buildApp();
@@ -202,7 +202,7 @@ describe('parts.routes', () => {
   });
 
   it('part-history: POST の id を保存して GET が返す(UUID でなければ 400、省略は pt- 始まり)', async () => {
-    const tid = 'AM01_510037_20240711_交付版';
+    const tid = 'XX01_950037_20240711_交付版';
     const url = `/templates/${encodeURIComponent(tid)}/part-history`;
     const post = (payload: object) =>
       app.inject({ method: 'POST', url, headers: as('editor'), payload });
@@ -220,7 +220,7 @@ describe('parts.routes', () => {
   });
 
   it('part-history: id の無い古い行には legacy- の決まった id を付け、再読込でも変わらない', async () => {
-    const tid = 'AM01_510037_20240712_交付版';
+    const tid = 'XX01_950037_20240712_交付版';
     const dir = path.join(root, 'logs', 'history');
     fs.mkdirSync(dir, { recursive: true });
     const row = {
@@ -243,8 +243,8 @@ describe('parts.routes', () => {
   });
 
   it('part-history: id が空文字の行にも legacy- の id を付け、他テンプレの行は混ぜない', async () => {
-    const tid = 'AM01_510037_20240714_交付版';
-    const other = 'AM01_510037_20240715_交付版';
+    const tid = 'XX01_950037_20240714_交付版';
+    const other = 'XX01_950037_20240715_交付版';
     const dir = path.join(root, 'logs', 'history');
     fs.mkdirSync(dir, { recursive: true });
     const base = { partKey: 'k', user: 'u', timestamp: '2026-01-02T00:00:00Z' };
@@ -269,7 +269,7 @@ describe('parts.routes', () => {
   });
 
   it('part-history: legacy id はフィールド境界をまたいだ同じ連結でも別の id になる', async () => {
-    const tid = 'AM01_510037_20240713_交付版';
+    const tid = 'XX01_950037_20240713_交付版';
     const dir = path.join(root, 'logs', 'history');
     fs.mkdirSync(dir, { recursive: true });
     const base = { templateId: tid, user: 'u', timestamp: '2026-01-01T00:00:00Z' };

@@ -498,9 +498,9 @@ describe('computeCssSync — 照合不可', () => {
 
 describe('cssSyncPairKey', () => {
   it('値入り HTML(4 つ区切り)でもテンプレ(3 つ区切り)でも 会社_ファンド', () => {
-    expect(cssSyncPairKey('AM01_510037_20240710_交付版')).toBe('AM01_510037');
-    expect(cssSyncPairKey('AM01_510037_20250110_全体版')).toBe('AM01_510037');
-    expect(cssSyncPairKey('AM01_510037_交付版')).toBe('AM01_510037');
+    expect(cssSyncPairKey('XX01_950037_20240710_交付版')).toBe('XX01_950037');
+    expect(cssSyncPairKey('XX01_950037_20250110_全体版')).toBe('XX01_950037');
+    expect(cssSyncPairKey('XX01_950037_交付版')).toBe('XX01_950037');
     expect(cssSyncPairKey('../x')).toBeNull();
   });
 });

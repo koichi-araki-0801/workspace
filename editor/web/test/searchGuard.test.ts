@@ -10,7 +10,7 @@ describe('canSubmitSearch', () => {
   });
 
   it('条件が 1 つでも入っていれば押させる', () => {
-    expect(canSubmitSearch({ companyCode: 'AM01' }, FIELDS)).toBe(true);
+    expect(canSubmitSearch({ companyCode: 'XX01' }, FIELDS)).toBe(true);
     expect(canSubmitSearch({ editionType: '交付版' }, FIELDS)).toBe(true);
   });
 

@@ -14,17 +14,17 @@ import { login } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
-/** 作成タブで AM01 / 510037 と版種を選び、「属性から新規作成」を押す。 */
-async function createFund510037(page: Page, edition: '交付版' | '全体版'): Promise<void> {
+/** 作成タブで XX01 / 950037 と版種を選び、「属性から新規作成」を押す。 */
+async function createFund950037(page: Page, edition: '交付版' | '全体版'): Promise<void> {
   await login(page);
   await page.goto('/create', { waitUntil: 'commit' });
   await page.getByText('作成するファンドを指定').first().waitFor();
 
-  // 委託会社の候補は「略称（Rep1 の委託会社コード）」(値はファイル名の会社コード AM01)。
+  // 委託会社の候補は「略称（Rep1 の委託会社コード）」(値はファイル名の会社コード XX01)。
   await page.getByPlaceholder('委託会社を入力/選択').click();
-  await page.getByRole('option', { name: /^AM01（/ }).click();
+  await page.getByRole('option', { name: /^XX01（/ }).click();
   await page.getByPlaceholder('ファンドを入力/選択').click();
-  await page.getByRole('option', { name: /^510037/ }).click();
+  await page.getByRole('option', { name: /^950037/ }).click();
   // Select トリガの accessible name はプレースホルダ span の中身に付かないため
   // (`getByRole('combobox', { name: ... })` は空名でマッチしない)、表示文字列での絞り込みにする。
   await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
@@ -38,16 +38,16 @@ async function createFund510037(page: Page, edition: '交付版' | '全体版'):
 test('作成タブ: 属性を選んで新規作成すると両版ができ、押した版の ?created=1 の編集画面が開きハイライトが出る', async ({
   page,
 }) => {
-  await createFund510037(page, '交付版');
+  await createFund950037(page, '交付版');
 
   await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
   const url = new URL(page.url());
-  expect(decodeURIComponent(url.pathname)).toBe('/edit/AM01_510037_交付版');
+  expect(decodeURIComponent(url.pathname)).toBe('/edit/XX01_950037_交付版');
 
   // 1 回の作成で両版が pending/ に入る。
   const pendingDir = path.join(E2E_REST_DATA_ROOT, 'pending');
   for (const edition of ['交付版', '全体版']) {
-    expect(fs.existsSync(path.join(pendingDir, `AM01_510037_${edition}.html`))).toBe(true);
+    expect(fs.existsSync(path.join(pendingDir, `XX01_950037_${edition}.html`))).toBe(true);
   }
 
   // 生成器のスケルトンは最小の帳票 1 枚(`fake_generate_template.py`)なので、canvas の描画完了は
@@ -58,15 +58,15 @@ test('作成タブ: 属性を選んで新規作成すると両版ができ、押
 });
 
 test('作成タブ: 全体版を選んで作成すると、全体版の編集画面が開く', async ({ page }) => {
-  await createFund510037(page, '全体版');
+  await createFund950037(page, '全体版');
 
   await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
-  expect(decodeURIComponent(new URL(page.url()).pathname)).toBe('/edit/AM01_510037_全体版');
+  expect(decodeURIComponent(new URL(page.url()).pathname)).toBe('/edit/XX01_950037_全体版');
   const frame = page.frameLocator('iframe.gjs-frame');
   await frame.locator('.report-title').first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.locator('body')).toHaveClass(/jinja-vars-highlight/, { timeout: 15_000 });
   const pendingDir = path.join(E2E_REST_DATA_ROOT, 'pending');
-  expect(fs.existsSync(path.join(pendingDir, 'AM01_510037_交付版.html'))).toBe(true);
+  expect(fs.existsSync(path.join(pendingDir, 'XX01_950037_交付版.html'))).toBe(true);
 });
 
 test('作成タブ: 作成済みなら「既存のテンプレートを開く」で作成経路の編集画面を開き、基準日を出さない', async ({
@@ -76,13 +76,13 @@ test('作成タブ: 作成済みなら「既存のテンプレートを開く」
   const templatesDir = path.join(E2E_REST_DATA_ROOT, 'templates');
   fs.mkdirSync(templatesDir, { recursive: true });
   fs.writeFileSync(
-    path.join(templatesDir, 'AM01_510037_交付版.html'),
+    path.join(templatesDir, 'XX01_950037_交付版.html'),
     '<html><body><h1 class="report-title">{{ fund.name }}</h1><p>基準日: {{ report.baseDate }}</p></body></html>',
     'utf8',
   );
   await login(page);
   await page.goto(
-    `/create?companyCode=AM01&fundCode=510037&editionType=${encodeURIComponent('交付版')}`,
+    `/create?companyCode=XX01&fundCode=950037&editionType=${encodeURIComponent('交付版')}`,
     { waitUntil: 'commit' },
   );
   await expect(page.getByText('テンプレートは作成済みです')).toBeVisible();
@@ -90,7 +90,7 @@ test('作成タブ: 作成済みなら「既存のテンプレートを開く」
   await page.getByRole('button', { name: '既存のテンプレートを開く' }).click();
 
   await expect(page).toHaveURL(/\/edit\/.+\?created=1$/);
-  expect(decodeURIComponent(new URL(page.url()).pathname)).toBe('/edit/AM01_510037_交付版');
+  expect(decodeURIComponent(new URL(page.url()).pathname)).toBe('/edit/XX01_950037_交付版');
   const frame = page.frameLocator('iframe.gjs-frame');
   await frame.locator('.report-title').first().waitFor({ state: 'visible', timeout: 30_000 });
   await expect(frame.locator('body')).toHaveClass(/jinja-vars-highlight/, { timeout: 15_000 });

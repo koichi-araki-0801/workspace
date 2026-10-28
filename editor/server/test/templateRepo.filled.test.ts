@@ -18,12 +18,12 @@ process.env.CSS_DIR = path.join(tmp, 'css');
 process.env.PENDING_DIR = path.join(tmp, 'pending');
 process.env.DRAFTS_DIR = path.join(tmp, 'drafts');
 
-const FILLED_ID = 'AM01_510037_20240710_交付版';
-const JINJA_ONLY_ID = 'AM01_510037_全体版';
-const BOTH_ID = 'AM01_110024_20251117_交付版';
-const SKELETON_ID = 'AM01_510124_交付版';
-const SKELETON_PENDING_ID = 'AM01_510155_交付版';
-const NO_COMPANY_ID = '510037_20240710_交付版';
+const FILLED_ID = 'XX01_950037_20240710_交付版';
+const JINJA_ONLY_ID = 'XX01_950037_全体版';
+const BOTH_ID = 'XX01_910024_20251117_交付版';
+const SKELETON_ID = 'XX01_950124_交付版';
+const SKELETON_PENDING_ID = 'XX01_950155_交付版';
+const NO_COMPANY_ID = '950037_20240710_交付版';
 
 describe('templateRepo と filled/', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
@@ -32,17 +32,17 @@ describe('templateRepo と filled/', () => {
     for (const d of ['templates', 'filled', 'css', 'pending']) {
       fs.mkdirSync(path.join(tmp, d), { recursive: true });
     }
-    fs.writeFileSync(path.join(tmp, 'filled', `${FILLED_ID}.html`), '<p>値入り 510037</p>', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'filled', `${FILLED_ID}.html`), '<p>値入り 950037</p>', 'utf8');
     fs.writeFileSync(
       path.join(tmp, 'templates', `${JINJA_ONLY_ID}.html`),
       '<p>{{ x }}</p>',
       'utf8',
     );
     fs.writeFileSync(path.join(tmp, 'templates', `${BOTH_ID}.html`), '<p>{{ y }}</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'filled', `${BOTH_ID}.html`), '<p>値入り 110024</p>', 'utf8');
-    fs.writeFileSync(path.join(tmp, 'css', 'AM01_510037_交付版.css'), '.a{}', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'filled', `${BOTH_ID}.html`), '<p>値入り 910024</p>', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'XX01_950037_交付版.css'), '.a{}', 'utf8');
     // 会社コードの無い 3 つ区切り(ファンド_基準日_版種)。3 つ区切りはテンプレートの形なので
-    // 会社=510037・ファンド=20240710 と読めてしまうが、値入り HTML ではない。
+    // 会社=950037・ファンド=20240710 と読めてしまうが、値入り HTML ではない。
     fs.writeFileSync(path.join(tmp, 'filled', `${NO_COMPANY_ID}.html`), '<p>会社なし</p>', 'utf8');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
@@ -66,8 +66,8 @@ describe('templateRepo と filled/', () => {
     expect(t.filled).toBe('');
     expect(t.meta.status).toBe('published');
     expect(t.meta.attributes).toEqual({
-      companyCode: 'AM01',
-      fundCode: '510124',
+      companyCode: 'XX01',
+      fundCode: '950124',
       editionType: '交付版',
     });
   });
@@ -77,8 +77,8 @@ describe('templateRepo と filled/', () => {
     expect(t.meta.status).toBe('draft');
     const ids = (await repo.listTemplates({})).map((m) => m.id);
     expect(ids).not.toContain(SKELETON_PENDING_ID);
-    const opts = await repo.getDropdownOptions({ companyCode: 'AM01' }, 'edit');
-    expect(opts.fundCodes).not.toContain('510155');
+    const opts = await repo.getDropdownOptions({ companyCode: 'XX01' }, 'edit');
+    expect(opts.fundCodes).not.toContain('950155');
   });
 
   it('filled/ の 3 つ区切り(ファンド_基準日_版種 など)は一覧にも候補にも出ない', async () => {
@@ -86,14 +86,14 @@ describe('templateRepo と filled/', () => {
     expect(ids).not.toContain(NO_COMPANY_ID);
     for (const scope of ['edit', 'published'] as const) {
       const opts = await repo.getDropdownOptions({}, scope);
-      expect(opts.companyCodes).not.toContain('510037');
+      expect(opts.companyCodes).not.toContain('950037');
     }
   });
 
   it('pending/ の基準日つき(4 つ区切り)は編集タブの一覧に draft で出る', async () => {
     const { writePending } = await import('../src/files/pendingFiles.js');
-    await writePending('AM01_510999_20240711_交付版', '<p>生成直後</p>', '');
-    const row = (await repo.listTemplates({})).find((m) => m.id === 'AM01_510999_20240711_交付版');
+    await writePending('XX01_510999_20240711_交付版', '<p>生成直後</p>', '');
+    const row = (await repo.listTemplates({})).find((m) => m.id === 'XX01_510999_20240711_交付版');
     expect(row?.status).toBe('draft');
   });
 
@@ -106,19 +106,19 @@ describe('templateRepo と filled/', () => {
 
   it('4 つ区切りの id は templates/ を読まない(旧形式のファイルがあっても filled/ → pending/ だけ)', async () => {
     fs.writeFileSync(
-      path.join(tmp, 'templates', 'AM01_510003_20240710_交付版.html'),
+      path.join(tmp, 'templates', 'XX01_950003_20240710_交付版.html'),
       '<p>旧形式</p>',
       'utf8',
     );
-    await expect(repo.getTemplate('AM01_510003_20240710_交付版')).rejects.toMatchObject({
+    await expect(repo.getTemplate('XX01_950003_20240710_交付版')).rejects.toMatchObject({
       kind: 'not_found',
     });
   });
 
   it('取得は filled/ の本文を html と filled の両方に返す', async () => {
     const t = await repo.getTemplate(FILLED_ID);
-    expect(t.html).toBe('<p>値入り 510037</p>');
-    expect(t.filled).toBe('<p>値入り 510037</p>');
+    expect(t.html).toBe('<p>値入り 950037</p>');
+    expect(t.filled).toBe('<p>値入り 950037</p>');
     expect(t.css).toBe('.a{}');
     expect(t.meta.status).toBe('published');
   });
@@ -129,7 +129,7 @@ describe('templateRepo と filled/', () => {
   });
 
   it('CSS ファイルが見つからなければ cssMissing=true、あれば付けない', async () => {
-    // FILLED_ID は css/AM01_510037_交付版.css がある。BOTH_ID(AM01_110024_…)は CSS が無い。
+    // FILLED_ID は css/XX01_950037_交付版.css がある。BOTH_ID(XX01_910024_…)は CSS が無い。
     expect((await repo.getTemplate(FILLED_ID)).cssMissing).toBeUndefined();
     expect((await repo.getTemplate(BOTH_ID)).cssMissing).toBe(true);
     // テンプレート(3 つ区切り)の確定版も同じ。
@@ -137,13 +137,13 @@ describe('templateRepo と filled/', () => {
   });
 
   it('中身が空の CSS ファイルは「ある」(cssMissing を付けない)', async () => {
-    fs.writeFileSync(path.join(tmp, 'css', 'AM01_510124_交付版.css'), '', 'utf8');
+    fs.writeFileSync(path.join(tmp, 'css', 'XX01_950124_交付版.css'), '', 'utf8');
     try {
       const t = await repo.getTemplate(SKELETON_ID);
       expect(t.css).toBe('');
       expect(t.cssMissing).toBeUndefined();
     } finally {
-      fs.rmSync(path.join(tmp, 'css', 'AM01_510124_交付版.css'));
+      fs.rmSync(path.join(tmp, 'css', 'XX01_950124_交付版.css'));
     }
   });
 
@@ -164,7 +164,7 @@ describe('templateRepo と filled/', () => {
 
   it('filled/ と templates/ の両方にあれば filled/ が勝つ', async () => {
     const t = await repo.getTemplate(BOTH_ID);
-    expect(t.html).toBe('<p>値入り 110024</p>');
+    expect(t.html).toBe('<p>値入り 910024</p>');
   });
 
   it('templates/ にしか無い id は一覧に出ないが取得はできる(filled は空)', async () => {
@@ -174,18 +174,18 @@ describe('templateRepo と filled/', () => {
   });
 
   it('どこにも無い id は notFound', async () => {
-    await expect(repo.getTemplate('AM01_999999_20240710_交付版')).rejects.toMatchObject({
+    await expect(repo.getTemplate('XX01_999999_20240710_交付版')).rejects.toMatchObject({
       kind: 'not_found',
     });
   });
 
   it('一覧は companyCode/baseDate/editionType でも絞れる', async () => {
     const ids = (
-      await repo.listTemplates({ companyCode: 'AM01', baseDate: '20240710', editionType: '交付版' })
+      await repo.listTemplates({ companyCode: 'XX01', baseDate: '20240710', editionType: '交付版' })
     ).map((m) => m.id);
     expect(ids).toEqual([FILLED_ID]);
     const none = await repo.listTemplates({
-      companyCode: 'AM01',
+      companyCode: 'XX01',
       baseDate: '20240710',
       editionType: '全体版',
     });
@@ -195,7 +195,7 @@ describe('templateRepo と filled/', () => {
 
 describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
   let createTemplateRepo: typeof import('../src/repositories/templateRepo.js').createTemplateRepo;
-  const ID = 'AM01_510037_20240710_交付版';
+  const ID = 'XX01_950037_20240710_交付版';
 
   beforeAll(async () => {
     ({ createTemplateRepo } = await import('../src/repositories/templateRepo.js'));
@@ -224,11 +224,11 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
 
   const COMPANIES = [
     { 委託会社コード: '00001', 委託会社名: '他社', 委託会社略称: 'ZZ99' },
-    { 委託会社コード: '00002', 委託会社名: '実委託会社', 委託会社略称: 'am01  ' },
+    { 委託会社コード: '00002', 委託会社名: '実委託会社', 委託会社略称: 'xx01  ' },
   ];
   const FUNDS = [
     { ファンドコード: '510001', ファンド名: '別ファンド' },
-    { ファンドコード: '510037', ファンド名: '実ファンド' },
+    { ファンドコード: '950037', ファンド名: '実ファンド' },
   ];
 
   it('共通一覧を合成し、Rep1 の委託会社名・ファンド名を被せる', async () => {
@@ -237,8 +237,8 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
     expect(warnings).toEqual([]);
     // 略称は末尾空白・大小を無視して引く。company.code は Rep1 の綴りでなくファイル名の会社コード。
     expect(sample).toEqual({
-      fund: { name: '実ファンド', nav: 1, code: '510037' },
-      company: { code: 'AM01', name: '実委託会社' },
+      fund: { name: '実ファンド', nav: 1, code: '950037' },
+      company: { code: 'XX01', name: '実委託会社' },
       a: 1,
       b: 2,
     });
@@ -246,22 +246,22 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
 
   it('3 区切り(基準日なし)の ID でも引ける', async () => {
     const repo = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: FUNDS }));
-    const { sample } = await repo.getSampleData('AM01_510037_交付版');
-    expect(sample.fund).toMatchObject({ code: '510037', name: '実ファンド' });
+    const { sample } = await repo.getSampleData('XX01_950037_交付版');
+    expect(sample.fund).toMatchObject({ code: '950037', name: '実ファンド' });
   });
 
   it('Rep1 で見つからなければ共通値のまま返す(ファンドコードだけ被せる)', async () => {
     const repo = createTemplateRepo(sprocOf({ companies: [] }));
     expect((await repo.getSampleData(ID)).sample).toEqual({
-      fund: { name: '共通名', nav: 1, code: '510037' },
-      company: { code: 'AM01' },
+      fund: { name: '共通名', nav: 1, code: '950037' },
+      company: { code: 'XX01' },
       a: 1,
       b: 2,
     });
     // 会社は見つかるがファンドが無いときは、会社名だけ被さる。
     const noFund = createTemplateRepo(sprocOf({ companies: COMPANIES, funds: [] }));
     const r = (await noFund.getSampleData(ID)).sample;
-    expect(r.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
+    expect(r.fund).toEqual({ name: '共通名', nav: 1, code: '950037' });
     expect(r.company).toMatchObject({ name: '実委託会社' });
   });
 
@@ -272,11 +272,11 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
       const repo = createTemplateRepo(sprocOf({ rep1Throws: true }));
       const { sample, warnings } = await repo.getSampleData(ID);
       expect(warnings).toEqual([]);
-      expect(sample.fund).toEqual({ name: '共通名', nav: 1, code: '510037' });
-      expect(sample.company).toEqual({ code: 'AM01' });
+      expect(sample.fund).toEqual({ name: '共通名', nav: 1, code: '950037' });
+      expect(sample.company).toEqual({ code: 'XX01' });
       // 握りつぶさず、Rep1 障害として気づけるようログに残す。
       expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({ companyAbbr: 'AM01', fundCode: '510037' }),
+        expect.objectContaining({ companyAbbr: 'XX01', fundCode: '950037' }),
         expect.any(String),
       );
     } finally {
@@ -302,15 +302,15 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
   it('行が無ければ fund.code と company.code だけの sample', async () => {
     const repo = createTemplateRepo(sprocOf({ common: [] }));
     expect((await repo.getSampleData(ID)).sample).toEqual({
-      fund: { code: '510037' },
-      company: { code: 'AM01' },
+      fund: { code: '950037' },
+      company: { code: 'XX01' },
     });
   });
 
   it('ID が不正なら validation', async () => {
     const repo = createTemplateRepo(sprocOf({}));
     await expect(repo.getSampleData('../evil')).rejects.toMatchObject({ kind: 'validation' });
-    await expect(repo.getSampleData('AM01')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(repo.getSampleData('XX01')).rejects.toMatchObject({ kind: 'validation' });
   });
 });
 
@@ -324,14 +324,14 @@ describe('config.sampleOverlay の差し替え', () => {
       const repo = createTemplateRepo({
         async callSproc<T>(_proc: string, op: string): Promise<T[]> {
           if (op === '委託会社一覧') {
-            return [{ 委託会社コード: '1', 委託会社名: '社', 委託会社略称: 'AM01' }] as T[];
+            return [{ 委託会社コード: '1', 委託会社名: '社', 委託会社略称: 'XX01' }] as T[];
           }
-          if (op === 'ファンド一覧') return [{ ファンドコード: '510037', ファンド名: 'F' }] as T[];
+          if (op === 'ファンド一覧') return [{ ファンドコード: '950037', ファンド名: 'F' }] as T[];
           return [];
         },
       });
-      expect((await repo.getSampleData('AM01_510037_交付版')).sample).toMatchObject({
-        x: { code: '510037', name: 'F' },
+      expect((await repo.getSampleData('XX01_950037_交付版')).sample).toMatchObject({
+        x: { code: '950037', name: 'F' },
       });
     } finally {
       Object.assign(config.sampleOverlay, saved);

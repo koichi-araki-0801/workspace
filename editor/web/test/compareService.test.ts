@@ -28,10 +28,10 @@ vi.mock('@/lib/renderHostClient', async () => {
 
 const snapshot: TemplateSnapshot = {
   historyId: 'eh-1',
-  templateId: 'AM01_510037_20240710_kr',
+  templateId: 'XX01_950037_20240710_kr',
   html: '<p>{{ fund.name }}</p>',
   css: '.x{}',
-  fundCode: '510037',
+  fundCode: '950037',
   timestamp: '2026-06-01T00:00:00.000Z',
 };
 
@@ -53,7 +53,7 @@ describe('CompareService.renderVersionHtml', () => {
     const templates = {
       getTemplate: vi.fn(async () =>
         ok({
-          meta: { id: 'AM01_510037_20240710_kr', attributes: { fundCode: '510037' } },
+          meta: { id: 'XX01_950037_20240710_kr', attributes: { fundCode: '950037' } },
           html: '<p>{{ fund.name }}</p>',
           css: '.base{}',
           filled: '',
@@ -66,9 +66,9 @@ describe('CompareService.renderVersionHtml', () => {
     const history = {} as HistoryRepository;
 
     const svc = createCompareService(templates, history);
-    const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
+    const res = await svc.renderVersionHtml('baseline:XX01_950037_20240710_kr');
 
-    expect(templates.getSampleData).toHaveBeenCalledWith('AM01_510037_20240710_kr');
+    expect(templates.getSampleData).toHaveBeenCalledWith('XX01_950037_20240710_kr');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) {
       expect(res.value.html).toContain('原本ファンド');
@@ -89,7 +89,7 @@ describe('CompareService.renderVersionHtml', () => {
   it('propagates a getSampleData error on the 現行版 baseline path', async () => {
     const templates = {
       getTemplate: vi.fn(async () =>
-        ok({ meta: { attributes: { fundCode: '510037' } }, html: '<p/>', css: '', filled: '' }),
+        ok({ meta: { attributes: { fundCode: '950037' } }, html: '<p/>', css: '', filled: '' }),
       ),
       getSampleData: vi.fn(async () => err(notFound('no sample'))),
     } as unknown as TemplateRepository;
@@ -101,7 +101,7 @@ describe('CompareService.renderVersionHtml', () => {
   it('returns the safe render error when the 現行版 baseline fails to render', async () => {
     const templates = {
       getTemplate: vi.fn(async () =>
-        ok({ meta: { attributes: { fundCode: '510037' } }, html: '{% if %}', css: '', filled: '' }),
+        ok({ meta: { attributes: { fundCode: '950037' } }, html: '{% if %}', css: '', filled: '' }),
       ),
       getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
@@ -115,7 +115,7 @@ describe('CompareService.renderVersionHtml', () => {
     const templates = {
       getTemplate: vi.fn(async () =>
         ok({
-          meta: { attributes: { fundCode: '510037' } },
+          meta: { attributes: { fundCode: '950037' } },
           html: '<p>値入り {{ fund.name }}</p>',
           css: '.base{}',
           filled: '<p>値入り {{ fund.name }}</p>',
@@ -126,7 +126,7 @@ describe('CompareService.renderVersionHtml', () => {
       ),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
-    const res = await svc.renderVersionHtml('baseline:AM01_510037_20240710_kr');
+    const res = await svc.renderVersionHtml('baseline:XX01_950037_20240710_kr');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.html).toBe('<p>値入り {{ fund.name }}</p>');
     expect(templates.getSampleData).not.toHaveBeenCalled();
@@ -153,7 +153,7 @@ describe('CompareService.renderTemplateBody', () => {
       getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
-    const res = await svc.renderTemplateBody('<p>{{ raw }}</p>', '.c{}', '510037', 'edit');
+    const res = await svc.renderTemplateBody('<p>{{ raw }}</p>', '.c{}', '950037', 'edit');
     expect(isOk(res) && res.value).toEqual({ html: '<p>{{ raw }}</p>', css: '.c{}' });
     expect(templates.getSampleData).not.toHaveBeenCalled();
   });
@@ -168,10 +168,10 @@ describe('CompareService.renderTemplateBody', () => {
     const res = await svc.renderTemplateBody(
       '<p>{{ fund.name }}</p>',
       '.c{}',
-      'AM01_510037_交付版',
+      'XX01_950037_交付版',
       'create',
     );
-    expect(templates.getSampleData).toHaveBeenCalledWith('AM01_510037_交付版');
+    expect(templates.getSampleData).toHaveBeenCalledWith('XX01_950037_交付版');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value.html).toContain('作成ファンド');
   });
@@ -181,7 +181,7 @@ describe('CompareService.renderTemplateBody', () => {
       getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
-    const res = await svc.renderTemplateBody('{% if %}', '', '510037', 'create');
+    const res = await svc.renderTemplateBody('{% if %}', '', '950037', 'create');
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
   });
@@ -191,7 +191,7 @@ describe('CompareService.renderTemplateBody', () => {
       getSampleData: vi.fn(async () => err(notFound('no sample'))),
     } as unknown as TemplateRepository;
     const svc = createCompareService(templates, {} as HistoryRepository);
-    expect(isErr(await svc.renderTemplateBody('<p/>', '', '510037', 'create'))).toBe(true);
+    expect(isErr(await svc.renderTemplateBody('<p/>', '', '950037', 'create'))).toBe(true);
   });
 });
 
@@ -199,8 +199,8 @@ describe('CompareService.listCandidates', () => {
   const meta = (id: string): TemplateMeta => ({
     id,
     attributes: {
-      companyCode: 'AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      fundCode: '950037',
       baseDate: '20240710',
       editionType: '確報',
     },
@@ -341,9 +341,9 @@ describe('CompareService delegation', () => {
       { listTemplates } as unknown as TemplateRepository,
       { listVersions } as unknown as HistoryRepository,
     );
-    await svc.listTemplates({ companyCode: 'AM01' });
+    await svc.listTemplates({ companyCode: 'XX01' });
     const vers = await svc.listVersions('tpl-1');
-    expect(listTemplates).toHaveBeenCalledWith({ companyCode: 'AM01' });
+    expect(listTemplates).toHaveBeenCalledWith({ companyCode: 'XX01' });
     expect(listVersions).toHaveBeenCalledWith('tpl-1');
     // snapshot ゼロでも先頭に現行版(baseline)が 1 件足される。
     expect(isOk(vers)).toBe(true);

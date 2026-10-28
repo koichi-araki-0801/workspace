@@ -16,15 +16,15 @@ import { FUND_IMAGE_WARNING_MESSAGE } from '@/lib/assetWarnings';
 import { fundCodeOfTemplateId } from '@/lib/fundImages';
 import { fixtureSample } from './helpers/fundSample';
 
-const ID = 'AM01_510037_20250105_交付版';
-const JINJA = { mode: 'jinja' as const, fundCode: '510037', companyCode: 'AM01' };
-const FILLED = { mode: 'filled' as const, fundCode: '510037', companyCode: 'AM01' };
-const LOGO = { dir: null, file: '510037_logo.svg' };
+const ID = 'XX01_950037_20250105_交付版';
+const JINJA = { mode: 'jinja' as const, fundCode: '950037', companyCode: 'XX01' };
+const FILLED = { mode: 'filled' as const, fundCode: '950037', companyCode: 'XX01' };
+const LOGO = { dir: null, file: '950037_logo.svg' };
 
 describe('fundCodeOfTemplateId', () => {
   it('テンプレ ID からファンドコードを取り出す(不正な ID は null)', () => {
-    expect(fundCodeOfTemplateId(ID)).toBe('510037');
-    expect(fundCodeOfTemplateId('AM01_510037_交付版')).toBe('510037');
+    expect(fundCodeOfTemplateId(ID)).toBe('950037');
+    expect(fundCodeOfTemplateId('XX01_950037_交付版')).toBe('950037');
     expect(fundCodeOfTemplateId('not-a-template')).toBeNull();
   });
 
@@ -41,8 +41,8 @@ describe('resolveFundImageSrc', () => {
     '../images/{{ fund.code }}_logo.svg',
     '../images/{{fund.code}}_logo.svg',
     '../images/{{   fund.code   }}_logo.svg',
-    '../images/510037_logo.svg',
-  ])('Jinja 本文: %s は images/510037_logo.svg を差す', (src) => {
+    '../images/950037_logo.svg',
+  ])('Jinja 本文: %s は images/950037_logo.svg を差す', (src) => {
     expect(resolveFundImageSrc(src, JINJA)).toEqual(LOGO);
   });
 
@@ -59,32 +59,32 @@ describe('resolveFundImageSrc', () => {
   });
 
   it('値入り本文は確定パスだけを差し、{{ … }} の残る参照は解かない', () => {
-    expect(resolveFundImageSrc('../images/510037_logo.svg', FILLED)).toEqual(LOGO);
+    expect(resolveFundImageSrc('../images/950037_logo.svg', FILLED)).toEqual(LOGO);
     expect(resolveFundImageSrc('../images/{{ fund.code }}_logo.svg', FILLED)).toBeNull();
   });
 
   it('会社フォルダは会社コードと大文字小文字の違いだけで一致するときに差す', () => {
-    expect(resolveFundImageSrc('../images/am01/qr_code.svg', FILLED)).toEqual({
-      dir: 'am01',
+    expect(resolveFundImageSrc('../images/xx01/qr_code.svg', FILLED)).toEqual({
+      dir: 'xx01',
       file: 'qr_code.svg',
     });
-    expect(resolveFundImageSrc('../images/smtam/qr_code.svg', FILLED)).toBeNull();
+    expect(resolveFundImageSrc('../images/xxam/qr_code.svg', FILLED)).toBeNull();
     expect(
-      resolveFundImageSrc('../images/am01/qr_code.svg', { ...FILLED, companyCode: null }),
+      resolveFundImageSrc('../images/xx01/qr_code.svg', { ...FILLED, companyCode: null }),
     ).toBeNull();
   });
 
   it.each([
     '../images/{{ report.x }}_logo.svg',
     '../images/{% if a %}x{% endif %}.svg',
-    '../photos/510037_logo.svg',
-    'images/510037_logo.svg',
-    '/images/510037_logo.svg',
-    '../../images/510037_logo.svg',
-    '../images/a/b/510037_logo.svg',
-    '../images/510037_anim.gif',
+    '../photos/950037_logo.svg',
+    'images/950037_logo.svg',
+    '/images/950037_logo.svg',
+    '../../images/950037_logo.svg',
+    '../images/a/b/950037_logo.svg',
+    '../images/950037_anim.gif',
     '../images/../css/x.svg',
-    'https://evil.example/images/510037_logo.svg',
+    'https://evil.example/images/950037_logo.svg',
   ])('%s は対象外', (src) => {
     expect(resolveFundImageSrc(src, JINJA)).toBeNull();
     expect(resolveFundImageSrc(src, FILLED)).toBeNull();
@@ -97,18 +97,18 @@ describe('fundImageWarnings', () => {
       fundImageWarnings(
         [
           '../images/{{ fund.code }}_logo.svg',
-          'images/510037_logo.svg',
-          '../images/smtam/qr.svg',
-          '../images/510037_logo.svg',
+          'images/950037_logo.svg',
+          '../images/xxam/qr.svg',
+          '../images/950037_logo.svg',
         ],
         FILLED,
         [],
       ),
     ).toEqual([
       FUND_IMAGE_WARNING_MESSAGE,
-      '配信されない画像参照があります（images/510037_logo.svg）。' +
+      '配信されない画像参照があります（images/950037_logo.svg）。' +
         '画像は ../images/<名前> か ../images/<会社フォルダ>/<名前> で参照してください',
-      '会社フォルダ名がテンプレの会社コード（AM01）と違うため表示しません（../images/smtam/qr.svg）',
+      '会社フォルダ名がテンプレの会社コード（XX01）と違うため表示しません（../images/xxam/qr.svg）',
     ]);
   });
 
@@ -151,9 +151,9 @@ describe('cssString / fundImageCss', () => {
     const { css, urls } = fundImageCss(
       [
         '../images/{{ fund.code }}_logo.svg',
-        '../images/510037_logo.svg',
+        '../images/950037_logo.svg',
         '../images/{{ fund.code }}_logo.svg',
-        '../images/AM01/qr.svg',
+        '../images/XX01/qr.svg',
         '../photos/x.png',
       ],
       JINJA,
@@ -161,27 +161,27 @@ describe('cssString / fundImageCss', () => {
     // 1 つの src につき、差し替えと `:where(...)`(詳細度 0 の display)の 2 行。重複 src は 1 組のまま。
     expect(css).toBe(
       [
-        'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
+        'img[src="../images/{{ fund.code }}_logo.svg"]{content:url("/api/fund-assets/images/950037_logo.svg")}',
         ':where(img[src="../images/{{ fund.code }}_logo.svg"]){display:inline-block}',
-        'img[src="../images/510037_logo.svg"]{content:url("/api/fund-assets/images/510037_logo.svg")}',
-        ':where(img[src="../images/510037_logo.svg"]){display:inline-block}',
-        'img[src="../images/AM01/qr.svg"]{content:url("/api/fund-assets/images/AM01/qr.svg")}',
-        ':where(img[src="../images/AM01/qr.svg"]){display:inline-block}',
+        'img[src="../images/950037_logo.svg"]{content:url("/api/fund-assets/images/950037_logo.svg")}',
+        ':where(img[src="../images/950037_logo.svg"]){display:inline-block}',
+        'img[src="../images/XX01/qr.svg"]{content:url("/api/fund-assets/images/XX01/qr.svg")}',
+        ':where(img[src="../images/XX01/qr.svg"]){display:inline-block}',
       ].join('\n'),
     );
     expect(css).not.toContain('photos');
     expect(urls).toEqual([
-      '/api/fund-assets/images/510037_logo.svg',
-      '/api/fund-assets/images/AM01/qr.svg',
+      '/api/fund-assets/images/950037_logo.svg',
+      '/api/fund-assets/images/XX01/qr.svg',
     ]);
   });
 
   it('src に引用符・括弧・山括弧・改行が入っても 2 規則(各 1 行)のまま閉じない', () => {
-    const src = '../images/510037_a"b]<c>\nd.svg';
+    const src = '../images/950037_a"b]<c>\nd.svg';
     const { css } = fundImageCss([src], JINJA);
     expect(css.split('\n')).toHaveLength(2);
     expect(
-      css.startsWith('img[src="../images/510037_a\\"b]\\3c c\\3e \\a d.svg"]{content:url("/api/'),
+      css.startsWith('img[src="../images/950037_a\\"b]\\3c c\\3e \\a d.svg"]{content:url("/api/'),
     ).toBe(true);
     expect(css).not.toContain('<');
   });

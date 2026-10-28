@@ -9,8 +9,8 @@ import { getBodyInner } from '../src/lib/templateDoc';
 import { fixtureSample } from './helpers/fundSample';
 
 const sample = {
-  company: { code: 'AM01', name: 'アセットマネジメント株式会社' },
-  fund: { code: '510037', name: '日本株式オープン', nav: '12,345', navChange: 58 },
+  company: { code: 'XX01', name: 'アセットマネジメント株式会社' },
+  fund: { code: '950037', name: '日本株式オープン', nav: '12,345', navChange: 58 },
   report: { baseDate: '2024-07-10', editionType: 'kr' },
   holdings: [
     { name: 'トヨタ自動車', weight: '5.2' },
@@ -157,7 +157,7 @@ const GENERATED_SKELETON_BODY = `<div class="page">
 
 describe('生成スケルトンの参照キーがサンプルで満たされる', () => {
   it('生成器の書きぶり(基準日・前日比の符号分岐): 解釈できない/未定義の Jinja 式が無い', () => {
-    const attrs = parseTemplateFileName('AM01_510037_20240710_kr.html');
+    const attrs = parseTemplateFileName('XX01_950037_20240710_kr.html');
     expect(attrs).not.toBeNull();
     if (!attrs) return;
     const { diagnostics } = toFilledWithDiagnostics(

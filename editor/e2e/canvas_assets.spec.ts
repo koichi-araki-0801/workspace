@@ -61,7 +61,7 @@ test.describe('canvas の画像差し替え', () => {
 // 書体にまとめ、複製の読み込みに失敗すると元の規則へ取りに行くので、その場合でも 0 件であることを
 // 確かめる。
 test.describe('編集画面のフォント', () => {
-  const SEED_ID = 'AM01_510037_20240710_交付版';
+  const SEED_ID = 'XX01_950037_20240710_交付版';
   const TEMPLATE_CSS_FONT =
     '@font-face{font-family:E2EFont;src:url(fonts/e2e.woff2)} body{font-family:E2EFont}';
   const BODY_STYLE =

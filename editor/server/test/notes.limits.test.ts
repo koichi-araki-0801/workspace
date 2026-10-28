@@ -26,7 +26,7 @@ async function importNotes(): Promise<{
   };
 }
 
-const TPL = 'AM01_510037_20240710_交付版';
+const TPL = 'XX01_950037_20240710_交付版';
 const notesPath = (): string => path.join(tmpRoot, 'notes', `${TPL}.json`);
 
 beforeEach(async () => {
@@ -42,7 +42,7 @@ describe('templateId の検証は正典 1 本に寄せる', () => {
   it('長さ上限(正典が持つ 200 文字)がここでも効く', async () => {
     const { files } = await importNotes();
     // 4 トークン構造には合うが、正典の単一セグメント上限を超える id。
-    const longId = `AM01_510037_20240710_${'あ'.repeat(300)}`;
+    const longId = `XX01_950037_20240710_${'あ'.repeat(300)}`;
     await expect(files.readNotes(longId)).rejects.toMatchObject({ kind: 'validation' });
   });
 });
@@ -127,7 +127,7 @@ describe('同時保存で更新が消えない', () => {
   // 入力にすると**破壊**になる。メモは git 管理外なので消えたら復元できず、監査も残らない。
   it('読めないメモファイルがあるとき保存は拒否され、既存の内容が保たれる', async () => {
     const { files, repo } = await importNotes();
-    const tplId = 'AM01_510037_20240710_交付版';
+    const tplId = 'XX01_950037_20240710_交付版';
     const file = path.join(tmpRoot, 'notes', `${tplId}.json`);
     await fs.mkdir(path.dirname(file), { recursive: true });
     // 上限を超える実体を直に置く(修正前の版が書いたファイル、という想定)。
@@ -145,7 +145,7 @@ describe('同時保存で更新が消えない', () => {
 
   it('壊れた JSON でも保存は拒否される(表示は空でも書き戻さない)', async () => {
     const { files, repo } = await importNotes();
-    const tplId = 'AM01_510037_20240710_交付版';
+    const tplId = 'XX01_950037_20240710_交付版';
     const file = path.join(tmpRoot, 'notes', `${tplId}.json`);
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, '{ this is not json', 'utf8');
@@ -164,7 +164,7 @@ describe('同時保存で更新が消えない', () => {
   // ── 件数上限はサイズ上限を守れない ──
   it('件数上限内でもサイズ上限を超える書き込みは拒否される', async () => {
     const { files } = await importNotes();
-    const tplId = 'AM01_510037_20240710_交付版';
+    const tplId = 'XX01_950037_20240710_交付版';
     // 1 件 64KiB × 70 件 ≒ 4.4MiB。件数上限 1000 の 7% でファイル上限を超える
     // (1000 × 64KiB = 64MiB は 4MiB の 16 倍で、件数だけではサイズを縛れない)。
     const map: Record<string, unknown> = {};

@@ -115,7 +115,7 @@ export function useRep1Names() {
     flush();
   }
 
-  /** `AM01（0001）`。Rep1 に無ければ `AM01（未登録）`、まだ分からなければ略称だけ。 */
+  /** `XX01（0001）`。Rep1 に無ければ `XX01（未登録）`、まだ分からなければ略称だけ。 */
   function companyLabel(companyCode: string): string {
     const c = companyOf(companyCode);
     if (c === undefined) return companyCode;

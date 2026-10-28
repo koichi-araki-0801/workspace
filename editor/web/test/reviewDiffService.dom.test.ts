@@ -27,9 +27,9 @@ vi.mock('@/features/compare/htmlBlockDiff', async (orig) => {
 function review(origin: 'edit' | 'create'): ReviewRequest {
   return {
     id: 'req-1',
-    templateId: 'AM01_111111_20250101_交付版',
+    templateId: 'XX01_111111_20250101_交付版',
     attributes: {
-      companyCode: 'AM01',
+      companyCode: 'XX01',
       fundCode: '111111',
       baseDate: '20250101',
       editionType: '交付版',
@@ -111,7 +111,7 @@ describe('reviewDiffService.buildDiff', () => {
     if (!res.ok) return;
     // edit なので現行版レンダリングが呼ばれ、before に反映される。
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      'baseline:AM01_111111_20250101_交付版',
+      'baseline:XX01_111111_20250101_交付版',
     );
     expect(res.value.rows).toHaveLength(3);
     expect(res.value.summary).toEqual({ total: 3, changed: 1, added: 1, removed: 0 });

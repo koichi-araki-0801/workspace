@@ -89,7 +89,7 @@ describe('renderPartForInsert: fixture のパーツ', () => {
   }>;
   const jinjaParts = parts.filter((p) => /\{\{|\{%/.test(p.content));
   const values = JSON.parse(
-    readFileSync(path.join(FIXTURES, 'json', 'AM01_510037_20240710_交付版.json'), 'utf8'),
+    readFileSync(path.join(FIXTURES, 'json', 'XX01_950037_20240710_交付版.json'), 'utf8'),
   ) as Record<string, unknown>;
 
   it('Jinja のパーツを含み、{% for %} を持つ表もある(セルフテスト)', () => {

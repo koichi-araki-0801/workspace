@@ -246,7 +246,7 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     const sproc = await createFakeSproc();
     for (const op of ['系列', '候補', '生成登録']) {
       await expect(
-        sproc.callSproc(SP.template, op, [p('委託会社コード', 'AM01')]),
+        sproc.callSproc(SP.template, op, [p('委託会社コード', 'XX01')]),
       ).rejects.toMatchObject({ kind: 'validation' });
     }
   });
@@ -255,21 +255,21 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     const sproc = await createFakeSproc();
     const rows = await sproc.callSproc(SP.template, '委託会社一覧');
     expect(rows).toEqual([
-      { 委託会社コード: 'R-AM01', 委託会社名: TRUST_AM, 委託会社略称: 'AM01' },
+      { 委託会社コード: 'R-XX01', 委託会社名: TRUST_AM, 委託会社略称: 'XX01' },
     ]);
   });
 
   it('ファンド一覧 returns the funds of one Rep1 company (case-insensitive) and needs the company', async () => {
     const sproc = await createFakeSproc();
     const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
-      p('委託会社コード', 'r-am01'),
+      p('委託会社コード', 'r-xx01'),
     ]);
     expect(rows.map((r) => r.ファンドコード)).toEqual([
-      '110024',
-      '510003',
-      '510037',
-      '510124',
-      '510155',
+      '910024',
+      '950003',
+      '950037',
+      '950124',
+      '950155',
     ]);
     await expect(sproc.callSproc(SP.template, 'ファンド一覧', [])).rejects.toMatchObject({
       kind: 'validation',
@@ -278,14 +278,14 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
 
   it('シリーズ 一覧 returns fund and series code (null when not in a series)', async () => {
     const sproc = await createFakeSproc();
-    const rows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', 'R-AM01')]);
-    expect(rows).toContainEqual({ ファンドコード: '510037', シリーズコード: 'CORE' });
-    expect(rows).toContainEqual({ ファンドコード: '110024', シリーズコード: null });
+    const rows = await sproc.callSproc(SP.series, '一覧', [p('委託会社コード', 'R-XX01')]);
+    expect(rows).toContainEqual({ ファンドコード: '950037', シリーズコード: 'CORE' });
+    expect(rows).toContainEqual({ ファンドコード: '910024', シリーズコード: null });
   });
 
   it('注記マスタ 反映 upserts by (パーツID, ファンドコード, 版種)', async () => {
     const sproc = await createFakeSproc();
-    const key = [p('パーツID', 'p-note-tax'), p('ファンドコード', '510037'), p('版種', '交付版')];
+    const key = [p('パーツID', 'p-note-tax'), p('ファンドコード', '950037'), p('版種', '交付版')];
     await sproc.callSproc(SP.noteMaster, '反映', [
       ...key,
       p('注記HTML', '<p>旧</p>'),
@@ -297,13 +297,13 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
       p('更新者', 'approver'),
     ]);
     const rows = await sproc.callSproc(SP.noteMaster, '取得', [
-      p('ファンドコード', '510037'),
+      p('ファンドコード', '950037'),
       p('版種', '交付版'),
     ]);
     expect(rows).toEqual([{ パーツID: 'p-note-tax', 注記HTML: '<p>新</p>' }]);
     // 版種が違えば別行(ペアの版種へ勝手に波及しない)。
     await expect(
-      sproc.callSproc(SP.noteMaster, '取得', [p('ファンドコード', '510037'), p('版種', '全体版')]),
+      sproc.callSproc(SP.noteMaster, '取得', [p('ファンドコード', '950037'), p('版種', '全体版')]),
     ).resolves.toHaveLength(0);
   });
 
@@ -455,7 +455,7 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     it('取得 is an unknown operation', async () => {
       const sproc = await createFakeSproc();
       await expect(
-        sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '510037')]),
+        sproc.callSproc(SP.sample, '取得', [p('ファンドコード', '950037')]),
       ).rejects.toThrow();
     });
   });

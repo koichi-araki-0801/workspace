@@ -17,7 +17,7 @@ import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
 import { login, openEditor, partLocator, waitForLoaded } from './helpers';
 
-const SEED_ID = 'AM01_510037_20240710_交付版';
+const SEED_ID = 'XX01_950037_20240710_交付版';
 const EDIT_MARK = 'restE2E追記';
 
 // 2 つ目のテストは 1 つ目が残した申請を承認する。依存を実行順序として明示する。
@@ -38,11 +38,11 @@ test('editor がログインして一覧・編集画面を確認し、確定保�
 
   // 一覧は条件を選んで検索するまで出ない。絞り込みは URL クエリと双方向同期する
   // (`useUrlQuerySync.ts`)ので、委託会社(略称)を URL で渡して復元経路から一覧を出す。
-  await page.goto('/edit?companyCode=AM01', { waitUntil: 'commit' });
+  await page.goto('/edit?companyCode=XX01', { waitUntil: 'commit' });
   // ファンド名は Rep1(ファンド一覧)の有無に依存するので、常に描かれるファンドコード・基準日・
   // 版種の 3 列だけで 1 行に絞る。
   const row = page
-    .locator('table tr', { hasText: '510037' })
+    .locator('table tr', { hasText: '950037' })
     .filter({ hasText: '20240710' })
     .filter({ hasText: '交付版' });
   await expect(row).toBeVisible({ timeout: 30_000 });

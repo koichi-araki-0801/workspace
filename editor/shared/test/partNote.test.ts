@@ -6,7 +6,7 @@ describe('PartNoteEntry', () => {
   it('投稿 1 件の形を受理する(未編集は updatedAt/updatedBy が null)', () => {
     const parsed = PartNoteEntry.parse({
       id: '2f1c9a52-0f3e-4a1b-9d5c-8e7a6b5c4d3e',
-      templateId: 'AM01_510037_20240710_交付版',
+      templateId: 'XX01_950037_20240710_交付版',
       pathKey: '.page#1/cover#1',
       content: 'メモ本文',
       createdAt: '2026-09-01T00:00:00.000Z',
@@ -23,7 +23,7 @@ describe('PartNoteEntry', () => {
 describe('PartNoteEntry のコメント属性', () => {
   const base = {
     id: 'e1',
-    templateId: 'AM01_510037_20240710_交付版',
+    templateId: 'XX01_950037_20240710_交付版',
     pathKey: '.page#1/cover#1',
     content: '本文',
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -114,8 +114,8 @@ describe('UpdateNoteRequest の部分更新', () => {
 describe('apiPaths.noteEntry', () => {
   it('templateId と entryId を埋め込める', () => {
     expect(
-      buildPath(apiPaths.noteEntry, { templateId: 'AM01_510037_20240710_交付版', entryId: 'e1' }),
-    ).toBe('/templates/AM01_510037_20240710_%E4%BA%A4%E4%BB%98%E7%89%88/notes/e1');
+      buildPath(apiPaths.noteEntry, { templateId: 'XX01_950037_20240710_交付版', entryId: 'e1' }),
+    ).toBe('/templates/XX01_950037_20240710_%E4%BA%A4%E4%BB%98%E7%89%88/notes/e1');
   });
 });
 

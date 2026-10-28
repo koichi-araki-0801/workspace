@@ -9,7 +9,7 @@ const SUMMARY = '.page#1/.summary#1';
 
 function entry(p: Partial<PartNoteEntry> & { id: string }): PartNoteEntry {
   return {
-    templateId: 'AM01_510037_20240710_交付版',
+    templateId: 'XX01_950037_20240710_交付版',
     pathKey: COVER,
     content: '',
     createdAt: '2026-09-01T00:00:00.000Z',

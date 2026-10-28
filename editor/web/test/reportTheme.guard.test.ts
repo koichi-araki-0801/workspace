@@ -36,7 +36,7 @@ function importSpecifiers(source: string): string[] {
 describe('正テーマ CSS(assets/reportTheme.css)', () => {
   it('fixture の正テーマとバイト一致する', () => {
     // 架空化でファイル名のコードが変わっても追従するよう、末尾一致で探す。
-    const matches = readdirSync(FIXTURE_CSS_DIR).filter((n) => n.endsWith('_510037_交付版.css'));
+    const matches = readdirSync(FIXTURE_CSS_DIR).filter((n) => n.endsWith('_950037_交付版.css'));
     expect(matches).toHaveLength(1);
     const theme = readFileSync(path.join(WEB_SRC, 'assets/reportTheme.css'));
     const fixture = readFileSync(path.join(FIXTURE_CSS_DIR, matches[0]));

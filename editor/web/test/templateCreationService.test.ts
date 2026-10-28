@@ -14,9 +14,9 @@ import {
 } from '@/features/templates/services/templateCreationService';
 
 const meta: TemplateMeta = {
-  id: 'AM01_510037_20240710_kr',
-  attributes: { companyCode: 'AM01', fundCode: '510037', baseDate: '20240710', editionType: 'kr' },
-  fileName: 'AM01_510037_20240710_kr.html',
+  id: 'XX01_950037_20240710_kr',
+  attributes: { companyCode: 'XX01', fundCode: '950037', baseDate: '20240710', editionType: 'kr' },
+  fileName: 'XX01_950037_20240710_kr.html',
   status: 'draft',
   updatedAt: null,
   updatedBy: null,
@@ -33,7 +33,7 @@ describe('TemplateCreationService.create', () => {
   it('rejects incomplete attributes without calling the repository', async () => {
     const repo = repoWithGenerate();
     const svc = createTemplateCreationService(repo);
-    const res = await svc.create({ companyCode: 'AM01', fundCode: '', editionType: 'kr' });
+    const res = await svc.create({ companyCode: 'XX01', fundCode: '', editionType: 'kr' });
     expect(isErr(res)).toBe(true);
     if (isErr(res)) {
       expect(res.error.kind).toBe('validation');
@@ -45,7 +45,7 @@ describe('TemplateCreationService.create', () => {
   it('generates and returns the new meta when attributes are complete', async () => {
     const repo = repoWithGenerate();
     const svc = createTemplateCreationService(repo);
-    const res = await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
+    const res = await svc.create({ companyCode: 'XX01', fundCode: '950037', editionType: 'kr' });
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value).toEqual({ meta, skipped: [] });
     expect(repo.generate).toHaveBeenCalledOnce();
@@ -53,13 +53,13 @@ describe('TemplateCreationService.create', () => {
 
   it('取り込まなかった組入先(skipped)をそのまま返す', async () => {
     const repo = repoWithGenerate();
-    const skipped = [{ templateId: 'AM01_510003_交付版', reason: 'created' as const }];
+    const skipped = [{ templateId: 'XX01_950003_交付版', reason: 'created' as const }];
     repo.generate.mockResolvedValueOnce(
       ok({ template: { meta, html: '', css: '' }, importedIds: [meta.id], skipped }) as never,
     );
     const res = await createTemplateCreationService(repo).create({
-      companyCode: 'AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      fundCode: '950037',
       editionType: 'kr',
     });
     expect(isOk(res) && res.value.skipped).toEqual(skipped);
@@ -69,11 +69,11 @@ describe('TemplateCreationService.create', () => {
     const repo = repoWithGenerate();
     const forget = vi.fn();
     const svc = createTemplateCreationService(repo, forget);
-    await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
+    await svc.create({ companyCode: 'XX01', fundCode: '950037', editionType: 'kr' });
     expect(forget).toHaveBeenCalledWith(meta.id);
     forget.mockClear();
     repo.generate.mockResolvedValueOnce(err(conflict('作成中のテンプレートがあります')) as never);
-    await svc.create({ companyCode: 'AM01', fundCode: '510037', editionType: 'kr' });
+    await svc.create({ companyCode: 'XX01', fundCode: '950037', editionType: 'kr' });
     expect(forget).not.toHaveBeenCalled();
   });
 
@@ -82,18 +82,18 @@ describe('TemplateCreationService.create', () => {
     repo.generate.mockResolvedValueOnce(
       ok({
         template: { meta, html: '', css: '' },
-        importedIds: [meta.id, 'AM01_510037_全体版', 'AM01_999000_交付版', meta.id],
+        importedIds: [meta.id, 'XX01_950037_全体版', 'XX01_999000_交付版', meta.id],
         skipped: [],
       }) as never,
     );
     const forget = vi.fn();
     await createTemplateCreationService(repo, forget).create({
-      companyCode: 'AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      fundCode: '950037',
       editionType: 'kr',
     });
     expect(forget.mock.calls.map((c) => c[0]).sort()).toEqual(
-      [meta.id, 'AM01_510037_全体版', 'AM01_999000_交付版'].sort(),
+      [meta.id, 'XX01_950037_全体版', 'XX01_999000_交付版'].sort(),
     );
   });
 });
@@ -101,20 +101,20 @@ describe('TemplateCreationService.create', () => {
 describe('TemplateCreationService の作成タブ用の問い合わせ', () => {
   it('listCompanies は repo へそのまま委譲する', async () => {
     const listCompanies = vi.fn(async () =>
-      ok([{ companyCode: 'AM01', companyName: '会社', rep1CompanyCode: 'R-AM01' }]),
+      ok([{ companyCode: 'XX01', companyName: '会社', rep1CompanyCode: 'R-XX01' }]),
     );
     const svc = createTemplateCreationService({ listCompanies } as unknown as TemplateRepository);
     const res = await svc.listCompanies();
-    expect(isOk(res) && res.value[0].rep1CompanyCode).toBe('R-AM01');
+    expect(isOk(res) && res.value[0].rep1CompanyCode).toBe('R-XX01');
     expect(listCompanies).toHaveBeenCalledOnce();
   });
 
   it('listFunds は repo へそのまま委譲する', async () => {
-    const listFunds = vi.fn(async () => ok([{ fundCode: '510037', fundName: 'F' }]));
+    const listFunds = vi.fn(async () => ok([{ fundCode: '950037', fundName: 'F' }]));
     const svc = createTemplateCreationService({ listFunds } as unknown as TemplateRepository);
-    const res = await svc.listFunds('R-AM01');
+    const res = await svc.listFunds('R-XX01');
     expect(isOk(res)).toBe(true);
-    expect(listFunds).toHaveBeenCalledWith('R-AM01');
+    expect(listFunds).toHaveBeenCalledWith('R-XX01');
   });
 
   it('getCreatableInfo は repo へそのまま委譲する', async () => {
@@ -123,9 +123,9 @@ describe('TemplateCreationService の作成タブ用の問い合わせ', () => {
       getCreatableInfo,
     } as unknown as TemplateRepository);
     const q = {
-      companyCode: 'AM01',
-      rep1CompanyCode: 'R-AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      rep1CompanyCode: 'R-XX01',
+      fundCode: '950037',
       editionType: '交付版',
     };
     const res = await svc.getCreatableInfo(q);

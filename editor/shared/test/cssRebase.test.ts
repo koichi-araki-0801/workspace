@@ -30,7 +30,7 @@ describe('rebaseCssForDoc — css/<テンプレ>.css の位置の CSS を doc/ �
   it.each([
     ['@font-face{src:url(fonts/a.woff2)}', '@font-face{src:url("../css/fonts/a.woff2")}'],
     ['.a{background:url(../images/b.png)}', '.a{background:url("../images/b.png")}'],
-    ['.a{background:url(../images/smtam/qr.svg)}', '.a{background:url("../images/smtam/qr.svg")}'],
+    ['.a{background:url(../images/xxam/qr.svg)}', '.a{background:url("../images/xxam/qr.svg")}'],
     ['.a{background:url("x.png?v=1#f")}', '.a{background:url("../css/x.png?v=1#f")}'],
     [
       '@font-face{src:url(fonts/明朝.woff2)}',
