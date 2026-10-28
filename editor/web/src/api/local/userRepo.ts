@@ -14,7 +14,7 @@ import {
   type User,
   type UserRepository,
 } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { delay, K, listUsersSync, read, uid, write } from './store';
 
 /**

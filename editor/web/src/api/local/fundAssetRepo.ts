@@ -4,7 +4,7 @@
 // local(オフライン/デモ)にはサーバが無く、画像の配信ルートも SVG の検査も無い。理由を出せる
 // 判定が無いので、どの参照も `ok`(警告を出さない)を返す。
 import type { FundAssetRef, FundAssetRepository } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 
 export const localFundAssetRepo: FundAssetRepository = {
   inspect: (refs: readonly FundAssetRef[]) =>

@@ -27,7 +27,7 @@ import {
   toReviewResponse,
   validation,
 } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { currentUser, delay, K, now, read, resolveFilled, uid, write } from './store';
 import { confirmSaveLocal, localTemplateRepo } from './templateRepo';
 

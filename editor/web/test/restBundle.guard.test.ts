@@ -1,18 +1,15 @@
 // =============================================================================
-// restBundle.guard.test.ts — 「api/local/ への import は既知の 3 箇所のみ」ガード
+// restBundle.guard.test.ts — 「api/local/ への import は既知の 2 箇所のみ」ガード
 // =============================================================================
 // `api/local/**` は fixtures(`users.json` の平文パスワード込み)+ localStorage 一式の
 // local モックグラフで、`rest` モードでは使わない想定。しかし静的 import は build 時の
 // 条件分岐にならないため、`api/local/` を import するファイルが増えるほど rest ビルドへ
 // このグラフが引き込まれる足がかりが増える。増える先を機械的に固定する。
 //
-// 許可される 3 箇所:
+// 許可される 2 箇所:
 //   - `api/repositories.ts` — local/rest 実装の DI 合成ルート(唯一の正当な集約点)。
 //   - `main.ts` — `VITE_API_MODE` に応じて local 専用初期化(`migrateStore`/
 //     `seedCompareFixtures`)を呼ぶ配線コード。
-//   - `api/rest/http.ts` — `attempt`(throw→Result シーム)だけを再利用する。
-//     `attempt.ts` は `@editor/shared` のみに依存する葉モジュールで、fixtures/store の
-//     グラフを引き込まない(コード上の意図はファイル冒頭コメントに明記)。
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,14 +51,14 @@ function resolveToWebSrc(fileDir: string, spec: string): string | null {
   return null; // bare package import(node_modules) は対象外
 }
 
-const ALLOWED = new Set(['api/repositories.ts', 'main.ts', 'api/rest/http.ts']);
+const ALLOWED = new Set(['api/repositories.ts', 'main.ts']);
 
 describe('rest バンドル分離ガード — api/local/ への import 経路', () => {
   it('走査対象を実際に読めている(セルフテスト)', () => {
     expect(ALL_SOURCES.length).toBeGreaterThan(50);
   });
 
-  it('api/local/ を import しているファイルは既知の 3 箇所のみ', () => {
+  it('api/local/ を import しているファイルは既知の 2 箇所のみ', () => {
     const offenders = new Set<string>();
     for (const file of ALL_SOURCES) {
       const rel = path.relative(WEB_SRC, file).replace(/\\/g, '/');

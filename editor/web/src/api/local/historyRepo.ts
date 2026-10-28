@@ -10,7 +10,7 @@ import {
   type TemplateSnapshot,
   type TemplateVersionMeta,
 } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { currentUser, delay, K, now, read, uid, write } from './store';
 
 export const localHistoryRepo: HistoryRepository = {

@@ -8,7 +8,7 @@ import type {
   PartRepository,
 } from '@editor/shared';
 import { uniq } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { currentUser, delay, K, now, partCatalog, read, uid, write } from './store';
 
 // 分類フィルタは「上位が一致して初めて下位を見る」cascade。各段の述語を 1 か所に

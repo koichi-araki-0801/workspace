@@ -12,7 +12,7 @@ import {
   validation,
 } from '@editor/shared';
 import { currentAppEpoch } from '@/lib/appEpoch';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { currentUser, delay, K, listUsersSync, passwordFor, read, write } from './store';
 
 export const localAuthRepo: AuthRepository = {

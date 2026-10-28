@@ -35,7 +35,7 @@ import {
   templateIdFromFileName,
   validation,
 } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { applyRedemptionMock, SERIES_FUND_CODES } from './fundRules';
 import {
   allMetas,

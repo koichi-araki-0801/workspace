@@ -24,7 +24,7 @@ import {
   type PartNoteEntry,
   validation,
 } from '@editor/shared';
-import { attempt } from './attempt';
+import { attempt } from '../rest/attempt';
 import { currentUser, delay, K, now, read, write } from './store';
 
 type NoteStore = Record<string, Record<string, PartNoteEntry[]>>;
