@@ -39,6 +39,8 @@ export interface DiffBlock {
    * (ページの外のずれを整列へ持ち込まないため、整列は `key` で行う)。
    */
   partKey: string;
+  /** before の文書でのキー(`partKey` と同じ形)。before に無い(added)なら null。 */
+  beforePartKey: string | null;
   status: BlockStatus;
   /** このパーツだけの着色済み before マークアップ(added パーツでは空)。承認画面のパーツ行用。 */
   beforeHtml: string;
@@ -669,6 +671,7 @@ function fastSamePage(
   const blocks: DiffBlock[] = keyed.map((b, i) => ({
     key: b.key,
     partKey: parts.keys.get(b.el) ?? b.key,
+    beforePartKey: parts.keys.get(beforePage[i]) ?? null,
     status: 'same',
     beforeHtml: b.el.outerHTML,
     afterHtml: b.el.outerHTML,
@@ -755,6 +758,7 @@ function diffPage(
     blocks.push({
       key,
       partKey: (el && parts.keys.get(el)) ?? key,
+      beforePartKey: bEl ? (parts.keys.get(bEl) ?? null) : null,
       status: r.status,
       beforeHtml: r.beforeHtml,
       afterHtml: r.afterHtml,

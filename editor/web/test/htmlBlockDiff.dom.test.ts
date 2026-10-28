@@ -566,3 +566,23 @@ describe('diffHighlightCss / buildDiffDoc（承認・比較で共有する ifram
     expect(html).toContain('<body><p>x</p></body>');
   });
 });
+
+describe('DiffBlock.beforePartKey', () => {
+  it('変更なしのページの beforePartKey は before 側の文書のキー', () => {
+    // before の前のページにだけ同じアンカー(id="m")の要素があり、2 版で通し番号がずれる。
+    const before = doc('<p id="m">X</p>', PB, '<p id="m">Y</p>');
+    const after = doc('<p id="n">Q</p>', PB, '<p id="m">Y</p>');
+    const diff = buildHtmlDiff(before, after);
+    const same = diff.pages[1].blocks[0];
+    expect(same.status).toBe('same');
+    expect(same.partKey).not.toBe(same.beforePartKey);
+    expect(same.beforePartKey).toMatch(/#2$/);
+    expect(same.partKey).toMatch(/#1$/);
+  });
+  it('変更のあるページでは added は null、removed は before のキー', () => {
+    const diff = buildHtmlDiff(doc('<p id="a">1</p>'), doc('<p id="b">2</p>'));
+    const blocks = diff.pages[0].blocks;
+    expect(blocks.find((b) => b.status === 'added')?.beforePartKey).toBeNull();
+    expect(blocks.find((b) => b.status === 'removed')?.beforePartKey).toMatch(/#1$/);
+  });
+});

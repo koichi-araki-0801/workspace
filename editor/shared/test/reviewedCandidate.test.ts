@@ -22,6 +22,7 @@ function block(
   return {
     key,
     partKey: key,
+    beforePartKey: key,
     status,
     beforeHtml: rawBeforeHtml,
     afterHtml: rawAfterHtml,

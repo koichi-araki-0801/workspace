@@ -299,6 +299,7 @@ export * from './html/reviewDiff/editReviewedHtml.js';
 export * from './html/reviewDiff/htmlDiff.js';
 export * from './html/reviewDiff/htmlParser.js';
 export * from './html/reviewDiff/pageSplit.js';
+export * from './html/reviewDiff/partMarks.js';
 export * from './html/reviewDiff/reviewedCandidate.js';
 export * from './html/reviewParts.js';
 
