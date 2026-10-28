@@ -302,7 +302,7 @@ describe('templates.routes', () => {
       expect(s.statusCode).toBe(200);
       expect(s.json().sample.fund).toMatchObject({
         code: '910024',
-        name: '高金利ソブリンオープン',
+        name: 'ダミー高利回り債券オープン',
       });
       expect(s.json().warnings).toEqual([]);
     }

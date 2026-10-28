@@ -13,7 +13,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import { verifyPassword } from '../src/auth/password.js';
 import { p, type SprocClient } from '../src/db/sproc.js';
 import { SP } from '../src/db/sprocNames.js';
-import { createFakeSproc, DEFAULT_USERS, TRUST_AM } from './fakes/sprocFake.js';
+import { createFakeSproc, DEFAULT_USERS, DUMMY_AM } from './fakes/sprocFake.js';
 
 // 実 `buildApp()` を通す結合テストが確定領域へ触れないよう、dataRoot は一時ディレクトリへ
 // 向ける(既定は隣の実データを指す)。
@@ -255,7 +255,7 @@ describe('テンプレート・パーツ・サンプル・注記マスタ・監�
     const sproc = await createFakeSproc();
     const rows = await sproc.callSproc(SP.template, '委託会社一覧');
     expect(rows).toEqual([
-      { 委託会社コード: 'R-XX01', 委託会社名: TRUST_AM, 委託会社略称: 'XX01' },
+      { 委託会社コード: 'R-XX01', 委託会社名: DUMMY_AM, 委託会社略称: 'XX01' },
     ]);
   });
 

@@ -8,7 +8,7 @@ import { expect, test } from './fixtures';
 import { login, openEditor } from './helpers';
 
 const SEED_ID = 'XX01_950037_20240710_交付版';
-const FUND_NAME = 'コア投資戦略ファンド（切替型）';
+const FUND_NAME = 'ダミーバランスファンド（切替型）';
 
 /** 「パーツを追加」を開き、分類を表紙 > 表紙ヘッダー > ファンド名 > 標準まで選んで挿入する。 */
 async function insertFundNameTitle(page: Page): Promise<void> {

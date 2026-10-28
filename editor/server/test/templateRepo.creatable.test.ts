@@ -17,7 +17,7 @@ process.env.PENDING_DIR = path.join(tmp, 'pending');
 process.env.DRAFTS_DIR = path.join(tmp, 'drafts');
 
 // fake(DEFAULT_FUNDS)の会社名。fake をここで import すると env 設定より先に config が読まれる。
-const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
+const DUMMY_AM = '架空アセットマネジメント株式会社（ダミー）';
 
 const put = (dir: string, id: string) =>
   fs.writeFileSync(path.join(tmp, dir, `${id}.html`), '<p>x</p>', 'utf8');
@@ -61,7 +61,7 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
 
   it('委託会社は略称をファイル名の会社コード、Rep1 のコードを rep1CompanyCode で返す', async () => {
     expect(await repo.listCompanies()).toEqual([
-      { companyCode: 'XX01', companyName: TRUST_AM, rep1CompanyCode: 'R-XX01' },
+      { companyCode: 'XX01', companyName: DUMMY_AM, rep1CompanyCode: 'R-XX01' },
     ]);
   });
 
@@ -128,8 +128,8 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     // 生成は両版のコピー元を要るので、片方の版しか無い候補(950003 は全体版だけ、950037 は
     // 交付版だけ)は選べない。
     expect((await repo.getCreatableInfo(q('950155'))).seriesFunds).toEqual([
-      { fundCode: '950003', fundName: 'コア投資戦略ファンド（安定型）', hasTemplate: false },
-      { fundCode: '950037', fundName: 'コア投資戦略ファンド（切替型）', hasTemplate: false },
+      { fundCode: '950003', fundName: 'ダミーバランスファンド（安定型）', hasTemplate: false },
+      { fundCode: '950037', fundName: 'ダミーバランスファンド（切替型）', hasTemplate: false },
     ]);
     expect((await repo.getCreatableInfo(q('910024'))).seriesFunds).toEqual([]);
 

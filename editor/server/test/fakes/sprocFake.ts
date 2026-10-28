@@ -85,44 +85,44 @@ export const DEFAULT_USERS: readonly FakeUserSeed[] = [
 // ファンドマスタが無いと Rep1 の実名を被せられず、差し込むファンド名が共通サンプルの値のままになる。
 // コードは `editor/fixtures/sample/*.json` と一致させる(dataRoot 側の seed が
 // 同じファンドのテンプレートを置くため)。
-export const TRUST_AM = '三井住友トラスト・アセットマネジメント株式会社';
+export const DUMMY_AM = '架空アセットマネジメント株式会社（ダミー）';
 export const DEFAULT_FUNDS: readonly FakeFundSeed[] = [
   {
     code: '910024',
-    name: '高金利ソブリンオープン',
+    name: 'ダミー高利回り債券オープン',
     nickname: '',
     companyCode: 'XX01',
-    companyName: TRUST_AM,
+    companyName: DUMMY_AM,
   },
   {
     code: '950003',
-    name: 'コア投資戦略ファンド（安定型）',
-    nickname: 'コアラップ（安定型）',
+    name: 'ダミーバランスファンド（安定型）',
+    nickname: 'ダミーバランス（安定型）',
     companyCode: 'XX01',
-    companyName: TRUST_AM,
+    companyName: DUMMY_AM,
     seriesCode: 'CORE',
   },
   {
     code: '950037',
-    name: 'コア投資戦略ファンド（切替型）',
-    nickname: 'コアラップ（切替型）',
+    name: 'ダミーバランスファンド（切替型）',
+    nickname: 'ダミーバランス（切替型）',
     companyCode: 'XX01',
-    companyName: TRUST_AM,
+    companyName: DUMMY_AM,
     seriesCode: 'CORE',
   },
   {
     code: '950124',
-    name: 'ＳＭＴ ＪＰＸ日経中小型株インデックス・オープン',
+    name: 'ダミーＡＭ 日本中小型株式インデックス・オープン',
     nickname: '',
     companyCode: 'XX01',
-    companyName: TRUST_AM,
+    companyName: DUMMY_AM,
   },
   {
     code: '950155',
-    name: 'コア投資戦略ファンド（切替型ワイド）',
-    nickname: 'コアラップ（切替型ワイド）',
+    name: 'ダミーバランスファンド（切替型ワイド）',
+    nickname: 'ダミーバランス（切替型ワイド）',
     companyCode: 'XX01',
-    companyName: TRUST_AM,
+    companyName: DUMMY_AM,
     seriesCode: 'CORE',
   },
 ];

@@ -3,7 +3,7 @@ import { filterComboboxOptions } from '@/components/ui/comboboxFilter';
 
 const opts = [
   { label: '架空アセットマネジメント', value: 'XX01' },
-  { label: '950037 コア投資戦略ファンド（切替型）', value: '950037' },
+  { label: '950037 ダミーバランスファンド（切替型）', value: '950037' },
 ];
 
 describe('filterComboboxOptions', () => {
