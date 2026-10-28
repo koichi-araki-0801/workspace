@@ -341,7 +341,7 @@ function goEdit() {
       class="flex flex-wrap items-center gap-3 rounded-[12px] border bg-card px-4 py-3"
     >
       <span class="text-sm font-bold">対象テンプレート</span>
-      <span class="mono text-sm">{{ targetId }}</span>
+      <span class="mono text-sm" data-break-anywhere>{{ targetId }}</span>
       <span class="flex-1" />
 
       <Button variant="outline" size="sm" @click="openOverview"> すべての申請へ戻る </Button>
