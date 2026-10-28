@@ -60,7 +60,16 @@ export const PREVIEW_MSG_STATE = 'editor:preview-state';
 /** 子 → 親: 組版の失敗通知(親はフォールバック表示へ倒す)。 */
 export const PREVIEW_MSG_ERROR = 'editor:preview-error';
 
-/** 親から子へ送れる操作。`goToPage` はページ番号、`gotoAnchor` は要素 id を引数に取る。 */
+/** 親 → 子: 目印の状態(番号ごとの判定・選択・表示)。文書を組み直さずに描き替える。 */
+export const PREVIEW_MSG_MARKS = 'editor:preview-marks';
+
+/** 子 → 親: 紙面のパーツが押された(`part` は番号の文字列)。 */
+export const PREVIEW_MSG_PART_CLICK = 'editor:preview-part-click';
+
+/** 子 → 親: 飾りを描いたあとの、番号 → 物理ページの index(0 始まり)。 */
+export const PREVIEW_MSG_PART_PAGES = 'editor:preview-part-pages';
+
+/** 親から子へ送れる操作。`goToPage` はページ番号、`gotoAnchor` は要素 id、`gotoPart` はパーツの番号(文字列)を引数に取る。 */
 export type PreviewCommand =
   | 'prevPage'
   | 'nextPage'
@@ -68,7 +77,8 @@ export type PreviewCommand =
   | 'zoomIn'
   | 'zoomOut'
   | 'fit'
-  | 'gotoAnchor';
+  | 'gotoAnchor'
+  | 'gotoPart';
 
 /** 子が通知する状態。親のツールバー表示に必要な値だけを運ぶ。 */
 export interface PreviewHostState {
@@ -79,4 +89,63 @@ export interface PreviewHostState {
   zoom: number;
   /** 組版が完了して操作を受け付けられるか(ローダー解除の契機)。 */
   ready: boolean;
+}
+
+export type PreviewMarkState = 'pending' | 'approved' | 'rejected';
+
+/** 目印の描き分け。判定の状態ごとの色(紙面の枠・番号札)。 */
+export const PREVIEW_MARK_COLORS: Readonly<Record<PreviewMarkState, string>> = {
+  pending: '#3b82c4',
+  approved: '#2f8a5f',
+  rejected: '#c0392b',
+};
+
+/** 親が子へ渡す目印の状態。 */
+export interface PreviewMarks {
+  /** キーは番号の文字列(`isPreviewPartNo`)。 */
+  states: Record<string, PreviewMarkState>;
+  selected: string | null;
+  visible: boolean;
+}
+
+const PART_NO_RE = /^\d{1,5}$/;
+
+/** パーツの番号の文字列(1〜5 桁の数字)か。 */
+export function isPreviewPartNo(v: unknown): v is string {
+  return typeof v === 'string' && PART_NO_RE.test(v);
+}
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function isMarkState(v: unknown): v is PreviewMarkState {
+  return v === 'pending' || v === 'approved' || v === 'rejected';
+}
+
+/** `PREVIEW_MSG_MARKS` の本体の形を検査する。形が違えば null。 */
+export function parsePreviewMarks(v: unknown): PreviewMarks | null {
+  if (!isPlainRecord(v) || !isPlainRecord(v.states)) return null;
+  if (typeof v.visible !== 'boolean') return null;
+  if (v.selected !== null && !isPreviewPartNo(v.selected)) return null;
+  const states: Record<string, PreviewMarkState> = {};
+  for (const [k, st] of Object.entries(v.states)) {
+    if (!isPreviewPartNo(k) || !isMarkState(st)) return null;
+    states[k] = st;
+  }
+  return { states, selected: v.selected, visible: v.visible };
+}
+
+/**
+ * `PREVIEW_MSG_PART_PAGES` の本体の形(番号 → 0 以上の整数)だけを検査する。形が違えば null。
+ * 自分の番号の集合に無いキーやページ数以上の値を捨てるのは、それを知っている親の役目。
+ */
+export function parsePreviewPartPages(v: unknown): Record<string, number> | null {
+  if (!isPlainRecord(v)) return null;
+  const pages: Record<string, number> = {};
+  for (const [k, n] of Object.entries(v)) {
+    if (!isPreviewPartNo(k) || typeof n !== 'number' || !Number.isInteger(n) || n < 0) return null;
+    pages[k] = n;
+  }
+  return pages;
 }
