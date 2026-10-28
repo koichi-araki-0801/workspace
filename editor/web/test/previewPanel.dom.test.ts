@@ -336,4 +336,117 @@ describe('PreviewPanel — postMessage クライアント', () => {
     expect(spy).toHaveBeenCalledWith('<p>c</p>', undefined, { companyCode: 'XXAM' });
     wrapper.unmount();
   });
+
+  describe('承認タブの目印', () => {
+    const marks = { states: { '1': 'pending' as const }, selected: null, visible: true };
+    const readyState = { type: 'editor:preview-state', state: { ready: true, pageCount: 2 } };
+    const marksCalls = (post: ReturnType<typeof vi.spyOn>) =>
+      post.mock.calls
+        .map((c) => c[0] as { type: string })
+        .filter((m) => m.type === 'editor:preview-marks');
+
+    async function setup(props: Record<string, unknown> = { marks }) {
+      const wrapper = mount(PreviewPanel, {
+        props: { html: '<p>doc</p>', ...props },
+        attachTo: document.body,
+      });
+      const win = frameWindow(wrapper);
+      const post = vi.spyOn(win, 'postMessage');
+      deliver({ type: 'editor:preview-ready' }, win);
+      await flushPromises();
+      return { wrapper, win, post };
+    }
+
+    it('ready のあと marks を子へ送り、文書を送り直したら marks も送り直す', async () => {
+      const { wrapper, win, post } = await setup();
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'editor:preview-doc', review: true }),
+        '*',
+      );
+      expect(marksCalls(post)).toHaveLength(0);
+      deliver(readyState, win);
+      await flushPromises();
+      expect(marksCalls(post)).toHaveLength(1);
+      expect(marksCalls(post)[0]).toMatchObject({ marks });
+
+      await wrapper.setProps({ html: '<p>doc2</p>' });
+      await flushPromises();
+      deliver(readyState, win);
+      await flushPromises();
+      expect(marksCalls(post)).toHaveLength(2);
+      wrapper.unmount();
+    });
+
+    it('marks が変わったら文書は送らず marks だけ送る', async () => {
+      const { wrapper, win, post } = await setup();
+      deliver(readyState, win);
+      await flushPromises();
+      post.mockClear();
+      await wrapper.setProps({ marks: { ...marks, selected: '1' } });
+      const types = post.mock.calls.map((c) => (c[0] as { type: string }).type);
+      expect(types).toEqual(['editor:preview-marks']);
+      wrapper.unmount();
+    });
+
+    it('marks を渡さなければ review も marks も付けない', async () => {
+      const { wrapper, win, post } = await setup({});
+      deliver(readyState, win);
+      await flushPromises();
+      expect(post.mock.calls[0][0]).not.toHaveProperty('review');
+      expect(marksCalls(post)).toHaveLength(0);
+      wrapper.unmount();
+    });
+
+    it('part-click を emit する', async () => {
+      const { wrapper, win } = await setup();
+      deliver({ type: 'editor:preview-part-click', part: '3' }, win);
+      expect(wrapper.emitted('part-click')).toEqual([['3']]);
+      wrapper.unmount();
+    });
+
+    it('形の違う part-click は捨てる', async () => {
+      const { wrapper, win } = await setup();
+      deliver({ type: 'editor:preview-part-click', part: '1;x' }, win);
+      deliver({ type: 'editor:preview-part-click', part: 3 }, win);
+      deliver({ type: 'editor:preview-part-click', part: '2' }, window);
+      expect(wrapper.emitted('part-click')).toBeUndefined();
+      wrapper.unmount();
+    });
+
+    it('part-pages を検査して emit し、形が違えば捨てる', async () => {
+      const { wrapper, win } = await setup();
+      deliver({ type: 'editor:preview-part-pages', pages: { '1': 0, '2': 3 } }, win);
+      deliver({ type: 'editor:preview-part-pages', pages: { '1': -1 } }, win);
+      deliver({ type: 'editor:preview-part-pages', pages: { x: 1 } }, win);
+      deliver({ type: 'editor:preview-part-pages', pages: [1] }, win);
+      expect(wrapper.emitted('part-pages')).toEqual([[{ '1': 0, '2': 3 }]]);
+      wrapper.unmount();
+    });
+
+    it('gotoPart は cmd gotoPart を送り、フォールバック中は送らない', async () => {
+      const { wrapper, win, post } = await setup();
+      post.mockClear();
+      const vm = wrapper.vm as unknown as { gotoPart: (no: string) => void };
+      vm.gotoPart('4');
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'editor:preview-cmd', cmd: 'gotoPart', part: '4' }),
+        '*',
+      );
+      deliver({ type: 'editor:preview-error', message: 'x' }, win);
+      post.mockClear();
+      vm.gotoPart('5');
+      expect(post).not.toHaveBeenCalled();
+      wrapper.unmount();
+    });
+
+    it('data-doc-seq は文書を送るたびに 1 増える', async () => {
+      const { wrapper } = await setup();
+      await flushPromises();
+      expect(wrapper.attributes('data-doc-seq')).toBe('1');
+      await wrapper.setProps({ html: '<p>b</p>' });
+      await flushPromises();
+      expect(wrapper.attributes('data-doc-seq')).toBe('2');
+      wrapper.unmount();
+    });
+  });
 });

@@ -17,14 +17,20 @@
 // `@editor/shared` の postMessage 契約(`preview/hostProtocol.ts`)を通る。フィット計算と
 // `ResizeObserver` 相当は**子側で完結**しており、親へは表示用の zoom 値だけが返る。
 import {
+  isPreviewPartNo,
   PREVIEW_HOST_URL,
   PREVIEW_MSG_CMD,
   PREVIEW_MSG_DOC,
   PREVIEW_MSG_ERROR,
+  PREVIEW_MSG_MARKS,
+  PREVIEW_MSG_PART_CLICK,
+  PREVIEW_MSG_PART_PAGES,
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
   type PreviewCommand,
   type PreviewHostState,
+  type PreviewMarks,
+  parsePreviewPartPages,
   unexpected,
 } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
@@ -37,6 +43,11 @@ const props = defineProps<{
   html: string;
   /** テンプレ ID の会社コード(会社フォルダの画像の照合用。不明なら会社フォルダは埋めない)。 */
   companyCode?: string | null;
+  /**
+   * 承認タブの目印(番号札・枠・空き枠)の状態。渡すと承認タブの紙面として扱い、文書に
+   * `review: true` を付けて子へ送る。文書は組み直さず、変わったら目印だけ送り直す。
+   */
+  marks?: PreviewMarks;
 }>();
 
 /** 親(上部バー)へ渡すページ送り/ズーム状態のスナップショット。 */
@@ -52,6 +63,10 @@ const emit = defineEmits<{
       vivlioReady: boolean;
     },
   ];
+  /** 紙面のパーツが押された(番号の文字列。形は検査済み)。 */
+  'part-click': [no: string];
+  /** 子が数えた番号 → 物理ページ(0 始まり)。形だけ検査済みで、集合・上限の照合は受け手の役目。 */
+  'part-pages': [pages: Record<string, number>];
 }>();
 
 const hostUrl = PREVIEW_HOST_URL;
@@ -71,6 +86,14 @@ const nav = ref<PreviewHostState>({
 });
 // 子の boot 完了。未完了の間に届いた文書は保留し、ready 受信時に送る。
 const hostReady = ref(false);
+/** 子へ文書を送った回数。e2e が「組み直したか」を見る。 */
+const docSeq = ref(0);
+
+/** 子へ目印を送る。承認タブの紙面でない・簡易表示のときは送らない。 */
+function sendMarks() {
+  if (props.marks === undefined || useFallback.value) return;
+  postToHost({ type: PREVIEW_MSG_MARKS, marks: props.marks });
+}
 
 // 子から `ready` も状態通知も来ない場合の保険の期限は `RENDER_HOST_BOOT_TIMEOUT_MS`(理由はそちら)。
 /** 組版が終わらない場合のローダー強制解除。 */
@@ -118,6 +141,11 @@ function postToHost(message: Record<string, unknown>) {
   frame.value?.contentWindow?.postMessage(message, '*');
 }
 
+/** 承認タブの紙面なら文書に `review: true` を付ける(ホストはこれがあるときだけ札を描く)。 */
+function reviewFlag(): { review?: true } {
+  return props.marks === undefined ? {} : { review: true };
+}
+
 /** 進行中の自己完結化を識別する連番。文書が続けて変わったとき、古い結果を子へ送らない。 */
 let sendSeq = 0;
 
@@ -126,8 +154,10 @@ function sendDoc() {
   loaderFailsafe = clearTimer(loaderFailsafe);
   rendering.value = props.html !== '';
   const seq = ++sendSeq;
+  nav.value = { ...nav.value, ready: false };
   if (props.html === '') {
-    postToHost({ type: PREVIEW_MSG_DOC, html: '' });
+    docSeq.value++;
+    postToHost({ type: PREVIEW_MSG_DOC, html: '', ...reviewFlag() });
     emitState();
     return;
   }
@@ -139,7 +169,8 @@ function sendDoc() {
     .catch(() => props.html)
     .then((html) => {
       if (seq !== sendSeq || !hostReady.value || useFallback.value) return;
-      postToHost({ type: PREVIEW_MSG_DOC, html });
+      docSeq.value++;
+      postToHost({ type: PREVIEW_MSG_DOC, html, ...reviewFlag() });
     });
   // 子が COMPLETE へ到達しない非同期失敗への保険。組版自体は継続しうるので、
   // フォールバックへは倒さずローダーだけ解除する。
@@ -170,6 +201,7 @@ function onMessage(e: MessageEvent) {
   if (data.type === PREVIEW_MSG_STATE) {
     const s = data.state as Partial<PreviewHostState> | null;
     if (!s) return;
+    const wasReady = nav.value.ready;
     nav.value = {
       currentPage: Number(s.currentPage) || 1,
       pageCount: Number(s.pageCount) || 0,
@@ -179,10 +211,22 @@ function onMessage(e: MessageEvent) {
       ready: s.ready === true,
     };
     if (nav.value.ready) {
+      // 文書ごとに 1 回、組版が終わったところで目印を送る。
+      if (!wasReady) sendMarks();
       loaderFailsafe = clearTimer(loaderFailsafe);
       rendering.value = false;
     }
     emitState();
+    return;
+  }
+  if (data.type === PREVIEW_MSG_PART_CLICK) {
+    const part = (data as { part?: unknown }).part;
+    if (isPreviewPartNo(part)) emit('part-click', part);
+    return;
+  }
+  if (data.type === PREVIEW_MSG_PART_PAGES) {
+    const pages = parsePreviewPartPages((data as { pages?: unknown }).pages);
+    if (pages !== null) emit('part-pages', pages);
     return;
   }
   if (data.type === PREVIEW_MSG_ERROR) {
@@ -231,6 +275,20 @@ function gotoAnchor(id: string) {
   postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoAnchor', anchor: id });
 }
 
+/** 承認タブのパーツへ飛ぶ。`no` は番号の文字列。 */
+function gotoPart(no: string) {
+  if (useFallback.value) return;
+  postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoPart', part: no });
+}
+
+// 目印だけが変わったときは文書を送らず、目印だけ送り直す(組版中は ready 時の送信に任せる)。
+watch(
+  () => props.marks,
+  () => {
+    if (nav.value.ready) sendMarks();
+  },
+);
+
 watch(
   () => props.html,
   () => {
@@ -254,11 +312,14 @@ onBeforeUnmount(() => {
   loaderFailsafe = clearTimer(loaderFailsafe);
 });
 
-defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit, gotoAnchor });
+defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit, gotoAnchor, gotoPart });
 </script>
 
 <template>
-  <div class="relative h-full w-full overflow-hidden bg-canvas-backdrop">
+  <div
+    class="relative h-full w-full overflow-hidden bg-canvas-backdrop"
+    :data-doc-seq="docSeq"
+  >
     <div
       v-if="rendering"
       class="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-white/70 text-sm text-muted-foreground"
