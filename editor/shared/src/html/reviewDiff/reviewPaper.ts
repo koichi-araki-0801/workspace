@@ -56,13 +56,26 @@ interface Piece {
 // ── 1. 申請者の本文から紙面の目印を外す ──────────────────────────────────────
 /** ホストが紙面の目印として読む属性の接頭辞(`data-review-no` など。札の印 `data-review-badge` も)。 */
 const REVIEW_ATTR_PREFIX = 'data-review-';
-/** 目印らしい文字列が無い断片は parse し直さずにそのまま返す(属性名は大小を問わない)。 */
-const MARK_HINT_RE = new RegExp(`${REVIEW_ATTR_PREFIX}|${HL_INS}|${HL_DEL}`, 'i');
+/**
+ * 目印らしい文字列が無い断片は parse し直さずにそのまま返す(属性名は大小を問わない)。属性値は
+ * 文字参照(`class="cmp&#45;ins"`)でも綴れるので、`&` を含む断片も parse して DOM で確かめる
+ * (属性名は文字参照で綴れないので `data-review-` は字面で足りる)。最後の判定は `hasMarks`。
+ */
+const MARK_HINT_RE = new RegExp(`${REVIEW_ATTR_PREFIX}|${HL_INS}|${HL_DEL}|&`, 'i');
 
 const isHlClass = (c: string): boolean => c.toLowerCase() === HL_INS || c.toLowerCase() === HL_DEL;
 /** HTML の class の区切りは ASCII の空白だけ(全角空白などは class 名の一部)。 */
 const classesOf = (el: Element): string[] =>
   (el.getAttribute('class') ?? '').split(/[ \t\n\f\r]+/).filter((c) => c !== '');
+
+/**
+ * 断片を本文として読んだ `body`。素の断片を `DOMParser` に渡すと、先頭の `<style>` / `<link>` /
+ * `<meta>` は head へ移り、body だけを見ると目印を見落とし、body から組み直すと落ちる。`<body>` の
+ * 中へ置いた完全文書として読めば、どのパーサでも body に残る(`htmlDiff.ts` の `fragmentUnitHtml`
+ * と同じ包み方)。
+ */
+const pieceBody = (html: string, parse: HtmlParser): HTMLElement =>
+  parse(`<!doctype html><html><body>${html}</body></html>`).body;
 
 /** 要素が `data-review-*` か `cmp-ins` / `cmp-del` の class を持つか。 */
 function hasMarks(el: Element): boolean {
@@ -123,18 +136,25 @@ function collectDiffSpans(r: Node, h: Node, spans: Set<Element>): boolean {
  * 足した `<span>` の `cmp-ins` / `cmp-del` だけを残す。原文と突き合わせられなければ着色を捨てて
  * 原文を基にする(色は補助で、判定の正典は親画面の文字の差分)。目印が無ければ `null`(触らない)。
  */
-function cleanPiece(rawHtml: string, highlightHtml: string | undefined, parse: HtmlParser) {
+function cleanPiece(
+  rawHtml: string,
+  highlightHtml: string | undefined,
+  parse: HtmlParser,
+  onDropped: (() => void) | undefined,
+) {
   if (!MARK_HINT_RE.test(rawHtml)) return null;
-  const rawBody = parse(rawHtml).body;
-  // 文字列が `<style>` の中身や地の文にあるだけなら組み直さない(`<style>` 始まりの断片は
-  // ブラウザの parse で head へ移り、body から組み直すと落ちる)。
+  const rawBody = pieceBody(rawHtml, parse);
+  // 文字列が `<style>` の中身や地の文にあるだけなら組み直さない(直列化で綴りが変わらないように)。
   if (!Array.from(rawBody.querySelectorAll('*')).some(hasMarks)) return null;
   let body = rawBody;
   const spans = new Set<Element>();
   if (highlightHtml !== undefined) {
-    const hBody = parse(highlightHtml).body;
+    const hBody = pieceBody(highlightHtml, parse);
     if (collectDiffSpans(rawBody, hBody, spans)) body = hBody;
-    else spans.clear();
+    else {
+      spans.clear();
+      onDropped?.();
+    }
   }
   for (const el of Array.from(body.querySelectorAll('*'))) stripMarks(el, !spans.has(el));
   return body;
@@ -146,11 +166,12 @@ function withAttrs(
   piece: { raw: string; highlighted?: string },
   attrs: readonly [string, string][],
   parse: HtmlParser,
+  onDropped?: () => void,
 ): string {
   const html = piece.highlighted ?? piece.raw;
-  const cleaned = cleanPiece(piece.raw, piece.highlighted, parse);
+  const cleaned = cleanPiece(piece.raw, piece.highlighted, parse, onDropped);
   if (attrs.length === 0) return cleaned === null ? html : cleaned.innerHTML;
-  const body = cleaned ?? parse(html).body;
+  const body = cleaned ?? pieceBody(html, parse);
   const first = Array.from(body.childNodes).find(
     (n) => n.nodeType !== 3 || (n.textContent ?? '').trim() !== '',
   );
@@ -178,8 +199,10 @@ function pieceOf(input: {
   highlight: boolean;
   no: number | undefined;
   parse: HtmlParser;
+  onHighlightDropped: ((partKey: string) => void) | undefined;
 }): Piece {
   const { block, side, decision, highlight, no, parse } = input;
+  const dropped = input.onHighlightDropped && (() => input.onHighlightDropped?.(block.partKey));
   const attrOf = (keep: boolean): [string, string][] => {
     const attrs: [string, string][] = [];
     if (no !== undefined) attrs.push([REVIEW_NO_ATTR, String(no)]);
@@ -194,6 +217,7 @@ function pieceOf(input: {
       },
       attrOf(keep),
       parse,
+      dropped,
     ),
     breakAfter: block.beforeBreakAfter,
   });
@@ -202,6 +226,7 @@ function pieceOf(input: {
       { raw: block.rawAfterHtml, highlighted: highlight ? block.afterHtml : undefined },
       attrOf(false),
       parse,
+      dropped,
     ),
     breakAfter: block.afterBreakAfter,
   });
@@ -234,6 +259,7 @@ function pageText(
     highlight: boolean;
     numberOf: ReadonlyMap<string, number>;
     parse: HtmlParser;
+    onHighlightDropped: ((partKey: string) => void) | undefined;
   },
 ): { text: string; endsWithInlineBreak: boolean } {
   const pieces = new Map<string, Piece>();
@@ -247,6 +273,7 @@ function pageText(
         highlight: input.highlight,
         no: block.status === 'same' ? undefined : input.numberOf.get(block.partKey),
         parse: input.parse,
+        onHighlightDropped: input.onHighlightDropped,
       }),
     );
   }
@@ -269,6 +296,8 @@ function pageText(
 /**
  * 承認タブの片面の本文を組む。ページは `buildReviewedHtmlCandidate` と同じく改ページの区切りで
  * つなぐ。その面に無いページ(反対側にだけあるページ)は、中身が空なら出さない。
+ * `onHighlightDropped` は、目印を外す断片で着色と原文を突き合わせられず、着色を捨てたときに
+ * そのパーツの `partKey` で呼ぶ(紙面の色が黙って消えたことを開発時に気づくため)。
  */
 export function buildReviewPaper(input: {
   diff: HtmlDiff;
@@ -277,6 +306,7 @@ export function buildReviewPaper(input: {
   side: 'before' | 'after';
   highlight: boolean;
   parse: HtmlParser;
+  onHighlightDropped?: (partKey: string) => void;
 }): ReviewPaper {
   const { diff, side } = input;
   const numberOf = new Map(input.parts.map((p) => [p.partKey, p.no]));
@@ -292,6 +322,7 @@ export function buildReviewPaper(input: {
       highlight: input.highlight,
       numberOf,
       parse: input.parse,
+      onHighlightDropped: input.onHighlightDropped,
     });
     const appended = index >= ownPageCount;
     if (appended && text === '') return;

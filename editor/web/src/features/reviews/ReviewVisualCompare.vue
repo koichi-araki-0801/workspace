@@ -55,6 +55,15 @@ const highlight = ref(true);
 // ── 1. 文書 ──────────────────────────────────────────────────
 
 /**
+ * 目印を外す断片で着色を捨てたことを開発時に知らせる。紙面の色は補助(判定の正典は右欄の文字の
+ * 差分)なので本番では黙って原文の見えにするが、開発中に差分の形が変わったら気づけるようにする。
+ */
+const warnHighlightDropped = import.meta.env.DEV
+  ? (partKey: string) =>
+      console.warn('[reviewPaper] 着色と原文を突き合わせられず、着色を捨てました:', partKey)
+  : undefined;
+
+/**
  * 却下のパーツキーの集合。判定が変わっても却下の顔ぶれ(`rejectedSignature`)が同じなら前の
  * 集合をそのまま返し、右面の文書を組み直させない(承認・承認の取り消しでは変わらない)。
  */
@@ -80,6 +89,7 @@ const beforeDoc = computed<CompareDoc | null>(() =>
           side: 'before',
           highlight: highlight.value,
           parse: defaultHtmlParser,
+          onHighlightDropped: warnHighlightDropped,
         }),
         css: props.cssBefore,
       }),
@@ -95,6 +105,7 @@ const afterDoc = computed<CompareDoc>(() => {
       side: 'after',
       highlight: highlight.value,
       parse: defaultHtmlParser,
+      onHighlightDropped: warnHighlightDropped,
     }),
     css: props.cssAfter,
   });

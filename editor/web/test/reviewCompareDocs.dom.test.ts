@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
 import { buildCompareDoc } from '@/features/reviews/services/reviewCompareDocs';
 import { defaultHtmlParser } from '@/lib/htmlParser';
+import { linkedomParser } from '@/workers/htmlWorkerImpl';
 
 const pb = '<div class="pagebreak"></div>';
 
@@ -82,5 +83,45 @@ describe('buildCompareDoc', () => {
     });
     expect(doc).toContain('../images/x.svg');
     expect(bodyOf(doc).querySelector('#evil')).toBeNull();
+  });
+});
+
+describe('buildReviewPaper(ブラウザの DOMParser)', () => {
+  // 素の断片を `DOMParser` に渡すと、先頭の `<style>` / `<link>` / `<meta>` は head へ移る。目印を
+  // 外すために断片を組み直しても、それらを落とさず、head に移った要素の目印も外すこと。
+  it('目印を外して組み直すとき、先頭の style / link / meta を落とさない', () => {
+    const unit =
+      '<div id="u"><style>.a{color:red}</style><link rel="stylesheet" href="x.css">' +
+      '<meta name="k"><p data-review-no="7" class="cmp-ins">本文</p></div>';
+    const html = paperOf(`${unit}<p>旧</p>`, `${unit}<p>新</p>`, false).html;
+    const body = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body;
+    expect(body.querySelector('#u style')?.textContent).toBe('.a{color:red}');
+    expect(body.querySelector('#u link')).not.toBeNull();
+    expect(body.querySelector('#u meta')).not.toBeNull();
+    expect(body.querySelector('#u [data-review-no]')).toBeNull();
+    expect(body.querySelector('#u .cmp-ins')).toBeNull();
+  });
+
+  it('本文直下の style / meta に書いた目印も外す(head へ移っても見落とさない)', () => {
+    // 画面の差分は worker の linkedom で取るので、本文直下の style / meta も 1 つの単位になる。
+    const top = '<style data-review-no="2" class="cmp-del">.a{}</style><meta data-review-keep="">';
+    const diff = buildHtmlDiff(
+      `${top}<p>旧</p>`,
+      `${top}<p>新</p>`,
+      undefined,
+      undefined,
+      linkedomParser,
+    );
+    const html = buildReviewPaper({
+      diff,
+      parts: numberChangedParts(diff),
+      decisionOf: () => 'pending',
+      side: 'after',
+      highlight: false,
+      parse: defaultHtmlParser,
+    }).html;
+    expect(html).toContain('.a{}');
+    expect(html).toContain('<meta');
+    expect(html).not.toMatch(/data-review-(no="2"|keep)|cmp-del/);
   });
 });

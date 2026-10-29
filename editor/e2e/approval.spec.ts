@@ -252,7 +252,10 @@ test.describe('申請カードの操作', () => {
   }) => {
     // 1 ページ目の追記に、4 ページ目のパーツ 2 の番号と差分の色を騙る span を混ぜる。外さないと
     // ホストは文書順で最初の `data-review-no="2"` を拾い、1 ページ目にパーツ 2 の札を描く。
-    const spoof = '<p>承認する追記<span data-review-no="2" class="cmp-ins">偽の札</span></p>';
+    // 属性値の文字参照(`cmp&#45;del`)で綴った差分の色も外れること。
+    const spoof =
+      '<p>承認する追記<span data-review-no="2" class="cmp-ins">偽の札</span>' +
+      '<span class="cmp&#45;del">偽の削除</span></p>';
     const item = await openPartialReview(page, spoof);
     const { before, after } = comparePapers(item);
     await expect(after.getByText('偽の札')).toBeVisible();
@@ -262,6 +265,8 @@ test.describe('申請カードの操作', () => {
       await expect(frame.locator('#vp span[data-review-no]')).toHaveCount(0);
     }
     await expect(after.locator('#vp .cmp-ins', { hasText: '偽の札' })).toHaveCount(0);
+    await expect(after.getByText('偽の削除')).toBeVisible();
+    await expect(after.locator('#vp .cmp-del', { hasText: '偽の削除' })).toHaveCount(0);
   });
 
   test('承認すると番号が緑になり、右面の data-doc-seq は増えない', async ({ page }) => {

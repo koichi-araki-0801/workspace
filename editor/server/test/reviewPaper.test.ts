@@ -309,6 +309,55 @@ describe('buildReviewPaper', () => {
       }
     });
 
+    it('属性値の文字参照で書いた cmp-ins / cmp-del の class も外れる(文字列の下見をすり抜けない)', () => {
+      // `buildHtmlDiff` の断片は `outerHTML` の直列化で文字参照が戻るが、`buildReviewPaper` は
+      // 断片の綴りを前提にしない。原文の綴りのままの断片を直接渡して確かめる。
+      const raw =
+        '<p id="r">地<span class="cmp&#45;ins">偽の追加</span>' +
+        '<span class="x cmp&#x2d;del">偽の削除</span><span class="&#99;mp-ins">偽</span></p>';
+      const base = diff.pages[0].blocks.find((x) => x.status === 'same');
+      if (base === undefined) throw new Error('same block not found');
+      const spelled: Diff = {
+        ...diff,
+        pages: [
+          {
+            ...diff.pages[0],
+            blocks: [{ ...base, rawBeforeHtml: raw, rawAfterHtml: raw }],
+            beforeKeys: [base.key],
+            afterKeys: [base.key],
+          },
+        ],
+      };
+      for (const side of ['before', 'after'] as const) {
+        const doc = parse(paper({ side, d: spelled }).html);
+        expect(doc.querySelectorAll('.cmp-ins, .cmp-del')).toHaveLength(0);
+        expect(doc.querySelector('.x')?.getAttribute('class')).toBe('x');
+        expect(textOf(doc.body.innerHTML)).toBe('地偽の追加偽の削除偽');
+      }
+    });
+
+    it('着色ありの代表例では、目印を外す断片でも着色と原文の突き合わせが成り立つ', () => {
+      const dropped: string[] = [];
+      for (const side of ['before', 'after'] as const) {
+        for (const decision of ['pending', 'rejected'] as const) {
+          const html = buildReviewPaper({
+            diff: d,
+            parts: dParts,
+            decisionOf: () => decision,
+            side,
+            highlight: true,
+            parse,
+            onHighlightDropped: (k) => dropped.push(k),
+          }).html;
+          // 右面の却下は現行版へ戻すので着色しない。それ以外は差分の色が残る。
+          if (!(side === 'after' && decision === 'rejected')) {
+            expect(html).toMatch(/class="cmp-(ins|del)"/);
+          }
+        }
+      }
+      expect(dropped).toEqual([]);
+    });
+
     it('目印の文字列が <style> の中身や地の文にあるだけの断片は、組み直さずにそのまま出す', () => {
       const src = '<style>.cmp-ins{color:red}</style>地の文 data-review-no<p>x</p>';
       const same = buildHtmlDiff(src, src, parse);
@@ -337,6 +386,7 @@ describe('buildReviewPaper', () => {
           },
         ],
       };
+      const dropped: string[] = [];
       const html = buildReviewPaper({
         diff: broken,
         parts: numberChangedParts(broken),
@@ -344,9 +394,12 @@ describe('buildReviewPaper', () => {
         side: 'after',
         highlight: true,
         parse,
+        onHighlightDropped: (k) => dropped.push(k),
       }).html;
       expect(html).not.toMatch(/cmp-|data-review-keep|余分/);
       expect(textOf(html)).toBe('新');
+      // 着色を捨てたことは呼び手へ伝わる(画面は開発時に console.warn する)。
+      expect(dropped).toEqual([base.partKey]);
     });
   });
 
