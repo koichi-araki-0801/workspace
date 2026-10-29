@@ -18,6 +18,7 @@ import {
 import { computed, type Ref, ref, watch } from 'vue';
 import { submitBodyOf } from '@/features/preview/services/submitBody';
 import { partNameOf } from '@/lib/partNames';
+import { createCleanCheck } from './cleanCheck';
 import { groupHistoryByPart } from './historyGroups';
 import { type PartEntry, partLabelOf } from './partKey';
 import { changeBaselineOf, createChangeCheckScheduler, useChangeNumbers } from './useChangeNumbers';
@@ -182,9 +183,10 @@ export function useEditorChangeView(ctx: {
 }
 
 /**
- * `useTemplateEditor.ts` から `useEditorChangeView` への受け渡し。読み込みの結果から `open` に渡す値を
- * 選び、canvas の変更は即時の処理(dirty・autosave)のあとで `notify` へ、画面を離れるときは `dispose`
- * へ流す。オーケストレーションは GrapesJS 一式を起こすので単体で組めず、受け渡しだけをここで確かめる。
+ * `useTemplateEditor.ts` から `useEditorChangeView` への受け渡し。読み込みの結果から `open` に渡す
+ * 値を選び、canvas の変更は即時の処理(dirty・autosave)のあとで `notify` へ、画面を離れるときは
+ * `dispose` へ流す。オーケストレーションは GrapesJS 一式を起こすので単体で組めず、受け渡しだけを
+ * ここで確かめる。
  */
 export function wireEditorChangeView(deps: {
   view: Pick<ReturnType<typeof useEditorChangeView>, 'open' | 'notify' | 'dispose'>;
@@ -212,4 +214,31 @@ export function wireEditorChangeView(deps: {
       deps.view.dispose();
     },
   };
+}
+
+/**
+ * `useTemplateEditor.ts` の、確定版との同一判定・変更の見え方・受け渡しの組み立て。同一判定
+ * (`createCleanCheck`)の本文の受け口を `useEditorChangeView` へ渡し、canvas の変更は「dirty を
+ * 立てる → 即時の処理(`onDirty`。autosave の予約など)→ 通知」の順に流す(同一判定は dirty の
+ * ときだけ本文を要る)。
+ * `view` は受け口を受け取って変更の見え方を作る関数(テストは軽い組み立てを渡す)。
+ */
+export function createEditorChangeFlow<
+  V extends Pick<ReturnType<typeof useEditorChangeView>, 'open' | 'notify' | 'dispose'>,
+>(deps: {
+  clean: Parameters<typeof createCleanCheck>[0];
+  /** dirty を立てたあとの即時の処理。 */
+  onDirty: () => void;
+  view: (bodyReader: ReturnType<ReturnType<typeof createCleanCheck>['bodyReader']>) => V;
+}) {
+  const clean = createCleanCheck(deps.clean);
+  const view = deps.view(clean.bodyReader());
+  const wire = wireEditorChangeView({
+    view,
+    onChange: () => {
+      deps.clean.dirty.value = true;
+      deps.onDirty();
+    },
+  });
+  return { clean, view, wire };
 }

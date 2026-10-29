@@ -16,9 +16,12 @@ import {
 } from '@editor/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref, shallowRef } from 'vue';
-import { createCleanCheck } from '@/features/editor/cleanCheck';
 import { type PartEntry, partEntries } from '@/features/editor/partKey';
-import { useEditorChangeView, wireEditorChangeView } from '@/features/editor/useEditorChangeView';
+import {
+  createEditorChangeFlow,
+  useEditorChangeView,
+  wireEditorChangeView,
+} from '@/features/editor/useEditorChangeView';
 
 vi.mock('@/workers', async () => {
   const { htmlWorkerImpl } = await import('@/workers/htmlWorkerImpl');
@@ -336,31 +339,32 @@ describe('確定版との同一判定(createCleanCheck)と変更の通知の配�
     const dirty = ref(false);
     const readBody = vi.fn(() => body);
     const onClean = vi.fn(async () => {});
-    const clean = createCleanCheck({
-      canonical: () => opts.canonical,
-      dirty,
-      readBody,
-      readCss: () => css,
-      onClean,
-    });
-    const view = useEditorChangeView({
-      canvasEntries: shallowRef(entriesOf(BASE)),
-      partsById: shallowRef(new Map()),
-      selectedKey: ref(null),
-      history: shallowRef([]),
-      readBody,
-      ...clean.bodyReader(),
-      setChangeNumbers: vi.fn(),
-      templateId: TID,
-      me: () => 'me',
-      reviews: reviewsWith([]).repo,
-    });
     const order: string[] = [];
-    const wire = wireEditorChangeView({
-      view,
-      onChange: () => {
-        order.push(`dirty=${dirty.value}`);
-        dirty.value = true;
+    // `useTemplateEditor.ts` と同じ組み立て(`createEditorChangeFlow`)を通す。
+    const { clean, wire } = createEditorChangeFlow({
+      clean: { canonical: () => opts.canonical, dirty, readBody, readCss: () => css, onClean },
+      onDirty: () => order.push(`onDirty: dirty=${dirty.value}`),
+      view: (bodyReader) => {
+        const v = useEditorChangeView({
+          canvasEntries: shallowRef(entriesOf(BASE)),
+          partsById: shallowRef(new Map()),
+          selectedKey: ref(null),
+          history: shallowRef([]),
+          readBody,
+          ...bodyReader,
+          setChangeNumbers: vi.fn(),
+          templateId: TID,
+          me: () => 'me',
+          reviews: reviewsWith([]).repo,
+        });
+        const notify = v.notify;
+        return {
+          ...v,
+          notify: () => {
+            order.push(`notify: dirty=${dirty.value}`);
+            notify();
+          },
+        };
       },
     });
     return {
@@ -386,8 +390,9 @@ describe('確定版との同一判定(createCleanCheck)と変更の通知の配�
     await vi.advanceTimersByTimeAsync(0);
     f.readBody.mockClear();
     f.wire.changed();
-    // 通知の前に dirty が立っている(同一判定は dirty のときだけ本文を要る)。
-    expect(f.order).toEqual(['dirty=false']);
+    // dirty を立ててから即時の処理(autosave の予約)をし、そのあとで通知する(同一判定は dirty の
+    // ときだけ本文を要る)。
+    expect(f.order).toEqual(['onDirty: dirty=true', 'notify: dirty=true']);
     expect(f.dirty.value).toBe(true);
     await vi.advanceTimersByTimeAsync(300);
     expect(f.readBody).toHaveBeenCalledTimes(1);

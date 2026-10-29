@@ -475,6 +475,36 @@ test('右ペインの読み上げ用の文字は、はみ出しを切る枠の�
   for (const w of selected) expect(w, JSON.stringify(selected)).toMatchObject({ inside: true });
 });
 
+test('編集を元に戻して確定版と同じになれば、再読み込みで離脱の確認が出ない', async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  await editOneWord(page, frame);
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+  // 元に戻すと確定版と同じになり、未確定が下りて下書きも消える。
+  await page.getByRole('button', { name: '元に戻す' }).first().click();
+  await expect(page.getByText('変更なし', { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => readDraft(page, SEED_ID), { timeout: 15_000 }).toBeNull();
+  // 確認を受け入れずに記録だけする(出たら落ちる)。GrapesJS の離脱確認が残っていると、変更の数が
+  // 0 に戻らないので、ここで確認が出る。
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => {
+    dialogs.push(d.type());
+    void d.dismiss();
+  });
+  // 確認を断ると再読み込みは止まり、reload は時間切れになる。先に確認の有無で落とす。
+  const reloadError = await page
+    .reload({ waitUntil: 'commit', timeout: 15_000 })
+    .then(() => null)
+    .catch((e: unknown) => e);
+  expect(dialogs, '再読み込みで離脱の確認が出た').toEqual([]);
+  if (reloadError) throw reloadError;
+  const reloaded = page.frameLocator('iframe.gjs-frame');
+  await partLocator(reloaded).first().waitFor({ state: 'visible', timeout: 30_000 });
+});
+
 test('変更の目印を切ると丸数字が消え、再読み込みしても切ったまま', async ({ page }) => {
   test.setTimeout(120_000);
   await login(page);
@@ -530,8 +560,8 @@ interface DiffRun {
 
 /**
  * アプリが打つ時刻の目印(`useChangeNumbers.ts` の `CHANGE_NOTIFY_MARK`・`CHANGE_RUN_MARK`)。
- * 通知を受けた時刻と、予約が満了して番号の計算を始めた時刻。アプリは打つたびに前の目印を消すので、
- * `PerformanceObserver` で打たれるたびに受け取る。
+ * 通知を受けた時刻と、予約が満了した時刻(計算中なら、その計算が終わってから番号の計算を始める)。
+ * アプリは打つたびに前の目印を消すので、`PerformanceObserver` で打たれるたびに受け取る。
  */
 const CHANGE_MARKS = { notify: 'change-numbers:notify', run: 'change-numbers:run' } as const;
 
@@ -552,8 +582,9 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
     w.__markerAt = [];
     // 主スレッドの長いタスク(50ms 超)。所要時間の内訳を見る手がかりにする。
     w.__longTasks = [];
-    // 変更の通知の時刻(`createChangeCheckScheduler` の `notify`)と、予約が満了して番号の計算を
-    // 始めた時刻(`useChangeNumbers` の `schedule`)。どちらもアプリが `performance.mark` で打つ。
+    // 変更の通知の時刻(`createChangeCheckScheduler` の `notify`)と、予約が満了した時刻
+    // (`useChangeNumbers` の `schedule`。計算中なら後で始める)。どちらもアプリが
+    // `performance.mark` で打つ。
     const tn = window as unknown as { __notifyAt: number[]; __runAt: number[] };
     tn.__notifyAt = [];
     tn.__runAt = [];
@@ -645,8 +676,8 @@ function longTasksIn(tasks: [number, number][], from: number, to: number): strin
 }
 
 /**
- * 所要時間の基準(計画で決め、2026-10-29 に当てる区間を決め直した)。予約が満了して番号の計算を
- * 始めた時刻から、紙面に目印が出るまで(本文の組み立て・worker の計算・描画)に当てる。
+ * 所要時間の基準(計画で決め、2026-10-29 に当てる区間を決め直した)。予約が満了した時刻(計算中
+ * なら後で始める)から、紙面に目印が出るまで(本文の組み立て・worker の計算・描画)に当てる。
  */
 const RECOMPUTE_BUDGET_MS = 1_500;
 /** 番号の計算の予約(`useChangeNumbers.ts` の `MIN_DEBOUNCE_MS`)。 */
@@ -669,9 +700,9 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が�
   await expect.poll(() => changeNumbersSettled(page), { timeout: 120_000 }).toBe(true);
   const opened = (await changeNumberRuns(page)).runs.at(-1);
 
-  // 基準と比べるのは、入力のあとで予約が満了して番号の計算を始めた時刻(アプリの目印)から、目印が
-  // 画面に現れた時刻まで。通知(GrapesJS が編集の確定で出す。入力そのものでは来ない)から目印までの
-  // 全体・入力から通知まで・worker の計算・長いタスクは、記録として annotation に残す。
+  // 基準と比べるのは、入力のあとで予約が満了した時刻(アプリの目印。計算中なら後で始める)から、
+  // 目印が画面に現れた時刻まで。通知(GrapesJS が編集の確定で出す。入力そのものでは来ない)から
+  // 目印までの全体・入力から通知まで・worker の計算・長いタスクは、記録として annotation に残す。
   await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
   const inputAt = await replaceWord(page, frame, '受益者のみなさまへ', 'みなさま', '皆様');
   await expect(changeMarkers(page)).toHaveCount(1, { timeout: 30_000 });
@@ -685,8 +716,8 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が�
   if (notifyAt === undefined) throw new Error('編集のあとの変更の通知が記録されていない');
   const shownAt = markerAt.find((t) => t > notifyAt);
   if (shownAt === undefined) throw new Error('目印の出現の時刻が記録されていない');
-  // 目印を出した計算(worker へ投げた記録)と、その直前に打たれた計算の始まりの目印を対で選ぶ。
-  // 目印は計算を始める直前に打つので、worker へ投げた時刻より前で最後のものがその計算の始まり。
+  // 目印を出した計算(worker へ投げた記録)と、予約が満了した時刻の目印を対で選ぶ。目印は予約の
+  // 満了で打ち、計算はそのあと(計算中なら後で)投げるので、投げた時刻より前で最後の目印がその対。
   const run = runs.filter((r) => r.start > notifyAt && r.start < shownAt).at(-1);
   if (!run || run.end === undefined) throw new Error('編集のあとの番号の計算が記録されていない');
   const runAt = appMarks.runAt.filter((t) => t > notifyAt && t <= run.start).at(-1);

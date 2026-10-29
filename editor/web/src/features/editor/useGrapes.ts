@@ -578,6 +578,10 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       width: 'auto',
       fromElement: false,
       storageManager: false,
+      // GrapesJS の離脱確認(既定 true)は、変更の数が 0 に戻るまで `window.onbeforeunload` を立てる。
+      // 自動保存を切ると数が戻らず、確定版へ戻しても離脱のたびに確認が出る。離脱の警告はアプリの
+      // `beforeunload`(`useTemplateEditor.ts`。未確定・保存待ちのときだけ)が受け持つので切る。
+      noticeOnUnload: false,
       panels: { defaults: [] },
       // `scrollableCanvas:true` で canvas viewport `.gjs-cv-canvas` を overflow:auto の
       // スクロールコンテナにする。device `height:'auto'` で iframe がページ実寸(複数ページなら

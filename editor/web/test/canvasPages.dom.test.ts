@@ -96,14 +96,42 @@ afterEach(() => {
 });
 
 describe('GrapesJS の保存の仕組み', () => {
+  /**
+   * canvas の読み込みを終えた editor で 1 つ変更し、GrapesJS の変更の後始末(dirty の数の更新・
+   * `update` の通知。タイマーで回る)まで進める。jsdom では canvas の ready が来ないので、GrapesJS
+   * が ready で立てる `loadTriggered` を立てる(立っていないと変更を数えない)。
+   */
+  function changeAfterLoad(ed: Editor): void {
+    (ed.getModel() as unknown as { loadTriggered: boolean }).loadTriggered = true;
+    (ed.getWrapper() as Component).append('<p class="added">x</p>');
+    vi.advanceTimersByTime(1_000);
+  }
+
   it('変更のたびにプロジェクト全体を直列化しない(storageManager を切っても autosave の既定が残る)', () => {
     const ed = g.editor.value as Editor;
     // 保存はアプリの autosave(`getBodyHtml`)が受け持つ。GrapesJS の自動保存が残ると、変更の
     // たびに `storeData`(全 component の toJSON)が走り、大きい帳票で 1 回数百 ms 主スレッドを塞ぐ。
-    expect(ed.Storage.isAutosave()).toBe(false);
     const storeData = vi.spyOn(ed.getModel(), 'storeData');
-    (ed.getWrapper() as Component).append('<p class="added">x</p>');
-    expect(storeData).not.toHaveBeenCalled();
+    vi.useFakeTimers();
+    try {
+      changeAfterLoad(ed);
+      expect(storeData).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(ed.Storage.isAutosave()).toBe(false);
+  });
+
+  it('変更のあとも window.onbeforeunload を設定しない(離脱の警告はアプリの beforeunload が受け持つ)', () => {
+    window.onbeforeunload = null;
+    const ed = g.editor.value as Editor;
+    vi.useFakeTimers();
+    try {
+      changeAfterLoad(ed);
+      expect(window.onbeforeunload).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

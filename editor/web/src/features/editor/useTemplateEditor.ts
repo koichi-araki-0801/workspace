@@ -28,7 +28,6 @@ import { companyCodeOfTemplateId, fundCodeOfTemplateId } from '@/lib/fundImages'
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { canvasRoot } from './canvasGeometry';
-import { createCleanCheck } from './cleanCheck';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
@@ -51,7 +50,7 @@ import { afterTextEdit } from './textEditFinish';
 import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
-import { useEditorChangeView, wireEditorChangeView } from './useEditorChangeView';
+import { createEditorChangeFlow, useEditorChangeView } from './useEditorChangeView';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
 import { useSnapshotHistory } from './useSnapshotHistory';
@@ -274,32 +273,43 @@ export function useTemplateEditor(
     return ed && root ? partEntries(root, canvasRawKey(ed)) : [];
   });
 
-  // 確定版との同一判定(元の内容へ戻ったら未確定を下ろし、下書きを消す。`cleanCheck.ts`)。
-  const cleanCheck = createCleanCheck({
-    canonical: () => confirmedCanonical,
-    dirty,
-    readBody: () => g.getBodyHtml(),
-    readCss: () => g.getCss(),
-    onClean: discardSettledDraft,
-  });
-
-  // 変更の番号(紙面の丸数字と修正履歴の見出し)・パーツの名前・前回の申請の却下の理由。
-  const changeView = useEditorChangeView({
-    canvasEntries,
-    partsById,
-    selectedKey: currentNoteKeyRef,
-    history: displayHistory,
-    readBody: () => g.getBodyHtml(),
-    // 変更の通知から 300ms 後に読んだ本文で、確定版との同一判定もする(直列化を 1 回にする)。
-    ...cleanCheck.bodyReader(),
-    setChangeNumbers: (byKey) => g.setChangeNumbers(byKey),
-    templateId: id,
-    me: () => auth.user?.username ?? null,
-    reviews: useReviewRepo(),
+  // 確定版との同一判定(元の内容へ戻ったら未確定を下ろし、下書きを消す。`cleanCheck.ts`)と、変更の
+  // 番号(紙面の丸数字と修正履歴の見出し)・パーツの名前・前回の申請の却下の理由。canvas の変更・
+  // 読み込み・離脱の受け渡しまでを `createEditorChangeFlow` で組む(組み立ては単体テストで
+  // 確かめる)。
+  const {
+    clean: cleanCheck,
+    view: changeView,
+    wire: changeWire,
+  } = createEditorChangeFlow({
+    clean: {
+      canonical: () => confirmedCanonical,
+      dirty,
+      readBody: () => g.getBodyHtml(),
+      readCss: () => g.getCss(),
+      onClean: discardSettledDraft,
+    },
+    // dirty はここより前に立つ。下書きがありうることを覚え、autosave を予約する。
+    onDirty: () => {
+      draftMayExist = true;
+      autosave.trigger();
+    },
+    view: (bodyReader) =>
+      useEditorChangeView({
+        canvasEntries,
+        partsById,
+        selectedKey: currentNoteKeyRef,
+        history: displayHistory,
+        readBody: () => g.getBodyHtml(),
+        // 変更の通知から 300ms 後に読んだ本文で、確定版との同一判定もする(直列化を 1 回にする)。
+        ...bodyReader,
+        setChangeNumbers: (byKey) => g.setChangeNumbers(byKey),
+        templateId: id,
+        me: () => auth.user?.username ?? null,
+        reviews: useReviewRepo(),
+      }),
   });
   const { partLabels, partNames } = changeView;
-  // canvas の変更・読み込み・離脱を `changeView` へ流す(受け渡しは `wireEditorChangeView` で確かめる)。
-  const changeWire = wireEditorChangeView({ view: changeView, onChange: markDirtyNow });
 
   /**
    * 根の直下のパーツのうち、アンカーの属性の原文に Jinja を持つものの数(警告用。`partLabels` と
@@ -673,16 +683,6 @@ export function useTemplateEditor(
     // ため、Vue の flush を待たず同期で処理する(click は dblclick に先行する)。
     watch(g.selected, () => redline.onSelected(g.editor.value?.getSelected()), { flush: 'sync' });
   });
-
-  /**
-   * canvas の変更で即時にすること。dirty を立てて autosave を予約する。確定版との同一判定と番号の
-   * 計算の予約は、`changeView.notify` の 300ms の待ちのあとに 1 回だけ読む本文で行う(`onBodyRead`)。
-   */
-  function markDirtyNow(): void {
-    dirty.value = true;
-    draftMayExist = true;
-    autosave.trigger();
-  }
 
   /**
    * 開いた直後(前回セッションの下書きから開いたとき)の確定版との同一判定の予約。判定は autosave の
