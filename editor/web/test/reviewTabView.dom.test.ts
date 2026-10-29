@@ -13,7 +13,7 @@ import {
   type Template,
   unexpected,
 } from '@editor/shared';
-import { flushPromises, mount } from '@vue/test-utils';
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, reactive, type SlotsType } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
@@ -122,17 +122,38 @@ function template(patch: Partial<Template> = {}): Template {
   };
 }
 
-/** `ReviewDetail` の代役。expose を数え、`#comments` の slot を本物と同じ props で描く。 */
+/**
+ * `ReviewDetail` の代役。expose を数え、`#comments` の slot を本物と同じ props で描く。
+ * `selectPart` は本物と同じく、変更のあるキーなら選択を slot props へ写して `select` を emit する。
+ */
 const ReviewDetailStub = defineComponent({
   name: 'ReviewDetail',
   props: { reqId: { type: String, required: true } },
   emits: ['decided', 'select'],
   slots: Object as SlotsType<{ comments: typeof slotProps }>,
-  setup(_, { expose, slots }) {
-    expose({ gotoPage, selectPart, openRequestReject });
+  setup(_, { expose, slots, emit }) {
+    expose({
+      gotoPage,
+      selectPart: (key: string) => {
+        selectPart(key);
+        const no = slotProps.partNumbers.get(key);
+        if (no === undefined) return;
+        slotProps.selectedNo = no;
+        slotProps.selectedKey = key;
+        emit('select', key, no);
+      },
+      openRequestReject,
+    });
     return () => h('div', { 'data-stub-detail': '' }, slots.comments?.(slotProps));
   },
 });
+
+/** 紙面で選んだときの `ReviewDetail`: 選択を slot props へ写して `select` を emit する。 */
+function pickOnPaper(detail: VueWrapper, key: string | null, no: number): void {
+  slotProps.selectedNo = no;
+  slotProps.selectedKey = key;
+  detail.vm.$emit('select', key, no);
+}
 
 /** `CommentPanel` の代役。受けた props を data 属性へ写し、ボタンで `focus` と `add` を emit する。 */
 const CommentPanelStub = defineComponent({
@@ -541,7 +562,7 @@ describe('コメントの宛先', () => {
     route.query = { template: TPL };
     const w = await mountTab([meta({ id: 'a' })]);
     // `ReviewDetail` は編集経路で `beforePartKey` を `select` の第 1 引数に渡す。
-    w.findComponent(ReviewDetailStub).vm.$emit('select', P, 2);
+    pickOnPaper(w.findComponent(ReviewDetailStub), P, 2);
     await flushPromises();
     const panel = w.find('[data-stub-panel]');
     expect(panel.attributes('data-selected-key')).toBe(P);
@@ -554,7 +575,7 @@ describe('コメントの宛先', () => {
   it('編集経路: 追加パーツ(beforePartKey が null)を選ぶと書けない理由を出す', async () => {
     route.query = { template: TPL };
     const w = await mountTab([meta({ id: 'a' })]);
-    w.findComponent(ReviewDetailStub).vm.$emit('select', null, 3);
+    pickOnPaper(w.findComponent(ReviewDetailStub), null, 3);
     await flushPromises();
     const panel = w.find('[data-stub-panel]');
     expect(panel.attributes('data-selected-key')).toBe('');
@@ -570,14 +591,14 @@ describe('コメントの宛先', () => {
     const w = await mountTab([meta({ id: 'a', origin: 'create' })]);
     const detail = w.findComponent(ReviewDetailStub);
     // `ReviewDetail` は作成経路で申請版の `partKey` を渡す。確定版(partLabels)にあるキーだけ書ける。
-    detail.vm.$emit('select', COVER, 1);
+    pickOnPaper(detail, COVER, 1);
     await flushPromises();
     expect(w.find('[data-stub-panel]').attributes('data-selected-key')).toBe(COVER);
     await w.find('[data-stub-add]').trigger('click');
     await flushPromises();
     expect(addNoteFn).toHaveBeenCalledWith(TPL, COVER, '本文');
 
-    detail.vm.$emit('select', ADDED, 2);
+    pickOnPaper(detail, ADDED, 2);
     await flushPromises();
     const panel = w.find('[data-stub-panel]');
     expect(panel.attributes('data-selected-key')).toBe('');
@@ -627,6 +648,35 @@ describe('コメントの宛先', () => {
   });
 });
 
+describe('宛先は紙面の選択に従う', () => {
+  it('ReviewDetail の選択が外れる(slot の selectedNo が null)と宛先も外れる', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' })]);
+    pickOnPaper(w.findComponent(ReviewDetailStub), P, 2);
+    await flushPromises();
+    expect(w.find('[data-stub-panel]').attributes('data-selected-key')).toBe(P);
+    slotProps.selectedNo = null;
+    slotProps.selectedKey = null;
+    await flushPromises();
+    const panel = w.find('[data-stub-panel]');
+    expect(panel.attributes('data-selected-key')).toBe('');
+    expect(panel.attributes('data-blocked')).toBe('');
+  });
+
+  it('一覧で変更の無いパーツを選んだあと紙面で選ぶと、紙面の選択が宛先になる(後の操作が勝つ)', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' })]);
+    await w.find('[data-stub-focus]').trigger('click');
+    expect(w.find('[data-stub-panel]').attributes('data-selected-key')).toBe(COVER);
+    pickOnPaper(w.findComponent(ReviewDetailStub), P, 2);
+    await flushPromises();
+    expect(w.find('[data-stub-panel]').attributes('data-selected-key')).toBe(P);
+    // 逆に、紙面で選んだあとに一覧で変更の無いパーツを選ぶと一覧の選択が勝つ。
+    await w.find('[data-stub-focus]').trigger('click');
+    expect(w.find('[data-stub-panel]').attributes('data-selected-key')).toBe(COVER);
+  });
+});
+
 describe('確定版の構造が引けないときの案内', () => {
   it('getTemplate が失敗すると、入力欄の代わりに案内文言を出す', async () => {
     route.query = { template: TPL };
@@ -639,14 +689,16 @@ describe('確定版の構造が引けないときの案内', () => {
     expect(panel.attributes('data-can-add')).toBe('false');
   });
 
-  it('getTemplate が未解決の間は案内文言を出さず、選んでも書けない', async () => {
+  it('getTemplate が未解決の間は確定版の案内を出さず、選ぶと読み込み中と出して書かせない', async () => {
     route.query = { template: TPL };
     getTemplateFn.mockReturnValue(new Promise(() => {}));
     const w = await mountTab([meta({ id: 'a' })]);
-    w.findComponent(ReviewDetailStub).vm.$emit('select', COVER, 1);
+    expect(w.find('[data-stub-panel]').attributes('data-blocked')).toBe('');
+    pickOnPaper(w.findComponent(ReviewDetailStub), COVER, 1);
     await flushPromises();
     const panel = w.find('[data-stub-panel]');
-    expect(panel.attributes('data-blocked')).toBe('');
+    // 「左の紙面でパーツを押すと…」(宛先なしの案内)にせず、読み込み中であることを出す。
+    expect(panel.attributes('data-blocked')).toBe('確定版のパーツを読み込んでいます…');
     expect(panel.attributes('data-can-add')).toBe('false');
     expect(panel.attributes('data-selected-key')).toBe('');
   });
@@ -657,7 +709,7 @@ describe('宛先の区画別化(表示中の宛先へ投稿する)', () => {
     route.query = { template: TPL };
     const w = await mountTab([meta({ id: 'a' }), meta({ id: 'b' })]);
     await w.findAll('[data-review-toggle]')[1].trigger('click');
-    w.findAllComponents(ReviewDetailStub)[0].vm.$emit('select', COVER, 1);
+    pickOnPaper(w.findAllComponents(ReviewDetailStub)[0], COVER, 1);
     await flushPromises();
     const panels = w.findAll('[data-stub-panel]');
     expect(panels).toHaveLength(2);

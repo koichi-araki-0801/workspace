@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { resolveConfirm } from '@/components/ui/confirm';
 import CommentPanel from '@/features/editor/comments/CommentPanel.vue';
+import { DELETED_GROUP_KEY } from '@/features/editor/comments/commentFilter';
 
 const COVER = '.page#1/cover#1';
 const SUMMARY = '.page#1/.summary#1';
@@ -56,7 +57,7 @@ function mountPanel(extra: Record<string, unknown> = {}) {
 }
 
 describe('CommentPanel', () => {
-  it('既定は未対応の親投稿だけを行として出し、返信数とパーツ名を添える', () => {
+  it('既定は未対応の親投稿だけを行として出し、行に返信数・見出しにパーツ名を出す', () => {
     const w = mountPanel();
     const rows = w.findAll('[data-comment-row]');
     expect(rows).toHaveLength(1);
@@ -141,9 +142,9 @@ describe('CommentPanel', () => {
     const w = mountPanel({ entries: [...entries, deleted] });
     const row = w.findAll('[data-comment-row]').find((r) => r.text().includes('消えたパーツ'));
     expect(row).toBeTruthy();
-    expect(w.find('[data-comment-group="gone-key"] [data-comment-group-head]').text()).toContain(
-      '削除済みパーツ',
-    );
+    expect(
+      w.find(`[data-comment-group="${DELETED_GROUP_KEY}"] [data-comment-group-head]`).text(),
+    ).toContain('削除済みパーツ');
     expect(row?.classes()).toContain('cursor-default');
     expect(row?.classes()).toContain('text-muted-foreground');
   });
@@ -278,18 +279,41 @@ describe('CommentPanel', () => {
     expect(w.find('textarea[aria-label="コメント本文の編集"]').exists()).toBe(true);
   });
 
-  it('一覧はパーツごとの見出しの下に並べ、見出しは partLabels の順(削除済みは末尾)', async () => {
-    const deleted = entry({ id: 'd', pathKey: 'gone-key', content: '消えた' });
-    const w = mountPanel({ entries: [deleted, ...entries] });
+  // 削除済みパーツ 2 つ(キーが別)。どちらも既定の作成日時(最古)。
+  const deletedEntries = [
+    entry({ id: 'd', pathKey: 'gone-key', content: '消えた' }),
+    entry({ id: 'e', pathKey: 'gone-key-2', content: 'これも消えた' }),
+  ];
+
+  it('更新順(既定)なら、最新のスレッドを持つ見出しが先頭', async () => {
+    const w = mountPanel({ entries: [...deletedEntries, ...entries] });
     await w.find('[data-filter-status]').setValue('all');
+    const groups = w.findAll('[data-comment-group]');
+    expect(groups.map((g) => g.attributes('data-comment-group'))).toEqual([
+      SUMMARY,
+      COVER,
+      DELETED_GROUP_KEY,
+    ]);
+    expect(groups[0].findAll('[data-comment-row]')).toHaveLength(1);
+    expect(groups[0].text()).toContain('要約の数値');
+  });
+
+  it('パーツ順なら見出しは partLabels の順で、削除済みパーツは 1 つの見出しにまとめて末尾', async () => {
+    const w = mountPanel({ entries: [...deletedEntries, ...entries] });
+    await w.find('[data-filter-status]').setValue('all');
+    await w.find('[data-filter-sort]').setValue('part');
     const groups = w.findAll('[data-comment-group]');
     expect(groups.map((g) => g.attributes('data-comment-group'))).toEqual([
       COVER,
       SUMMARY,
-      'gone-key',
+      DELETED_GROUP_KEY,
     ]);
-    expect(groups[1].findAll('[data-comment-row]')).toHaveLength(1);
-    expect(groups[1].text()).toContain('要約の数値');
+    const deleted = groups[2];
+    expect(deleted.findAll('[data-comment-group-head]')).toHaveLength(1);
+    expect(deleted.find('[data-comment-group-head]').text()).toBe('削除済みパーツ');
+    expect(deleted.findAll('[data-comment-row]').map((r) => r.attributes('data-path-key'))).toEqual(
+      ['gone-key', 'gone-key-2'],
+    );
   });
 
   it('partNumbers があれば見出しと宛先枠に番号を出す', async () => {
@@ -347,7 +371,7 @@ describe('CommentPanel', () => {
   it('削除済みパーツの見出しは押せない', async () => {
     const deleted = entry({ id: 'd', pathKey: 'gone-key', content: '消えた' });
     const w = mountPanel({ entries: [deleted] });
-    const head = w.find('[data-comment-group="gone-key"] [data-comment-group-head]');
+    const head = w.find(`[data-comment-group="${DELETED_GROUP_KEY}"] [data-comment-group-head]`);
     expect(head.attributes('disabled')).toBeDefined();
     await head.trigger('click');
     expect(w.emitted('focus')).toBeUndefined();

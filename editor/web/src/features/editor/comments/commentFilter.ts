@@ -131,16 +131,27 @@ export function filterThreads(
   );
 }
 
-/** 一覧のパーツの見出し 1 つ分。`key` は宛先パーツの `pathKey`。 */
+/**
+ * 削除済みパーツ(`partOrder` に無いキー)をまとめる見出しのキー。`pathKey` は `tag#n` の形で
+ * `#` を含むので、`#` を持たないこの値と重ならない。
+ */
+export const DELETED_GROUP_KEY = 'deleted';
+
+/**
+ * 一覧のパーツの見出し 1 つ分。`key` は宛先パーツの `pathKey`(削除済みパーツは
+ * `DELETED_GROUP_KEY` の 1 つにまとめる)。
+ */
 export interface CommentGroup {
   key: string;
   threads: CommentThread[];
 }
 
 /**
- * スレッドを宛先パーツごとの見出しへ束ねる。見出しは `partOrder`(canvas の出現順)に従い、
- * 無いキー(削除済みパーツ)は末尾へ出現順で回す。見出しの中は渡された順(`filterThreads` の
- * 並び)を保つ。スレッドの無いパーツの見出しは作らない。
+ * スレッドを宛先パーツごとの見出しへ束ねる。見出しは渡された順(`filterThreads` の並び)で
+ * 最初に現れた順に並べ、並べ直さない — 更新順なら最新のスレッドを持つ見出しが先頭になり、
+ * パーツ順なら `filterThreads` が canvas の出現順(削除済みは末尾)に並べた順のままになる。
+ * `partOrder` に無いキー(削除済みパーツ)は 1 つの見出しにまとめる。見出しの中も渡された順を
+ * 保つ。スレッドの無いパーツの見出しは作らない。
  */
 export function groupThreadsByPart(
   threads: readonly CommentThread[],
@@ -148,7 +159,7 @@ export function groupThreadsByPart(
 ): CommentGroup[] {
   const byKey = new Map<string, CommentGroup>();
   for (const t of threads) {
-    const key = t.parent.pathKey;
+    const key = partOrder.has(t.parent.pathKey) ? t.parent.pathKey : DELETED_GROUP_KEY;
     let g = byKey.get(key);
     if (!g) {
       g = { key, threads: [] };
@@ -156,7 +167,5 @@ export function groupThreadsByPart(
     }
     g.threads.push(t);
   }
-  const order = (key: string) => partOrder.get(key) ?? Number.MAX_SAFE_INTEGER;
-  // `Array.prototype.sort` は安定なので、末尾へ回したキー同士は出現順のまま残る。
-  return [...byKey.values()].sort((a, b) => order(a.key) - order(b.key));
+  return [...byKey.values()];
 }

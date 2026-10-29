@@ -57,12 +57,18 @@ const targetId = computed(() => resolveReviewTarget(route.query));
 const isOverview = computed(() => targetId.value === null);
 
 /**
- * コメントの宛先として選んだパーツ。`key` は `ReviewDetail` の `select` が渡すコメントのキー
- * (編集経路は確定版側の `beforePartKey`、作成経路は `partKey`)で、確定版に無い追加パーツは null。
- * 「まだ選んでいない」(区画の値が null)と「追加パーツを選んだ」(`key` が null)を分けて持つ。
+ * コメントの宛先をどこで選んだか。`paper` は紙面・右欄(`ReviewDetail` の `select`)で、宛先のキーは
+ * `ReviewDetail` の slot props(`selectedNo`・`selectedKey`)に従う — 選択が外れれば宛先も外れる。
+ * キーは編集経路が確定版側の `beforePartKey`、作成経路が `partKey` で、確定版に無い追加パーツは
+ * null。`list` はコメント一覧の見出しで選んだ変更の無いパーツ(`ReviewDetail` の選択に無い)。
+ * 区画の値が null なら、まだ選んでいない。
  */
-interface CommentTarget {
-  key: string | null;
+type CommentTarget = { from: 'paper' } | { from: 'list'; key: string };
+
+/** `#comments` の slot props のうち、宛先を決めるのに使う分(`ReviewDetail.vue` の slot)。 */
+interface CommentSlotState {
+  selectedNo: number | null;
+  selectedKey: string | null;
 }
 
 // 宛先(区画〈申請 id〉ごとに持つ — 2 区画を同時展開しても互いに干渉しない。「直近に操作した
@@ -261,10 +267,19 @@ const partsUnavailable = computed(() => partsLoaded.value && partLabels.value.si
 const PARTS_UNAVAILABLE_TEXT =
   'このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません';
 const ADDED_PART_TEXT = '追加したパーツは確定版にまだ無いため、コメントを書けません。';
+const PARTS_LOADING_TEXT = '確定版のパーツを読み込んでいます…';
 
-/** 紙面・右欄で選んだパーツを宛先にする(`ReviewDetail` の `select`)。 */
-function onSelect(reqId: string, commentKey: string | null): void {
-  targets[reqId] = { key: commentKey };
+/** 紙面・右欄で選んだ(`ReviewDetail` の `select`)。宛先のキーは slot props から引く。 */
+function onSelect(reqId: string): void {
+  targets[reqId] = { from: 'paper' };
+}
+
+/** 区画で選んだ宛先。`undefined` はまだ選んでいない(紙面の選択が外れたときも含む)。 */
+function chosenOf(reqId: string, slot: CommentSlotState): { key: string | null } | undefined {
+  const t = targets[reqId];
+  if (!t) return undefined;
+  if (t.from === 'list') return { key: t.key };
+  return slot.selectedNo === null ? undefined : { key: slot.selectedKey };
 }
 
 /**
@@ -272,18 +287,20 @@ function onSelect(reqId: string, commentKey: string | null): void {
  * こと 13)。編集経路の追加パーツ(`key` が null)と、作成経路で確定版に無い `partKey` は書けない。
  * 構造の読み込み中は確かめられないので書かせない。
  */
-function addKeyOf(reqId: string): string | null {
-  const key = targets[reqId]?.key ?? null;
+function addKeyOf(reqId: string, slot: CommentSlotState): string | null {
+  const key = chosenOf(reqId, slot)?.key ?? null;
   return key !== null && partLabels.value.has(key) ? key : null;
 }
 
-/** 入力欄の代わりに出す理由。宛先を選ぶ前は出さない(入力欄は畳んで案内を出す)。 */
-function addBlockedTextOf(reqId: string): string | undefined {
+/**
+ * 入力欄の代わりに出す文。宛先を選ぶ前は出さない(入力欄は畳んで案内を出す)。選んだのに構造を
+ * 読み込み中なら、その旨を出す(「パーツを押すと…」の案内を出すと、押したのに効かないように見える)。
+ */
+function addBlockedTextOf(reqId: string, slot: CommentSlotState): string | undefined {
   if (partsUnavailable.value) return PARTS_UNAVAILABLE_TEXT;
-  if (!partsLoaded.value) return undefined;
-  const target = targets[reqId];
-  if (!target) return undefined;
-  return addKeyOf(reqId) === null ? ADDED_PART_TEXT : undefined;
+  if (!chosenOf(reqId, slot)) return undefined;
+  if (!partsLoaded.value) return PARTS_LOADING_TEXT;
+  return addKeyOf(reqId, slot) === null ? ADDED_PART_TEXT : undefined;
 }
 
 /**
@@ -293,12 +310,13 @@ function addBlockedTextOf(reqId: string): string | undefined {
  */
 function focusPart(reqId: string, key: string, partNumbers: ReadonlyMap<string, number>) {
   if (!partLabels.value.has(key)) return;
-  targets[reqId] = { key };
   const detail = detailRefs[reqId];
   if (partNumbers.has(key)) {
+    // 選ばせると `select` が返り、宛先は紙面の選択に従う。
     detail?.selectPart(key);
     return;
   }
+  targets[reqId] = { from: 'list', key };
   const page = partPages.value.get(key);
   if (page !== undefined) detail?.gotoPage(page);
 }
@@ -493,20 +511,20 @@ function goEdit() {
             "
             :req-id="m.id"
             @decided="onDecided"
-            @select="(key) => onSelect(m.id, key)"
+            @select="onSelect(m.id)"
           >
             <template #comments="slot">
               <CommentPanel
                 :entries="comments.all.value"
-                :selected-key="addKeyOf(m.id)"
-                :can-add="addKeyOf(m.id) !== null"
+                :selected-key="addKeyOf(m.id, slot)"
+                :can-add="addKeyOf(m.id, slot) !== null"
                 :part-labels="partLabels"
                 :part-numbers="slot.partNumbers"
                 :part-names="slot.partNames"
-                :add-blocked-text="addBlockedTextOf(m.id)"
+                :add-blocked-text="addBlockedTextOf(m.id, slot)"
                 collapse-input-until-target
                 compact
-                @add="(content) => comments.add(content, addKeyOf(m.id) ?? undefined)"
+                @add="(content) => comments.add(content, addKeyOf(m.id, slot) ?? undefined)"
                 @reply="comments.reply"
                 @set-status="comments.setStatus"
                 @update="comments.update"
