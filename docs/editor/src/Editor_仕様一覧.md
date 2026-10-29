@@ -1,7 +1,7 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "2.1"
+version: "2.2"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
@@ -15,9 +15,10 @@ rev:
   - 1.9 | 2026-10-26 | API 表にパーツ判定（part-decision）を追加して番号を振り直し、最終確定（approve）の編集経路の判定の当て方と 400・409 の条件を記載
   - 2.0 | 2026-10-28 | 作成タブの基準日の入力を撤去（画面項目 9 と GenerateRequest の baseDate。1.8 で追加したが、画面で選ばせる必要が無く、いつもサーバの既定値＝日本時間の当日・土日は直前の金曜で作るため。画面項目 10 以降を 1 つずつ繰り上げ）。版種を任意にし、選べばその版だけ、選ばなければ作成済み・申請中でない版をすべて作る形へ（繰り上げ後の画面項目 6・9・10、creatable の editionType を任意にして版ごとの状態 editions を返す、GenerateRequest の editionType を任意に、GenerateResult の template? / imported / skipped）。組入先を取り込まない（生成器の出力は output/ に残す）
   - 2.1 | 2026-10-29 | パーツ判定の API を `POST /review-requests/:reqId/part-decisions`（まとめて判定・取り消し、同じ partKey の重複は 400、却下の理由は UTF-16 で 2,000 単位まで、許されない遷移は 409 `REVIEW_PART_DECISION_TRANSITION` で全部戻す）へ改め、旧パス `/part-decision` を削除。決着済みの申請への判定・最終確定・却下の 409 `REVIEW_ALREADY_DECIDED`
+  - 2.2 | 2026-10-29 | パーツ判定で申請の差分に無いパーツの承認・却下を 400 に（API 41）。申請ごと却下の理由に UTF-16 で 2,000 単位までの上限、入力の型名を ReviewRejectBody に訂正（API 43）
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 2.1 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 2.2 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -86,9 +87,9 @@ rev:
 | 38 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新） |
 | 39 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
 | 40 | `GET` | `/review-requests/:reqId` | ○ | reqId | ReviewRequest（本体込み） |
-| 41 | `POST` | `/review-requests/:reqId/part-decisions` | approver | UpdateReviewPartDecisionsRequest（decisions = ReviewPartDecisionChange の配列、1〜5,000 件。各要素は partKey = 文書全体での `<アンカー>#<通し番号>` と status。status = approved（理由は送らない）／ rejected（comment = 却下の理由。必須、前後の空白を除いて 1 文字以上、UTF-16 で 2,000 単位まで）／ pending（判定の取り消し）。1 回の要求に同じ partKey を 2 回入れると 400（スキーマの追加検査なので OpenAPI の定義には出ない）。1 件の判定もこの API で送る） | ReviewPartDecision[]（更新後の判定を入力の順に。各要素は現在の判定・判定者・日時・却下の理由と変更履歴 history。取り消したパーツは status = pending で返る）。承認待ちの申請だけで、自分の申請は admin を除き判定できない（403）。許す遷移は「未判定 → 承認・却下」と「承認・却下 → 未判定」だけで、それ以外（承認と却下の直接の付け替え・未判定の取り消し・同じ判定の再送）が 1 件でもあれば 409 `REVIEW_PART_DECISION_TRANSITION` で何も保存しない。決着済み（承認済み・却下済み）の申請は 409 `REVIEW_ALREADY_DECIDED` |
+| 41 | `POST` | `/review-requests/:reqId/part-decisions` | approver | UpdateReviewPartDecisionsRequest（decisions = ReviewPartDecisionChange の配列、1〜5,000 件。各要素は partKey = 文書全体での `<アンカー>#<通し番号>` と status。status = approved（理由は送らない）／ rejected（comment = 却下の理由。必須、前後の空白を除いて 1 文字以上、UTF-16 で 2,000 単位まで）／ pending（判定の取り消し）。1 回の要求に同じ partKey を 2 回入れると 400（スキーマの追加検査なので OpenAPI の定義には出ない）。申請の差分（編集経路は申請時点の比較元と申請の本文の差分の変更パーツ、作成経路は Jinja 原文のパーツ）に無い partKey の承認・却下も 400 で、何も保存しない。1 件の判定もこの API で送る） | ReviewPartDecision[]（更新後の判定を入力の順に。各要素は現在の判定・判定者・日時・却下の理由と変更履歴 history。取り消したパーツは status = pending で返る）。承認待ちの申請だけで、自分の申請は admin を除き判定できない（403）。許す遷移は「未判定 → 承認・却下」と「承認・却下 → 未判定」だけで、それ以外（承認と却下の直接の付け替え・未判定の取り消し・同じ判定の再送）が 1 件でもあれば 409 `REVIEW_PART_DECISION_TRANSITION` で何も保存しない。決着済み（承認済み・却下済み）の申請は 409 `REVIEW_ALREADY_DECIDED` |
 | 42 | `POST` | `/review-requests/:reqId/approve` | approver | ReviewDecisionRequest（comment。承認タブは送らない） | ApproveReviewResult（実ファイル反映 + git コミット。自己承認は拒否）。決着済みの申請は 409 `REVIEW_ALREADY_DECIDED`。作成経路は却下したパーツを Jinja 原文から除いて書く。編集経路は承認画面と同じ差分でパーツ判定を検査し（未判定・本文に無い判定・判定の重複・差分の打ち切りは 400）、却下したパーツだけを申請時点の現行版へ戻して書く。却下があり申請後に現行版の HTML が変わっていれば 409 `REVIEW_BASE_CHANGED`、戻す位置を確かめられなければ 409 `REVIEW_SPLICE_MISMATCH`、比較元の無い古い申請に判定があれば 409 `REVIEW_BASE_MISSING` |
-| 43 | `POST` | `/review-requests/:reqId/reject` | approver | ReviewDecisionRequest（comment 必須） | ReviewRequestMeta（rejected）。決着済みの申請は 409 `REVIEW_ALREADY_DECIDED` |
+| 43 | `POST` | `/review-requests/:reqId/reject` | approver | ReviewRejectBody（comment 必須。前後の空白を除いて 1 文字以上、UTF-16 で 2,000 単位まで。上限は空白を除く前の長さで数える） | ReviewRequestMeta（rejected）。決着済みの申請は 409 `REVIEW_ALREADY_DECIDED` |
 | 44 | `GET` | `/users` | admin | — | User[] |
 | 45 | `POST` | `/users` | admin | CreateUserRequest（username, displayName, role, disabled, mustChangePassword） | 作成結果（一時パスワードは応答 1 回のみ） |
 | 46 | `PATCH` | `/users/:id` | admin | UpdateUserRequest（username, displayName, role, disabled, mustChangePassword） | 更新後 User |
