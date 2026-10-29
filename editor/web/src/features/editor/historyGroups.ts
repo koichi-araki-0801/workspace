@@ -39,6 +39,8 @@ export function groupHistoryByPart(input: {
   /** canvas のパーツのキー(紙面の順)。 */
   partOrder: readonly string[];
   nameOf: (key: string) => string;
+  /** 紙面に無いキーの名前の差し込み口(Task 13 が申請の本文から作る)。無ければ `nameOf` → 「削除済みパーツ」。 */
+  offCanvasNameOf?: (key: string) => string | undefined;
   rejected?: ReadonlyMap<string, RejectedReason>;
 }): HistoryGroup[] {
   const { entries, numbers, partOrder, nameOf } = input;
@@ -106,7 +108,7 @@ export function groupHistoryByPart(input: {
     off.push({
       key,
       no: null,
-      name: nameOf(key) || UNKNOWN_NAME,
+      name: input.offCanvasNameOf?.(key) || nameOf(key) || UNKNOWN_NAME,
       removed: false,
       offCanvas: true,
       entries: take(key),

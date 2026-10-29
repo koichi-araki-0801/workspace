@@ -133,6 +133,25 @@ function partLabelOf(partKey: string): string {
   return props.partLabels.get(partKey) ?? '削除済みパーツ';
 }
 
+// ── 0d. 未選択の見出しごとの履歴 ──
+/** 未選択の全パーツ表示で、見出しごとに最初に出す件数。残りは「さらに N 件を表示」で開く。 */
+const HISTORY_PREVIEW = 5;
+/** 開いた見出し(見出しごとに持つ)。 */
+const expanded = reactive(new Set<string>());
+const headingId = (g: HistoryGroup): string => `${g.key}:${g.removed}`;
+const visibleEntries = (g: HistoryGroup): PartHistoryEntry[] =>
+  expanded.has(headingId(g)) ? g.entries : g.entries.slice(0, HISTORY_PREVIEW);
+/** 選べない見出し(削除・紙面外)はフォーカスを残したまま押下を無視し、理由を読み上げに載せる。 */
+function headingLabel(g: HistoryGroup): string | undefined {
+  if (g.removed) return `${g.name}。削除したパーツのため選べません`;
+  if (g.offCanvas) return `${g.name}。現在の紙面に無いため選べません`;
+  return undefined;
+}
+function onHeadingClick(g: HistoryGroup): void {
+  if (g.removed || g.offCanvas) return;
+  emit('select-part', g.key);
+}
+
 // ── 1. 折りたたみ状態 ──
 // 既定は「閲覧」相当(編集セクションを畳み履歴を開く)。`editMode` 連動で切り替える。
 const open = reactive({ size: false, margin: false, pagebreak: false, history: true });
@@ -305,27 +324,40 @@ const PB_CLASS =
       <p class="mb-3 rounded-md border border-dashed px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
         パーツを選ぶと、そのパーツの設定と履歴だけを出します
       </p>
+      <p v-if="historyGroups.length === 0" class="text-[12.5px] text-muted-foreground">変更履歴はまだありません。</p>
       <template v-for="(g, gi) in historyGroups" :key="`${g.key}:${g.removed}`">
-        <h4
+        <p
           v-if="g.offCanvas && !historyGroups[gi - 1]?.offCanvas"
           class="mb-1 mt-3 text-[11.5px] font-bold text-muted-foreground"
-        >現在の紙面に無いパーツ</h4>
+          data-off-canvas-heading
+        >現在の紙面に無いパーツ</p>
         <section class="mb-3" :data-history-group="g.key">
-          <button
-            type="button"
-            class="flex w-full items-center gap-1.5 whitespace-nowrap rounded px-1 py-1 text-left hover:bg-muted"
-            :data-history-heading="g.key"
-            :disabled="g.removed || g.offCanvas"
-            @click="emit('select-part', g.key)"
-          >
-            <span v-if="g.no !== null" class="no-pill">{{ g.no }}</span>
-            <span class="min-w-0 truncate text-[12.5px] font-bold text-foreground">{{ g.name }}</span>
-          </button>
-          <p v-if="g.entries.length === 0" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
-          <div v-for="h in g.entries" :key="h.id" class="px-1 py-1">
+          <h4 class="m-0">
+            <button
+              type="button"
+              class="flex w-full items-center gap-1.5 whitespace-nowrap rounded px-1 py-1 text-left"
+              :class="g.removed || g.offCanvas ? 'cursor-default' : 'hover:bg-muted'"
+              :data-history-heading="g.key"
+              :aria-disabled="g.removed || g.offCanvas ? 'true' : undefined"
+              :aria-label="headingLabel(g)"
+              @click="onHeadingClick(g)"
+            >
+              <span v-if="g.no !== null" class="no-pill" :aria-label="`変更 ${g.no}`">{{ g.no }}</span>
+              <span class="min-w-0 truncate text-[12.5px] font-bold text-foreground">{{ g.name }}</span>
+            </button>
+          </h4>
+          <p v-if="g.entries.length === 0 && !g.removed" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
+          <div v-for="h in visibleEntries(g)" :key="h.id" class="px-1 py-1">
             <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
             <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
           </div>
+          <button
+            v-if="g.entries.length > HISTORY_PREVIEW && !expanded.has(headingId(g))"
+            type="button"
+            class="px-1 text-[12px] text-primary hover:underline"
+            data-history-more
+            @click="expanded.add(headingId(g))"
+          >さらに {{ g.entries.length - HISTORY_PREVIEW }} 件を表示</button>
         </section>
       </template>
     </div>

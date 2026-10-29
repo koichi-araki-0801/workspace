@@ -32,6 +32,7 @@ const groups: HistoryGroup[] = [
     entries: [],
     rejected: null,
   },
+  { key: 'd', no: 3, name: '空', removed: false, offCanvas: false, entries: [], rejected: null },
   {
     key: 'c',
     no: null,
@@ -105,5 +106,78 @@ describe('Inspector の修正履歴の見出し', () => {
     expect(frame.text()).toContain('3');
     expect(frame.text()).toContain('概況');
     expect(frame.attributes('title')).toBe('ページ1・パーツ2');
+  });
+
+  it('aria-disabled の見出し(削除・紙面外)を押しても select-part を出さず、履歴なしの文言も出さない', async () => {
+    const gs: HistoryGroup[] = [
+      {
+        key: 'b',
+        no: 2,
+        name: '旧表（削除）',
+        removed: true,
+        offCanvas: false,
+        entries: [],
+        rejected: null,
+      },
+      {
+        key: 'x',
+        no: null,
+        name: '削除済みパーツ',
+        removed: false,
+        offCanvas: true,
+        entries: [entry('9', 'x')],
+        rejected: null,
+      },
+    ];
+    const { wrapper, emitted } = mountInspector({ historyGroups: gs });
+    const b = wrapper.find('[data-history-heading="b"]');
+    expect(b.attributes('aria-disabled')).toBe('true');
+    expect(b.attributes('aria-label')).toContain('削除したパーツのため選べません');
+    expect(b.find('.no-pill').attributes('aria-label')).toBe('変更 2');
+    await b.trigger('click');
+    await wrapper.find('[data-history-heading="x"]').trigger('click');
+    expect(emitted).toEqual([]);
+    expect(wrapper.text()).not.toContain('このパーツの修正履歴はありません');
+  });
+
+  it('「現在の紙面に無いパーツ」の小見出しは 1 回だけ出す', () => {
+    const off = (key: string): HistoryGroup => ({
+      key,
+      no: null,
+      name: '削除済みパーツ',
+      removed: false,
+      offCanvas: true,
+      entries: [entry(key, key)],
+      rejected: null,
+    });
+    const { wrapper } = mountInspector({ historyGroups: [off('x'), off('y')] });
+    expect(wrapper.findAll('[data-off-canvas-heading]')).toHaveLength(1);
+  });
+
+  it('未選択でグループが 0 件なら既存の空表示を出す', () => {
+    const { wrapper } = mountInspector({ historyGroups: [] });
+    expect(wrapper.text()).toContain('変更履歴はまだありません。');
+  });
+
+  it('6 件以上は 5 件と「さらに 1 件を表示」を出し、押すと全件を出す', async () => {
+    const many: HistoryGroup[] = [
+      {
+        key: 'a',
+        no: 1,
+        name: '概況',
+        removed: false,
+        offCanvas: false,
+        entries: Array.from({ length: 6 }, (_, i) => entry(String(i + 1), 'a')),
+        rejected: null,
+      },
+    ];
+    const { wrapper } = mountInspector({ historyGroups: many });
+    expect(wrapper.text()).toContain('変更5');
+    expect(wrapper.text()).not.toContain('変更6');
+    const more = wrapper.find('[data-history-more]');
+    expect(more.text()).toBe('さらに 1 件を表示');
+    await more.trigger('click');
+    expect(wrapper.text()).toContain('変更6');
+    expect(wrapper.find('[data-history-more]').exists()).toBe(false);
   });
 });

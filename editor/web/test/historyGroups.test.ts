@@ -97,4 +97,15 @@ describe('groupHistoryByPart', () => {
       ['zz', true],
     ]);
   });
+
+  it('紙面外のキーの名前は offCanvasNameOf を最優先で使う', () => {
+    const groups = groupHistoryByPart({
+      entries: [h('1', 'x')],
+      numbers: numbers([]),
+      partOrder: [],
+      nameOf,
+      offCanvasNameOf: (k) => (k === 'x' ? '申請の本文の名前' : undefined),
+    });
+    expect(groups[0].name).toBe('申請の本文の名前');
+  });
 });
