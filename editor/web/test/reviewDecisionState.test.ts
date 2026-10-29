@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decisionCounts,
   decisionOf,
+  describePartKeys,
   finalizeHint,
   mergeSavedDecisions,
   nextPendingNo,
@@ -64,5 +65,17 @@ describe('reviewDecisionState', () => {
     expect(finalizeHint({ total: 4, approved: 3, rejected: 1, pending: 0 })).toBe(
       '承認 3 件を反映し、却下 1 件は現行版のまま残します',
     );
+  });
+});
+
+describe('describePartKeys', () => {
+  const named = (no: number, partKey: string, name: string) =>
+    ({ ...part(no), partKey, name }) as ChangedPart & { name: string };
+  it('右欄にあるキーだけを「変更 N「名前」」に読み替え、似たキーを取り違えない', () => {
+    const rows = [named(1, 'p#1', '表紙'), named(10, 'p#10', '注記'), named(3, '.a#2', '費用')];
+    expect(describePartKeys('判定があります: p#10, p#1, .a#2, zz#9 ほか2件。', rows)).toBe(
+      '判定があります: 変更 10「注記」, 変更 1「表紙」, 変更 3「費用」, zz#9 ほか2件。',
+    );
+    expect(describePartKeys('キーの無い文言', rows)).toBe('キーの無い文言');
   });
 });

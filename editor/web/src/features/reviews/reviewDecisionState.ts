@@ -84,3 +84,19 @@ export function finalizeHint(c: DecisionCounts): string {
   if (c.pending > 0) return `未判定が ${c.pending} 件あります。すべて判定すると押せます`;
   return `承認 ${c.approved} 件を反映し、却下 ${c.rejected} 件は現行版のまま残します`;
 }
+
+/**
+ * サーバの文言に並ぶパーツのキー(`<アンカー>#<通し番号>`。利用者に読めない)を、右欄の番号と
+ * パーツ名(`変更 N「名前」`)へ読み替える。右欄に無いキー(どの行にも当たらない)はそのまま残す。
+ * 判定の保存・最終確定の 400・409 の文言(shared の `partKeysText` が並べる)に使う。
+ */
+export function describePartKeys(
+  message: string,
+  changes: readonly (ChangedPart & { name: string })[],
+): string {
+  const byKey = new Map(changes.map((c) => [c.partKey, c]));
+  return message.replace(/[^\s,、。:：「」]+#\d+/g, (key) => {
+    const c = byKey.get(key);
+    return c ? `変更 ${c.no}「${c.name}」` : key;
+  });
+}

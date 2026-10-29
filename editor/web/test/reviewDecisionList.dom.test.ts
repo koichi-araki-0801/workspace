@@ -230,6 +230,37 @@ describe('ReviewDecisionList — 行と判定', () => {
     expect(w.emitted('reject')).toHaveLength(1);
   });
 
+  it('行の却下の「いま N 文字」は前後の空白を除いて数える(送る形と同じ)', async () => {
+    const w = mountList();
+    await button(row(w, 1), '却下…').trigger('click');
+    await row(w, 1)
+      .find('textarea')
+      .setValue(`  ${'あ'.repeat(2001)}\n`);
+    expect(row(w, 1).text()).toContain('理由は 2000 文字までです（いま 2001 文字）。');
+  });
+
+  it('行の却下の理由欄は、出ている注意と説明を aria-describedby で指す', async () => {
+    const w = mountList();
+    await button(row(w, 1), '却下…').trigger('click');
+    const ta = () => row(w, 1).find('textarea');
+    const described = () =>
+      (ta().attributes('aria-describedby') ?? '')
+        .split(' ')
+        .filter(Boolean)
+        .map((id) => w.find(`[id="${id}"]`).text());
+    expect(described()).toEqual(['理由は申請者の編集画面に表示します。']);
+    await button(row(w, 1), '却下する').trigger('click');
+    expect(described()).toEqual([
+      '理由を入力してください。',
+      '理由は申請者の編集画面に表示します。',
+    ]);
+    await ta().setValue('あ'.repeat(2001));
+    expect(described()).toEqual([
+      '理由は 2000 文字までです（いま 2001 文字）。',
+      '理由は申請者の編集画面に表示します。',
+    ]);
+  });
+
   it('理由欄の「取消」で閉じる', async () => {
     const w = mountList();
     await button(row(w, 1), '却下…').trigger('click');
@@ -364,6 +395,26 @@ describe('ReviewDecisionList — まとめて判定', () => {
     expect(box().text()).toContain('理由は 2000 文字までです（いま 2001 文字）。');
     await button(box(), '1 件を却下する').trigger('click');
     expect(w.emitted('reject')).toBeUndefined();
+  });
+
+  it('まとめて却下の理由欄は、出ている注意と説明を aria-describedby で指し、字数は前後の空白を除く', async () => {
+    const w = mountList();
+    await row(w, 1).find('input[type="checkbox"]').setValue(true);
+    await button(w, 'まとめて却下…').trigger('click');
+    const box = () => w.find('[data-review-bulk-reject]');
+    const described = () =>
+      (box().find('textarea').attributes('aria-describedby') ?? '')
+        .split(' ')
+        .filter(Boolean)
+        .map((id) => w.find(`[id="${id}"]`).text());
+    const note = '理由はパーツごとに 1 件ずつ保存し、申請者の編集画面に表示します。';
+    expect(described()).toEqual([note]);
+    await button(box(), '1 件を却下する').trigger('click');
+    expect(described()).toEqual(['理由を入力してください。', note]);
+    await box()
+      .find('textarea')
+      .setValue(` ${'あ'.repeat(2001)} `);
+    expect(described()).toEqual(['理由は 2000 文字までです（いま 2001 文字）。', note]);
   });
 
   it('まとめて却下の「取消」で欄を閉じる', async () => {

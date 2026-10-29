@@ -282,6 +282,29 @@ describe('ReviewDetail の判定と選択', () => {
     expect(decided).not.toHaveProperty('html');
   });
 
+  it('判定の保存の 400 の文言に並ぶキーは、右欄の番号とパーツ名に読み替えて出す', async () => {
+    const d0 = data();
+    serve(d0);
+    const [c1, c2] = d0.changes;
+    if (!c1 || !c2) throw new Error('変更が 2 件ない');
+    repo.updatePartDecisions.mockResolvedValue(
+      err(
+        appError(
+          'validation',
+          `申請の差分に無いパーツの判定があります: ${c1.partKey}, ${c2.partKey}, zz#9 ほか3件。` +
+            '画面を読み直してください。',
+        ),
+      ),
+    );
+    const w = await mountDetail();
+    await buttonIn(row(w, 1), '承認')?.trigger('click');
+    await flushPromises();
+    expect(toastError).toHaveBeenCalledWith(
+      `申請の差分に無いパーツの判定があります: 変更 1「名前1」, 変更 2「名前2」, zz#9 ほか3件。` +
+        '画面を読み直してください。',
+    );
+  });
+
   it('パーツ判定の保存の失敗で読み直しても、承認待ちのままなら決着を伝えない', async () => {
     serve(data());
     repo.updatePartDecisions.mockResolvedValue(err(appError('unexpected', 'x')));
@@ -709,11 +732,15 @@ describe('ReviewDetail の最終確定', () => {
     await blockedWith(d, '差分の上限を超えて');
   });
 
-  it('同じパーツの判定が複数あれば最終確定できず、該当キーを出す', async () => {
+  it('同じパーツの判定が複数あれば最終確定できず、該当パーツを右欄の番号と名前で出す', async () => {
     const d = allApproved();
     const first = d.review.partDecisions?.[0] as ReviewPartDecision;
     d.review.partDecisions = [...(d.review.partDecisions ?? []), first];
-    await blockedWith(d, `同じパーツの判定が複数あるため最終確定できません: ${first.partKey}`);
+    const c = d.changes.find((x) => x.partKey === first.partKey);
+    await blockedWith(
+      d,
+      `同じパーツの判定が複数あるため最終確定できません: 変更 ${c?.no}「${c?.name}」`,
+    );
   });
 
   it('比較元の無い古い edit 申請に判定があれば最終確定できず、申請し直しを求める', async () => {
@@ -802,6 +829,20 @@ describe('ReviewDetail の申請ごと却下', () => {
     expect(count()).toBe('あと 0 文字');
     expect(area().find('[role="alert"]').exists()).toBe(false);
     expect(buttonIn(area(), '申請を却下する')?.attributes('disabled')).toBeUndefined();
+  });
+
+  it('申請ごと却下の「理由を入力してください。」も理由欄の説明として指す', async () => {
+    serve(data());
+    const w = await mountDetail();
+    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
+    await flushPromises();
+    const area = () => w.find('[data-request-reject]');
+    await buttonIn(area(), '申請を却下する')?.trigger('click');
+    const ids = (area().find('textarea').attributes('aria-describedby') ?? '').split(' ');
+    expect(ids.map((id) => w.find(`#${id}`).text())).toEqual([
+      '理由を入力してください。',
+      'あと 2000 文字',
+    ]);
   });
 
   it('取消で理由欄を閉じる', async () => {

@@ -8,7 +8,7 @@
 // 名前のボタンで選ぶ。理由欄の開閉と書きかけは `v-model:reject-open`・`v-model:draft` で親
 // (`ReviewDecisionList.vue`)が持つ — 行は表示窓から外れると壊れるので、ここに持つと黙って消える。
 import type { PaperDecision } from '@editor/shared';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, useId, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { REJECT_REASON_MAX, reasonLength, rejectReasonProblem } from './reviewDecisionList';
@@ -55,6 +55,11 @@ const STATUS_LABEL: Record<PaperDecision, string> = {
 };
 
 const rejectOpen = defineModel<boolean>('rejectOpen', { default: false });
+// 理由欄と注意の id。承認タブは申請カードを 2 枚まで並べるので、番号でなく部品ごとに振る。
+const reasonId = useId();
+const emptyId = `${reasonId}-empty`;
+const tooLongId = `${reasonId}-long`;
+const noteId = `${reasonId}-note`;
 const draft = defineModel<string>('draft', { default: '' });
 const emptyError = ref(false);
 const tooLong = computed(() => rejectReasonProblem(draft.value) === 'tooLong');
@@ -186,23 +191,26 @@ function onPick(e: Event) {
     </div>
 
     <div v-else-if="rejectOpen" data-review-row-controls class="grid cursor-default gap-1">
-      <label class="text-xs font-bold" :for="`review-reject-${change.no}`">
+      <label class="text-xs font-bold" :for="reasonId">
         却下の理由（このパーツ・必須）
       </label>
       <textarea
-        :id="`review-reject-${change.no}`"
+        :id="reasonId"
         v-model="draft"
         rows="2"
         placeholder="申請者が直せるように理由を書きます"
         :aria-invalid="emptyError || tooLong || undefined"
+        :aria-describedby="[emptyError && emptyId, tooLong && tooLongId, noteId].filter(Boolean).join(' ')"
         class="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         :class="emptyError || tooLong ? 'border-destructive' : 'border-input'"
       />
-      <p v-if="emptyError" role="alert" class="text-xs text-destructive">理由を入力してください。</p>
-      <p v-if="tooLong" role="alert" class="text-xs text-destructive">
+      <p v-if="emptyError" :id="emptyId" role="alert" class="text-xs text-destructive">
+        理由を入力してください。
+      </p>
+      <p v-if="tooLong" :id="tooLongId" role="alert" class="text-xs text-destructive">
         理由は {{ REJECT_REASON_MAX }} 文字までです（いま {{ reasonLength(draft) }} 文字）。
       </p>
-      <p class="text-xs text-muted-foreground">理由は申請者の編集画面に表示します。</p>
+      <p :id="noteId" class="text-xs text-muted-foreground">理由は申請者の編集画面に表示します。</p>
       <div class="flex items-center justify-end gap-2">
         <Button size="sm" variant="ghost" @click="closeReject">取消</Button>
         <Button

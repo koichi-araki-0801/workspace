@@ -18,6 +18,7 @@ import { isErr, REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION } from '
 import { ref } from 'vue';
 import { useReviewRepo } from '@/api/repositories';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { describePartKeys } from './reviewDecisionState';
 import type { ReviewChangeRow, ReviewChangeSummary } from './services/reviewDiffService';
 import { useReviewDiffService } from './services/reviewDiffService';
 
@@ -73,11 +74,14 @@ export function useReviewDiff(reqId: () => string) {
    * `useAsyncResult` のトースト(サーバの文言)と二重に出さないよう黙らせる。
    */
   const DECIDE_QUIET_CODES = [REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION];
+  /** 判定・最終確定の文言に並ぶパーツのキーを、右欄の番号とパーツ名へ読み替える。 */
+  const describe = (message: string) => describePartKeys(message, changes.value);
 
   /** 承認(実ファイル反映)。反映後メタ + 並行性警告を Result で返す(遷移/トーストは View)。 */
   function approve(comment?: string): Promise<Result<ApproveReviewResult>> {
     return runDecide(() => reviews.approveReview(reqId(), { comment }), {
       quietCodes: DECIDE_QUIET_CODES,
+      describe,
     });
   }
 
@@ -85,6 +89,7 @@ export function useReviewDiff(reqId: () => string) {
   function reject(comment?: string): Promise<Result<ReviewRequestMeta>> {
     return runDecide(() => reviews.rejectReview(reqId(), { comment }), {
       quietCodes: DECIDE_QUIET_CODES,
+      describe,
     });
   }
 
@@ -94,6 +99,7 @@ export function useReviewDiff(reqId: () => string) {
   ): Promise<Result<ReviewPartDecision[]>> {
     return runDecide(() => reviews.updatePartDecisions(reqId(), input), {
       quietCodes: DECIDE_QUIET_CODES,
+      describe,
     });
   }
 

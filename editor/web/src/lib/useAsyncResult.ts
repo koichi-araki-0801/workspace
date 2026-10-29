@@ -12,6 +12,8 @@ interface RunOptions {
    * 「すでに処理されています」と出すなど)に渡し、サーバの文言と二重に出さない。ログは残す。
    */
   quietCodes?: readonly string[];
+  /** トーストに出す文言の読み替え(サーバの文言の識別子を利用者の言葉にするなど)。ログは原文。 */
+  describe?: (message: string) => string;
 }
 
 /**
@@ -32,7 +34,9 @@ export function useAsyncResult() {
   async function run<T>(fn: () => Promise<Result<T>>, opts: RunOptions = {}): Promise<Result<T>> {
     const report = (e: AppError) => {
       logError(e);
-      if (e.code === undefined || !opts.quietCodes?.includes(e.code)) toastError(e.message);
+      if (e.code === undefined || !opts.quietCodes?.includes(e.code)) {
+        toastError(opts.describe ? opts.describe(e.message) : e.message);
+      }
     };
     pending.value++;
     try {

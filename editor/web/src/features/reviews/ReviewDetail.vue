@@ -43,7 +43,7 @@ import {
   reasonLength,
   rejectReasonProblem,
 } from './reviewDecisionList';
-import { nextPendingNo } from './reviewDecisionState';
+import { describePartKeys, nextPendingNo } from './reviewDecisionState';
 import type { ReviewChangeRow } from './services/reviewDiffService';
 import { useReviewDecisions } from './useReviewDecisions';
 import { useReviewDiff } from './useReviewDiff';
@@ -270,6 +270,7 @@ watch(loadError, (e) => {
  */
 const blockedReasons = computed(() => {
   const r = review.value;
+  // 文言に並ぶキーは、右欄の番号とパーツ名へ読み替えて出す(サーバの文言と同じ読み替え)。
   return reviewFinalizationIssues({
     pendingPartKeys: [],
     unknownDecisionPartKeys: decisions.unknownDecisionPartKeys.value,
@@ -279,7 +280,7 @@ const blockedReasons = computed(() => {
       r?.origin === 'edit' &&
       (r.baseHtml === undefined || r.baseCss === undefined) &&
       decisions.decisions.value.length > 0,
-  });
+  }).map((reason) => describePartKeys(reason, changes.value));
 });
 
 /**
@@ -552,11 +553,20 @@ onMounted(load);
             rows="2"
             placeholder="直してほしい点を書きます"
             :aria-invalid="requestRejectError || requestRejectTooLong || undefined"
-            :aria-describedby="`request-reject-${reqId}-count`"
+            :aria-describedby="
+              [requestRejectError && `request-reject-${reqId}-empty`, `request-reject-${reqId}-count`]
+                .filter(Boolean)
+                .join(' ')
+            "
             class="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             :class="requestRejectError || requestRejectTooLong ? 'border-destructive' : 'border-input'"
           />
-          <p v-if="requestRejectError" role="alert" class="text-xs text-destructive">
+          <p
+            v-if="requestRejectError"
+            :id="`request-reject-${reqId}-empty`"
+            role="alert"
+            class="text-xs text-destructive"
+          >
             理由を入力してください。
           </p>
           <!-- 上限の注意と残りの字数は同じ id で、どちらか一方を理由欄の説明にする。 -->

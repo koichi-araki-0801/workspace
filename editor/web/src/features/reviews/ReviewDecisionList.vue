@@ -8,7 +8,7 @@
 // まとめて判定の選択は行番号の集合で持ち、描画と切り離す(窓の外の行でも選択を保つ)。
 // 判定は emit するだけで、保存の成否は `decisions` の更新で知る(届いたパーツを選択から外す)。
 import type { PaperDecision, ReviewPartDecision } from '@editor/shared';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import ReviewDecisionRow from './ReviewDecisionRow.vue';
 import {
@@ -120,6 +120,13 @@ const bulkOpen = ref(false);
 const bulkDraft = ref('');
 const bulkEmptyError = ref(false);
 const bulkTooLong = computed(() => rejectReasonProblem(bulkDraft.value) === 'tooLong');
+// まとめて却下の理由欄と注意の id。承認タブは申請カードを 2 枚まで並べるので部品ごとに振る。
+const bulkId = useId();
+const bulkDescribedBy = computed(() =>
+  [bulkEmptyError.value && `${bulkId}-empty`, bulkTooLong.value && `${bulkId}-long`, `${bulkId}-note`]
+    .filter(Boolean)
+    .join(' '),
+);
 
 watch(pickedCount, (n) => {
   if (n === 0) closeBulk();
@@ -317,25 +324,26 @@ defineExpose({ revealNo });
         data-review-bulk-reject
         class="grid gap-1 rounded-md bg-destructive/10 px-2.5 py-2"
       >
-        <label class="text-xs font-bold" for="review-bulk-reject"
+        <label class="text-xs font-bold" :for="bulkId"
           >選んだパーツを却下する理由（必須）</label
         >
         <textarea
-          id="review-bulk-reject"
+          :id="bulkId"
           v-model="bulkDraft"
           rows="2"
           placeholder="同じ理由を、選んだパーツそれぞれの却下理由として保存します"
           :aria-invalid="bulkEmptyError || bulkTooLong || undefined"
+          :aria-describedby="bulkDescribedBy"
           class="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           :class="bulkEmptyError || bulkTooLong ? 'border-destructive' : 'border-input'"
         />
-        <p v-if="bulkEmptyError" role="alert" class="text-xs text-destructive">
+        <p v-if="bulkEmptyError" :id="`${bulkId}-empty`" role="alert" class="text-xs text-destructive">
           理由を入力してください。
         </p>
-        <p v-if="bulkTooLong" role="alert" class="text-xs text-destructive">
+        <p v-if="bulkTooLong" :id="`${bulkId}-long`" role="alert" class="text-xs text-destructive">
           理由は {{ REJECT_REASON_MAX }} 文字までです（いま {{ reasonLength(bulkDraft) }} 文字）。
         </p>
-        <p class="text-xs text-muted-foreground">
+        <p :id="`${bulkId}-note`" class="text-xs text-muted-foreground">
           理由はパーツごとに 1 件ずつ保存し、申請者の編集画面に表示します。
         </p>
         <div class="flex items-center justify-end gap-2">
