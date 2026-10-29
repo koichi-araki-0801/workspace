@@ -17,8 +17,9 @@ import {
   duplicateReviewMessage,
   extractReviewParts,
   forbidden,
+  type HtmlDiff,
   isApprover,
-  MAX_REVIEW_PART_SCAN_BYTES,
+  MAX_REVIEW_PART_SCAN_CHARS,
   notFound,
   parseAnyTemplateFileName,
   parseSkeletonFileName,
@@ -111,31 +112,62 @@ async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSour
   return { before, baseline: review.cssBaseline };
 }
 
-/** 判定の保存の 400・409 の文言に並べるキーの件数(残りは件数だけ。監査ログの先頭 20 件と同じ)。 */
-const MESSAGE_PART_KEYS_HEAD = 20;
-
 /** `decidablePartKeys` の結果を覚えておく申請の数。承認タブで同時に開く申請は数件。 */
 const DECIDABLE_KEYS_CACHE_SIZE = 32;
 const decidableKeysCache = new Map<string, ReadonlySet<string> | null>();
+/**
+ * 編集経路の申請の差分(`buildHtmlDiff(baseHtml, html)`)を覚えておく申請の数。差分は本文の断片を
+ * 持ち、大きい帳票では本文の数倍の大きさになるので、キーの集合より少なく持つ。判定の保存の照合と
+ * 最終確定が同じ差分を使い、同じ計算を 2 回しない。
+ */
+const REVIEW_DIFF_CACHE_SIZE = 4;
+const reviewDiffCache = new Map<string, HtmlDiff>();
+
+/** 古い順に捨てて、`size` 件までに収める。 */
+function remember<V>(cache: Map<string, V>, size: number, key: string, value: V): V {
+  if (!cache.has(key) && cache.size >= size) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+  return value;
+}
+
+/**
+ * 編集経路の申請の差分(比較元のある申請だけ)。同期計算で、その間サーバ全体の要求が止まる。通常の
+ * 規模(340 パーツ)で約 0.2 秒、打ち切られない上限に近い帳票(約 305 万字・1,400 ページ・3,500
+ * ブロック)で約 1.6 秒、打ち切られる大きさで約 2.3 秒(2026-10-29 に測定)。worker へは逃がさない
+ * (計算は最終確定でブランチ前からしており、通常の規模では止まる時間が短い)。申請の本文は申請の
+ * あと変わらないので、申請 id ごとに覚える。
+ */
+function reviewDiffOf(review: StoredReviewRequest & { baseHtml: string }): HtmlDiff {
+  return (
+    reviewDiffCache.get(review.id) ??
+    remember(
+      reviewDiffCache,
+      REVIEW_DIFF_CACHE_SIZE,
+      review.id,
+      buildHtmlDiff(review.baseHtml, review.html, linkedomParser),
+    )
+  );
+}
 
 /**
  * 申請で判定できるパーツのキー。最終確定(`confirmedHtmlOf`)が照合するのと同じ集合で、編集経路は
  * 申請時点の比較元と申請の本文の差分(linkedom)の変更パーツ、作成経路は Jinja 原文のパーツ。
  * 照合できない申請(比較元の無い古い編集経路・差分の打ち切り・走査の上限超え)は null。
  *
- * 申請の本文は申請のあと変わらないので、申請 id ごとに覚えておく。差分は 340 パーツの帳票で
- * 約 0.2 秒、打ち切られない上限に近い帳票(約 305 万字・1,400 ページ・3,500 ブロック)で約 1.6 秒
- * かかり(2026-10-29 に測定)、判定のたびに取り直すと承認の押下が重くなるため。
+ * 申請の本文は申請のあと変わらないので、申請 id ごとに覚えておく(差分の重さは `reviewDiffOf`。
+ * 判定のたびに取り直すと承認の押下が重くなるため)。
  */
 function decidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
   if (decidableKeysCache.has(review.id)) return decidableKeysCache.get(review.id) ?? null;
-  const keys = computeDecidablePartKeys(review);
-  if (decidableKeysCache.size >= DECIDABLE_KEYS_CACHE_SIZE) {
-    const oldest = decidableKeysCache.keys().next().value;
-    if (oldest !== undefined) decidableKeysCache.delete(oldest);
-  }
-  decidableKeysCache.set(review.id, keys);
-  return keys;
+  return remember(
+    decidableKeysCache,
+    DECIDABLE_KEYS_CACHE_SIZE,
+    review.id,
+    computeDecidablePartKeys(review),
+  );
 }
 
 function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
@@ -143,11 +175,11 @@ function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<stri
     // 走査の上限を超える原文だけは照合しない(最終確定の走査も同じ上限で止まる)。原文のパーツを
     // 読めないほかの失敗(パーツの境界・Jinja の識別子)は、照合を飛ばさずにその 400 を返す。投げた
     // ものは覚えないので、毎回同じ答えになる。
-    if (review.html.length > MAX_REVIEW_PART_SCAN_BYTES) return null;
+    if (review.html.length > MAX_REVIEW_PART_SCAN_CHARS) return null;
     return new Set(extractReviewParts(review.html).map((part) => part.partKey));
   }
   if (review.baseHtml === undefined) return null;
-  const diff = buildHtmlDiff(review.baseHtml, review.html, linkedomParser);
+  const diff = reviewDiffOf({ ...review, baseHtml: review.baseHtml });
   if (diff.truncated) return null;
   return new Set(
     diff.pages.flatMap((page) =>
@@ -167,7 +199,15 @@ function targetOfOrigin(origin: ReviewOrigin): ConfirmedTarget {
  * `buildEditReviewedHtml`。`currentHtml` は確定の直前の値入り HTML)。
  */
 function confirmedHtmlOf(review: StoredReviewRequest, currentHtml: string): string {
-  if (review.origin === 'edit') return buildEditReviewedHtml(review, linkedomParser, currentHtml);
+  if (review.origin === 'edit') {
+    // 判定の保存の照合で計算した差分があれば使う(同期計算を 2 回しない。重さは `reviewDiffOf`)。
+    const { baseHtml } = review;
+    const diff =
+      baseHtml === undefined || review.baseCss === undefined
+        ? undefined
+        : reviewDiffOf({ ...review, baseHtml });
+    return buildEditReviewedHtml(review, linkedomParser, currentHtml, diff);
+  }
 
   if (review.filledHtml === undefined) {
     throw validation('作成タブの最終確定には値入りHTMLが必要です');
@@ -301,6 +341,11 @@ export function createReviewRepo({
           `編集タブの申請は値入り HTML(会社_ファンド_基準日_版種)の id だけを受けます: ${req.templateId}`,
         );
       }
+      // 作成経路は、判定の保存と最終確定が Jinja 原文のパーツ(`extractReviewParts`)で照合する。
+      // 原文のパーツを読めない申請(パーツ識別子の Jinja・閉じていない境界)は、承認・却下が
+      // 毎回 400 になり決着できないので、受付で同じ検査をして止める(すでに保存された申請は
+      // 今のまま、判定の保存で 400)。
+      if (req.origin === 'create') extractReviewParts(req.html);
       await assertFilledPresentForEdit(req.origin, req.templateId);
       // 承認側(`applyConfirmedWrite`)でも止まるが、入口で弾かないと精査者のキューに
       // 「承認できない申請」が積まれる。プレビュー文書(`filledHtml`)も同じ本文から作るので見る。
@@ -435,7 +480,7 @@ export function createReviewRepo({
           const unknown = toCheck.filter((d) => !decidable.has(d.partKey)).map((d) => d.partKey);
           if (unknown.length > 0) {
             throw validation(
-              `申請の差分に無いパーツの判定があります: ${partKeysText(unknown, MESSAGE_PART_KEYS_HEAD)}。` +
+              `申請の差分に無いパーツの判定があります: ${partKeysText(unknown)}。` +
                 '画面を読み直してください。',
             );
           }
@@ -450,7 +495,7 @@ export function createReviewRepo({
           .map((d) => d.partKey);
         if (refused.length > 0) {
           throw conflict(
-            `許されていない判定の変更があります: ${partKeysText(refused, MESSAGE_PART_KEYS_HEAD)}。` +
+            `許されていない判定の変更があります: ${partKeysText(refused)}。` +
               '画面を読み直してください。',
             { code: REVIEW_PART_DECISION_TRANSITION },
           );

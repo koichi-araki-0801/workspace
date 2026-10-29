@@ -824,17 +824,41 @@ d('review workflow (reviewRepo)', () => {
       expect(await decisionsOf(id)).toEqual([]);
     });
 
+    it('作成経路でパーツ識別子に Jinja を書いた申請は、受付で 400 にする', async () => {
+      await expect(
+        reviews.submitReview(
+          {
+            templateId: 'XX01_720014_交付版',
+            html: '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+            css: '.x{}',
+            origin: 'create',
+            filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
+          },
+          submitter,
+        ),
+      ).rejects.toMatchObject({
+        kind: 'validation',
+        message: 'パーツ識別子にJinjaを使用できません',
+      });
+    });
+
     it('作成経路で Jinja 原文のパーツを読めないときは、照合を飛ばさずにその 400 を返す', async () => {
+      // 受付の検査より前に保存された申請を模す(受付を通る本文で申請し、保存された本文を書き換える)。
       const tplId = 'XX01_720013_交付版';
       const meta = await reviews.submitReview(
         {
           templateId: tplId,
-          html: '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+          html: '<body><section data-part-id="s">{{ fund.name }}</section></body>',
           css: '.x{}',
           origin: 'create',
           filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
         },
         submitter,
+      );
+      fs.writeFileSync(
+        path.join(tmp, 'reviews', meta.id, 'body.html'),
+        '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+        'utf8',
       );
       for (let i = 0; i < 2; i++) {
         // 2 回目も同じ 400(読めなかったことを「照合しない」として覚えない)。

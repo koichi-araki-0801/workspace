@@ -4,7 +4,7 @@
 // 申請(submit)は誰でも(認証済み)積めるが実ファイルは更新しない。承認(approve)/却下
 // (reject)は `requireApprover` で施錠し、approve だけが実ファイル + git へ反映する
 // (`reviewRepo.ts`)。承認/却下は監査イベント(`review.approve` / `review.reject`)を記録する。
-import { apiPaths } from '@editor/shared';
+import { apiPaths, MAX_LISTED_PART_KEYS } from '@editor/shared';
 import {
   ReviewDecisionBody,
   ReviewListQuery,
@@ -27,12 +27,10 @@ function actor(req: FastifyRequest): ReviewActor {
   return { username: actorOf(req), role: req.user?.role ?? 'admin' };
 }
 
-/** 判定の一括変更の監査ログに載せるキーの件数(先頭から)。 */
-const AUDIT_PART_KEYS_HEAD = 20;
-
 /**
  * 判定の一括変更の監査ログに載せるキー。一括変更は `MAX_TOP_LEVEL_BLOCKS` 件まで受けるので、
- * 全キーを 1 行に載せず、件数と先頭 `AUDIT_PART_KEYS_HEAD` 件だけにする。
+ * 全キーを 1 行に載せず、件数と先頭 `MAX_LISTED_PART_KEYS` 件(文言に並べるキーと同じ上限)
+ * だけにする。
  */
 export function partKeysAudit(decisions: readonly { partKey: string }[]): {
   partKeyCount: number;
@@ -40,7 +38,7 @@ export function partKeysAudit(decisions: readonly { partKey: string }[]): {
 } {
   return {
     partKeyCount: decisions.length,
-    partKeys: decisions.slice(0, AUDIT_PART_KEYS_HEAD).map((d) => d.partKey),
+    partKeys: decisions.slice(0, MAX_LISTED_PART_KEYS).map((d) => d.partKey),
   };
 }
 

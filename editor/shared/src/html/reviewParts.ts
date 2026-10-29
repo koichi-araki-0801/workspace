@@ -15,8 +15,12 @@ export interface ReviewSourcePart {
   html: string;
 }
 
-/** 承認対象HTMLとして走査する最大長。リクエスト上限と同じ8MiBに固定する。 */
-export const MAX_REVIEW_PART_SCAN_BYTES = 8 * 1024 * 1024;
+/**
+ * 承認対象HTMLとして走査する最大長(UTF-16 の単位。`html.length` と比べる)。値は 8 Mi 単位。
+ * 申請の本文の上限(`MAX_DOCUMENT_HTML_CHARS`。4 Mi のコードポイントで、UTF-16 では 8 Mi 単位
+ * 以下)を超えないので、申請で受けた本文はこの上限で止まらない。
+ */
+export const MAX_REVIEW_PART_SCAN_CHARS = 8 * 1024 * 1024;
 
 interface HtmlToken {
   /** `comment` はコメントと `<!…>`・`<?…>`(本文直下の地の文の切れ目を数えるために残す)。 */
@@ -297,9 +301,9 @@ function isExcludedPart(name: string, classes: readonly string[]): boolean {
  * 同じアンカーへ文書全体の出現順で`#1`、`#2`を付与する。
  */
 export function extractReviewParts(html: string): ReviewSourcePart[] {
-  if (html.length > MAX_REVIEW_PART_SCAN_BYTES) {
+  if (html.length > MAX_REVIEW_PART_SCAN_CHARS) {
     throw validation(
-      `承認対象のHTMLが大きすぎます(${html.length}文字 > 上限${MAX_REVIEW_PART_SCAN_BYTES})`,
+      `承認対象のHTMLが大きすぎます(${html.length}文字 > 上限${MAX_REVIEW_PART_SCAN_CHARS})`,
     );
   }
 
@@ -402,9 +406,9 @@ export interface BodyUnitRange {
  * 検査で止まる。
  */
 export function extractBodyUnits(html: string): { units: BodyUnitRange[]; bodyEnd: number } {
-  if (html.length > MAX_REVIEW_PART_SCAN_BYTES) {
+  if (html.length > MAX_REVIEW_PART_SCAN_CHARS) {
     throw validation(
-      `承認対象のHTMLが大きすぎます(${html.length}文字 > 上限${MAX_REVIEW_PART_SCAN_BYTES})`,
+      `承認対象のHTMLが大きすぎます(${html.length}文字 > 上限${MAX_REVIEW_PART_SCAN_CHARS})`,
     );
   }
 

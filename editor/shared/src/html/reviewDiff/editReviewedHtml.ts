@@ -33,14 +33,19 @@ import type { HtmlParser } from './htmlParser.js';
 import { PAGEBREAK_CLASS } from './pageSplit.js';
 import { buildReviewedHtmlCandidate, reviewedPage } from './reviewedCandidate.js';
 
-/** 確定を止める判定不足の文言で、該当キーを並べる上限(それ以上は件数だけ出す)。 */
-const MAX_LISTED_KEYS = 10;
+/**
+ * 文言・監査ログに並べるパーツのキーの上限(それ以上は件数だけ出す)。最終確定を止める理由
+ * (判定バーとサーバの 400)、判定の保存の 400・409(`server/src/repositories/reviewRepo.ts`)、
+ * 監査ログの `partKeys`(`server/src/routes/reviews.routes.ts`)で同じ値を使う。1 回の判定は
+ * 5,000 件まで受けるので、全キーを 1 行に連ねない。
+ */
+export const MAX_LISTED_PART_KEYS = 20;
 
 /**
  * 文言に添えるキーの並び。先頭 `max` 件だけを並べ、残りは件数だけにする(1 回の判定は 5,000 件まで
  * 受けるので、全キーを文言へ連ねない)。サーバの判定の保存の 400・409 も使う(`reviewRepo.ts`)。
  */
-export function partKeysText(keys: readonly string[], max: number = MAX_LISTED_KEYS): string {
+export function partKeysText(keys: readonly string[], max: number = MAX_LISTED_PART_KEYS): string {
   const listed = keys.slice(0, max).join(', ');
   return keys.length > max ? `${listed} ほか${keys.length - max}件` : listed;
 }
@@ -122,11 +127,15 @@ export interface EditReviewSource {
  * 4. 却下があり、確定の直前の値入り HTML が申請時点(`baseHtml`)から変わっていれば 409。却下は
  *    申請時点の版へ戻す操作なので、後から入った確定を巻き戻さない(CSS は比べない)。
  * 5. 却下したパーツだけを切り貼りした本文を返す(合わなければ 409)。
+ *
+ * `diff` は呼び手が同じ申請について計算済みの差分(`buildHtmlDiff(baseHtml, html, parse)`)。
+ * 申請の本文は申請のあと変わらないので使い回せる。無ければここで計算する。
  */
 export function buildEditReviewedHtml(
   review: EditReviewSource,
   parse: HtmlParser,
   currentHtml: string,
+  diff?: HtmlDiff,
 ): string {
   const decisions = review.partDecisions ?? [];
   if (review.baseHtml === undefined || review.baseCss === undefined) {
@@ -134,15 +143,15 @@ export function buildEditReviewedHtml(
     throw conflict(LEGACY_DECISIONS_MESSAGE, { code: 'REVIEW_BASE_MISSING' });
   }
 
-  const diff = buildHtmlDiff(review.baseHtml, review.html, parse);
-  const candidate = buildReviewedHtmlCandidate(diff, decisions);
-  const issues = reviewFinalizationIssues({ ...candidate, truncated: diff.truncated });
+  const reviewDiff = diff ?? buildHtmlDiff(review.baseHtml, review.html, parse);
+  const candidate = buildReviewedHtmlCandidate(reviewDiff, decisions);
+  const issues = reviewFinalizationIssues({ ...candidate, truncated: reviewDiff.truncated });
   if (issues.length > 0) throw validation(`${issues.join(' ')} ${RELOAD_HINT}`);
 
   const decisionByPartKey = new Map(decisions.map((d) => [d.partKey, d]));
   const rejected = (block: DiffBlock) =>
     block.status !== 'same' && decisionByPartKey.get(block.partKey)?.status === 'rejected';
-  if (!diff.pages.some((page) => page.blocks.some(rejected))) return review.html;
+  if (!reviewDiff.pages.some((page) => page.blocks.some(rejected))) return review.html;
 
   if (currentHtml !== review.baseHtml) {
     throw conflict(
@@ -152,7 +161,7 @@ export function buildEditReviewedHtml(
     );
   }
 
-  return spliceRejected(diff, decisionByPartKey, review.baseHtml, review.html, parse);
+  return spliceRejected(reviewDiff, decisionByPartKey, review.baseHtml, review.html, parse);
 }
 
 /** 原文 1 本と、その本文直下の単位の範囲。 */
