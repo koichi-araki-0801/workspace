@@ -39,6 +39,13 @@ const props = defineProps<{
   /** テンプレ ID の会社コード(会社フォルダの画像の照合用)。 */
   companyCode: string | null;
   selectedNo: number | null;
+  /**
+   * 道具の行(ページ送り・変更のあるページ・紙面のチェック)を移す先の要素。承認タブの申請カードは
+   * 道具の行を作業域の上の全幅の行に置くので、`ReviewDetail.vue` がその行の要素を渡す。
+   * 無い(null・未指定)間はその場(紙面の上)に描く。要素で受けるのは、セレクタだと文書に
+   * つながる前(親の描画の途中)に探して見つからないため。
+   */
+  toolbarTo?: HTMLElement | null;
 }>();
 
 const emit = defineEmits<{ select: [no: number] }>();
@@ -269,8 +276,10 @@ defineExpose({ gotoPart, gotoPage });
 </script>
 
 <template>
-  <div class="space-y-2">
-    <div class="flex flex-wrap items-center gap-2">
+  <div class="flex h-full min-h-0 flex-col gap-2">
+    <!-- 行き先が渡るまでは `disabled` でその場に描き、渡ったら移す。 -->
+    <Teleport :to="toolbarTo ?? null" :disabled="!toolbarTo">
+    <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2" data-compare-toolbar>
       <Button
         variant="outline"
         size="sm"
@@ -317,10 +326,11 @@ defineExpose({ gotoPart, gotoPage });
         <span class="text-xs">紙面に変更を描く（番号と文字の差分）</span>
       </label>
     </div>
-    <div class="grid gap-3" :class="isCreate ? '' : 'md:grid-cols-2'">
-      <figure v-if="!isCreate && beforeDoc" class="min-w-0 space-y-1">
+    </Teleport>
+    <div class="grid min-h-0 flex-1 gap-3" :class="isCreate ? '' : 'md:grid-cols-2'">
+      <figure v-if="!isCreate && beforeDoc" class="flex min-h-0 min-w-0 flex-col gap-1">
         <figcaption class="text-xs font-medium text-muted-foreground">変更前（現行版）</figcaption>
-        <div class="h-[70vh] overflow-hidden rounded border">
+        <div class="min-h-0 flex-1 overflow-hidden rounded border">
           <PreviewPanel
             ref="beforePanel"
             :html="beforeDoc.doc"
@@ -332,7 +342,7 @@ defineExpose({ gotoPart, gotoPage });
           />
         </div>
       </figure>
-      <figure class="min-w-0 space-y-1">
+      <figure class="flex min-h-0 min-w-0 flex-col gap-1">
         <figcaption class="text-xs font-medium text-accent-foreground">
           <template v-if="isCreate">申請内容</template>
           <template v-else>
@@ -342,7 +352,7 @@ defineExpose({ gotoPart, gotoPage });
             </span>
           </template>
         </figcaption>
-        <div class="h-[70vh] overflow-hidden rounded border">
+        <div class="min-h-0 flex-1 overflow-hidden rounded border">
           <PreviewPanel
             ref="afterPanel"
             :html="afterDoc.doc"

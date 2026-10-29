@@ -295,6 +295,7 @@ export default defineConfig({
         'editor/web/src/features/reviews/reviewDecisionList.ts',
         'editor/web/src/features/reviews/ReviewDecisionList.vue',
         'editor/web/src/features/reviews/ReviewDecisionRow.vue',
+        'editor/web/src/features/reviews/ReviewDetail.vue',
         // rest トランスポートと 7 リポジトリ、DI 合成ルート。契約どおりに動くことを
         // 直接テストで固定する(rest e2e は挙動の一部しか通らない)。
         'editor/web/src/api/rest/*.ts',

@@ -1,40 +1,105 @@
 // =============================================================================
-// reviewDetail.decide.dom.test.ts — 申請 1 件の決着の伝え方と、PDF を開くときの描画の要否
+// reviewDetail.decide.dom.test.ts — 申請カード(紙面・右欄・判定バー・申請ごと却下)の組み立て
 // =============================================================================
-// 決着後の読み直し(`load`)は失敗しうる。失敗しても承認・却下は成立しているので、親へは決着後の
-// 状態を伝える(承認待ちのまま伝えると、一覧に決着済みの申請が承認待ちとして残る)。
-// 記入済みインスタンスが無い申請の PDF は diff 由来の申請版本文から作る。これは描画済みの
-// HTML なので、もう一度 Jinja に通すと `{{` に見える文字が消える。
-// 下部の決着箱は最終確定(「最終確定する」)を持ち、未判定の変更パーツが残る間はタブに関係なく
-// 一括承認もそこから押せる(パーツ行の「承認する」とは名前で区別する)。
+// 差分の取得(`reviewDiffService`)と REST(`useReviewRepo`)だけを差し替え、`useReviewDiff`・
+// `useReviewDecisions`・右欄・判定バー・紙面は本物を組む。紙面の `PreviewPanel` はスタブにし、
+// 送った命令と押下の通知だけを見る。選択は紙面・行・次の未判定のどれから来ても 1 つの番号に集まり、
+// 紙面と右欄の両方へ届くこと、最終確定・申請ごと却下の失敗を `code` で分けることを固定する。
 import {
   type ApproveReviewResult,
+  appError,
+  err,
+  numberChangedParts,
   ok,
-  type Result,
+  type ReviewPartDecision,
   type ReviewRequest,
   type ReviewRequestMeta,
 } from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { reactive, ref } from 'vue';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { defineComponent, h } from 'vue';
 import { confirm } from '@/components/ui/confirm';
+import { toast, toastError } from '@/components/ui/toast';
+import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
 import ReviewDetail from '@/features/reviews/ReviewDetail.vue';
+import type { ReviewChangeRow } from '@/features/reviews/services/reviewDiffService';
 
-const { state, renderPdf } = vi.hoisted(() => ({
-  state: {} as Record<string, unknown>,
+// ── 1. 差し替え ──
+
+const { repo, buildDiff, renderPdf, auth, panels } = vi.hoisted(() => ({
+  repo: {
+    approveReview: vi.fn(),
+    rejectReview: vi.fn(),
+    updatePartDecisions: vi.fn(),
+  },
+  buildDiff: vi.fn(),
   renderPdf: vi.fn(),
+  auth: { isApprover: true, user: { username: 'boss' } },
+  panels: [] as {
+    props: { html: string };
+    emit: (event: string, ...args: unknown[]) => void;
+    api: Record<
+      'prevPage' | 'nextPage' | 'goToPage' | 'gotoAnchor' | 'gotoPart',
+      ReturnType<typeof vi.fn>
+    >;
+  }[],
 }));
 
-vi.mock('@/components/ui/toast', () => ({ toast: vi.fn(), toastSuccess: vi.fn() }));
+vi.mock('@/components/ui/toast', () => ({
+  toast: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
+}));
 vi.mock('@/components/ui/confirm', () => ({ confirm: vi.fn(async () => true) }));
-
-vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => reactive({ isApprover: true, user: { username: 'boss' } }),
+vi.mock('@/lib/appError', () => ({ logError: vi.fn() }));
+// 同期結果の文言は `pairSyncText.ts` のテストが固定する。ここでは通知されることだけを見る。
+vi.mock('@/lib/pairSyncText', () => ({
+  pairSyncResultText: (sync: unknown) => (sync ? { text: '同期の結果', variant: 'error' } : null),
+}));
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }));
+vi.mock('@/api/repositories', () => ({ useReviewRepo: () => repo, usePartRepo: () => ({}) }));
+vi.mock('@/features/reviews/services/reviewDiffService', () => ({
+  useReviewDiffService: () => ({ buildDiff }),
 }));
 vi.mock('@/features/preview/services/templatePreviewService', () => ({
   useTemplatePreviewService: () => ({ renderPdf }),
 }));
-vi.mock('@/features/reviews/useReviewDiff', () => ({ useReviewDiff: () => state }));
+vi.mock('@/features/preview/PreviewPanel.vue', () => ({
+  default: defineComponent({
+    name: 'PreviewPanel',
+    props: { html: String, marks: Object, companyCode: String },
+    emits: ['state', 'part-click', 'part-pages'],
+    setup(props, { emit, expose }) {
+      const api = {
+        prevPage: vi.fn(),
+        nextPage: vi.fn(),
+        goToPage: vi.fn(),
+        gotoAnchor: vi.fn(),
+        gotoPart: vi.fn(),
+      };
+      panels.push({ props: props as { html: string }, emit, api });
+      expose(api);
+      return () => h('div', { 'data-stub-panel': '' });
+    },
+  }),
+}));
+
+// jsdom は IntersectionObserver を持たない(右欄の番兵が使う)。
+class NoopObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal('IntersectionObserver', NoopObserver);
+// jsdom の要素は scrollIntoView を持たない(右欄の `revealNo` が使う)。
+Element.prototype.scrollIntoView = vi.fn();
+
+// ── 2. 申請と差分 ──
+
+const pb = '<div class="pagebreak"></div>';
+const BEFORE = `<p class="a">古い文</p>${pb}<p class="b">B</p>`;
+const AFTER = `<p class="a">新しい文</p>${pb}<p class="b">B</p><p class="c">追加</p>`;
+const ALREADY = 'この申請はすでに処理されています。画面を読み直しました。';
 
 const pendingReview: ReviewRequest = {
   id: 'r1',
@@ -53,267 +118,608 @@ const pendingReview: ReviewRequest = {
   reviewedAt: null,
   comment: null,
   baseHash: null,
-  html: '<p>{{ x }}</p>',
+  baseHtml: BEFORE,
+  baseCss: '',
+  html: AFTER,
   css: '',
   filledHtml: '',
 };
 
-/** 判定対象の変更パーツ 1 行(表示に要る項目だけ)。 */
-const changedRow = {
-  key: 'p1',
-  label: 'ページ1・パーツ1',
-  status: 'changed',
-  beforeHtml: '',
-  afterHtml: '',
-  rawBeforeHtml: '',
-  rawAfterHtml: '',
-  textOps: [],
-};
+function decision(partKey: string, status: ReviewPartDecision['status']): ReviewPartDecision {
+  return {
+    partKey,
+    status,
+    comment: status === 'rejected' ? '理由' : null,
+    decidedBy: 'boss',
+    decidedAt: '2026-10-02T00:00:00.000Z',
+    history: [],
+  } as ReviewPartDecision;
+}
 
-function setupState(opts: {
-  reloadFails: boolean;
-  pendingRows?: boolean;
-  truncated?: boolean;
-  duplicates?: string[];
-  review?: Partial<ReviewRequest>;
-}) {
-  const review = ref<ReviewRequest | null>({ ...pendingReview, ...opts.review });
-  const loadError = ref(false);
-  let loads = 0;
-  Object.assign(state, {
-    review,
-    rows: ref(opts.pendingRows ? [changedRow] : []),
-    summary: ref(
-      opts.pendingRows
-        ? { total: 1, changed: 1, added: 0, removed: 0 }
-        : { total: 0, changed: 0, added: 0, removed: 0 },
-    ),
-    cssBefore: ref(''),
-    cssAfter: ref('.a{}'),
-    beforeBodyHtml: ref(''),
-    reviewedBodyHtml: ref('<p>{{ 描画済みの本文 }}</p>'),
-    pendingPartKeys: ref(opts.pendingRows ? [changedRow.key] : []),
-    unknownDecisionPartKeys: ref([]),
-    duplicateDecisionPartKeys: ref(opts.duplicates ?? []),
-    updatePartDecision: vi.fn(async (input: { partKey: string; status: string }) =>
-      ok({
-        partKey: input.partKey,
-        status: input.status,
-        comment: null,
-        decidedBy: 'boss',
-        decidedAt: '2026-10-02T00:00:00.000Z',
-        history: [],
-      }),
-    ),
-    afterBodyHtml: ref('<p>{{ 描画済みの本文 }}</p>'),
-    changedPageIndexes: ref([]),
-    beforePageCount: ref(1),
-    afterPageCount: ref(1),
-    truncated: ref(opts.truncated ?? false),
-    cssChanged: ref(false),
-    printOnlyCss: ref(false),
-    loadError,
-    loading: ref(false),
-    deciding: ref(false),
-    load: vi.fn(async () => {
-      loads += 1;
-      // 初回(マウント時)は成功、決着後の読み直しだけを失敗させる。
-      if (loads > 1 && opts.reloadFails) loadError.value = true;
-    }),
-    approve: vi.fn(
-      async (): Promise<Result<ApproveReviewResult>> =>
-        ok({ meta: {} as ApproveReviewResult['meta'], staleWarning: false }),
-    ),
-    reject: vi.fn(
-      async (comment?: string): Promise<Result<ReviewRequestMeta>> =>
-        ok({
-          ...pendingReview,
-          status: 'rejected',
-          reviewedBy: 'boss',
-          reviewedAt: '2026-10-02T00:00:00.000Z',
-          comment: comment ?? null,
-        }),
-    ),
+function data(opts: { review?: Partial<ReviewRequest>; truncated?: boolean } = {}) {
+  const diff = buildHtmlDiff(BEFORE, AFTER);
+  const changes: ReviewChangeRow[] = numberChangedParts(diff).map((c) => ({
+    ...c,
+    name: `名前${c.no}`,
+    textOps: [],
+  }));
+  return {
+    review: { ...pendingReview, ...opts.review },
+    changes,
+    diff,
+    summary: { total: changes.length, changed: 1, added: 1, removed: 0 },
+    cssBefore: '',
+    cssAfter: '.a{}',
+    beforeBodyHtml: BEFORE,
+    afterBodyHtml: '<p>{{ 描画済みの本文 }}</p>',
+    changedPageIndexes: [0, 1],
+    beforePageCount: 2,
+    afterPageCount: 2,
+    truncated: opts.truncated ?? false,
+    cssChanged: false,
+    printOnlyCss: false,
+  };
+}
+
+/** 読み込みのたびに返す差分。`reloads` を足すと 2 回目以降はそれを返す。 */
+function serve(first: ReturnType<typeof data>, ...reloads: ReturnType<typeof data>[]) {
+  let n = 0;
+  buildDiff.mockImplementation(async () => {
+    const d = n === 0 ? first : (reloads[Math.min(n - 1, reloads.length - 1)] ?? first);
+    n += 1;
+    return ok(structuredClone(d));
   });
 }
 
-function mountDetail() {
-  return mount(ReviewDetail, {
-    props: { reqId: 'r1' },
-    global: {
-      stubs: { ReviewVisualCompare: true, ReviewNoticeBar: true },
+const allApproved = () =>
+  data({
+    review: {
+      partDecisions: numberChangedParts(buildHtmlDiff(BEFORE, AFTER)).map((c) =>
+        decision(c.partKey, 'approved'),
+      ),
     },
   });
+
+async function mountDetail(opts: { attach?: boolean; slots?: Record<string, unknown> } = {}) {
+  const w = mount(ReviewDetail, {
+    props: { reqId: 'r1' },
+    attachTo: opts.attach ? document.body : undefined,
+    slots: opts.slots as never,
+  });
+  await flushPromises();
+  return w;
 }
 
-const buttonNamed = (w: ReturnType<typeof mountDetail>, text: string) =>
-  w.findAll('button').find((b) => b.text().includes(text));
-const buttonsNamed = (w: ReturnType<typeof mountDetail>, text: string) =>
-  w.findAll('button').filter((b) => b.text().includes(text));
-/** 下部の決着箱(却下理由の入力欄を持つ箱)。 */
-const decisionBox = (w: ReturnType<typeof mountDetail>) => w.find('[data-review-decision]');
+type Detail = Awaited<ReturnType<typeof mountDetail>>;
+
+const row = (w: Detail, no: number) => w.find(`[data-review-row-no="${no}"]`);
+const buttonIn = (el: ReturnType<Detail['find']>, text: string) =>
+  el.findAll('button').find((b) => b.text() === text);
+
+/** 紙面の組版が終わった通知を両面へ送る(移動はそれまで待たれる)。 */
+async function readyPanels() {
+  for (const p of panels) {
+    p.emit('state', {
+      currentPage: 1,
+      pageCount: 2,
+      atFirst: true,
+      atLast: false,
+      zoom: 1,
+      vivlioReady: true,
+      ready: true,
+    });
+  }
+  await flushPromises();
+}
 
 beforeEach(() => {
-  for (const k of Object.keys(state)) delete state[k];
+  panels.length = 0;
+  auth.isApprover = true;
+  vi.mocked(toast).mockClear();
+  vi.mocked(toastError).mockClear();
+  vi.mocked(confirm).mockClear();
+  buildDiff.mockReset();
   renderPdf.mockReset();
+  repo.updatePartDecisions.mockReset();
+  repo.approveReview.mockReset();
+  repo.rejectReview.mockReset();
+  repo.updatePartDecisions.mockImplementation(
+    async (_id: string, input: { decisions: { partKey: string; status: string }[] }) =>
+      ok(input.decisions.map((d) => decision(d.partKey, d.status as ReviewPartDecision['status']))),
+  );
+  repo.approveReview.mockResolvedValue(
+    ok({ meta: {} as ApproveReviewResult['meta'], staleWarning: false }),
+  );
+  repo.rejectReview.mockImplementation(
+    async (_id: string, body: { comment?: string }): Promise<unknown> =>
+      ok({
+        ...pendingReview,
+        status: 'rejected',
+        reviewedBy: 'boss',
+        reviewedAt: '2026-10-02T00:00:00.000Z',
+        comment: body.comment ?? null,
+      }),
+  );
 });
 
-describe('ReviewDetail の決着', () => {
-  it('承認後の読み直しに失敗しても、承認済みとして親へ伝える', async () => {
-    setupState({ reloadFails: true });
-    const w = mountDetail();
+afterEach(() => {
+  document.body.innerHTML = '';
+});
+
+// ── 3. 判定と選択 ──
+
+describe('ReviewDetail の判定と選択', () => {
+  it('行の承認で updatePartDecisions を 1 回呼び、getReview を呼び直さない', async () => {
+    serve(data());
+    const w = await mountDetail();
+    await buttonIn(row(w, 1), '承認')?.trigger('click');
     await flushPromises();
-    await buttonNamed(w, '最終確定する')?.trigger('click');
+    expect(repo.updatePartDecisions).toHaveBeenCalledTimes(1);
+    const [, input] = repo.updatePartDecisions.mock.calls[0] as [string, { decisions: unknown[] }];
+    expect(input.decisions).toEqual([{ partKey: expect.any(String), status: 'approved' }]);
+    // 差分の取得(= getReview)はマウント時の 1 回だけ。
+    expect(buildDiff).toHaveBeenCalledTimes(1);
+    expect(row(w, 1).find('[data-review-no]').attributes('data-decision')).toBe('approved');
+  });
+
+  it('次の未判定で右欄の行と紙面のパーツへ移る', async () => {
+    serve(data());
+    const w = await mountDetail();
+    await readyPanels();
+    await w.find('[data-next-pending]').trigger('click');
+    await flushPromises();
+    expect(row(w, 1).attributes('data-selected')).toBe('true');
+    for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('1');
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    const [key, no] = w.emitted('select')?.at(-1) ?? [];
+    expect(no).toBe(1);
+    // 編集経路の宛先は確定版側のキー。
+    expect(key).toBe(data().changes[0].beforePartKey);
+  });
+
+  it('紙面の part-click で右欄の行が選ばれる', async () => {
+    serve(data());
+    const w = await mountDetail();
+    await readyPanels();
+    panels[1].emit('part-click', '2');
+    await flushPromises();
+    expect(row(w, 2).attributes('data-selected')).toBe('true');
+    expect(row(w, 1).attributes('data-selected')).toBe('false');
+    // 追加パーツは確定版に無いので、宛先のキーは null。
+    expect(w.emitted('select')?.at(-1)).toEqual([null, 2]);
+  });
+
+  it('右欄の行を押すと紙面のそのパーツへ移る', async () => {
+    serve(data());
+    const w = await mountDetail();
+    await readyPanels();
+    await row(w, 2).find('[data-review-name]').trigger('click');
+    await flushPromises();
+    for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('2');
+  });
+
+  it('selectPart は宛先のキーからそのパーツを選ぶ', async () => {
+    serve(data());
+    const w = await mountDetail();
+    const key = data().changes[0].beforePartKey as string;
+    (w.vm as unknown as { selectPart(k: string): void }).selectPart(key);
+    await flushPromises();
+    expect(row(w, 1).attributes('data-selected')).toBe('true');
+    (w.vm as unknown as { selectPart(k: string): void }).selectPart('知らないキー');
+    await flushPromises();
+    expect(row(w, 1).attributes('data-selected')).toBe('true');
+  });
+
+  it('保存中は右欄・判定バーのボタンを押せない', async () => {
+    serve(allApproved());
+    let resolve: (v: unknown) => void = () => {};
+    repo.updatePartDecisions.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    const w = await mountDetail();
+    expect(w.find('[data-finalize]').attributes('disabled')).toBeUndefined();
+    await buttonIn(row(w, 1), '判定を取り消す')?.trigger('click');
+    await flushPromises();
+    expect(w.find('[data-finalize]').attributes('disabled')).toBeDefined();
+    expect(buttonIn(row(w, 2), '判定を取り消す')?.attributes('disabled')).toBeDefined();
+    resolve(ok([decision(data().changes[0].partKey, 'pending')]));
+    await flushPromises();
+    expect(buttonIn(row(w, 2), '判定を取り消す')?.attributes('disabled')).toBeUndefined();
+  });
+});
+
+// ── 4. カードの組み立て ──
+
+describe('ReviewDetail の申請カード', () => {
+  it('道具の行(ページ送り・紙面のチェック)は作業域の上のカード全幅の行に出る', async () => {
+    serve(data());
+    const w = await mountDetail({ attach: true });
+    await flushPromises();
+    const tools = w.find('[data-review-tools]');
+    expect(tools.find('[data-page-prev]').exists()).toBe(true);
+    expect(tools.find('[data-highlight-toggle]').exists()).toBe(true);
+    // 作業域(左右の欄)の中には無い。
+    expect(w.find('[data-review-work] [data-page-prev]').exists()).toBe(false);
+    w.unmount();
+  });
+
+  it('右欄のタブは「変更と判定｜コメント」で、コメントは slot に番号と名前を渡す', async () => {
+    serve(data());
+    const seen: Record<string, unknown>[] = [];
+    const w = await mountDetail({
+      slots: {
+        comments: (props: Record<string, unknown>) => {
+          seen.push(props);
+          return h('div', { 'data-comments-slot': '' });
+        },
+      },
+    });
+    const tabs = w.find('[role="tablist"]').findAll('[role="tab"]');
+    expect(tabs.map((t) => t.text())).toEqual(['変更と判定', 'コメント']);
+    expect(tabs[0].attributes('aria-selected')).toBe('true');
+    await tabs[1].trigger('click');
+    expect(tabs[1].attributes('aria-selected')).toBe('true');
+    expect(w.find('[data-comments-slot]').isVisible()).toBe(true);
+    const c = data().changes;
+    const last = seen.at(-1) as {
+      selectedNo: number | null;
+      selectedKey: string | null;
+      partNumbers: Map<string, number>;
+      partNames: Map<string, string>;
+    };
+    expect(last.selectedNo).toBeNull();
+    // 確定版に無い追加パーツは宛先にならない。
+    expect([...last.partNumbers]).toEqual([[c[0].beforePartKey, 1]]);
+    expect([...last.partNames]).toEqual([[c[0].beforePartKey, '名前1']]);
+  });
+
+  it('作成経路は紙面 1 面で「申請内容」', async () => {
+    serve(data({ review: { origin: 'create' } }));
+    const w = await mountDetail();
+    expect(panels).toHaveLength(1);
+    expect(w.find('figcaption').text()).toBe('申請内容');
+    // 作成経路の宛先は申請版のキー。
+    await readyPanels();
+    panels[0].emit('part-click', '2');
+    await flushPromises();
+    expect(w.emitted('select')?.at(-1)).toEqual([data().changes[1].partKey, 2]);
+  });
+
+  it('決着済みは判定バーを出さず、行は読み取り専用', async () => {
+    serve(
+      data({
+        review: {
+          status: 'approved',
+          reviewedBy: 'boss',
+          reviewedAt: '2026-10-02T00:00:00.000Z',
+        },
+      }),
+    );
+    const w = await mountDetail();
+    expect(w.find('[data-decision-bar]').exists()).toBe(false);
+    expect(w.text()).toContain('この申請は');
+    expect(w.text()).toContain('承認済み');
+    expect(buttonIn(row(w, 1), '承認')).toBeUndefined();
+    expect(w.find('[data-review-band]').exists()).toBe(false);
+  });
+
+  it('承認者でなければ判定バーを出さず、権限が要ると出す', async () => {
+    auth.isApprover = false;
+    serve(data());
+    const w = await mountDetail();
+    expect(w.find('[data-decision-bar]').exists()).toBe(false);
+    expect(w.text()).toContain('承認操作には精査者(承認者)権限が必要です。');
+  });
+});
+
+// ── 5. 最終確定 ──
+
+describe('ReviewDetail の最終確定', () => {
+  it('最終確定は確認のあと approveReview を comment 無しで呼ぶ', async () => {
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(confirm)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        confirmLabel: '最終確定する',
+        description: expect.stringContaining('承認済みパーツ: 2件'),
+      }),
+    );
+    expect(vi.mocked(confirm).mock.calls[0][0].description).toContain('書式設定の変更: なし');
+    expect(repo.approveReview).toHaveBeenCalledWith('r1', { comment: undefined });
+  });
+
+  it('確認で取りやめれば送らない', async () => {
+    serve(allApproved());
+    vi.mocked(confirm).mockResolvedValueOnce(false);
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(repo.approveReview).not.toHaveBeenCalled();
+  });
+
+  it('最終確定・申請ごと却下が REVIEW_ALREADY_DECIDED で失敗したら読み直して「この申請はすでに処理されています。」を出す', async () => {
+    const decidedErr = err(
+      appError('conflict', 'この申請は既に承認済みです', { code: 'REVIEW_ALREADY_DECIDED' }),
+    );
+    repo.approveReview.mockResolvedValue(decidedErr);
+    repo.rejectReview.mockResolvedValue(decidedErr);
+
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(buildDiff).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(ALREADY, 'error');
+    expect(w.emitted('decided')).toBeUndefined();
+
+    vi.mocked(toast).mockClear();
+    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
+    await flushPromises();
+    await w.find('[data-request-reject] textarea').setValue('直してください');
+    await buttonIn(w.find('[data-request-reject]'), '申請を却下する')?.trigger('click');
+    await flushPromises();
+    expect(buildDiff).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(ALREADY, 'error');
+  });
+
+  it('最終確定のほかの失敗は今の文言のまま', async () => {
+    repo.approveReview.mockResolvedValue(
+      err(appError('internal', '承認の反映に失敗しました。時間をおいて再度お試しください。')),
+    );
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    // 今の表示(`useAsyncResult` がサーバの文言をそのまま出す)を変えない。
+    expect(vi.mocked(toastError)).toHaveBeenCalledWith(
+      '承認の反映に失敗しました。時間をおいて再度お試しください。',
+    );
+    expect(vi.mocked(toast)).not.toHaveBeenCalledWith(ALREADY, 'error');
+    expect(buildDiff).toHaveBeenCalledTimes(1);
+  });
+
+  it('承認後の読み直しに失敗しても、承認済みとして親へ伝える', async () => {
+    serve(allApproved());
+    const w = await mountDetail();
+    buildDiff.mockResolvedValue(err(appError('internal', '読めません')));
+    await w.find('[data-finalize]').trigger('click');
     await flushPromises();
     const decided = w.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
     expect(decided?.id).toBe('r1');
     expect(decided?.status).toBe('approved');
+    expect(decided?.comment).toBeNull();
   });
 
-  it('却下後の読み直しに失敗しても、却下の応答を親へ伝える', async () => {
-    setupState({ reloadFails: true });
-    const w = mountDetail();
-    await flushPromises();
-    await w.find('textarea').setValue('理由');
-    await buttonNamed(w, '却下する')?.trigger('click');
-    await flushPromises();
-    const decided = w.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
-    expect(decided?.status).toBe('rejected');
-    expect(decided?.comment).toBe('理由');
-    expect(decided).not.toHaveProperty('html');
-  });
-});
-
-describe('ReviewDetail の決着箱', () => {
-  it('最終確定のボタンは「最終確定する」で、「承認する」とは名乗らない', async () => {
-    setupState({ reloadFails: false });
-    const w = mountDetail();
-    await flushPromises();
-    const box = decisionBox(w);
-    expect(box.exists()).toBe(true);
-    const labels = box.findAll('button').map((b) => b.text());
-    expect(labels).toContain('最終確定する');
-    expect(labels.some((t) => t.includes('承認する'))).toBe(false);
+  it('現在の差分と一致しない保存済み判定があれば押せず、理由を判定バーにだけ出す', async () => {
+    const d = allApproved();
+    d.review.partDecisions = [
+      ...(d.review.partDecisions ?? []),
+      decision('消えたパーツ', 'approved'),
+    ];
+    serve(d);
+    const w = await mountDetail();
+    expect(w.find('[data-finalize]').attributes('disabled')).toBeDefined();
+    const issues = w.findAll('[data-finalization-issue]');
+    expect(issues).toHaveLength(1);
+    expect(issues[0].text()).toContain('現在の差分対象と一致しない保存済み判定が 1 件');
+    expect(w.find('[data-decision-bar] [data-finalization-issue]').exists()).toBe(true);
   });
 
-  it('未判定の変更パーツがあれば、見た目比較タブでも決着箱に一括承認が出る', async () => {
-    setupState({ reloadFails: false, pendingRows: true });
-    const w = mountDetail();
-    await flushPromises();
-    const bulk = decisionBox(w)
-      .findAll('button')
-      .find((b) => b.text().includes('未判定を一括承認'));
-    expect(bulk?.attributes('disabled')).toBeUndefined();
-  });
-
-  it('文字の変更タブでは、タブ内と決着箱の両方に一括承認が出る', async () => {
-    setupState({ reloadFails: false, pendingRows: true });
-    const w = mountDetail();
-    await flushPromises();
-    await buttonNamed(w, '文字の変更を一覧で見る')?.trigger('click');
-    await flushPromises();
-    expect(buttonsNamed(w, '未判定を一括承認')).toHaveLength(2);
-  });
-
-  it('未判定の変更パーツが無ければ、決着箱に一括承認は出ない', async () => {
-    setupState({ reloadFails: false });
-    const w = mountDetail();
-    await flushPromises();
-    expect(decisionBox(w).text()).not.toContain('未判定を一括承認');
-  });
-
-  it('決着箱の一括承認は、確認のうえ未判定パーツを承認済みにする', async () => {
-    setupState({ reloadFails: false, pendingRows: true });
-    const w = mountDetail();
-    await flushPromises();
-    await decisionBox(w)
-      .findAll('button')
-      .find((b) => b.text().includes('未判定を一括承認'))
-      ?.trigger('click');
-    await flushPromises();
-    expect(vi.mocked(confirm)).toHaveBeenCalledWith(
-      expect.objectContaining({ confirmLabel: '一括承認する' }),
-    );
-    expect(state.updatePartDecision).toHaveBeenCalledWith(
-      expect.objectContaining({ partKey: 'p1', status: 'approved' }),
-    );
-  });
-});
-
-describe('ReviewDetail の最終確定を止める理由', () => {
-  const blockedWith = async (opts: Parameters<typeof setupState>[0], message: string) => {
-    setupState(opts);
-    const w = mountDetail();
-    await flushPromises();
-    expect(buttonNamed(w, '最終確定する')?.attributes('disabled')).toBeDefined();
-    expect(w.text()).toContain(message);
+  const blockedWith = async (d: ReturnType<typeof data>, message: string) => {
+    serve(d);
+    const w = await mountDetail();
+    expect(w.find('[data-finalize]').attributes('disabled')).toBeDefined();
+    expect(w.find('[data-decision-bar]').text()).toContain(message);
   };
 
   it('差分が打ち切られていれば最終確定できず、理由を出す', async () => {
-    await blockedWith({ reloadFails: false, truncated: true }, '差分の上限を超えて');
+    const d = allApproved();
+    d.truncated = true;
+    await blockedWith(d, '差分の上限を超えて');
   });
 
   it('同じパーツの判定が複数あれば最終確定できず、該当キーを出す', async () => {
-    await blockedWith(
-      { reloadFails: false, duplicates: ['p1'] },
-      '同じパーツの判定が複数あるため最終確定できません: p1',
-    );
+    const d = allApproved();
+    const first = d.review.partDecisions?.[0] as ReviewPartDecision;
+    d.review.partDecisions = [...(d.review.partDecisions ?? []), first];
+    await blockedWith(d, `同じパーツの判定が複数あるため最終確定できません: ${first.partKey}`);
   });
 
   it('比較元の無い古い edit 申請に判定があれば最終確定できず、申請し直しを求める', async () => {
-    const decided = {
-      partKey: 'p1',
-      status: 'approved' as const,
-      decidedBy: 'boss',
-      decidedAt: '2026-10-02T00:00:00.000Z',
-      comment: null,
-      history: [],
-    };
-    await blockedWith(
-      { reloadFails: false, review: { partDecisions: [decided] } },
-      '申請し直してください',
-    );
-  });
-
-  it('比較元のある edit 申請なら、判定があっても止めない', async () => {
-    setupState({
-      reloadFails: false,
-      review: {
-        baseHtml: '<p>a</p>',
-        baseCss: '',
-        partDecisions: [
-          {
-            partKey: 'p1',
-            status: 'approved',
-            decidedBy: 'boss',
-            decidedAt: '2026-10-02T00:00:00.000Z',
-            comment: null,
-            history: [],
-          },
-        ],
-      },
-    });
-    const w = mountDetail();
-    await flushPromises();
-    expect(buttonNamed(w, '最終確定する')?.attributes('disabled')).toBeUndefined();
+    const d = allApproved();
+    d.review.baseHtml = undefined;
+    d.review.baseCss = undefined;
+    await blockedWith(d, '申請し直してください');
   });
 });
 
-describe('ReviewDetail の PDF', () => {
-  it('記入済みインスタンスが無ければ、描画済みの申請版本文を描画に通さず PDF にする', async () => {
-    setupState({ reloadFails: false });
-    renderPdf.mockResolvedValue(ok(new Blob(['%PDF'])));
-    const w = mountDetail();
+// ── 6. 申請ごと却下 ──
+
+describe('ReviewDetail の申請ごと却下', () => {
+  it('申請ごと却下は理由が要り、rejectReview を理由付きで呼ぶ', async () => {
+    serve(data());
+    const w = await mountDetail({ attach: true });
+    expect(w.find('[data-request-reject]').exists()).toBe(false);
+    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
     await flushPromises();
-    // URL.createObjectURL は jsdom に無い。
-    const create = vi.fn(() => 'blob:x');
-    const revoke = vi.fn();
-    Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
+    const area = w.find('[data-request-reject]');
+    expect(area.text()).toContain('申請ごと却下する理由（必須）');
+    expect(area.text()).toContain('何も確定せずに申請全体を申請者へ戻します');
+    expect(area.find('textarea').attributes('placeholder')).toBe('直してほしい点を書きます');
+    // 開いたら理由欄へ移る。
+    expect(document.activeElement).toBe(area.find('textarea').element);
+
+    await buttonIn(area, '申請を却下する')?.trigger('click');
+    expect(w.find('[data-request-reject]').text()).toContain('理由を入力してください。');
+    expect(repo.rejectReview).not.toHaveBeenCalled();
+
+    await w.find('[data-request-reject] textarea').setValue('  直してください  ');
+    expect(w.find('[data-request-reject]').text()).not.toContain('理由を入力してください。');
+    await buttonIn(w.find('[data-request-reject]'), '申請を却下する')?.trigger('click');
+    await flushPromises();
+    expect(repo.rejectReview).toHaveBeenCalledWith('r1', { comment: '直してください' });
+    const decided = w.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
+    expect(decided?.status).toBe('rejected');
+    expect(decided?.comment).toBe('直してください');
+    expect(decided).not.toHaveProperty('html');
+    w.unmount();
+  });
+
+  it('取消で理由欄を閉じる', async () => {
+    serve(data());
+    const w = await mountDetail();
+    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
+    await flushPromises();
+    await buttonIn(w.find('[data-request-reject]'), '取消')?.trigger('click');
+    expect(w.find('[data-request-reject]').exists()).toBe(false);
+  });
+});
+
+// ── 7. PDF とページ送り ──
+
+describe('ReviewDetail の PDF とページ送り', () => {
+  it('記入済みインスタンスが無ければ、描画済みの申請版本文を描画に通さず PDF にする', async () => {
+    serve(data());
+    renderPdf.mockResolvedValue(ok(new Blob(['%PDF'])));
+    const w = await mountDetail();
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
     w.findComponent({ name: 'ReviewNoticeBar' }).vm.$emit('open-pdf');
     await flushPromises();
     expect(renderPdf).toHaveBeenCalledTimes(1);
     const [html, , , , skipJinja] = renderPdf.mock.calls[0] as unknown[];
     expect(html).toBe('<p>{{ 描画済みの本文 }}</p>');
     expect(skipJinja).toBe(true);
+  });
+
+  it('gotoPage は読み込み前なら待ち、紙面が出てから送る', async () => {
+    serve(data());
+    const w = mount(ReviewDetail, { props: { reqId: 'r1' } });
+    (w.vm as unknown as { gotoPage(i: number): void }).gotoPage(1);
+    await flushPromises();
+    await readyPanels();
+    expect(panels.some((p) => p.api.gotoAnchor.mock.calls.length > 0)).toBe(true);
+  });
+});
+
+// ── 8. 承認後の通知・読み込み・組の差し替え ──
+
+describe('ReviewDetail の承認後の通知と読み込み', () => {
+  it('現行版が申請後に変わっていれば上書き注意を出し、同期と注記マスタの結果を知らせる', async () => {
+    repo.approveReview.mockResolvedValue(
+      ok({
+        meta: {} as ApproveReviewResult['meta'],
+        staleWarning: true,
+        sync: {} as ApproveReviewResult['sync'],
+        noteMaster: { updated: ['注記A'], error: null },
+      } as unknown as ApproveReviewResult),
+    );
+    const d = allApproved();
+    d.cssChanged = true;
+    serve(d, { ...d, review: { ...d.review, status: 'approved', reviewedBy: 'boss' } });
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(confirm).mock.calls[0][0].description).toContain('書式設定の変更: あり');
+    const texts = vi.mocked(toast).mock.calls.map((c) => c[0]);
+    expect(texts.some((t) => t.includes('上書きした可能性があります'))).toBe(true);
+    expect(texts).toContain('同期の結果');
+    expect(texts.some((t) => t.includes('注記マスタへ 1 パーツを反映しました'))).toBe(true);
+    // 読み直した申請が決着済みなら、それをそのまま伝える。
+    const decided = w.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
+    expect(decided?.reviewedBy).toBe('boss');
+    expect(decided?.status).toBe('approved');
+  });
+
+  it('注記マスタへの反映の失敗は長めに知らせ、反映 0 件なら鳴らさない', async () => {
+    repo.approveReview.mockResolvedValueOnce(
+      ok({
+        meta: {} as ApproveReviewResult['meta'],
+        staleWarning: false,
+        noteMaster: { updated: [], error: '書けません' },
+      } as unknown as ApproveReviewResult),
+    );
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      '注記マスタへの反映に失敗しました: 書けません',
+      'error',
+      8000,
+    );
+
+    vi.mocked(toast).mockClear();
+    repo.approveReview.mockResolvedValueOnce(
+      ok({
+        meta: {} as ApproveReviewResult['meta'],
+        staleWarning: false,
+        noteMaster: { updated: [], error: null },
+      } as unknown as ApproveReviewResult),
+    );
+    serve(allApproved());
+    const w2 = await mountDetail();
+    await w2.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(toast)).not.toHaveBeenCalled();
+  });
+
+  it('読み込みに失敗したら案内を出し、待っていたページ送りを捨てる', async () => {
+    buildDiff.mockResolvedValue(err(appError('internal', '読めません')));
+    const w = mount(ReviewDetail, { props: { reqId: 'r1' } });
+    (w.vm as unknown as { gotoPage(i: number): void }).gotoPage(1);
+    await flushPromises();
+    expect(w.text()).toContain('申請の読み込みに失敗しました');
+    expect(panels).toHaveLength(0);
+  });
+
+  it('読み込み中は生成中と出す', async () => {
+    buildDiff.mockImplementation(() => new Promise(() => {}));
+    const w = mount(ReviewDetail, { props: { reqId: 'r1' } });
+    await flushPromises();
+    expect(w.text()).toContain('前後プレビューを生成中');
+  });
+
+  it('紙面が出たあとの gotoPage はその場で両面へ送る', async () => {
+    serve(data());
+    const w = await mountDetail();
+    await readyPanels();
+    (w.vm as unknown as { gotoPage(i: number): void }).gotoPage(0);
+    expect(panels.every((p) => p.api.gotoAnchor.mock.calls.length > 0)).toBe(true);
+  });
+
+  it('PDF の作成に失敗したらその旨を出す', async () => {
+    serve(data());
+    renderPdf.mockResolvedValue(err(appError('internal', 'x')));
+    const w = await mountDetail();
+    w.findComponent({ name: 'ReviewNoticeBar' }).vm.$emit('open-pdf');
+    await flushPromises();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      'PDFの作成に失敗しました。時間をおいて再度お試しください。',
+      'error',
+    );
+  });
+
+  it('読み直しで変更の組が変わったら、無くなった番号の選択を外す', async () => {
+    const decidedErr = err(
+      appError('conflict', 'この申請は既に承認済みです', { code: 'REVIEW_ALREADY_DECIDED' }),
+    );
+    repo.approveReview.mockResolvedValue(decidedErr);
+    const first = allApproved();
+    const smaller = data();
+    smaller.changes = smaller.changes.slice(0, 1);
+    serve(first, smaller);
+    const w = await mountDetail();
+    await row(w, 2).find('[data-review-name]').trigger('click');
+    await flushPromises();
+    expect(row(w, 2).attributes('data-selected')).toBe('true');
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(row(w, 2).exists()).toBe(false);
+    expect(w.find('[data-review-row-no][data-selected="true"]').exists()).toBe(false);
   });
 });

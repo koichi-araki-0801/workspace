@@ -24,7 +24,6 @@ import { randomHex } from '@/lib/newId';
 import { styleTag } from '@/lib/sanitizeCss';
 
 export {
-  type BlockStatus,
   collapse,
   createLcsBudget,
   type DiffOp,

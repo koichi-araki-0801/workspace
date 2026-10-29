@@ -85,7 +85,7 @@ const finalizeDisabled = computed(
     </div>
 
     <ul v-if="blockedReasons.length > 0" class="basis-full space-y-0.5 text-xs text-red-600">
-      <li v-for="r in blockedReasons" :key="r" data-finalization-issue>{{ r }}</li>
+      <li v-for="(r, i) in blockedReasons" :key="`${i}:${r}`" data-finalization-issue>{{ r }}</li>
     </ul>
   </div>
 </template>

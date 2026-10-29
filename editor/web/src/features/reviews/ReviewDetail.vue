@@ -1,67 +1,70 @@
 <script setup lang="ts">
 // =============================================================================
-// ReviewDetail.vue — 申請 1 件の精査(見た目比較主体 + 通知集約 + 承認/却下)
+// ReviewDetail.vue — 承認タブの申請カード(左右の紙面・右欄・判定バー・申請ごと却下)
 // =============================================================================
-// 主表示は「修正前｜修正後」の左右組版比較(`ReviewVisualCompare`)。事務担当者の主観点は
-// 「最終の見た目がどうなるか」であり、パーツ単位の縦リストは「文字の変更を一覧で見る」タブへ
-// 退避する(既存の block diff エンジン `htmlBlockDiff` をそのまま流用、`reviewDiffService` が
-// 組み立て)。技術語彙の警告 4 種は `ReviewNoticeBar` の 1 行へ集約する。承認は approver|admin
-// のみで、承認時にサーバが実ファイル + git へ反映する(`reviewRepo.ts`)。
+// 申請 1 件を 1 枚のカードに組む。上から、申請ごと却下の理由欄(開いたときだけ)、道具の行
+// (ページ送り・通知バー・紙面のチェック)、作業域(左 = 左右の紙面 `ReviewVisualCompare`、
+// 右 = 420px の欄でタブ「変更と判定｜コメント」)、下端の判定バー(`ReviewDecisionBar`)。
+// 作業域は高さを決めた枠で、紙面と右欄はそれぞれ内側でスクロールし、判定バーは常に見える。
+//
+// 判定の状態と保存は `useReviewDecisions`、申請の取得と最終確定・申請ごと却下は `useReviewDiff`
+// が持つ。選択は紙面・右欄の行・次の未判定のどれから来ても 1 つの番号(`selectedNo`)に集め、
+// 紙面(`gotoPart`)と右欄(`revealNo`)の両方を動かす。コメントは `ReviewTabView.vue` が
+// `#comments` の slot へ差し込み、宛先の番号と名前は slot の props で渡す。
 // 承認タブ(`ReviewTabView.vue`)のアコーディオン 1 区画として置かれるので、ヘッダと画面遷移は
-// 持たず、決着は `decided` で親へ知らせる。
+// 持たず、決着は `decided` で、選択は `select` で親へ知らせる。
 import {
   type ApproveReviewResult,
   isOk,
-  type ReviewPartDecisionStatus,
   type ReviewRequest,
   type ReviewRequestMeta,
   reviewFinalizationIssues,
   toReviewMeta,
 } from '@editor/shared';
-import { Check, ClipboardCheck, Loader2, X } from '@lucide/vue';
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { Loader2 } from '@lucide/vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 
-import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
-import Checkbox from '@/components/ui/Checkbox.vue';
 import { confirm } from '@/components/ui/confirm';
-import EmptyState from '@/components/ui/EmptyState.vue';
 import { toast, toastSuccess } from '@/components/ui/toast';
-
-import { buildFramedDiffDoc } from '@/features/compare/framedDiffDoc';
-import { type BlockStatus, hasCoarseDiff } from '@/features/compare/htmlBlockDiff';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { pairSyncResultText } from '@/lib/pairSyncText';
-import { useIframeAutoFit } from '@/lib/useIframeAutoFit';
 import { useAuthStore } from '@/stores/auth';
+import ReviewDecisionBar from './ReviewDecisionBar.vue';
+import ReviewDecisionList from './ReviewDecisionList.vue';
 import ReviewNoticeBar from './ReviewNoticeBar.vue';
 import ReviewVisualCompare from './ReviewVisualCompare.vue';
-import type { ReviewPartRow } from './services/reviewDiffService';
+import { nextPendingNo } from './reviewDecisionState';
+import type { ReviewChangeRow } from './services/reviewDiffService';
+import { useReviewDecisions } from './useReviewDecisions';
 import { useReviewDiff } from './useReviewDiff';
 
 const props = defineProps<{ reqId: string }>();
-const emit = defineEmits<{ decided: [meta: ReviewRequestMeta] }>();
+const emit = defineEmits<{
+  decided: [meta: ReviewRequestMeta];
+  select: [commentKey: string | null, no: number];
+}>();
+
+/** `#comments` に渡す値。番号と名前のキーはコメントの宛先のキー(`commentKeyOf`)。 */
+interface CommentSlotProps {
+  selectedNo: number | null;
+  selectedKey: string | null;
+  partNumbers: Map<string, number>;
+  partNames: Map<string, string>;
+}
+defineSlots<{ comments?: (props: CommentSlotProps) => unknown }>();
 
 const auth = useAuthStore();
 const preview = useTemplatePreviewService();
-// データ取得と承認/却下アクションは composable に委譲(トーストのみ View に残す)。
 const {
   review,
-  rows,
-  summary,
+  changes,
+  diff,
   cssBefore,
   cssAfter,
-  beforeBodyHtml,
   afterBodyHtml,
-  reviewedBodyHtml,
-  pendingPartKeys,
-  unknownDecisionPartKeys,
-  duplicateDecisionPartKeys,
-  updatePartDecision,
-  changedPageIndexes,
-  beforePageCount,
   truncated,
   cssChanged,
   printOnlyCss,
@@ -71,90 +74,18 @@ const {
   load,
   approve: approveReview,
   reject: rejectReview,
+  updatePartDecisions,
 } = useReviewDiff(() => props.reqId);
 
-// 表示タブ。既定は見た目比較(事務担当者の主観点は「最終の見た目がどうなるか」)。
-const activeTab = ref<'visual' | 'text'>('visual');
-
-// 既定は変更パーツのみ。トグルで「変更なし」も表示できる。
-const showUnchanged = ref(false);
-const visibleRows = computed(() =>
-  showUnchanged.value ? rows.value : rows.value.filter((r) => r.status !== 'same'),
-);
-
-/** 変更要約 1 行(実差分由来。changedSummary 自己申告とは独立)。 */
-const changedNames = computed(() => {
-  const names = [...new Set(rows.value.filter((r) => r.status !== 'same').map((r) => r.label))];
-  return names.slice(0, 5);
+const decisions = useReviewDecisions({
+  review,
+  diff,
+  changes,
+  save: updatePartDecisions,
+  reload: load,
 });
+const { counts, saving } = decisions;
 
-/** 見た目比較の修正前側に印を付けるパーツキー。 */
-const beforeMarkerPartKeys = computed(() =>
-  rows.value
-    .filter((row) => row.status === 'changed' || row.status === 'removed')
-    .map((row) => row.key),
-);
-
-/** 見た目比較の修正後側に印を付けるパーツキー。 */
-const afterMarkerPartKeys = computed(() =>
-  rows.value
-    .filter((row) => row.status === 'changed' || row.status === 'added')
-    .map((row) => row.key),
-);
-
-
-/**
- * 一度に描画するパーツ行数の上限。各行は申請者制御の CSS(最大 1 MiB)を丸ごとインライン
- * した iframe を 2 つ作るため、上限が無いと 1 件の申請(数千の小 top-level block を全て
- * 変更にした形)で承認者のブラウザを固められる。上限超過は描画せず、その旨を画面へ出す
- * (承認者は分割再申請を求められる)。
- */
-const MAX_RENDERED_ROWS = 200;
-const cappedRows = computed(() => visibleRows.value.slice(0, MAX_RENDERED_ROWS));
-const hiddenRowCount = computed(() => Math.max(0, visibleRows.value.length - MAX_RENDERED_ROWS));
-
-// iframe ドキュメントの組み立て(CompareResultView と共有・着色 CSS は同一、padding のみ差)。
-const buildDoc = buildFramedDiffDoc(14);
-
-/**
- * 各行の `srcdoc` を**データ依存の computed で 1 度だけ**組み立てる。`buildDoc` は
- * `buildDiffDoc` がカスケードレイヤ名を毎回乱数生成する非冪等関数なので、テンプレートで
- * 直接呼ぶと(メモ欄への 1 文字入力など)無関係な再描画のたびに全 `srcdoc` 文字列が変わり、
- * Vue が全 iframe を作り直す。ここで一度だけ組み立てて安定参照にすると、行データか CSS が
- * 変わったときにしか iframe が再構築されない。
- */
-interface RenderedRow {
-  row: ReviewPartRow;
-  beforeDoc: string;
-  afterDoc: string;
-}
-const renderedRows = computed<RenderedRow[]>(() =>
-  cappedRows.value.map((row) => ({
-    row,
-    beforeDoc: row.status === 'added' ? '' : buildDoc(row.beforeHtml, cssBefore.value),
-    afterDoc: row.status === 'removed' ? '' : buildDoc(row.afterHtml, cssAfter.value),
-  })),
-);
-
-const comment = ref('');
-// 空理由で「却下する」を押した場合のインラインエラー。入力が始まったら消す。
-const rejectError = ref(false);
-const commentEl = ref<HTMLTextAreaElement | null>(null);
-watch(comment, (v) => {
-  if (v.trim()) rejectError.value = false;
-});
-
-const STATUS_BADGE: Record<
-  BlockStatus,
-  { label: string; variant: 'warning' | 'success' | 'destructive' | 'secondary' }
-> = {
-  changed: { label: '変更', variant: 'warning' },
-  added: { label: '追加', variant: 'success' },
-  removed: { label: '削除', variant: 'destructive' },
-  same: { label: '変更なし', variant: 'secondary' },
-};
-
-/** 「処理済み(閲覧のみ)」表示の状態ラベル。pending は別分岐(`canDecide`)。 */
 const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
   approved: '承認済み',
   rejected: '却下済み',
@@ -162,228 +93,107 @@ const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
 
 // pending は精査者が操作できる。処理済み(承認/却下)は閲覧のみ。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
-/**
- * 未判定・本文に無い判定のほかに最終確定を止める理由(判定の重複・差分の打ち切り・比較元の無い
- * 古い edit 申請の判定)。文言はサーバの 400/409 と同じ(shared の `reviewFinalizationIssues`)。
- * 古い edit 申請は判定を当てる差分をサーバが作れないので、判定があると確定できない。
- */
-const otherFinalizationIssues = computed(() => {
-  const r = review.value;
-  return reviewFinalizationIssues({
-    pendingPartKeys: [],
-    unknownDecisionPartKeys: [],
-    duplicateDecisionPartKeys: duplicateDecisionPartKeys.value,
-    truncated: truncated.value,
-    legacyDecisions:
-      r?.origin === 'edit' &&
-      (r.baseHtml === undefined || r.baseCss === undefined) &&
-      (r.partDecisions ?? []).length > 0,
-  });
-});
-/**
- * 最終確定を禁止する状態。未判定または現在の差分対象と一致しない保存済み判定がある場合と、
- * `otherFinalizationIssues` のどれかがある場合は、画面表示だけでなく実行handlerも停止し、
- * 不完全な候補を確定保存へ渡さない。
- */
-const finalizationBlocked = computed(
-  () =>
-    pendingPartKeys.value.length > 0 ||
-    unknownDecisionPartKeys.value.length > 0 ||
-    otherFinalizationIssues.value.length > 0,
-);
-/**
- * 未判定パーツの案内文。新規作成は白紙を基点とした確定候補、既存編集は現行版との比較として
- * 表示する。文字タブでは左右表示を前提とした表現を使わない。
- */
-const pendingPartNotice = computed(() => {
-  const count = pendingPartKeys.value.length;
+/** 判定の保存中と、最終確定・申請ごと却下の処理中。どちらの間も操作を受け付けない。 */
+const busy = computed(() => saving.value || deciding.value);
+const isCreate = computed(() => review.value?.origin === 'create');
 
-  if (review.value?.origin === 'create') {
-    return activeTab.value === 'visual'
-      ? `未判定のパーツが ${count} 件あります。承認済みのパーツだけが、白紙を基点とした確定候補へ反映されています。`
-      : `未判定のパーツが ${count} 件あります。内容を確認し、パーツごとに承認または却下してください。`;
-  }
+// ── 1. 選択 ──
 
-  return activeTab.value === 'visual'
-    ? `未判定の変更が ${count} 件あります。右側には未判定の変更を採用せず、変更前の内容を表示しています。`
-    : `未判定の変更が ${count} 件あります。内容を確認し、パーツごとに承認または却下してください。`;
-});
-
-const partComments = reactive<Record<string, string>>({});
-
-/** 保存済みの現在判定から、パーツごとの入力欄を初期化する。 */
-function restorePartComments(): void {
-  for (const decision of review.value?.partDecisions ?? []) {
-    partComments[decision.partKey] = decision.comment ?? '';
-  }
-}
-
-/** 保存済み判定を優先して、対象行へ表示する現在状態を返す。 */
-function partDecisionStatus(row: ReviewPartRow): ReviewPartDecisionStatus {
-  return (
-    review.value?.partDecisions?.find((decision) => decision.partKey === row.key)?.status ??
-    'pending'
-  );
-}
-
-/** 変更対象パーツの現在判定を状態別に集計する。`same`は判定対象へ含めない。 */
-const partDecisionCounts = computed(() => {
-  const counts = {
-    pending: 0,
-    approved: 0,
-    rejected: 0,
-  };
-
-  for (const row of rows.value) {
-    if (row.status === 'same') continue;
-    counts[partDecisionStatus(row)]++;
-  }
-
-  return counts;
-});
-
-/** 未判定または承認済みの対象パーツを却下し、保存結果を現在の表示へ反映する。 */
-async function rejectPartRow(row: ReviewPartRow): Promise<void> {
-  const currentStatus = partDecisionStatus(row);
-  if (currentStatus === 'rejected' || !canDecide.value) return;
-
-  const partComment = partComments[row.key]?.trim() ?? '';
-  if (!partComment) {
-    toast('パーツの却下理由を入力してください。', 'error');
-    return;
-  }
-
-  if (currentStatus === 'approved') {
-    const accepted = await confirm({
-      title: `${row.label}を却下済みへ変更しますか？`,
-      description:
-        '現在の承認済み判定を覆します。変更内容と却下理由を確認してから確定してください。',
-      confirmLabel: '却下済みへ変更する',
-      variant: 'destructive',
-    });
-    if (!accepted) return;
-  }
-
-  const result = await updatePartDecision({
-    partKey: row.key,
-    status: 'rejected',
-    comment: partComment,
-  });
-  if (!isOk(result)) {
-    toast('パーツ判定の保存に失敗しました。', 'error');
-    return;
-  }
-
-  applySavedPartDecision(result.value);
-  await load();
-
-  toastSuccess(
-    currentStatus === 'approved'
-      ? `${row.label}を却下済みへ変更しました`
-      : `${row.label}を却下しました`,
-  );
-}
-
-/** 未判定または却下済みの対象パーツを承認し、保存結果を現在の表示へ反映する。 */
-async function approvePartRow(row: ReviewPartRow): Promise<void> {
-  const currentStatus = partDecisionStatus(row);
-  if (currentStatus === 'approved' || !canDecide.value) return;
-
-  if (currentStatus === 'rejected') {
-    const accepted = await confirm({
-      title: `${row.label}を承認済みへ変更しますか？`,
-      description:
-        '現在の却下済み判定を覆します。保存されている却下理由は変更履歴に残ります。',
-      confirmLabel: '承認済みへ変更する',
-    });
-    if (!accepted) return;
-  }
-
-  const partComment = partComments[row.key]?.trim();
-  const result = await updatePartDecision({
-    partKey: row.key,
-    status: 'approved',
-    comment: partComment || undefined,
-  });
-  if (!isOk(result)) {
-    toast('パーツ判定の保存に失敗しました。', 'error');
-    return;
-  }
-
-  applySavedPartDecision(result.value);
-  await load();
-
-  toastSuccess(
-    currentStatus === 'rejected'
-      ? `${row.label}を承認済みへ変更しました`
-      : `${row.label}を承認しました`,
-  );
-}
-
-/** 未判定の変更対象パーツを確認後に一括承認する。 */
-async function approvePendingParts(): Promise<void> {
-  if (!canDecide.value) return;
-
-  const targets = rows.value.filter(
-    (row) => row.status !== 'same' && partDecisionStatus(row) === 'pending',
-  );
-  if (targets.length === 0) return;
-
-  const accepted = await confirm({
-    title: `未判定の${targets.length}パーツを一括承認しますか？`,
-    description:
-      '承認済み・却下済みのパーツは変更しません。未判定のパーツだけを承認済みにします。',
-    confirmLabel: '一括承認する',
-  });
-  if (!accepted) return;
-
-  let completed = 0;
-  for (const row of targets) {
-    const partComment = partComments[row.key]?.trim();
-    const result = await updatePartDecision({
-      partKey: row.key,
-      status: 'approved',
-      comment: partComment || undefined,
-    });
-
-    if (!isOk(result)) {
-      await load();
-      toast(`${completed}件を承認した後、${row.label}の保存に失敗しました。`, 'error', 6000);
-      return;
-    }
-
-    applySavedPartDecision(result.value);
-    completed++;
-  }
-
-  await load();
-  toastSuccess(`${completed}パーツを一括承認しました`);
-}
-
-
+const selectedNo = ref<number | null>(null);
 const visualRef = ref<InstanceType<typeof ReviewVisualCompare>>();
+const listRef = ref<InstanceType<typeof ReviewDecisionList>>();
 
 /**
- * 区画を開いた直後に `gotoPage` が呼ばれたときの待機 index。この区画は `loading` 中
- * `ReviewVisualCompare` を(`v-if="loading"` / `v-else-if="review"` で)まだマウントしておらず
- * `visualRef` が無い。ここへ積んで下の `watch(visualRef, …)` に委ね、マウント後に 1 回だけ
- * flush して `null` に戻す。組版そのものの準備待ち(`PreviewPanel` が描画を終えるまで)は
- * `ReviewVisualCompare` 側の `pendingPageIndex` が担うため、ここでは関知しない。
+ * コメントの宛先のキー。編集経路は確定版側のキー(`beforePartKey`。追加パーツは確定版に無いので
+ * null)、作成経路は確定版が無いので申請版のキー(`partKey`)。
+ */
+function commentKeyOf(c: ReviewChangeRow): string | null {
+  return isCreate.value ? c.partKey : c.beforePartKey;
+}
+
+function select(no: number): void {
+  const c = changes.value.find((x) => x.no === no);
+  if (!c) return;
+  selectedNo.value = no;
+  visualRef.value?.gotoPart(no);
+  void listRef.value?.revealNo(no);
+  emit('select', commentKeyOf(c), no);
+}
+
+/** コメント一覧などから宛先のキーでパーツを選ぶ。変更の無いキーは何もしない。 */
+function selectPart(commentKey: string): void {
+  const c = changes.value.find((x) => commentKeyOf(x) === commentKey);
+  if (c) select(c.no);
+}
+
+const nextNo = computed(() =>
+  nextPendingNo(changes.value, decisions.decisions.value, selectedNo.value),
+);
+
+function selectNextPending(): void {
+  if (nextNo.value !== null) select(nextNo.value);
+}
+
+const selectedKey = computed(() => {
+  const c = changes.value.find((x) => x.no === selectedNo.value);
+  return c ? commentKeyOf(c) : null;
+});
+
+const commentSlotProps = computed<CommentSlotProps>(() => {
+  const partNumbers = new Map<string, number>();
+  const partNames = new Map<string, string>();
+  for (const c of changes.value) {
+    const key = commentKeyOf(c);
+    if (key === null) continue;
+    partNumbers.set(key, c.no);
+    partNames.set(key, c.name);
+  }
+  return { selectedNo: selectedNo.value, selectedKey: selectedKey.value, partNumbers, partNames };
+});
+
+/**
+ * 変更の組の識別。読み直しで同じ組が届いたときは右欄を作り直さず(選択・書きかけを保つ)、
+ * 組が変わったときだけ `:key` で作り直す(表示窓と選択を新しい組に合わせ直すため)。
+ */
+const changesKey = computed(() => changes.value.map((c) => `${c.no}:${c.partKey}`).join('\n'));
+
+// 変更の組が変わったら、無くなった番号の選択を外す。
+watch(changesKey, () => {
+  if (selectedNo.value !== null && !changes.value.some((c) => c.no === selectedNo.value)) {
+    selectedNo.value = null;
+  }
+});
+
+// ── 2. 右欄のタブ ──
+
+const sideTab = ref<'decisions' | 'comments'>('decisions');
+const SIDE_TABS = [
+  { id: 'decisions', label: '変更と判定' },
+  { id: 'comments', label: 'コメント' },
+] as const;
+
+/**
+ * 道具の行の先頭の要素。`ReviewVisualCompare` のページ送りと紙面のチェックがここへ移る。要素が
+ * できる(この区画の描画が終わる)までは、紙面の上にその場で描かれる。
+ */
+const toolsEl = ref<HTMLElement | null>(null);
+
+// ── 3. ページ送り(コメント一覧の「行から該当ページへ」) ──
+
+/**
+ * 区画を開いた直後に `gotoPage` が呼ばれたときの待機 index。読み込み中は `ReviewVisualCompare` を
+ * まだマウントしていないので、ここへ積んで下の `watch(visualRef, …)` に委ね、マウント後に 1 回だけ
+ * 送って `null` に戻す。組版そのものの準備待ちは `ReviewVisualCompare` 側が担う。
  */
 const pendingIndex = ref<number | null>(null);
 
-/** 見た目比較へ切り替えて該当ページへ送る。`visualRef` が無ければ `pendingIndex` へ積んで待つ
- * (詳細は同 ref のコメント)。 */
 function gotoPage(index: number): void {
-  activeTab.value = 'visual';
   if (!visualRef.value) {
     pendingIndex.value = index;
     return;
   }
-  void nextTick(() => visualRef.value?.gotoPage(index));
+  visualRef.value.gotoPage(index);
 }
-// マウント後(`flush: 'post'`)にだけ子の `gotoPage` を呼べる。1 回 flush したら必ず
-// `pendingIndex` を `null` に戻し、以後の再マウントで同じ index を送り直さないようにする。
 watch(
   visualRef,
   (v) => {
@@ -394,74 +204,62 @@ watch(
   },
   { flush: 'post' },
 );
-// 読み込みのやり直しと失敗では待機 index を捨てる。失敗時は子がマウントされず index だけが
-// 残り、後の再読込で承認者が頼んでいないページ送りが 1 回起きるため。
-watch([loading, loadError], ([l, e]) => {
-  if (l || e) pendingIndex.value = null;
+// 読み込みの失敗では待機 index を捨てる。残ると後の再読込で頼んでいないページ送りが 1 回起きる。
+watch(loadError, (e) => {
+  if (e) pendingIndex.value = null;
 });
-defineExpose({ gotoPage });
 
-// `iframe` を中身の高さに合わせる(CompareResultView と共有)。高さは子からの postMessage
-// で受け取る — `sandbox="allow-scripts"`(same-origin なし)では親から `contentDocument` を
-// 読めないためで、読めないことがテンプレ JS を隔離したまま動かすための条件である。
-const { fitFrame } = useIframeAutoFit();
+// ── 4. 最終確定 ──
 
 /**
- * 変更箇所の色分けを面積上限(`MAX_LCS_CELLS`)で諦め、全文まとめての色分けに落ちたパーツか。
- * `ReviewPartRow` は presentation 用の写しでフラグ列を持たないため、着色済みマークアップから
- * 判定する。
+ * 最終確定を止める理由(未判定は判定バーが件数で出すので含めない)。文言はサーバの 400/409 と同じ
+ * (shared の `reviewFinalizationIssues`)。古い edit 申請は判定を当てる差分をサーバが作れないので、
+ * 判定があると確定できない。
  */
-function isCoarseRow(row: ReviewPartRow): boolean {
-  return hasCoarseDiff(row.beforeHtml, row.afterHtml);
+const blockedReasons = computed(() => {
+  const r = review.value;
+  return reviewFinalizationIssues({
+    pendingPartKeys: [],
+    unknownDecisionPartKeys: decisions.unknownDecisionPartKeys.value,
+    duplicateDecisionPartKeys: decisions.duplicateDecisionPartKeys.value,
+    truncated: truncated.value,
+    legacyDecisions:
+      r?.origin === 'edit' &&
+      (r.baseHtml === undefined || r.baseCss === undefined) &&
+      decisions.decisions.value.length > 0,
+  });
+});
+
+/**
+ * 最終確定できるか。`counts.pending`(判定バーの件数)と `pendingPartKeys`(最終候補の未判定)は
+ * どちらも差分の変更パーツを `partKey` で 1 つにまとめて数えるので同じ母集団だが、確定の可否は
+ * サーバと同じ候補側でも確かめる。
+ */
+const canFinalize = computed(
+  () => decisions.pendingPartKeys.value.length === 0 && blockedReasons.value.length === 0,
+);
+
+const REVIEW_ALREADY_DECIDED = 'REVIEW_ALREADY_DECIDED';
+
+/**
+ * 最終確定・申請ごと却下の失敗。ほかの人が先に決着させた(`REVIEW_ALREADY_DECIDED`)ときは
+ * 読み直して決着後の画面にする。ほかの失敗は `useAsyncResult` がサーバの文言を出すだけにする。
+ */
+async function onDecideFailed(code: string | undefined): Promise<void> {
+  if (code !== REVIEW_ALREADY_DECIDED) return;
+  await load();
+  toast('この申請はすでに処理されています。画面を読み直しました。', 'error');
 }
 
-function applySavedPartDecision(
-  saved: NonNullable<ReviewRequest['partDecisions']>[number],
-): void {
-  if (!review.value) return;
-
-  const decisions = review.value.partDecisions ?? [];
-  const exists = decisions.some((decision) => decision.partKey === saved.partKey);
-
-  review.value = {
-    ...review.value,
-    partDecisions: exists
-      ? decisions.map((decision) => (decision.partKey === saved.partKey ? saved : decision))
-      : [...decisions, saved],
-  };
-
-  partComments[saved.partKey] = saved.comment ?? '';
-}
-
-
-async function approve(): Promise<void> {
-  if (finalizationBlocked.value) {
-    toast(
-      otherFinalizationIssues.value[0] ??
-        '未判定の変更、または現在の差分と一致しない判定があるため、最終確定できません。',
-      'error',
-      6000,
-    );
-    return;
-  }
-
-  const targetRows = rows.value.filter((row) => row.status !== 'same');
-  const approvedCount = targetRows.filter(
-    (row) => partDecisionStatus(row) === 'approved',
-  ).length;
-  const rejectedCount = targetRows.filter(
-    (row) => partDecisionStatus(row) === 'rejected',
-  ).length;
-  const pendingCount = targetRows.filter(
-    (row) => partDecisionStatus(row) === 'pending',
-  ).length;
+async function finalize(): Promise<void> {
+  if (busy.value || !canFinalize.value || counts.value.pending > 0) return;
 
   const accepted = await confirm({
     title: 'この申請を最終確定しますか？',
     description:
-      `承認済みパーツ: ${approvedCount}件、` +
-      `却下済みパーツ: ${rejectedCount}件、` +
-      `未判定パーツ: ${pendingCount}件、` +
+      `承認済みパーツ: ${counts.value.approved}件、` +
+      `却下済みパーツ: ${counts.value.rejected}件、` +
+      `未判定パーツ: ${counts.value.pending}件、` +
       `書式設定の変更: ${cssChanged.value ? 'あり' : 'なし'}。\n` +
       '最終確定後はパーツ判定を変更できません。',
     confirmLabel: '最終確定する',
@@ -469,32 +267,35 @@ async function approve(): Promise<void> {
   });
   if (!accepted) return;
 
-  const res = await approveReview(comment.value.trim() || undefined);
-  if (isOk(res)) {
-    // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
-    if (res.value.staleWarning) {
-      toast(
-        '承認して反映しました。ただし申請後に現行版が変更されていました（同じテンプレの他の基準日の承認で CSS が変わった場合を含みます）。上書きした可能性があります。',
-        'default',
-        6000,
-      );
-    } else {
-      toastSuccess('承認しました（本番テンプレートへ反映しました）');
-    }
-
-    notifySyncResult(res.value.sync);
-    notifyNoteMasterResult(res.value.noteMaster);
-
-    // 承認の応答はテンプレートのメタしか持たない。決着後の申請は読み直して得る。
-    const decided = review.value;
-    await load();
-    emitDecided(decided, {
-      status: 'approved',
-      reviewedBy: auth.user?.username ?? null,
-      reviewedAt: new Date().toISOString(),
-      comment: comment.value.trim() || null,
-    });
+  // 申請全体の承認メモは送らない(承認の理由は書かせない。パーツの却下理由だけを残す)。
+  const res = await approveReview(undefined);
+  if (!isOk(res)) {
+    await onDecideFailed(res.error.code);
+    return;
   }
+  // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
+  if (res.value.staleWarning) {
+    toast(
+      '承認して反映しました。ただし申請後に現行版が変更されていました（同じテンプレの他の基準日の承認で CSS が変わった場合を含みます）。上書きした可能性があります。',
+      'default',
+      6000,
+    );
+  } else {
+    toastSuccess('承認しました（本番テンプレートへ反映しました）');
+  }
+
+  notifySyncResult(res.value.sync);
+  notifyNoteMasterResult(res.value.noteMaster);
+
+  // 承認の応答はテンプレートのメタしか持たない。決着後の申請は読み直して得る。
+  const before = review.value;
+  await load();
+  emitDecided(before, {
+    status: 'approved',
+    reviewedBy: auth.user?.username ?? null,
+    reviewedAt: new Date().toISOString(),
+    comment: null,
+  });
 }
 
 /**
@@ -548,29 +349,60 @@ function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): 
   );
 }
 
-async function reject() {
+// ── 5. 申請ごと却下 ──
+
+const requestRejectOpen = ref(false);
+const requestRejectText = ref('');
+const requestRejectError = ref(false);
+const requestRejectEl = ref<HTMLTextAreaElement | null>(null);
+watch(requestRejectText, (v) => {
+  if (v.trim()) requestRejectError.value = false;
+});
+
+/** 申請ごと却下の理由欄をカードの先頭に開き、入力欄へ移る(見出しのリンクから呼ばれる)。 */
+function openRequestReject(): void {
+  requestRejectOpen.value = true;
+  void nextTick().then(() => requestRejectEl.value?.focus());
+}
+
+function closeRequestReject(): void {
+  requestRejectOpen.value = false;
+  requestRejectText.value = '';
+  requestRejectError.value = false;
+}
+
+async function submitRequestReject(): Promise<void> {
+  if (busy.value) return;
   // 却下は申請者へ戻す操作 — 理由が残らないと編集者が直しようがないため必須にする。
-  if (!comment.value.trim()) {
-    rejectError.value = true;
-    commentEl.value?.focus();
+  const reason = requestRejectText.value.trim();
+  if (!reason) {
+    requestRejectError.value = true;
+    requestRejectEl.value?.focus();
     return;
   }
-  const res = await rejectReview(comment.value.trim());
-  if (isOk(res)) {
-    toastSuccess('却下しました');
-    const decided = review.value;
-    await load();
-    const { status, reviewedBy, reviewedAt, comment: reason } = res.value;
-    emitDecided(decided, { status, reviewedBy, reviewedAt, comment: reason });
+  const res = await rejectReview(reason);
+  if (!isOk(res)) {
+    await onDecideFailed(res.error.code);
+    return;
   }
+  toastSuccess('却下しました');
+  closeRequestReject();
+  const before = review.value;
+  await load();
+  const { status, reviewedBy, reviewedAt, comment } = res.value;
+  emitDecided(before, { status, reviewedBy, reviewedAt, comment });
 }
+
+defineExpose({ gotoPage, selectPart, openRequestReject });
+
+// ── 6. PDF ──
 
 // 通知バーの「PDF を開いて確認」の生成中フラグ。ボタンを disabled にして多重クリックを防ぐ
 // (`PreviewView` の `exporting` と同じパターン)。
 const pdfGenerating = ref(false);
 
 /**
- * 通知バーの「PDF を開いて確認」— 修正後 1 文書を既存の PDF 出力経路(`PreviewView` の
+ * 通知バーの「PDF を開いて確認」— 申請版 1 文書を既存の PDF 出力経路(`PreviewView` の
  * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は申請の記入済み
  * インスタンス(`review.filledHtml`)、無ければ diff 由来の申請版本文(`afterBodyHtml` +
  * `cssAfter`)。値の差込は申請側で済んでいるため `sample` は空でよい。新しい PDF
@@ -618,21 +450,11 @@ async function openPdf() {
   }
 }
 
-onMounted(async () => {
-  await load();
-  restorePartComments();
-});
-watch(
-  () => review.value?.partDecisions,
-  () => restorePartComments(),
-  { deep: true },
-);
-
-
+onMounted(load);
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div>
     <p
       v-if="loading && !review"
       class="flex items-center gap-2 text-sm text-muted-foreground"
@@ -643,381 +465,168 @@ watch(
       申請の読み込みに失敗しました。時間をおいて再度お試しください。
     </p>
 
-    <template v-else-if="review">
-
-      <!-- 変更要約 1 行(実差分由来)。 -->
-      <p class="text-sm">
-        変更されたのは
-        <strong>{{ summary.changed + summary.added + summary.removed }} か所</strong>
-        <template v-if="changedNames.length">
-          : <span class="font-medium text-accent-foreground">{{ changedNames.join('、') }}</span>
-        </template>
-      </p>
-
-      <!-- 技術的警告 4 種(truncated / printOnlyCss / cssChanged / 行打ち切り)は 1 行へ集約。 -->
-      <ReviewNoticeBar
-        :css-changed="cssChanged"
-        :shared-across-base-dates="review?.origin === 'edit'"
-        :css-before="cssBefore"
-        :css-after="cssAfter"
-        :print-only-css="printOnlyCss"
-        :truncated="truncated"
-        :pdf-generating="pdfGenerating"
-        @open-pdf="openPdf"
-      />
-
-      <!-- タブ切替: 見た目比較(既定) / 文字の変更を一覧で見る -->
-      <div class="flex items-center gap-1.5">
-        <Button
-          :variant="activeTab === 'visual' ? 'default' : 'outline'"
-          :aria-pressed="activeTab === 'visual'"
-          size="sm"
-          @click="activeTab = 'visual'"
-        >
-          {{ review.origin === 'create' ? '見た目を確認' : '見た目で比較' }}
-
-        </Button>
-        <Button
-          :variant="activeTab === 'text' ? 'default' : 'outline'"
-          :aria-pressed="activeTab === 'text'"
-          size="sm"
-          @click="activeTab = 'text'"
-        >
-          文字の変更を一覧で見る
-        </Button>
-      </div>
-
+    <section
+      v-else-if="review && diff"
+      data-review-card
+      class="flex flex-col overflow-hidden rounded-[12px] border bg-card"
+    >
+      <!-- 1. 申請ごと却下(見出しのリンクから開く例外の操作。最終確定の隣には置かない)。 -->
       <div
-  v-if="pendingPartKeys.length > 0"
-  class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
->
-  {{ pendingPartNotice }}
-</div>
-
-
-      <div
-        v-if="unknownDecisionPartKeys.length > 0"
-        class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-        >
-        現在の差分対象と一致しない保存済み判定が
-        {{ unknownDecisionPartKeys.length }} 件あります。最終確定できません。
-      </div>
-
-      <div
-        v-for="issue in otherFinalizationIssues"
-        :key="issue"
-        data-finalization-issue
-        class="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        v-if="requestRejectOpen && canDecide"
+        data-request-reject
+        class="flex flex-wrap items-start gap-3 border-b bg-destructive/5 px-3 py-2"
       >
-        {{ issue }}
-      </div>
-
-
-      <ReviewVisualCompare
-        v-if="activeTab === 'visual'"
-        ref="visualRef"
-        :before-html="beforeBodyHtml"
-        :after-html="reviewedBodyHtml"
-        :before-marker-part-keys="beforeMarkerPartKeys"
-        :after-marker-part-keys="afterMarkerPartKeys"
-        :css-before="cssBefore"
-        :css-after="cssAfter"
-        :changed-page-indexes="changedPageIndexes"
-        :before-page-count="beforePageCount"
-        :after-page-count="undefined"
-        :is-create="review.origin === 'create'"
-        :company-code="companyCodeOfTemplateId(review.templateId)"
-      />
-
-      <template v-else>
-        <!-- 表示トグル -->
-        <div class="flex flex-wrap items-center gap-3">
-          <span class="text-sm font-medium">
-            変更パーツ {{ summary.changed + summary.added + summary.removed }} 件
-            <span class="text-muted-foreground">
-              （変更{{ summary.changed }} / 追加{{ summary.added }} / 削除{{ summary.removed }}）
-            </span>
-          </span>
-
-          <span class="text-xs text-muted-foreground">
-            判定:
-            承認待ち {{ partDecisionCounts.pending }} 件 /
-            承認済み {{ partDecisionCounts.approved }} 件 /
-            却下済み {{ partDecisionCounts.rejected }} 件
-          </span>
-
+        <div class="grid min-w-0 flex-1 gap-1">
+          <label class="text-xs font-bold" :for="`request-reject-${reqId}`">
+            申請ごと却下する理由（必須）
+          </label>
+          <textarea
+            :id="`request-reject-${reqId}`"
+            ref="requestRejectEl"
+            v-model="requestRejectText"
+            rows="2"
+            placeholder="直してほしい点を書きます"
+            :aria-invalid="requestRejectError || undefined"
+            class="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            :class="requestRejectError ? 'border-destructive' : 'border-input'"
+          />
+          <p v-if="requestRejectError" role="alert" class="text-xs text-destructive">
+            理由を入力してください。
+          </p>
+          <p class="text-xs text-muted-foreground">何も確定せずに申請全体を申請者へ戻します</p>
+        </div>
+        <div class="grid gap-1.5">
           <Button
-            v-if="canDecide"
-            type="button"
             size="sm"
             variant="outline"
-            :disabled="partDecisionCounts.pending === 0 || deciding"
-            @click="approvePendingParts"
-            >
-            <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <Check v-else class="h-4 w-4" />
-              未判定を一括承認
-          </Button>
-
-          <label class="ml-auto flex cursor-pointer items-center gap-1.5">
-            <Checkbox v-model="showUnchanged" />
-            <span class="text-xs">変更なしも表示</span>
-          </label>
-        </div>
-
-
-        <!-- 「変更なし」の空状態は CSS も同一のときだけ出す(CSS が変わっていれば通知バーが
-             一級の変更として伝えるので、HTML パーツ差分が 0 でも「差分なし」とは言わない)。 -->
-        <EmptyState
-          v-if="visibleRows.length === 0 && !cssChanged"
-          :icon="ClipboardCheck"
-          title="表示できる差分がありません"
-          :hint="
-            showUnchanged
-              ? 'このテンプレートにはパーツがありません。'
-              : '現行版と差分がありません（変更なし）。'
-          "
-        />
-
-        <!-- パーツ行リスト(パーツ = 1 行・変更前 | 変更後)。行は `renderedRows`(cap 済み・
-             srcdoc は 1 度だけ組み立て済み)を回す。 -->
-        <ul v-else-if="renderedRows.length" class="space-y-3">
-          <li
-            v-for="r in renderedRows"
-            :key="r.row.key"
-            class="rounded-[12px] border bg-card shadow-sm"
+            class="border-destructive/50 text-destructive"
+            :disabled="busy"
+            @click="submitRequestReject"
           >
-            <div class="flex items-center gap-2 border-b px-4 py-2">
-              <span class="text-sm font-bold">{{ r.row.label }}</span>
-              <Badge :variant="STATUS_BADGE[r.row.status].variant">
-                {{ STATUS_BADGE[r.row.status].label }}
-              </Badge>
-              <!-- 差分自体は必ず出す。着色を諦めた旨だけ控えめに添える。 -->
-              <span
-                v-if="isCoarseRow(r.row)"
-                class="text-xs text-muted-foreground"
-                title="この箇所は変更が大きいため、変わった文字ごとの色分けはせず全文を並べています。"
-              >
-                この箇所は変更が大きいため、変わった文字の色付けはせず全文を並べています
-              </span>
-            </div>
-
-            <!-- 本文テキストの語句差分。**親アプリの DOM に、エスケープして描く** — 下の
-                 着色プレビューは申請者 CSS を載せた iframe なので、申請者は自分の要素へ
-                 display/opacity/transform/font-size/@media 等を当てて変更を隠せる。ここは
-                 textContent 由来で CSS の影響を受けないため、隠された変更もそのまま現れる。
-                 これが承認判断の正典で、iframe プレビューは見た目確認の補助。 -->
-            <div v-if="r.row.textOps.length" class="border-b px-4 py-2">
-              <div class="mb-1 text-xs font-medium text-muted-foreground">
-                本文の変更（申請者のスタイルに影響されない照合。確定・保存される差分）
-              </div>
-              <p class="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
-                <template v-for="(op, i) in r.row.textOps" :key="i">
-                  <del
-                    v-if="op.type === 'del'"
-                    class="rounded-sm bg-red-100 text-red-800 line-through"
-                    >{{ op.text }}</del
-                  >
-                  <ins
-                    v-else-if="op.type === 'ins'"
-                    class="rounded-sm bg-green-100 text-green-800 no-underline"
-                    >{{ op.text }}</ins
-                  >
-                  <span v-else>{{ op.text }}</span>
-                </template>
-              </p>
-            </div>
-            <div class="grid gap-3 p-3 md:grid-cols-2">
-              <figure class="space-y-1">
-                <figcaption class="text-xs text-muted-foreground">
-                  {{ review.origin === 'create' ? '追加前（白紙）' : '変更前（現行版）' }}
-                </figcaption>
-
-                <div
-                  v-if="r.row.status === 'added'"
-                  class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
-                >
-                  （なし・新規追加）
-                </div>
-                <div v-else class="overflow-hidden rounded border bg-white">
-                  <!-- sandbox は必須。srcdoc の中身は申請者が書いた HTML/CSS である。
-                       テンプレの JS は正当なコンテンツで、承認者は「JS が効いた実行結果」を
-                       見て承認するので**動かす**(止めると承認していない見た目が確定する)。
-                       よって `allow-scripts` は許すが、同一オリジン相当の権限は**付けない** —
-                       両方を同時に付けると子は親オリジンの DOM へ到達でき sandbox が無効化
-                       される。高さは子からの postMessage で受ける(`useIframeAutoFit`)。 -->
-                  <iframe
-                    :srcdoc="r.beforeDoc"
-                    sandbox="allow-scripts"
-                    title="変更前"
-                    class="block w-full"
-                    style="height: 120px; border: 0"
-                    @load="fitFrame"
-                  />
-                </div>
-              </figure>
-              <figure class="space-y-1">
-                <figcaption class="text-xs text-muted-foreground">
-                  {{ review.origin === 'create' ? '申請内容' : '変更後（申請版）' }}
-                </figcaption>
-
-                <div
-                  v-if="r.row.status === 'removed'"
-                  class="grid place-items-center rounded border border-dashed bg-muted/30 py-8 text-xs text-muted-foreground"
-                >
-                  （なし・削除）
-                </div>
-                <div v-else class="overflow-hidden rounded border bg-white">
-                  <!-- sandbox の意図は「変更前」ペインと同じ(上のコメントを見よ)。 -->
-                  <iframe
-                    :srcdoc="r.afterDoc"
-                    sandbox="allow-scripts"
-                    title="変更後"
-                    class="block w-full"
-                    style="height: 120px; border: 0"
-                    @load="fitFrame"
-                  />
-                </div>
-              </figure>
-            </div>
-            <div
-  v-if="r.row.status !== 'same'"
-  class="space-y-3 border-t bg-muted/20 px-4 py-3"
->
-  <div class="flex flex-wrap items-center gap-2">
-    <span class="text-sm font-bold">パーツ判定</span>
-    <Badge
-      :variant="
-        partDecisionStatus(r.row) === 'approved'
-          ? 'success'
-          : partDecisionStatus(r.row) === 'rejected'
-            ? 'destructive'
-            : 'warning'
-      "
-    >
-      {{
-        partDecisionStatus(r.row) === 'approved'
-          ? '承認済み'
-          : partDecisionStatus(r.row) === 'rejected'
-            ? '却下済み'
-            : '承認待ち'
-      }}
-    </Badge>
-  </div>
-
-  <label class="block space-y-1">
-    <span class="text-xs font-medium">判定メモ</span>
-    <textarea
-      v-model="partComments[r.row.key]"
-      rows="2"
-      placeholder="このパーツの判定メモを入力します。却下時は理由の入力が必要です。"
-      :disabled="!canDecide"
-      class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-    />
-  </label>
-
-  <div class="flex flex-wrap items-center justify-end gap-2">
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      :disabled="!canDecide || partDecisionStatus(r.row) === 'rejected' || deciding"
-      @click="rejectPartRow(r.row)"
-    >
-      <X class="h-4 w-4" />
-      {{
-        partDecisionStatus(r.row) === 'rejected'
-          ? '却下済み'
-          : partDecisionStatus(r.row) === 'approved'
-            ? '却下へ変更'
-            : '却下する'
-      }}
-    </Button>
-
-    <Button
-      type="button"
-      size="sm"
-      :disabled="!canDecide || partDecisionStatus(r.row) === 'approved' || deciding"
-      @click="approvePartRow(r.row)"
-    >
-      <Check class="h-4 w-4" />
-      {{
-        partDecisionStatus(r.row) === 'approved'
-          ? '承認済み'
-          : partDecisionStatus(r.row) === 'rejected'
-            ? '承認へ変更'
-            : '承認する'
-      }}
-    </Button>
-  </div>
-</div>
-
-          </li>
-        </ul>
-      </template>
-
-      <!-- 承認/却下(精査者のみ・pending のみ) -->
-      <div
-        v-if="canDecide"
-        data-review-decision
-        class="space-y-2 rounded-[12px] border bg-muted/30 p-4"
-      >
-        <label class="text-sm font-medium" :for="`review-comment-${reqId}`">
-          却下理由（却下するときは必須です）
-        </label>
-        <textarea
-          :id="`review-comment-${reqId}`"
-          ref="commentEl"
-          v-model="comment"
-          rows="2"
-          placeholder="却下理由を入力します。"
-          :aria-invalid="rejectError || undefined"
-          class="w-full rounded-md border bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          :class="rejectError ? 'border-destructive' : 'border-input'"
-        />
-        <p v-if="rejectError" role="alert" class="text-xs text-destructive">
-          却下には理由の入力が必要です。
-        </p>
-        <div class="flex items-center justify-end gap-2">
-          <!-- 一括承認は文字の変更タブにもある。見た目比較タブからも最終確定まで進めるよう、
-               未判定が残る間だけここにも出す。 -->
-          <Button
-            v-if="partDecisionCounts.pending > 0"
-            variant="outline"
-            :disabled="deciding"
-            @click="approvePendingParts"
-          >
-            <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <Check v-else class="h-4 w-4" /> 未判定を一括承認
+            申請を却下する
           </Button>
-          <Button variant="outline" :disabled="deciding" @click="reject">
-            <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <X v-else class="h-4 w-4" /> 却下する
-          </Button>
-          <Button :disabled="deciding || finalizationBlocked" @click="approve">
-            <Loader2 v-if="deciding" class="h-4 w-4 animate-spin" />
-            <Check v-else class="h-4 w-4" /> 最終確定する
-          </Button>
+          <Button size="sm" variant="ghost" @click="closeRequestReject">取消</Button>
         </div>
       </div>
 
-      <!-- 処理済み(承認/却下)or 閲覧のみ -->
+      <!-- 2. 道具の行。ページ送り・変更のあるページ・紙面のチェックは `ReviewVisualCompare` が
+           `toolbarTo` でこの行の先頭へ移す。 -->
+      <div
+        data-review-tools
+        class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2"
+      >
+        <div ref="toolsEl" class="flex min-w-0 flex-1 basis-[28rem]" />
+        <!-- 技術的警告(truncated / printOnlyCss / cssChanged)は 1 つの通知へ集約。 -->
+        <ReviewNoticeBar
+          class="basis-full"
+          :css-changed="cssChanged"
+          :shared-across-base-dates="review?.origin === 'edit'"
+          :css-before="cssBefore"
+          :css-after="cssAfter"
+          :print-only-css="printOnlyCss"
+          :truncated="truncated"
+          :pdf-generating="pdfGenerating"
+          @open-pdf="openPdf"
+        />
+      </div>
+
+      <!-- 3. 作業域。高さを決め、左右それぞれの内側でスクロールする。 -->
+      <div
+        data-review-work
+        class="grid h-[min(78vh,860px)] grid-cols-[minmax(0,1fr)_420px]"
+      >
+        <div class="min-h-0 min-w-0 overflow-hidden p-3">
+          <ReviewVisualCompare
+            ref="visualRef"
+            :diff="diff"
+            :changes="changes"
+            :decisions="decisions.decisions.value"
+            :css-before="cssBefore"
+            :css-after="cssAfter"
+            :is-create="isCreate"
+            :company-code="companyCodeOfTemplateId(review.templateId)"
+            :selected-no="selectedNo"
+            :toolbar-to="toolsEl"
+            @select="select"
+          />
+        </div>
+        <aside class="flex min-h-0 min-w-0 flex-col border-l">
+          <div role="tablist" class="flex shrink-0 border-b" aria-label="右欄の表示">
+            <button
+              v-for="t in SIDE_TABS"
+              :key="t.id"
+              type="button"
+              role="tab"
+              :aria-selected="sideTab === t.id"
+              :data-side-tab="t.id"
+              class="flex-1 border-b-2 px-3 py-2 text-[12.5px] font-bold"
+              :class="
+                sideTab === t.id
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              "
+              @click="sideTab = t.id"
+            >
+              {{ t.label }}
+            </button>
+          </div>
+          <!-- 右欄の一覧は自分のスクロール容器を持つので、高さの決まった枠に置く。タブを切り替えても
+               スクロール位置と書きかけを保つよう、v-show で残す。 -->
+          <div v-show="sideTab === 'decisions'" role="tabpanel" class="min-h-0 flex-1">
+            <ReviewDecisionList
+              :key="changesKey"
+              ref="listRef"
+              :changes="changes"
+              :decisions="decisions.decisions.value"
+              :selected-no="selectedNo"
+              :can-decide="canDecide"
+              :busy="busy"
+              @select="select"
+              @approve="decisions.approve"
+              @reject="decisions.reject"
+              @undo="decisions.undo"
+            />
+          </div>
+          <div
+            v-show="sideTab === 'comments'"
+            role="tabpanel"
+            class="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <slot name="comments" v-bind="commentSlotProps" />
+          </div>
+        </aside>
+      </div>
+
+      <!-- 4. 下端の判定バー(精査者のみ・承認待ちのみ)。決着済み・閲覧のみはその旨の行。 -->
+      <ReviewDecisionBar
+        v-if="canDecide"
+        :counts="counts"
+        :next-no="nextNo"
+        :blocked-reasons="blockedReasons"
+        :can-finalize="canFinalize"
+        :busy="busy"
+        @next="selectNextPending"
+        @finalize="finalize"
+      />
       <div
         v-else-if="review.status !== 'pending'"
-        class="rounded-[12px] border bg-muted/30 p-4 text-sm"
+        class="border-t bg-muted/30 px-3 py-2 text-sm"
       >
         この申請は
         <span class="font-medium">
           {{ DECIDED_STATUS_LABEL[review.status as 'approved' | 'rejected'] }}
         </span>
         です（{{ review.reviewedBy }}・{{ formatDateTimeShort(review.reviewedAt) }}）。
-        <span v-if="review.comment && review.status === 'rejected'" class="block text-muted-foreground">
+        <span
+          v-if="review.comment && review.status === 'rejected'"
+          class="block text-muted-foreground"
+        >
           却下理由: {{ review.comment }}
         </span>
       </div>
-      <p v-else class="text-sm text-muted-foreground">
+      <p v-else class="border-t px-3 py-2 text-sm text-muted-foreground">
         承認操作には精査者(承認者)権限が必要です。
       </p>
-    </template>
+    </section>
   </div>
 </template>

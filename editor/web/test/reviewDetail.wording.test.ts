@@ -20,11 +20,13 @@ describe('ReviewDetail の構成', () => {
     expect(view).toContain('同じテンプレの他の基準日の承認で CSS が変わった場合');
   });
 
-  it('通知バー・見た目比較・却下を組み込み、保留を持たない', () => {
+  it('通知バー・紙面・右欄・判定バー・申請ごと却下を組み込み、保留を持たない', () => {
     expect(view).toContain('ReviewNoticeBar');
     expect(view).toContain('ReviewVisualCompare');
+    expect(view).toContain('ReviewDecisionList');
+    expect(view).toContain('ReviewDecisionBar');
     expect(view).toContain(`:shared-across-base-dates="review?.origin === 'edit'"`);
-    expect(view).toContain('却下する');
+    expect(view).toContain('申請を却下する');
     expect(view).not.toContain('保留');
     expect(view).not.toContain('held');
   });
@@ -34,9 +36,33 @@ describe('ReviewDetail の構成', () => {
     expect(view).not.toContain('router.push');
   });
 
-  it('差分行 iframe の sandbox 構成を変えていない', () => {
-    expect(view).toContain('sandbox="allow-scripts"');
+  it('独自の iframe を作らない(紙面は ReviewVisualCompare の PreviewPanel が持つ)', () => {
+    expect(view).not.toContain('<iframe');
     expect(view).not.toContain('allow-same-origin');
+  });
+
+  it('モックの用語を使う', () => {
+    const cmp = src('features/reviews/ReviewVisualCompare.vue');
+    expect(cmp).toContain('変更前（現行版）');
+    expect(cmp).toContain('変更後（申請版）');
+    expect(view).toContain('却下済み');
+  });
+
+  it('旧画面の文言・D1 に反する文言・「差し戻し」系を使わない', () => {
+    for (const word of [
+      '修正前',
+      '修正後',
+      '判定メモ',
+      '承認へ変更',
+      '却下へ変更',
+      '未判定を一括承認',
+      'コメントとしても投稿',
+      '差し戻',
+      '見た目で比較',
+      '文字の変更を一覧で見る',
+    ]) {
+      expect(view, word).not.toContain(word);
+    }
   });
 });
 

@@ -68,20 +68,22 @@ interface ReviewDiffData {
   cssBefore: string;
   /** after ペイン(申請版)のファンド CSS。 */
   cssAfter: string;
-  /** before(現行版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の左面に渡す。 */
+  /**
+   * before(現行版)の本文全体 HTML。承認タブの紙面(`ReviewVisualCompare`)は `diff` から組むので
+   * 今は使わない。
+   */
   beforeBodyHtml: string;
-  /** after(申請版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の右面に渡す。 */
+  /** after(申請版)の本文全体 HTML。承認タブの「PDF を開いて確認」が記入済み HTML の代わりに使う。 */
   afterBodyHtml: string;
   /**
-   * 変更のあったページの index(0 始まり。`buildHtmlDiff` の `diff.pages` 由来)。
-   * 見た目比較(`ReviewVisualCompare`)がマーカー・アンカーを付けるページの集合になる。
+   * 変更のあったページの index(0 始まり。`buildHtmlDiff` の `diff.pages` 由来)。承認タブの
+   * 「変更のあるページ」は紙面が返す物理ページで出すので、今は使わない。
    */
   changedPageIndexes: number[];
   /**
    * diff 計算(`buildHtmlDiff`)が数えた before/after 各面の期待ページ数
-   * (`HtmlDiff.beforePageCount`/`afterPageCount`)。見た目比較(`buildCompareDocs`)が
-   * 文書から数えたページ数と突き合わせ、不一致(CSS の page-break 欠落等でページ分割が
-   * 潰れた場合)なら誤ったページへのマーカー誘導を避けるため無印へ degrade する。
+   * (`HtmlDiff.beforePageCount`/`afterPageCount`)。承認タブの紙面は物理ページ数を子から受けるので、
+   * 今は使わない。
    */
   beforePageCount: number;
   afterPageCount: number;

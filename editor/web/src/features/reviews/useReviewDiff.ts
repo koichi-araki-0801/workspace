@@ -33,15 +33,12 @@ export function useReviewDiff(reqId: () => string) {
   const summary = ref<ReviewChangeSummary>({ total: 0, changed: 0, added: 0, removed: 0 });
   const cssBefore = ref('');
   const cssAfter = ref('');
-  /** 見た目比較(`ReviewVisualCompare`)へ渡す before/after の本文全体 HTML。 */
+  /** before/after の本文全体 HTML。after は「PDF を開いて確認」が使う。 */
   const beforeBodyHtml = ref('');
   const afterBodyHtml = ref('');
-  /** 変更のあったページの index(0 始まり。`diff.pages` 由来)。見た目比較のマーカー対象。 */
+  /** 変更のあったページの index(0 始まり。`diff.pages` 由来)。 */
   const changedPageIndexes = ref<number[]>([]);
-  /**
-   * diff が数えた before/after 各面の期待ページ数。見た目比較(`buildCompareDocs`)の
-   * ページ数不一致 degrade へ渡す(load 未完了時は undefined = 検査しない)。
-   */
+  /** diff が数えた before/after 各面の期待ページ数(load 未完了時は undefined)。 */
   const beforePageCount = ref<number | undefined>(undefined);
   const afterPageCount = ref<number | undefined>(undefined);
 
