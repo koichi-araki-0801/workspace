@@ -371,12 +371,12 @@ test('capture review screens (申請 → 承認タブ → 判定 → 編集画�
   await expect(page.locator('[data-rejected-reason]').first()).toContainText(REJECT_REASON, {
     timeout: 30_000,
   });
-  // 修正履歴は e2e サーバの `logs/history/part.jsonl`(dataRoot の外。実行をまたいで残る)にも
-  // 積もるので、却下の理由の枠は右ペインの下の方に来うる。枠を右ペインの中ほどへ送って撮る。
+  // 修正履歴は e2e サーバの実行ごとの `.tmp/e2e-rest-logs`(起動時に消す)に積まれるので、過去の
+  // 実行の分は写らない。① の見出しと却下の理由の枠が両方見えるよう、見出しを右ペインの先頭へ送る。
   await page
-    .locator('[data-rejected-reason]')
+    .locator('[data-history-heading]')
     .first()
-    .evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    .evaluate((el) => el.scrollIntoView({ block: 'start' }));
   await waitForStableBox(page, markers.first());
   await waitForTransitionsSettled(page);
   await page.screenshot({ path: IMG('editor-marks.png'), animations: 'disabled' });
