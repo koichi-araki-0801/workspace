@@ -154,7 +154,9 @@ function onPick(e: Event) {
           class="rounded-sm bg-green-100 text-green-800 no-underline"
           >{{ op.text }}</ins
         >
-        <span v-else>{{ op.text }}</span>
+        <!-- 変わらない部分は HTML の字下げ由来の改行・空白の並びを 1 つに詰めて読ませる(表示だけ)。
+             足した・消した部分は詰めない — 空白だけの変更を隠さないため。 -->
+        <span v-else>{{ op.text.replace(/\s+/g, ' ') }}</span>
       </template>
     </p>
     <!-- 差分自体は必ず出す。着色を諦めた旨だけ控えめに添える(今の承認画面の文言)。 -->

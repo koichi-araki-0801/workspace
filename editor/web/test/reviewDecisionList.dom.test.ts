@@ -153,6 +153,24 @@ describe('ReviewDecisionList — 行と判定', () => {
     expect(w.text().split(desc)).toHaveLength(2);
   });
 
+  it('変わらない部分の連続する空白は 1 つに詰め、足した・消した部分の空白は残す', () => {
+    const w = mountList({
+      changes: [
+        change(1, {
+          textOps: [
+            { type: 'same', text: 'a\n      b' },
+            { type: 'ins', text: '\n    ' },
+            { type: 'del', text: 'x  \n y' },
+          ],
+        }),
+      ],
+    });
+    const r = row(w, 1);
+    expect(r.find('p span').element.textContent).toBe('a b');
+    expect(r.find('ins').element.textContent).toBe('\n    ');
+    expect(r.find('del').element.textContent).toBe('x  \n y');
+  });
+
   it('粗い差分の行には注記を出す', () => {
     const w = mountList({ changes: [change(1, { coarse: true }), change(2)] });
     expect(row(w, 1).text()).toContain(
