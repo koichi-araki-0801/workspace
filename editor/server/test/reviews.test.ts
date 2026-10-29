@@ -864,6 +864,13 @@ d('review workflow (reviewRepo)', () => {
         kind: 'validation',
         message: '作成タブの最終確定には値入りHTMLが必要です',
       });
+      // 値入り HTML が空(画面のプレビューの描画が終わる前・描画の失敗)は、構造の不一致と分けて返す。
+      for (const empty of ['', '  \n']) {
+        await expect(submitCreate('XX01_720018_交付版', empty)).rejects.toMatchObject({
+          kind: 'validation',
+          message: 'プレビューの描画が終わってから申請してください',
+        });
+      }
       await expect(
         submitCreate(
           'XX01_720017_交付版',

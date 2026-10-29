@@ -156,9 +156,17 @@ onMounted(async () => {
 // 編集タブ(query なし) / 作成タブ(`?created=1`)の区別。申請に保持し 2 系統を保つ。
 const origin = computed<ReviewOrigin>(() => routeOrigin(route.query));
 
+/**
+ * 作成経路は描画したプレビュー(`previewDoc`)を申請の値入り HTML として送り、サーバは原文と
+ * パーツの構造を比べる。描画の前・描画の失敗で空のまま送ると申請が 400 になるので、描けるまで
+ * 申請させない。編集経路は値入り HTML を要らないので今のまま。
+ */
+const SUBMIT_WAIT_HINT = 'プレビューの描画が終わってから申請できます';
+const waitingPreview = computed(() => origin.value === 'create' && !previewDoc.value);
+
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
-  if (!template.value || submitting.value) return;
+  if (!template.value || submitting.value || waitingPreview.value) return;
   // 作成経路だけ、範囲の印の両消しで黙って消えた Jinja のブロックを確認の説明で知らせる。
   const loss =
     origin.value === 'create' ? jinjaBlockLossNotice(template.value.html, restoredHtml.value) : null;
@@ -326,7 +334,19 @@ async function exportPdf() {
         <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
         <FileDown v-else class="h-4 w-4" /> PDF出力
       </Button>
-      <Button size="sm" :disabled="submitting || loadFailed" @click="submitForReview">
+      <!-- 読み込み中は本文の上の表示が状態を出すので、理由は読み込みが終わってからだけ出す。 -->
+      <span
+        v-if="waitingPreview && !loadingPreview && !loadFailed"
+        data-submit-wait-hint
+        class="text-xs text-muted-foreground"
+        >{{ SUBMIT_WAIT_HINT }}</span
+      >
+      <Button
+        size="sm"
+        :disabled="submitting || loadFailed || waitingPreview"
+        :title="waitingPreview ? SUBMIT_WAIT_HINT : undefined"
+        @click="submitForReview"
+      >
         <Loader2 v-if="submitting" class="h-4 w-4 animate-spin" />
         <Send v-else class="h-4 w-4" /> 確定保存を申請
       </Button>

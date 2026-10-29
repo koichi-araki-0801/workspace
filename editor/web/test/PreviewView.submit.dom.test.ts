@@ -11,11 +11,12 @@ import { REPOS_KEY } from '@/api/repositories';
 import PreviewView from '@/features/preview/PreviewView.vue';
 import { useEditorSessionStore } from '@/stores/editorSession';
 
-const { loadForPreview, computeChangedSummary } = vi.hoisted(() => ({
+const { loadForPreview, computeChangedSummary, route } = vi.hoisted(() => ({
   loadForPreview: vi.fn(),
   computeChangedSummary: vi.fn(),
+  route: { query: {} as Record<string, string> },
 }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({}) }));
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter: () => ({}) }));
 vi.mock('@/components/ui/toast', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 import { toastError } from '@/components/ui/toast';
@@ -57,7 +58,7 @@ const tpl: Template = {
   filled: '<p>x</p>',
 };
 
-function stubLoad() {
+function stubLoad(over: { previewDoc?: string; renderError?: string | null } = {}) {
   loadForPreview.mockResolvedValue(
     ok({
       template: tpl,
@@ -69,6 +70,7 @@ function stubLoad() {
       renderError: null,
       hasDraft: false,
       isFilled: true,
+      ...over,
     }),
   );
 }
@@ -99,6 +101,36 @@ beforeEach(() => {
   sessionStorage.clear();
   loadForPreview.mockReset();
   computeChangedSummary.mockReset();
+  route.query = {};
+});
+
+describe('作成経路はプレビューが描けるまで申請できない', () => {
+  const hint = 'プレビューの描画が終わってから申請できます';
+
+  it('作成経路で描画に失敗して本文が空なら、申請ボタンを止めて理由を出す', async () => {
+    route.query = { created: '1' };
+    stubLoad({ previewDoc: '', renderError: 'テンプレートの描画に失敗しました' });
+    const { w, reviews } = await mountView();
+    expect(submitButton(w)?.attributes('disabled')).toBeDefined();
+    expect(submitButton(w)?.attributes('title')).toBe(hint);
+    expect(w.find('[data-submit-wait-hint]').text()).toBe(hint);
+    await submitButton(w)?.trigger('click');
+    await flushPromises();
+    expect(reviews.submitReview).not.toHaveBeenCalled();
+  });
+
+  it('作成経路でも本文が描けていれば押せ、編集経路は本文が空でも今のまま押せる', async () => {
+    route.query = { created: '1' };
+    stubLoad();
+    const created = await mountView();
+    expect(submitButton(created.w)?.attributes('disabled')).toBeUndefined();
+    expect(created.w.find('[data-submit-wait-hint]').exists()).toBe(false);
+    route.query = {};
+    stubLoad({ previewDoc: '', renderError: 'テンプレートの描画に失敗しました' });
+    const edited = await mountView();
+    expect(submitButton(edited.w)?.attributes('disabled')).toBeUndefined();
+    expect(edited.w.find('[data-submit-wait-hint]').exists()).toBe(false);
+  });
 });
 
 describe('確定保存の申請', () => {

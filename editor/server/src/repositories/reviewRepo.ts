@@ -213,6 +213,9 @@ function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<stri
 function assertCreateReviewable(html: string, filledHtml: string | undefined): void {
   const sourceKeys = extractReviewParts(html).map((part) => part.partKey);
   if (filledHtml === undefined) throw validation('作成タブの最終確定には値入りHTMLが必要です');
+  // 画面は描画したプレビューを値入り HTML として送る。空なのは描画の前・描画の失敗で、構造の
+  // 不一致と言うと利用者が直すところを探せないので分けて返す。
+  if (filledHtml.trim() === '') throw validation('プレビューの描画が終わってから申請してください');
   const filledKeys = extractReviewParts(filledHtml).map((part) => part.partKey);
   if (
     sourceKeys.length !== filledKeys.length ||

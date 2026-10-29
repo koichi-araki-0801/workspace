@@ -12,12 +12,20 @@
 // 本文を返す。
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { extractReviewParts, ok, type ReviewRequest } from '@editor/shared';
+import {
+  applyTemplateAttributes,
+  extractReviewParts,
+  ok,
+  type ReviewRequest,
+  sampleCommon,
+} from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompareService } from '@/features/compare/services/compareService';
 import { createReviewDiffService } from '@/features/reviews/services/reviewDiffService';
+import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorkerImpl } from '@/workers/htmlWorkerImpl';
+import { renderJinja } from './helpers/renderJinja';
 
 // jsdom では Worker を起こせないので、worker の中身(linkedom の実装)を直接呼ぶ。
 vi.mock('@/workers', () => ({
@@ -96,5 +104,27 @@ describe('作成経路の申請の判定のキー', () => {
       expect(await screenKeys(n, false)).toEqual(source);
     },
     30_000,
+  );
+
+  // 申請の受付(サーバの `assertCreateReviewable`)は、原文と値入り HTML のパーツの構造を
+  // `extractReviewParts` で比べる。画面が送る値入り HTML は、プレビューの画面
+  // (`templatePreviewService.ts` の `loadForPreview`)が原文を共通サンプルで描画して文書に組んだもの。
+  it.each(names)(
+    '%s: 画面が送る形の値入り HTML でも、受付が原文とパーツの構造を同じと見る',
+    (n) => {
+      const source = read('templates', n);
+      const [company, fund, , edition] = n.replace(/\.html$/, '').split('_');
+      const sample = applyTemplateAttributes(sampleCommon, {
+        companyCode: company ?? '',
+        fundCode: fund ?? '',
+        editionType: edition ?? '',
+      });
+      const rendered = renderJinja(source, sample);
+      expect(rendered.error).toBeNull();
+      const filledHtml = assemblePreviewDocument(rendered.html, cssOf(n));
+      expect(extractReviewParts(filledHtml).map((p) => p.partKey)).toEqual(
+        extractReviewParts(source).map((p) => p.partKey),
+      );
+    },
   );
 });
