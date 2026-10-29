@@ -8,6 +8,8 @@ import {
   buildReviewedHtmlCandidate,
   type HtmlDiff,
   isErr,
+  REVIEW_ALREADY_DECIDED,
+  REVIEW_PART_DECISION_TRANSITION,
   type Result,
   type ReviewPartDecision,
   type ReviewRequest,
@@ -28,7 +30,8 @@ export function useReviewDecisions(ctx: {
   diff: Ref<HtmlDiff | null>;
   changes: Ref<ReviewChangeRow[]>;
   save: (input: UpdateReviewPartDecisionsRequest) => Promise<Result<ReviewPartDecision[]>>;
-  reload: () => Promise<void>;
+  /** 読み直す。読めたら true(「画面を読み直しました」と言ってよいか)。 */
+  reload: () => Promise<boolean>;
 }): {
   decisions: ComputedRef<ReviewPartDecision[]>;
   counts: ComputedRef<DecisionCounts>;
@@ -59,11 +62,13 @@ export function useReviewDecisions(ctx: {
   );
 
   async function failed(error: AppError): Promise<false> {
-    await ctx.reload();
-    if (error.code === 'REVIEW_PART_DECISION_TRANSITION') {
-      toast('ほかの方が判定を変えました。画面を読み直しました。', 'error');
-    } else if (error.code === 'REVIEW_ALREADY_DECIDED') {
-      toast('この申請はすでに処理されています。画面を読み直しました。', 'error');
+    const reloaded = await ctx.reload();
+    // 読み直しに失敗したときは「読み直しました」と言わない(読み込みの失敗は別に知らされる)。
+    const tail = reloaded ? '画面を読み直しました。' : '';
+    if (error.code === REVIEW_PART_DECISION_TRANSITION) {
+      toast(`ほかの方が判定を変えました。${tail}`, 'error');
+    } else if (error.code === REVIEW_ALREADY_DECIDED) {
+      toast(`この申請はすでに処理されています。${tail}`, 'error');
     } else {
       toast('パーツ判定の保存に失敗しました。', 'error');
     }

@@ -18,7 +18,6 @@ import {
   HL_COARSE,
   HL_DEL,
   HL_INS,
-  hasCoarseDiff,
   hasPrintOnlyRules,
   MAX_LCS_CELLS,
   MAX_LCS_DIM,
@@ -160,21 +159,7 @@ describe('buildHtmlDiff の粗いフォールバック', () => {
   });
 });
 
-describe('hasCoarseDiff(承認画面の行判定)', () => {
-  it('削除側・挿入側どちらの塊でも検出する', () => {
-    expect(hasCoarseDiff(`<span class="${HL_DEL} ${HL_COARSE}">x</span>`)).toBe(true);
-    expect(hasCoarseDiff(`<span class="${HL_INS} ${HL_COARSE}">x</span>`)).toBe(true);
-    // 複数ペインをまとめて渡せる(片方だけ粗くても true)。
-    expect(hasCoarseDiff('', `<span class="${HL_INS} ${HL_COARSE}">x</span>`)).toBe(true);
-  });
-
-  it('通常の語句着色や無着色では false', () => {
-    expect(
-      hasCoarseDiff(`<span class="${HL_DEL}">old</span>`, `<span class="${HL_INS}">new</span>`),
-    ).toBe(false);
-    expect(hasCoarseDiff('')).toBe(false);
-  });
-
+describe('簡易表示の塊', () => {
   it('簡易表示の塊は iframe 内でも見分けが付く(CSS 規則がある)', () => {
     expect(diffHighlightCss(14)).toContain(`.${HL_COARSE}{`);
   });

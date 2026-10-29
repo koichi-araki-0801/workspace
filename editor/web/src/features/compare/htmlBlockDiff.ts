@@ -70,18 +70,6 @@ export function diffHighlightCss(bodyPadding: number): string {
 }
 
 /**
- * 着色済みマークアップが粗いフォールバック(`HL_COARSE`)を含むか。承認画面は `DiffBlock` を
- * presentation 用の行(`ReviewPartRow`)へ写す際にフラグ列を落とすため、表示側は着色結果の
- * 字面から判定する(比較画面は `DiffPage.coarse` を直接使える)。本文テキストに同じ字面が
- * 含まれると誤検知しうるが、出るのは注記 1 行だけなので実害はない。
- */
-export function hasCoarseDiff(...htmls: string[]): boolean {
-  return htmls.some(
-    (h) => h.includes(`${HL_DEL} ${HL_COARSE}`) || h.includes(`${HL_INS} ${HL_COARSE}`),
-  );
-}
-
-/**
  * 差分装飾を置く CSS カスケードレイヤの名前を 1 文書ぶん作る。**推測不能**であることが要件。
  *
  * 申請者は自分の CSS に任意のレイヤを書けるので、名前が既知だと

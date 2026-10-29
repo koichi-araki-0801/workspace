@@ -14,7 +14,7 @@ import type {
   UpdateReviewPartDecisionsRequest,
 } from '@editor/shared';
 
-import { isErr } from '@editor/shared';
+import { isErr, REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION } from '@editor/shared';
 import { ref } from 'vue';
 import { useReviewRepo } from '@/api/repositories';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -33,14 +33,8 @@ export function useReviewDiff(reqId: () => string) {
   const summary = ref<ReviewChangeSummary>({ total: 0, changed: 0, added: 0, removed: 0 });
   const cssBefore = ref('');
   const cssAfter = ref('');
-  /** before/after の本文全体 HTML。after は「PDF を開いて確認」が使う。 */
-  const beforeBodyHtml = ref('');
+  /** after(申請版)の本文全体 HTML。「PDF を開いて確認」が使う。 */
   const afterBodyHtml = ref('');
-  /** 変更のあったページの index(0 始まり。`diff.pages` 由来)。 */
-  const changedPageIndexes = ref<number[]>([]);
-  /** diff が数えた before/after 各面の期待ページ数(load 未完了時は undefined)。 */
-  const beforePageCount = ref<number | undefined>(undefined);
-  const afterPageCount = ref<number | undefined>(undefined);
 
   /** 資源上限で差分に出せなかった領域があるか(承認者へ必ず見せる)。 */
   const truncated = ref(false);
@@ -50,13 +44,16 @@ export function useReviewDiff(reqId: () => string) {
   const printOnlyCss = ref(false);
   const loadError = ref(false);
 
-  /** 申請を読み、現行版と diff してパーツ行・集計・CSS を状態へ載せる。失敗は loadError に倒す。 */
-  async function load(): Promise<void> {
+  /**
+   * 申請を読み、現行版と diff してパーツ行・集計・CSS を状態へ載せる。失敗は loadError に倒す。
+   * 読めたかを返す(読み直しのあとに「画面を読み直しました」と言ってよいかの判定に使う)。
+   */
+  async function load(): Promise<boolean> {
     loadError.value = false;
     const res = await runLoad(() => diffService.buildDiff(reqId()));
     if (isErr(res)) {
       loadError.value = true;
-      return;
+      return false;
     }
     review.value = res.value.review;
     changes.value = res.value.changes;
@@ -64,32 +61,40 @@ export function useReviewDiff(reqId: () => string) {
     summary.value = res.value.summary;
     cssBefore.value = res.value.cssBefore;
     cssAfter.value = res.value.cssAfter;
-    beforeBodyHtml.value = res.value.beforeBodyHtml;
     afterBodyHtml.value = res.value.afterBodyHtml;
-    changedPageIndexes.value = res.value.changedPageIndexes;
-
-    beforePageCount.value = res.value.beforePageCount;
-    afterPageCount.value = res.value.afterPageCount;
     truncated.value = res.value.truncated;
     cssChanged.value = res.value.cssChanged;
     printOnlyCss.value = res.value.printOnlyCss;
+    return true;
   }
+
+  /**
+   * 判定・最終確定・申請ごと却下の失敗のうち、呼び出し側が読み直して自分の文言で知らせるもの。
+   * `useAsyncResult` のトースト(サーバの文言)と二重に出さないよう黙らせる。
+   */
+  const DECIDE_QUIET_CODES = [REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION];
 
   /** 承認(実ファイル反映)。反映後メタ + 並行性警告を Result で返す(遷移/トーストは View)。 */
   function approve(comment?: string): Promise<Result<ApproveReviewResult>> {
-    return runDecide(() => reviews.approveReview(reqId(), { comment }));
+    return runDecide(() => reviews.approveReview(reqId(), { comment }), {
+      quietCodes: DECIDE_QUIET_CODES,
+    });
   }
 
   /** 却下(実ファイル非更新)。 */
   function reject(comment?: string): Promise<Result<ReviewRequestMeta>> {
-    return runDecide(() => reviews.rejectReview(reqId(), { comment }));
+    return runDecide(() => reviews.rejectReview(reqId(), { comment }), {
+      quietCodes: DECIDE_QUIET_CODES,
+    });
   }
 
   /** パーツ判定をまとめて保存し、保存後の判定(応答の `partDecisions`)を返す。 */
   function updatePartDecisions(
     input: UpdateReviewPartDecisionsRequest,
   ): Promise<Result<ReviewPartDecision[]>> {
-    return runDecide(() => reviews.updatePartDecisions(reqId(), input));
+    return runDecide(() => reviews.updatePartDecisions(reqId(), input), {
+      quietCodes: DECIDE_QUIET_CODES,
+    });
   }
 
   return {
@@ -99,11 +104,7 @@ export function useReviewDiff(reqId: () => string) {
     summary,
     cssBefore,
     cssAfter,
-    beforeBodyHtml,
     afterBodyHtml,
-    changedPageIndexes,
-    beforePageCount,
-    afterPageCount,
     truncated,
     cssChanged,
     printOnlyCss,

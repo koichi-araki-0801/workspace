@@ -4,9 +4,20 @@
 // diffService(`buildDiff`)と reviewRepo(`approveReview`/`rejectReview`)をモックし、
 // 「load 成功で状態反映」「load 失敗で loadError」「承認/却下の repo 呼び出し」を固定する。
 // composable はライフサイクル非依存(useAsyncResult も同様)なので直接呼び出して検証できる。
-import { err, notFound, ok } from '@editor/shared';
+import {
+  appError,
+  err,
+  notFound,
+  ok,
+  REVIEW_ALREADY_DECIDED,
+  REVIEW_PART_DECISION_TRANSITION,
+} from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { toastError } from '@/components/ui/toast';
 import { useReviewDiff } from '@/features/reviews/useReviewDiff';
+
+vi.mock('@/components/ui/toast', () => ({ toastError: vi.fn() }));
+vi.mock('@/lib/appError', () => ({ logError: vi.fn() }));
 
 const buildDiff = vi.fn();
 const approveReviewFn = vi.fn();
@@ -31,9 +42,7 @@ const diffData = {
   summary: { total: 1, changed: 1, added: 0, removed: 0 },
   cssBefore: '.b{}',
   cssAfter: '.a{}',
-  beforeBodyHtml: '<p>before</p>',
   afterBodyHtml: '<p>after</p>',
-  changedPageIndexes: [0],
 };
 
 beforeEach(() => {
@@ -41,13 +50,14 @@ beforeEach(() => {
   approveReviewFn.mockReset();
   rejectReviewFn.mockReset();
   updatePartDecisionsFn.mockReset();
+  vi.mocked(toastError).mockClear();
 });
 
 describe('useReviewDiff', () => {
   it('load 成功で申請・行・集計・CSS を状態へ載せる', async () => {
     buildDiff.mockResolvedValue(ok(diffData));
     const d = useReviewDiff(() => 'r1');
-    await d.load();
+    expect(await d.load()).toBe(true);
 
     expect(buildDiff).toHaveBeenCalledWith('r1');
     expect(d.review.value?.id).toBe('r1');
@@ -56,9 +66,7 @@ describe('useReviewDiff', () => {
     expect(d.summary.value.changed).toBe(1);
     expect(d.cssBefore.value).toBe('.b{}');
     expect(d.cssAfter.value).toBe('.a{}');
-    expect(d.beforeBodyHtml.value).toBe('<p>before</p>');
     expect(d.afterBodyHtml.value).toBe('<p>after</p>');
-    expect(d.changedPageIndexes.value).toEqual([0]);
     expect(d.loadError.value).toBe(false);
     expect(d.loading.value).toBe(false);
   });
@@ -66,7 +74,7 @@ describe('useReviewDiff', () => {
   it('load 失敗で loadError を立て、状態は初期のまま', async () => {
     buildDiff.mockResolvedValue(err(notFound('no request')));
     const d = useReviewDiff(() => 'rX');
-    await d.load();
+    expect(await d.load()).toBe(false);
 
     expect(d.loadError.value).toBe(true);
     expect(d.review.value).toBeNull();
@@ -97,5 +105,24 @@ describe('useReviewDiff', () => {
 
     expect(updatePartDecisionsFn).toHaveBeenCalledWith('r1', input);
     expect(res.ok && res.value[0].partKey).toBe('k#1');
+  });
+
+  it('判定・最終確定・申請ごと却下は、読み直して知らせる code ではサーバの文言をトーストしない', async () => {
+    const d = useReviewDiff(() => 'r1');
+    for (const code of [REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION]) {
+      const failure = err(appError('conflict', 'サーバの文言', { code }));
+      approveReviewFn.mockResolvedValue(failure);
+      rejectReviewFn.mockResolvedValue(failure);
+      updatePartDecisionsFn.mockResolvedValue(failure);
+      await d.approve();
+      await d.reject('NG');
+      await d.updatePartDecisions({ decisions: [] });
+    }
+    expect(toastError).not.toHaveBeenCalled();
+
+    // ほかの失敗は今までどおりサーバの文言を出す。
+    approveReviewFn.mockResolvedValue(err(appError('unexpected', '反映に失敗しました')));
+    await d.approve();
+    expect(toastError).toHaveBeenCalledWith('反映に失敗しました');
   });
 });

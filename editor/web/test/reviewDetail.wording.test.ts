@@ -49,6 +49,11 @@ describe('ReviewDetail の構成', () => {
   });
 
   it('旧画面の文言・D1 に反する文言・「差し戻し」系を使わない', () => {
+    // 通知バーは申請カードの道具の行に並ぶので、同じ用語の決まりで見る。
+    const notice = src('features/reviews/ReviewNoticeBar.vue');
+    for (const word of ['修正前', '修正後', 'コメントとしても投稿', '差し戻']) {
+      expect(notice, `ReviewNoticeBar: ${word}`).not.toContain(word);
+    }
     for (const word of [
       '修正前',
       '修正後',

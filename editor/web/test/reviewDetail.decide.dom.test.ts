@@ -11,6 +11,7 @@ import {
   err,
   numberChangedParts,
   ok,
+  REVIEW_ALREADY_DECIDED,
   type ReviewPartDecision,
   type ReviewRequest,
   type ReviewRequestMeta,
@@ -136,8 +137,14 @@ function decision(partKey: string, status: ReviewPartDecision['status']): Review
   } as ReviewPartDecision;
 }
 
-function data(opts: { review?: Partial<ReviewRequest>; truncated?: boolean } = {}) {
-  const diff = buildHtmlDiff(BEFORE, AFTER);
+function data(
+  opts: {
+    review?: Partial<ReviewRequest>;
+    truncated?: boolean;
+    pair?: [before: string, after: string];
+  } = {},
+) {
+  const diff = buildHtmlDiff(...(opts.pair ?? [BEFORE, AFTER]));
   const changes: ReviewChangeRow[] = numberChangedParts(diff).map((c) => ({
     ...c,
     name: `名前${c.no}`,
@@ -150,11 +157,7 @@ function data(opts: { review?: Partial<ReviewRequest>; truncated?: boolean } = {
     summary: { total: changes.length, changed: 1, added: 1, removed: 0 },
     cssBefore: '',
     cssAfter: '.a{}',
-    beforeBodyHtml: BEFORE,
     afterBodyHtml: '<p>{{ 描画済みの本文 }}</p>',
-    changedPageIndexes: [0, 1],
-    beforePageCount: 2,
-    afterPageCount: 2,
     truncated: opts.truncated ?? false,
     cssChanged: false,
     printOnlyCss: false,
@@ -298,6 +301,45 @@ describe('ReviewDetail の判定と選択', () => {
     for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('2');
   });
 
+  it('選択中のパーツをもう一度押すと選択が外れ、select と slot の selectedKey が null に戻る', async () => {
+    serve(data());
+    const seen: { selectedNo: number | null; selectedKey: string | null }[] = [];
+    const w = await mountDetail({
+      slots: {
+        comments: (props: { selectedNo: number | null; selectedKey: string | null }) => {
+          seen.push(props);
+          return h('div');
+        },
+      },
+    });
+    await readyPanels();
+    panels[1].emit('part-click', '1');
+    await flushPromises();
+    expect(seen.at(-1)).toMatchObject({
+      selectedNo: 1,
+      selectedKey: data().changes[0].beforePartKey,
+    });
+
+    // 紙面で同じパーツをもう一度押す。
+    panels[1].emit('part-click', '1');
+    await flushPromises();
+    expect(row(w, 1).attributes('data-selected')).toBe('false');
+    expect(w.emitted('select')?.at(-1)).toEqual([null, null]);
+    expect(seen.at(-1)).toMatchObject({ selectedNo: null, selectedKey: null });
+
+    // 右欄の行でも同じ(選んで、もう一度押すと外れる)。
+    await row(w, 1).find('[data-review-name]').trigger('click');
+    await row(w, 1).find('[data-review-name]').trigger('click');
+    await flushPromises();
+    expect(w.emitted('select')?.at(-1)).toEqual([null, null]);
+
+    // 次の未判定は外さない(未判定が同じ番号でも選び直す)。
+    await w.find('[data-next-pending]').trigger('click');
+    await w.find('[data-next-pending]').trigger('click');
+    await flushPromises();
+    expect(w.emitted('select')?.at(-1)?.[1]).not.toBeNull();
+  });
+
   it('selectPart は宛先のキーからそのパーツを選ぶ', async () => {
     serve(data());
     const w = await mountDetail();
@@ -338,6 +380,8 @@ describe('ReviewDetail の申請カード', () => {
     serve(data());
     const w = await mountDetail({ attach: true });
     await flushPromises();
+    // 外枠は承認タブの区画が持つので、カードには枠を描かない(枠の二重を避ける)。
+    expect(w.find('[data-review-card]').classes()).not.toContain('border');
     const tools = w.find('[data-review-tools]');
     expect(tools.find('[data-page-prev]').exists()).toBe(true);
     expect(tools.find('[data-highlight-toggle]').exists()).toBe(true);
@@ -381,11 +425,41 @@ describe('ReviewDetail の申請カード', () => {
     const w = await mountDetail();
     expect(panels).toHaveLength(1);
     expect(w.find('figcaption').text()).toBe('申請内容');
-    // 作成経路の宛先は申請版のキー。
+    // 作成経路の宛先は申請版のキー。追加パーツは確定版に無いので宛先にならない。
     await readyPanels();
+    panels[0].emit('part-click', '1');
+    await flushPromises();
+    expect(w.emitted('select')?.at(-1)).toEqual([data().changes[0].partKey, 1]);
     panels[0].emit('part-click', '2');
     await flushPromises();
-    expect(w.emitted('select')?.at(-1)).toEqual([data().changes[1].partKey, 2]);
+    expect(w.emitted('select')?.at(-1)).toEqual([null, 2]);
+  });
+
+  it('作成経路でも、確定版の別パーツとキーが重なる追加パーツは宛先にしない', async () => {
+    // 既存パーツの前に同じタグのパーツを足すと、追加パーツの申請版のキーが確定版の既存パーツの
+    // キーと同じになる(ここでは `p#2`。既存の「既存の文」は確定版で `p#2`)。
+    const pair: [string, string] = [
+      `<p>A</p>${pb}<p>既存の文</p>`,
+      `<p>A</p><p>追加した文</p>${pb}<p>既存の文</p>`,
+    ];
+    const d = data({ review: { origin: 'create' }, pair });
+    const added = d.changes.find((c) => c.kind === 'added');
+    expect(added?.partKey).toBe('p#2');
+    serve(d);
+    const seen: { partNumbers: Map<string, number> }[] = [];
+    const w = await mountDetail({
+      slots: {
+        comments: (props: { partNumbers: Map<string, number> }) => {
+          seen.push(props);
+          return h('div');
+        },
+      },
+    });
+    await readyPanels();
+    panels[0].emit('part-click', String(added?.no));
+    await flushPromises();
+    expect(w.emitted('select')?.at(-1)).toEqual([null, added?.no]);
+    expect(seen.at(-1)?.partNumbers.has('p#2')).toBe(false);
   });
 
   it('決着済みは判定バーを出さず、行は読み取り専用', async () => {
@@ -442,29 +516,87 @@ describe('ReviewDetail の最終確定', () => {
     expect(repo.approveReview).not.toHaveBeenCalled();
   });
 
-  it('最終確定・申請ごと却下が REVIEW_ALREADY_DECIDED で失敗したら読み直して「この申請はすでに処理されています。」を出す', async () => {
-    const decidedErr = err(
-      appError('conflict', 'この申請は既に承認済みです', { code: 'REVIEW_ALREADY_DECIDED' }),
-    );
-    repo.approveReview.mockResolvedValue(decidedErr);
-    repo.rejectReview.mockResolvedValue(decidedErr);
+  /** ほかの人が先に決着させた申請(読み直しで届く形)。 */
+  const decidedBy = (status: 'approved' | 'rejected') =>
+    data({
+      review: {
+        status,
+        reviewedBy: 'other',
+        reviewedAt: '2026-10-03T00:00:00.000Z',
+        comment: status === 'rejected' ? '先に却下' : null,
+      },
+    });
+  const decidedErr = () =>
+    err(appError('conflict', 'この申請は既に承認済みです', { code: REVIEW_ALREADY_DECIDED }));
 
-    serve(allApproved());
+  it('最終確定・申請ごと却下が REVIEW_ALREADY_DECIDED で失敗したら読み直して「この申請はすでに処理されています。」を出す', async () => {
+    // 最終確定: 読み直した決着(ほかの人の承認)を親へ伝え、トーストは 1 つだけ。
+    repo.approveReview.mockResolvedValue(decidedErr());
+    serve(allApproved(), decidedBy('approved'));
     const w = await mountDetail();
     await w.find('[data-finalize]').trigger('click');
     await flushPromises();
     expect(buildDiff).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(toast)).toHaveBeenCalledWith(ALREADY, 'error');
-    expect(w.emitted('decided')).toBeUndefined();
+    expect(vi.mocked(toast).mock.calls).toEqual([[ALREADY, 'error']]);
+    expect(vi.mocked(toastError)).not.toHaveBeenCalled();
+    let decided = w.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
+    expect(decided).toMatchObject({ id: 'r1', status: 'approved', reviewedBy: 'other' });
+    expect(decided).not.toHaveProperty('html');
+    expect(w.find('[data-decision-bar]').exists()).toBe(false);
 
+    // 申請ごと却下: 同じく読み直した決着(ほかの人の却下)を伝える。
     vi.mocked(toast).mockClear();
-    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
+    repo.rejectReview.mockResolvedValue(decidedErr());
+    serve(data(), decidedBy('rejected'));
+    const w2 = await mountDetail();
+    (w2.vm as unknown as { openRequestReject(): void }).openRequestReject();
     await flushPromises();
-    await w.find('[data-request-reject] textarea').setValue('直してください');
-    await buttonIn(w.find('[data-request-reject]'), '申請を却下する')?.trigger('click');
+    await w2.find('[data-request-reject] textarea').setValue('直してください');
+    await buttonIn(w2.find('[data-request-reject]'), '申請を却下する')?.trigger('click');
     await flushPromises();
-    expect(buildDiff).toHaveBeenCalledTimes(3);
-    expect(vi.mocked(toast)).toHaveBeenCalledWith(ALREADY, 'error');
+    expect(vi.mocked(toast).mock.calls).toEqual([[ALREADY, 'error']]);
+    expect(vi.mocked(toastError)).not.toHaveBeenCalled();
+    decided = w2.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
+    expect(decided).toMatchObject({ status: 'rejected', reviewedBy: 'other', comment: '先に却下' });
+  });
+
+  it('REVIEW_ALREADY_DECIDED のあとの読み直しに失敗したら「読み直しました」と言わず、決着も伝えない', async () => {
+    repo.approveReview.mockResolvedValue(decidedErr());
+    serve(allApproved());
+    const w = await mountDetail();
+    buildDiff.mockResolvedValue(err(appError('unexpected', '読めません')));
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(toast)).toHaveBeenCalledWith('この申請はすでに処理されています。', 'error');
+    expect(w.emitted('decided')).toBeUndefined();
+  });
+
+  it('読み直しの最中は最終確定を押せない', async () => {
+    repo.approveReview.mockResolvedValue(decidedErr());
+    serve(allApproved());
+    const w = await mountDetail();
+    let finish: (v: unknown) => void = () => {};
+    buildDiff.mockImplementation(
+      () =>
+        new Promise((r) => {
+          finish = r;
+        }),
+    );
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(w.find('[data-finalize]').attributes('disabled')).toBeDefined();
+    finish(ok(structuredClone(allApproved())));
+    await flushPromises();
+    expect(w.find('[data-finalize]').attributes('disabled')).toBeUndefined();
+  });
+
+  it('押せない状態で判定バーから finalize が届いても approveReview を呼ばない', async () => {
+    serve(data());
+    const w = await mountDetail();
+    w.findComponent({ name: 'ReviewDecisionBar' }).vm.$emit('finalize');
+    await flushPromises();
+    expect(vi.mocked(confirm)).not.toHaveBeenCalled();
+    expect(repo.approveReview).not.toHaveBeenCalled();
   });
 
   it('最終確定のほかの失敗は今の文言のまま', async () => {
@@ -568,6 +700,20 @@ describe('ReviewDetail の申請ごと却下', () => {
     expect(decided?.comment).toBe('直してください');
     expect(decided).not.toHaveProperty('html');
     w.unmount();
+  });
+
+  it('申請ごと却下の送信中は「申請を却下する」「取消」を押せない', async () => {
+    serve(data());
+    repo.rejectReview.mockImplementation(() => new Promise(() => {}));
+    const w = await mountDetail();
+    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
+    await flushPromises();
+    await w.find('[data-request-reject] textarea').setValue('理由');
+    await buttonIn(w.find('[data-request-reject]'), '申請を却下する')?.trigger('click');
+    await flushPromises();
+    const area = w.find('[data-request-reject]');
+    expect(buttonIn(area, '申請を却下する')?.attributes('disabled')).toBeDefined();
+    expect(buttonIn(area, '取消')?.attributes('disabled')).toBeDefined();
   });
 
   it('取消で理由欄を閉じる', async () => {
@@ -706,7 +852,7 @@ describe('ReviewDetail の承認後の通知と読み込み', () => {
 
   it('読み直しで変更の組が変わったら、無くなった番号の選択を外す', async () => {
     const decidedErr = err(
-      appError('conflict', 'この申請は既に承認済みです', { code: 'REVIEW_ALREADY_DECIDED' }),
+      appError('conflict', 'この申請は既に承認済みです', { code: REVIEW_ALREADY_DECIDED }),
     );
     repo.approveReview.mockResolvedValue(decidedErr);
     const first = allApproved();
@@ -721,5 +867,7 @@ describe('ReviewDetail の承認後の通知と読み込み', () => {
     await flushPromises();
     expect(row(w, 2).exists()).toBe(false);
     expect(w.find('[data-review-row-no][data-selected="true"]').exists()).toBe(false);
+    // 親(コメントの宛先)にも選択が外れたことを知らせる。
+    expect(w.emitted('select')?.at(-1)).toEqual([null, null]);
   });
 });

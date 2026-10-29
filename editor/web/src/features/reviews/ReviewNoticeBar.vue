@@ -76,7 +76,7 @@ const count = computed(
       <li v-if="printOnlyCss" data-notice-item class="border-t border-amber-200 pt-2">
         <p class="font-medium">画面では確認できない印刷用の書式が含まれています</p>
         <p class="mt-1 text-xs text-amber-800">
-          一部の書式は PDF にしたときだけ反映されます。紙面の「修正後」は PDF と同じ仕組みで
+          一部の書式は PDF にしたときだけ反映されます。紙面の「変更後（申請版）」は PDF と同じ仕組みで
           表示していますが、心配な場合は
           <button
             type="button"

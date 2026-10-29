@@ -68,25 +68,8 @@ interface ReviewDiffData {
   cssBefore: string;
   /** after ペイン(申請版)のファンド CSS。 */
   cssAfter: string;
-  /**
-   * before(現行版)の本文全体 HTML。承認タブの紙面(`ReviewVisualCompare`)は `diff` から組むので
-   * 今は使わない。
-   */
-  beforeBodyHtml: string;
   /** after(申請版)の本文全体 HTML。承認タブの「PDF を開いて確認」が記入済み HTML の代わりに使う。 */
   afterBodyHtml: string;
-  /**
-   * 変更のあったページの index(0 始まり。`buildHtmlDiff` の `diff.pages` 由来)。承認タブの
-   * 「変更のあるページ」は紙面が返す物理ページで出すので、今は使わない。
-   */
-  changedPageIndexes: number[];
-  /**
-   * diff 計算(`buildHtmlDiff`)が数えた before/after 各面の期待ページ数
-   * (`HtmlDiff.beforePageCount`/`afterPageCount`)。承認タブの紙面は物理ページ数を子から受けるので、
-   * 今は使わない。
-   */
-  beforePageCount: number;
-  afterPageCount: number;
   /**
    * 資源上限で差分に現れなかった領域があるか。**承認者へ必ず伝える**。
    * 承認すると確定書込は申請本文を全文書くので、ここが真のまま承認されると
@@ -228,12 +211,7 @@ export function createReviewDiffService(
         summary,
         cssBefore: before.css,
         cssAfter: after.css,
-        beforeBodyHtml: before.html,
         afterBodyHtml: after.html,
-
-        changedPageIndexes: diff.pages.filter((p) => p.changed).map((p) => p.index),
-        beforePageCount: diff.beforePageCount,
-        afterPageCount: diff.afterPageCount,
         truncated: diff.truncated,
         cssChanged: normalizeCssForCompare(before.css) !== normalizeCssForCompare(after.css),
         printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),

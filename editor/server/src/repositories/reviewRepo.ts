@@ -20,6 +20,8 @@ import {
   parseAnyTemplateFileName,
   parseSkeletonFileName,
   parseTemplateFileName,
+  REVIEW_ALREADY_DECIDED,
+  REVIEW_PART_DECISION_TRANSITION,
   type ReviewDecisionRequest,
   type ReviewOrigin,
   type ReviewPartDecision,
@@ -155,7 +157,7 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
 function assertUndecided(review: ReviewRequest): void {
   if (review.status === 'approved' || review.status === 'rejected')
     throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`, {
-      code: 'REVIEW_ALREADY_DECIDED',
+      code: REVIEW_ALREADY_DECIDED,
     });
 }
 
@@ -373,7 +375,7 @@ export function createReviewRepo({
         if (refused.length > 0) {
           throw conflict(
             `許されていない判定の変更があります: ${refused.join(', ')}。画面を読み直してください。`,
-            { code: 'REVIEW_PART_DECISION_TRANSITION' },
+            { code: REVIEW_PART_DECISION_TRANSITION },
           );
         }
 

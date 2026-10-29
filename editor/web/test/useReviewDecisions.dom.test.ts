@@ -11,7 +11,7 @@ const dec = (k: string, status: string): ReviewPartDecision =>
 
 function setup(saveResult: unknown) {
   const save = vi.fn().mockResolvedValue(saveResult);
-  const reload = vi.fn().mockResolvedValue(undefined);
+  const reload = vi.fn().mockResolvedValue(true);
   const review = ref({ partDecisions: [dec('a#1', 'rejected')] } as unknown as ReviewRequest);
   const d = useReviewDecisions({
     review,
@@ -84,6 +84,16 @@ describe('useReviewDecisions', () => {
       'この申請はすでに処理されています。画面を読み直しました。',
       'error',
     );
+  });
+
+  it.each([
+    ['REVIEW_PART_DECISION_TRANSITION', 'ほかの方が判定を変えました。'],
+    ['REVIEW_ALREADY_DECIDED', 'この申請はすでに処理されています。'],
+  ])('%s で読み直しにも失敗したら「画面を読み直しました」と言わない', async (code, text) => {
+    const { d, reload } = setup(err(appError('conflict', 'x', { code })));
+    reload.mockResolvedValue(false);
+    expect(await d.approve(['a#1'])).toBe(false);
+    expect(toastFn).toHaveBeenCalledWith(text, 'error');
   });
 
   it('code の無い 409 は保存の失敗として扱う', async () => {
@@ -162,6 +172,7 @@ describe('useReviewDecisions', () => {
     const review = ref({ partDecisions: [dec('a#1', 'rejected')] } as unknown as ReviewRequest);
     const reload = vi.fn(async () => {
       review.value = { partDecisions: [dec('b#1', 'approved')] } as unknown as ReviewRequest;
+      return true;
     });
     const d = useReviewDecisions({
       review,

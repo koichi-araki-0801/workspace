@@ -2,7 +2,8 @@
 // =============================================================================
 // ReviewDetail.vue — 承認タブの申請カード(左右の紙面・右欄・判定バー・申請ごと却下)
 // =============================================================================
-// 申請 1 件を 1 枚のカードに組む。上から、申請ごと却下の理由欄(開いたときだけ)、道具の行
+// 申請 1 件を 1 枚のカードに組む(外枠は承認タブのアコーディオンの区画が持つので、ここでは枠を
+// 描かない)。上から、申請ごと却下の理由欄(開いたときだけ)、道具の行
 // (ページ送り・通知バー・紙面のチェック)、作業域(左 = 左右の紙面 `ReviewVisualCompare`、
 // 右 = 420px の欄でタブ「変更と判定｜コメント」)、下端の判定バー(`ReviewDecisionBar`)。
 // 作業域は高さを決めた枠で、紙面と右欄はそれぞれ内側でスクロールし、判定バーは常に見える。
@@ -16,6 +17,7 @@
 import {
   type ApproveReviewResult,
   isOk,
+  REVIEW_ALREADY_DECIDED,
   type ReviewRequest,
   type ReviewRequestMeta,
   reviewFinalizationIssues,
@@ -44,7 +46,8 @@ import { useReviewDiff } from './useReviewDiff';
 const props = defineProps<{ reqId: string }>();
 const emit = defineEmits<{
   decided: [meta: ReviewRequestMeta];
-  select: [commentKey: string | null, no: number];
+  /** 選択が外れたときは `(null, null)`。 */
+  select: [commentKey: string | null, no: number | null];
 }>();
 
 /** `#comments` に渡す値。番号と名前のキーはコメントの宛先のキー(`commentKeyOf`)。 */
@@ -93,8 +96,11 @@ const DECIDED_STATUS_LABEL: Record<'approved' | 'rejected', string> = {
 
 // pending は精査者が操作できる。処理済み(承認/却下)は閲覧のみ。
 const canDecide = computed(() => auth.isApprover && review.value?.status === 'pending');
-/** 判定の保存中と、最終確定・申請ごと却下の処理中。どちらの間も操作を受け付けない。 */
-const busy = computed(() => saving.value || deciding.value);
+/**
+ * 判定の保存中、最終確定・申請ごと却下の処理中、読み直しの最中。どの間も操作を受け付けない
+ * (読み直しの最中に押すと、古い画面のまま送ることになる)。
+ */
+const busy = computed(() => saving.value || deciding.value || loading.value);
 const isCreate = computed(() => review.value?.origin === 'create');
 
 // ── 1. 選択 ──
@@ -104,20 +110,43 @@ const visualRef = ref<InstanceType<typeof ReviewVisualCompare>>();
 const listRef = ref<InstanceType<typeof ReviewDecisionList>>();
 
 /**
- * コメントの宛先のキー。編集経路は確定版側のキー(`beforePartKey`。追加パーツは確定版に無いので
- * null)、作成経路は確定版が無いので申請版のキー(`partKey`)。
+ * コメントの宛先のキー。編集経路は確定版側のキー(`beforePartKey`)、作成経路は申請版のキー
+ * (`partKey`)。追加パーツはどちらの経路でも null(確定版にまだ無いので書けない)。作成経路で
+ * 申請版のキーをそのまま使うと、既存パーツの前に同じタグのパーツを足した申請では追加パーツの
+ * キー(`p#2` など)が確定版の別のパーツのキーと重なり、そちらへコメントが付いてしまう。
  */
 function commentKeyOf(c: ReviewChangeRow): string | null {
+  if (c.kind === 'added') return null;
   return isCreate.value ? c.partKey : c.beforePartKey;
 }
 
-function select(no: number): void {
+/**
+ * 番号 `no` のパーツを選ぶ。`toggle` は紙面・右欄の行の押下から来たときで、選択中の番号を
+ * もう一度押すと選択を外す(次の未判定・コメント一覧からの選択は外さない。次の未判定は
+ * 未判定が 1 件だけなら同じ番号を返すため)。
+ */
+function select(no: number, toggle = false): void {
+  if (toggle && no === selectedNo.value) {
+    clearSelection();
+    return;
+  }
   const c = changes.value.find((x) => x.no === no);
   if (!c) return;
   selectedNo.value = no;
   visualRef.value?.gotoPart(no);
   void listRef.value?.revealNo(no);
   emit('select', commentKeyOf(c), no);
+}
+
+/** 選択を外して親へ知らせる(コメントの宛先も外れる)。 */
+function clearSelection(): void {
+  selectedNo.value = null;
+  emit('select', null, null);
+}
+
+/** 紙面・右欄の行の押下。 */
+function onPick(no: number): void {
+  select(no, true);
 }
 
 /** コメント一覧などから宛先のキーでパーツを選ぶ。変更の無いキーは何もしない。 */
@@ -157,11 +186,14 @@ const commentSlotProps = computed<CommentSlotProps>(() => {
  */
 const changesKey = computed(() => changes.value.map((c) => `${c.no}:${c.partKey}`).join('\n'));
 
-// 変更の組が変わったら、無くなった番号の選択を外す。
+// 変更の組が変わったら、無くなった番号の選択を外す。同じ番号が残っても宛先のキーは変わりうる
+// ので、残った選択は今のキーで知らせ直す(親は `select` と slot の `selectedKey` で宛先を決める)。
 watch(changesKey, () => {
-  if (selectedNo.value !== null && !changes.value.some((c) => c.no === selectedNo.value)) {
-    selectedNo.value = null;
-  }
+  const no = selectedNo.value;
+  if (no === null) return;
+  const c = changes.value.find((x) => x.no === no);
+  if (!c) clearSelection();
+  else emit('select', commentKeyOf(c), no);
 });
 
 // ── 2. 右欄のタブ ──
@@ -239,16 +271,21 @@ const canFinalize = computed(
   () => decisions.pendingPartKeys.value.length === 0 && blockedReasons.value.length === 0,
 );
 
-const REVIEW_ALREADY_DECIDED = 'REVIEW_ALREADY_DECIDED';
-
 /**
  * 最終確定・申請ごと却下の失敗。ほかの人が先に決着させた(`REVIEW_ALREADY_DECIDED`)ときは
- * 読み直して決着後の画面にする。ほかの失敗は `useAsyncResult` がサーバの文言を出すだけにする。
+ * 読み直して決着後の画面にし、読み直した決着を親へ伝える(一覧・件数・承認待ちの印を合わせる)。
+ * その code は `useReviewDiff` がトーストを黙らせているので、ここで 1 つだけ出す。読み直しに
+ * 失敗したら「読み直しました」とは言わない。ほかの失敗は `useAsyncResult` がサーバの文言を出す。
  */
 async function onDecideFailed(code: string | undefined): Promise<void> {
   if (code !== REVIEW_ALREADY_DECIDED) return;
-  await load();
-  toast('この申請はすでに処理されています。画面を読み直しました。', 'error');
+  const reloaded = await load();
+  toast(
+    `この申請はすでに処理されています。${reloaded ? '画面を読み直しました。' : ''}`,
+    'error',
+  );
+  const r = review.value;
+  if (reloaded && r && r.status !== 'pending') emit('decided', toReviewMeta(r));
 }
 
 async function finalize(): Promise<void> {
@@ -468,7 +505,7 @@ onMounted(load);
     <section
       v-else-if="review && diff"
       data-review-card
-      class="flex flex-col overflow-hidden rounded-[12px] border bg-card"
+      class="flex flex-col overflow-hidden"
     >
       <!-- 1. 申請ごと却下(見出しのリンクから開く例外の操作。最終確定の隣には置かない)。 -->
       <div
@@ -505,7 +542,9 @@ onMounted(load);
           >
             申請を却下する
           </Button>
-          <Button size="sm" variant="ghost" @click="closeRequestReject">取消</Button>
+          <Button size="sm" variant="ghost" :disabled="busy" @click="closeRequestReject">
+            取消
+          </Button>
         </div>
       </div>
 
@@ -547,7 +586,7 @@ onMounted(load);
             :company-code="companyCodeOfTemplateId(review.templateId)"
             :selected-no="selectedNo"
             :toolbar-to="toolsEl"
-            @select="select"
+            @select="onPick"
           />
         </div>
         <aside class="flex min-h-0 min-w-0 flex-col border-l">
@@ -581,7 +620,7 @@ onMounted(load);
               :selected-no="selectedNo"
               :can-decide="canDecide"
               :busy="busy"
-              @select="select"
+              @select="onPick"
               @approve="decisions.approve"
               @reject="decisions.reject"
               @undo="decisions.undo"
