@@ -1,7 +1,7 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "2.5"
+version: "2.6"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
@@ -19,9 +19,10 @@ rev:
   - 2.3 | 2026-10-29 | パーツ判定の 400・409 の文言に並べるキーを先頭 20 件までに（API 41）
   - 2.4 | 2026-10-29 | 作成経路の申請は Jinja 原文のパーツを読めない（パーツ識別子に Jinja がある）と 400（API 38）
   - 2.5 | 2026-10-29 | 作成経路の申請は値入り HTML（filledHtml）が無い・原文と値入りのパーツの構造が合わないときも 400（API 38）
+  - 2.6 | 2026-10-29 | 作成経路の申請で filledHtml が空のときの 400 の文言を分ける（API 38）
 ---
 
-対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 2.5 ／ 出典: editor/ 実装コード・DDL・テスト
+対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 2.6 ／ 出典: editor/ 実装コード・DDL・テスト
 
 # 画面項目定義
 
@@ -87,7 +88,7 @@ rev:
 | 35 | `GET` | `/history/create` | ○ | — | 作成履歴一覧 |
 | 36 | `GET` | `/templates/:templateId/versions` | ○ | templateId | 版一覧（比較用）。テンプレート（3 つ区切り）は空の配列 |
 | 37 | `GET` | `/snapshots/:historyId` | ○ | historyId | スナップショット本文 |
-| 38 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新）。作成経路（origin = create）で Jinja 原文のパーツを読めない（パーツ識別子に Jinja がある・パーツの境界が閉じていない）申請、filledHtml の無い申請、原文と filledHtml のパーツの構造が合わない申請は 400 |
+| 38 | `POST` | `/review-requests` | editor | SubmitReviewBody（templateId, html, css, filledHtml?, cssBaseline?（確定版の CSS を編集画面の書き出しの形にしたもの。無ければ CSS のペア転写を飛ばす）, origin） | ReviewRequestMeta（pending。実ファイル非更新）。作成経路（origin = create）で Jinja 原文のパーツを読めない（パーツ識別子に Jinja がある・パーツの境界が閉じていない）申請、filledHtml の無い申請、原文と filledHtml のパーツの構造が合わない申請は 400。filledHtml が空（画面のプレビューの描画の前・描画の失敗）なら「プレビューの描画が終わってから申請してください」の 400（作成タブの画面は描けるまで申請ボタンを押せない） |
 | 39 | `GET` | `/review-requests` | ○ | status（任意） | ReviewRequestMeta[]（精査者・admin は全件、editor は自分の申請のみ） |
 | 40 | `GET` | `/review-requests/:reqId` | ○ | reqId | ReviewRequest（本体込み） |
 | 41 | `POST` | `/review-requests/:reqId/part-decisions` | approver | UpdateReviewPartDecisionsRequest（decisions = ReviewPartDecisionChange の配列、1〜5,000 件。各要素は partKey = 文書全体での `<アンカー>#<通し番号>` と status。status = approved（理由は送らない）／ rejected（comment = 却下の理由。必須、前後の空白を除いて 1 文字以上、UTF-16 で 2,000 単位まで）／ pending（判定の取り消し）。1 回の要求に同じ partKey を 2 回入れると 400（スキーマの追加検査なので OpenAPI の定義には出ない）。申請の差分（編集経路は申請時点の比較元と申請の本文の差分の変更パーツ、作成経路は Jinja 原文のパーツ）に無い partKey の承認・却下も 400 で、何も保存しない。400・409 の文言に並べるキーは先頭 20 件までで、残りは件数だけ。1 件の判定もこの API で送る） | ReviewPartDecision[]（更新後の判定を入力の順に。各要素は現在の判定・判定者・日時・却下の理由と変更履歴 history。取り消したパーツは status = pending で返る）。承認待ちの申請だけで、自分の申請は admin を除き判定できない（403）。許す遷移は「未判定 → 承認・却下」と「承認・却下 → 未判定」だけで、それ以外（承認と却下の直接の付け替え・未判定の取り消し・同じ判定の再送）が 1 件でもあれば 409 `REVIEW_PART_DECISION_TRANSITION` で何も保存しない。決着済み（承認済み・却下済み）の申請は 409 `REVIEW_ALREADY_DECIDED` |
