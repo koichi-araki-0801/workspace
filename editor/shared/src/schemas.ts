@@ -403,6 +403,12 @@ export const ReviewStatus = z
   .enum(['pending', 'approved', 'rejected'])
   .meta({ id: 'ReviewStatus' });
 
+/**
+ * パーツの却下理由の最大長(UTF-16 単位。`utf16Max` と同じ数え方)。承認タブの理由欄も同じ値で
+ * 送る前に止める(契約で拒まれる理由を書かせ切らない)。
+ */
+export const MAX_PART_REJECT_REASON_CHARS = 2000;
+
 /** review内のパーツ1件に対する現在の判定状態。 */
 export const ReviewPartDecisionStatus = z
   .enum(['pending', 'approved', 'rejected'])
@@ -480,7 +486,10 @@ export const ReviewPartDecisionChange = z
         description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
       }),
       status: z.literal('rejected'),
-      comment: utf16Max(2000, '却下の理由').trim().min(1).meta({ description: 'パーツの却下理由' }),
+      comment: utf16Max(MAX_PART_REJECT_REASON_CHARS, '却下の理由')
+        .trim()
+        .min(1)
+        .meta({ description: 'パーツの却下理由' }),
     }),
     z.object({
       partKey: z.string().min(1).meta({

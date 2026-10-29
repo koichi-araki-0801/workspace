@@ -232,6 +232,15 @@ describe('ReviewDecisionList — 行と判定', () => {
     expect(w.emitted('select')).toEqual([[2]]);
   });
 
+  it('名前はボタンで、押すと select を 1 回 emit する(キーボードでも選べる)', async () => {
+    const w = mountList();
+    const nm = row(w, 2).find('[data-review-name]');
+    expect(nm.element.tagName).toBe('BUTTON');
+    expect(nm.attributes('type')).toBe('button');
+    await nm.trigger('click');
+    expect(w.emitted('select')).toEqual([[2]]);
+  });
+
   it('保存中(busy)は判定のボタンを押せない', async () => {
     const w = mountList({ busy: true, decisions: [decided(3, 'approved')] });
     expect(button(row(w, 1), '承認').attributes('disabled')).toBeDefined();
@@ -257,7 +266,8 @@ describe('ReviewDecisionList — 行と判定', () => {
       canDecide: false,
       decisions: [decided(1, 'approved'), decided(2, 'rejected', '表が古い')],
     });
-    expect(w.findAll('button')).toHaveLength(0);
+    // 名前のボタン(行の選択)だけが残る
+    expect(w.findAll('button:not([data-review-name])')).toHaveLength(0);
     expect(w.find('input[type="checkbox"]').exists()).toBe(false);
     expect(w.find('textarea').exists()).toBe(false);
     expect(w.text()).not.toContain('まとめて承認');
@@ -459,6 +469,47 @@ describe('ReviewDecisionList — 表示窓', () => {
     );
     await button(w, 'まとめて承認').trigger('click');
     expect(w.emitted('approve')).toEqual([[['p#3']]]);
+  });
+
+  it('スクロール容器はブラウザのスクロールアンカリングを切る(手での補正と二重にしない)', () => {
+    const w = mountList();
+    expect(w.find('[data-review-scroller]').classes()).toContain('[overflow-anchor:none]');
+  });
+
+  it('revealNo は送る行の上に帯の高さぶんの余白を取る(sticky の帯の下へ隠さない)', async () => {
+    const w = mountList({ changes: many(1000) });
+    await flush();
+    Object.defineProperty(w.find('[data-review-band]').element, 'offsetHeight', {
+      value: 57,
+      configurable: true,
+    });
+    (w.vm as unknown as { revealNo(no: number): void }).revealNo(800);
+    await flush();
+    expect((row(w, 800).element as HTMLElement).style.scrollMarginTop).toBe('57px');
+  });
+
+  it('書きかけの却下理由は、行が窓から外れて戻っても残る', async () => {
+    const w = mountList({ changes: many(1000) });
+    await flush();
+    await button(row(w, 3), '却下…').trigger('click');
+    await row(w, 3).find('textarea').setValue('書きかけ');
+    const vm = w.vm as unknown as { revealNo(no: number): void };
+    vm.revealNo(800);
+    await flush();
+    expect(row(w, 3).exists()).toBe(false);
+    vm.revealNo(3);
+    await flush();
+    const ta = row(w, 3).find('textarea');
+    expect(ta.exists()).toBe(true);
+    expect((ta.element as HTMLTextAreaElement).value).toBe('書きかけ');
+    // 窓の外で判定が届いたら書きかけは捨てる
+    vm.revealNo(800);
+    await flush();
+    await w.setProps({ decisions: [decided(3, 'rejected', '書きかけ')] });
+    await w.setProps({ decisions: [] });
+    vm.revealNo(3);
+    await flush();
+    expect(row(w, 3).find('textarea').exists()).toBe(false);
   });
 
   it('変更の件数が減ったら窓を全件に収める', async () => {

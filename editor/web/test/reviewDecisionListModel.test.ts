@@ -1,6 +1,7 @@
 // =============================================================================
 // reviewDecisionListModel.test.ts — 右欄「変更と判定」の表示窓と理由の検査(純関数)
 // =============================================================================
+import { MAX_PART_REJECT_REASON_CHARS } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   clampWindow,
@@ -84,6 +85,7 @@ describe('reviewDecisionList', () => {
 
   it('却下の理由は空白だけなら empty、2000 単位を超えたら tooLong', () => {
     expect(REJECT_REASON_MAX).toBe(2000);
+    expect(REJECT_REASON_MAX).toBe(MAX_PART_REJECT_REASON_CHARS);
     expect(rejectReasonProblem('')).toBe('empty');
     expect(rejectReasonProblem(' \n ')).toBe('empty');
     expect(rejectReasonProblem('あ'.repeat(2000))).toBeNull();

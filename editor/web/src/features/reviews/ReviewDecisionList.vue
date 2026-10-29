@@ -73,7 +73,36 @@ watch(pendingNos, (nos) => {
   const keep = new Set(nos);
   const next = new Set([...picked.value].filter((no) => keep.has(no)));
   if (next.size !== picked.value.size) picked.value = next;
+  // 判定が届いたパーツの書きかけの理由も捨てる(窓の外で届くと行は閉じる機会が無い)。
+  const pendingKeys = new Set(
+    rows.value.filter((c) => keep.has(c.no)).map((c) => c.partKey),
+  );
+  const drafts = new Map([...rejectDrafts.value].filter(([key]) => pendingKeys.has(key)));
+  if (drafts.size !== rejectDrafts.value.size) rejectDrafts.value = drafts;
 });
+
+// ── 2a. 1 行の却下の書きかけ ──
+// 行は表示窓から外れると壊れるので、理由欄の開閉と書きかけは partKey ごとにここで持ち、行が
+// 窓へ戻ったら返す。閉じて空になったものは消す。
+
+interface RejectDraft {
+  open: boolean;
+  text: string;
+}
+
+const rejectDrafts = ref(new Map<string, RejectDraft>());
+
+function draftOf(key: string): RejectDraft {
+  return rejectDrafts.value.get(key) ?? { open: false, text: '' };
+}
+
+function setDraft(key: string, patch: Partial<RejectDraft>) {
+  const next = { ...draftOf(key), ...patch };
+  const m = new Map(rejectDrafts.value);
+  if (!next.open && !next.text) m.delete(key);
+  else m.set(key, next);
+  rejectDrafts.value = m;
+}
 
 function setPicked(no: number, value: boolean) {
   const next = new Set(picked.value);
@@ -123,6 +152,7 @@ const topSpace = computed(() => win.value.start * ROW_HEIGHT_ESTIMATE);
 const bottomSpace = computed(() => (rows.value.length - win.value.end) * ROW_HEIGHT_ESTIMATE);
 
 const scroller = ref<HTMLElement | null>(null);
+const band = ref<HTMLElement | null>(null);
 const topEl = ref<HTMLElement | null>(null);
 const bottomEl = ref<HTMLElement | null>(null);
 let observer: IntersectionObserver | null = null;
@@ -215,17 +245,26 @@ async function revealNo(no: number): Promise<void> {
     win.value = windowAround(i, rows.value.length);
   }
   await nextTick();
-  scroller.value
-    ?.querySelector<HTMLElement>(`[data-review-row-no="${no}"]`)
-    ?.scrollIntoView({ block: 'nearest' });
+  const el = scroller.value?.querySelector<HTMLElement>(`[data-review-row-no="${no}"]`);
+  if (!el) return;
+  // sticky の帯の下へ隠れないよう、送る直前の帯の高さを行の上の余白にする(帯は理由欄の開閉で
+  // 高さが変わるので固定値にしない)。
+  el.style.scrollMarginTop = `${band.value?.offsetHeight ?? 0}px`;
+  el.scrollIntoView({ block: 'nearest' });
 }
 
 defineExpose({ revealNo });
 </script>
 
 <template>
-  <div ref="scroller" data-review-scroller class="h-full overflow-y-auto">
-    <div v-if="canDecide" class="sticky top-0 z-10 grid gap-2 border-b bg-card px-3.5 py-2">
+  <!-- `overflow-anchor: none`: ブラウザのスクロールアンカリングと手での `scrollTop` の補正が
+       二重に効いて行が飛ぶのを防ぐ(補正は窓を動かす側だけが持つ)。 -->
+  <div
+    ref="scroller"
+    data-review-scroller
+    class="h-full overflow-y-auto [overflow-anchor:none]"
+  >
+    <div v-if="canDecide" ref="band" data-review-band class="sticky top-0 z-10 grid gap-2 border-b bg-card px-3.5 py-2">
       <div class="flex flex-wrap items-center gap-2">
         <label class="flex cursor-pointer items-center gap-1.5 whitespace-nowrap text-xs">
           <input
@@ -311,6 +350,10 @@ defineExpose({ revealNo });
         :busy="busy"
         :selected="c.no === selectedNo"
         :picked="picked.has(c.no)"
+        :reject-open="draftOf(c.partKey).open"
+        :draft="draftOf(c.partKey).text"
+        @update:reject-open="(open) => setDraft(c.partKey, { open })"
+        @update:draft="(text) => setDraft(c.partKey, { text })"
         @select="emit('select', c.no)"
         @pick="(v) => setPicked(c.no, v)"
         @approve="emit('approve', [c.partKey])"

@@ -4,7 +4,9 @@
 // =============================================================================
 // 文字の差分(`textOps`)は親画面の DOM にエスケープして描く。紙面は申請者の CSS が動く iframe で
 // 変更を隠せるので、承認判断の正典はこちら(Global Constraints)。行の押下は `select`、チェック・
-// ボタン・理由欄の押下は行の選択にしない(`onRowClick` が操作部品からの押下を除く)。
+// ボタン・理由欄の押下は行の選択にしない(`onRowClick` が操作部品からの押下を除く)。キーボードでは
+// 名前のボタンで選ぶ。理由欄の開閉と書きかけは `v-model:reject-open`・`v-model:draft` で親
+// (`ReviewDecisionList.vue`)が持つ — 行は表示窓から外れると壊れるので、ここに持つと黙って消える。
 import type { PaperDecision } from '@editor/shared';
 import { computed, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
@@ -50,8 +52,8 @@ const STATUS_LABEL: Record<PaperDecision, string> = {
   rejected: '却下済み',
 };
 
-const rejectOpen = ref(false);
-const draft = ref('');
+const rejectOpen = defineModel<boolean>('rejectOpen', { default: false });
+const draft = defineModel<string>('draft', { default: '' });
 const emptyError = ref(false);
 const tooLong = computed(() => rejectReasonProblem(draft.value) === 'tooLong');
 const pickable = computed(() => props.canDecide && props.status === 'pending' && !rejectOpen.value);
@@ -98,6 +100,7 @@ function onPick(e: Event) {
 </script>
 
 <template>
+  <!-- biome-ignore lint/a11y/useKeyWithClickEvents: 行の押下はマウスの近道。キーボードでは名前のボタンで選ぶ -->
   <li
     :data-review-row-no="change.no"
     :data-selected="selected ? 'true' : 'false'"
@@ -124,9 +127,15 @@ function onPick(e: Event) {
         :class="NO_COLOR[status]"
         >{{ change.no }}</span
       >
-      <span data-review-name class="min-w-0 truncate text-sm font-bold" :title="change.label">{{
-        change.name
-      }}</span>
+      <button
+        type="button"
+        data-review-name
+        class="min-w-0 cursor-pointer truncate rounded-sm text-left text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        :title="change.label"
+        @click="emit('select')"
+      >
+        {{ change.name }}
+      </button>
       <Badge data-review-kind :variant="KIND_BADGE[change.kind].variant" class="shrink-0">
         {{ KIND_BADGE[change.kind].label }}
       </Badge>
