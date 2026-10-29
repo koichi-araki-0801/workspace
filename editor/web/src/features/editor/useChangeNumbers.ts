@@ -27,9 +27,10 @@ import { htmlWorker } from '@/workers';
 const MIN_DEBOUNCE_MS = 1000;
 
 /**
- * 予約が満了して番号の計算を始める時刻の目印(`performance.mark` の名前)。e2e(`canvas.spec.ts` の
- * 所要時間のテスト)が、ここから紙面の目印が出るまでを基準の 1,500ms と比べる。前の目印は消してから
- * 打ち、1 つしか残さない(e2e は `PerformanceObserver` で打たれるたびに受け取る)。
+ * 予約が満了した時刻の目印(`performance.mark` の名前)。満了するとすぐ番号の計算を始める(前の
+ * 計算がまだ走っていれば、それが終わってから最新の本文で始める)。e2e(`canvas.spec.ts` の所要時間の
+ * テスト)が、ここから紙面の目印が出るまでを基準の 1,500ms と比べる。前の目印は消してから打ち、1 つ
+ * しか残さない(e2e は `PerformanceObserver` で打たれるたびに受け取る)。
  */
 export const CHANGE_RUN_MARK = 'change-numbers:run';
 
@@ -196,7 +197,8 @@ export const CHANGE_NOTIFY_MARK = 'change-numbers:notify';
  * 比べない)。通知は style・選択の状態などでも頻繁に来る(ハンドルの drag では連続する)ので、本文の
  * 直列化は通知のたびでなく `waitMs` 待ってから 1 回だけ行う。読んだ本文は `lastBody` で返し、差分の
  * 計算(`useChangeNumbers` の `current`)が同じ本文を使えるようにする(直列化を 2 度しない)。
- * `baseline` が null(番号を出さない経路)の間は何もしない。
+ * `baseline` が null(番号を出さない経路)の間は予約しない。そのときも `onRead` が本文を要れば
+ * (`wantsRead`)、待ちのあとに本文を読んで渡す。
  */
 export function createChangeCheckScheduler(opts: {
   readBody: () => string;

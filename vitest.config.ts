@@ -253,6 +253,7 @@ export default defineConfig({
         'editor/web/src/features/editor/historyGroups.ts',
         'editor/web/src/features/editor/useRejectedReasons.ts',
         'editor/web/src/features/editor/useEditorChangeView.ts',
+        'editor/web/src/features/editor/cleanCheck.ts',
         // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは
         // 「モデルに載せない」設計で担保しており、この 4 ファイルの純粋部分を被覆に入れる。
         'editor/web/src/features/editor/redline/redlineTree.ts',

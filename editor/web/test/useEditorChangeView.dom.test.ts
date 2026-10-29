@@ -16,6 +16,7 @@ import {
 } from '@editor/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref, shallowRef } from 'vue';
+import { createCleanCheck } from '@/features/editor/cleanCheck';
 import { type PartEntry, partEntries } from '@/features/editor/partKey';
 import { useEditorChangeView, wireEditorChangeView } from '@/features/editor/useEditorChangeView';
 
@@ -323,5 +324,117 @@ describe('wireEditorChangeView(useTemplateEditor からの受け渡し)', () => 
     wire.changed();
     wire.unmounted();
     expect(order).toEqual(['change', 'notify', 'dispose']);
+  });
+});
+
+describe('確定版との同一判定(createCleanCheck)と変更の通知の配線', () => {
+  const CANON = { html: BASE, css: '.a{color:red}' };
+
+  function flow(opts: { canonical: typeof CANON | null }) {
+    let body = EDITED;
+    let css = CANON.css;
+    const dirty = ref(false);
+    const readBody = vi.fn(() => body);
+    const onClean = vi.fn(async () => {});
+    const clean = createCleanCheck({
+      canonical: () => opts.canonical,
+      dirty,
+      readBody,
+      readCss: () => css,
+      onClean,
+    });
+    const view = useEditorChangeView({
+      canvasEntries: shallowRef(entriesOf(BASE)),
+      partsById: shallowRef(new Map()),
+      selectedKey: ref(null),
+      history: shallowRef([]),
+      readBody,
+      ...clean.bodyReader(),
+      setChangeNumbers: vi.fn(),
+      templateId: TID,
+      me: () => 'me',
+      reviews: reviewsWith([]).repo,
+    });
+    const order: string[] = [];
+    const wire = wireEditorChangeView({
+      view,
+      onChange: () => {
+        order.push(`dirty=${dirty.value}`);
+        dirty.value = true;
+      },
+    });
+    return {
+      dirty,
+      readBody,
+      onClean,
+      wire,
+      order,
+      clean,
+      setBody: (b: string) => {
+        body = b;
+      },
+      setCss: (c: string) => {
+        css = c;
+      },
+    };
+  }
+
+  it('変更を受けると dirty を立ててから通知し、待ちのあとの 1 回の読み出しで確定版と比べる', async () => {
+    vi.useFakeTimers();
+    const f = flow({ canonical: CANON });
+    f.wire.loaded({ isCreateRoute: false, template: { filled: FILLED }, confirmedBody: BASE });
+    await vi.advanceTimersByTimeAsync(0);
+    f.readBody.mockClear();
+    f.wire.changed();
+    // 通知の前に dirty が立っている(同一判定は dirty のときだけ本文を要る)。
+    expect(f.order).toEqual(['dirty=false']);
+    expect(f.dirty.value).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(f.readBody).toHaveBeenCalledTimes(1);
+    // 本文は確定版と違うので、未確定のまま。
+    expect(f.dirty.value).toBe(true);
+    expect(f.onClean).not.toHaveBeenCalled();
+  });
+
+  it('本文も CSS も確定版へ戻すと、未確定を下ろして後始末を呼ぶ(CSS だけを戻した変更でも)', async () => {
+    vi.useFakeTimers();
+    const f = flow({ canonical: CANON });
+    f.wire.loaded({ isCreateRoute: false, template: { filled: FILLED }, confirmedBody: BASE });
+    await vi.advanceTimersByTimeAsync(0);
+    // 本文は確定版のまま、CSS だけを変えて戻す(本文の変わらない通知)。
+    f.setBody(BASE);
+    f.setCss('.a{color:blue}');
+    f.wire.changed();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(f.dirty.value).toBe(true);
+    f.setCss(CANON.css);
+    f.wire.changed();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(f.dirty.value).toBe(false);
+    expect(f.onClean).toHaveBeenCalledTimes(1);
+  });
+
+  it('確定版の正規形が無ければ(作成経路)、本文を読まず、未確定も下ろさない', async () => {
+    vi.useFakeTimers();
+    const f = flow({ canonical: null });
+    f.wire.loaded({ isCreateRoute: true, template: { filled: FILLED }, confirmedBody: BASE });
+    await vi.advanceTimersByTimeAsync(0);
+    f.readBody.mockClear();
+    f.setBody(BASE);
+    f.wire.changed();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(f.readBody).not.toHaveBeenCalled();
+    expect(f.dirty.value).toBe(true);
+    expect(await f.clean.settle(BASE)).toBe(false);
+  });
+
+  it('未確定でなければ settle は何もしない(本文を渡さなければ自分で読む)', async () => {
+    const f = flow({ canonical: CANON });
+    expect(await f.clean.settle()).toBe(false);
+    expect(f.readBody).not.toHaveBeenCalled();
+    f.dirty.value = true;
+    f.setBody(BASE);
+    expect(await f.clean.settle()).toBe(true);
+    expect(f.readBody).toHaveBeenCalledTimes(1);
   });
 });

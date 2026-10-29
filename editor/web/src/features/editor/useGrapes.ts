@@ -632,6 +632,10 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       // `a4CanvasCss` に明示する)。
       protectedCss: '',
     });
+    // `storageManager: false` は保存先を外すだけで、自動保存(`autosave`)の既定 true が残る。残ると
+    // 変更のたびに GrapesJS が `storeData`(全 component の toJSON)を作って捨て、340 パーツの帳票で
+    // 1 回 400ms 余り主スレッドを塞ぐ。保存はアプリの autosave(`getBodyHtml`)が受け持つので切る。
+    ed.Storage.setAutosave(false);
 
     // canvas へ入る HTML は他ユーザが書いた draft / テンプレ実体で、canvas の iframe は
     // `about:blank` としてアプリのオリジンを継承する。`parse:html:root` は GrapesJS 既定の

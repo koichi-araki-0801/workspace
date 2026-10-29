@@ -95,6 +95,18 @@ afterEach(() => {
   for (const s of Array.from(document.head.querySelectorAll('style'))) s.remove();
 });
 
+describe('GrapesJS の保存の仕組み', () => {
+  it('変更のたびにプロジェクト全体を直列化しない(storageManager を切っても autosave の既定が残る)', () => {
+    const ed = g.editor.value as Editor;
+    // 保存はアプリの autosave(`getBodyHtml`)が受け持つ。GrapesJS の自動保存が残ると、変更の
+    // たびに `storeData`(全 component の toJSON)が走り、大きい帳票で 1 回数百 ms 主スレッドを塞ぐ。
+    expect(ed.Storage.isAutosave()).toBe(false);
+    const storeData = vi.spyOn(ed.getModel(), 'storeData');
+    (ed.getWrapper() as Component).append('<p class="added">x</p>');
+    expect(storeData).not.toHaveBeenCalled();
+  });
+});
+
 describe('ページ数', () => {
   it('区切りの数 + 1 ページになり、ページごとのパーツを持つ', () => {
     load(DOC);

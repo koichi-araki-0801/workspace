@@ -109,6 +109,11 @@ describe('useChangeNumbers', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(mark.mock.calls.filter(([name]) => name === CHANGE_RUN_MARK)).toHaveLength(1);
       expect(performance.getEntriesByName(CHANGE_RUN_MARK, 'mark')).toHaveLength(1);
+      // もう 1 回満了させても、残る目印は 1 つ(打つたびに前の目印を消す)。打った回数は 2 回。
+      n.schedule();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(mark.mock.calls.filter(([name]) => name === CHANGE_RUN_MARK)).toHaveLength(2);
+      expect(performance.getEntriesByName(CHANGE_RUN_MARK, 'mark')).toHaveLength(1);
       n.cancel();
     } finally {
       mark.mockRestore();

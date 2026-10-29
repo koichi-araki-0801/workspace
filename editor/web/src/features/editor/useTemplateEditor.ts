@@ -28,6 +28,7 @@ import { companyCodeOfTemplateId, fundCodeOfTemplateId } from '@/lib/fundImages'
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { canvasRoot } from './canvasGeometry';
+import { createCleanCheck } from './cleanCheck';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
@@ -273,6 +274,15 @@ export function useTemplateEditor(
     return ed && root ? partEntries(root, canvasRawKey(ed)) : [];
   });
 
+  // 確定版との同一判定(元の内容へ戻ったら未確定を下ろし、下書きを消す。`cleanCheck.ts`)。
+  const cleanCheck = createCleanCheck({
+    canonical: () => confirmedCanonical,
+    dirty,
+    readBody: () => g.getBodyHtml(),
+    readCss: () => g.getCss(),
+    onClean: discardSettledDraft,
+  });
+
   // 変更の番号(紙面の丸数字と修正履歴の見出し)・パーツの名前・前回の申請の却下の理由。
   const changeView = useEditorChangeView({
     canvasEntries,
@@ -281,9 +291,7 @@ export function useTemplateEditor(
     history: displayHistory,
     readBody: () => g.getBodyHtml(),
     // 変更の通知から 300ms 後に読んだ本文で、確定版との同一判定もする(直列化を 1 回にする)。
-    // 判定が要るのは確定版の正規形があり、未確定のときだけ(`settleIfClean` と同じ条件)。
-    onBodyRead: (body) => void settleIfClean(body),
-    wantsBodyRead: () => confirmedCanonical !== null && dirty.value,
+    ...cleanCheck.bodyReader(),
     setChangeNumbers: (byKey) => g.setChangeNumbers(byKey),
     templateId: id,
     me: () => auth.user?.username ?? null,
@@ -624,7 +632,7 @@ export function useTemplateEditor(
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
     g.onChange(changeWire.changed);
     // 前回セッションの draft が確定版と同じ内容なら、開いた時点で「変更なし」へ戻す。
-    // `confirmedLoadFailed` 時は正規形を作っていない(`settleIfClean` は base が null なら
+    // `confirmedLoadFailed` 時は正規形を作っていない(`cleanCheck.settle` は正規形が null なら
     // 元々 return する)が、フラグでも起動自体を止めて二重に安全側へ倒す。
     if (res.value.hasDraft && !confirmedLoadFailed) scheduleCleanCheck();
     // ロック中(編集不許可)にダブルクリック(編集ジェスチャ)をした場合、解除導線を案内する。
@@ -677,24 +685,22 @@ export function useTemplateEditor(
   }
 
   /**
-   * 現在の保存内容が確定版の正規形と同じなら「未確定」を下ろし、draft を消す。Undo や手戻しで
-   * 元の内容に戻ったのに未確定のまま draft が残ると、プレビュー・申請が「変更あり」の経路を
-   * 通り続けるため。判定は autosave の debounce(800ms)より先に走らせ、同じ内容の draft を
-   * 保存しに行く前に予約を取り消す。進行中の保存があれば完了を待ってから消す。
+   * 開いた直後(前回セッションの下書きから開いたとき)の確定版との同一判定の予約。判定は autosave の
+   * debounce(800ms)より先に走らせ、同じ内容の下書きを保存しに行く前に予約を取り消す。編集のあとの
+   * 判定は、変更の通知の待ちのあとに読む本文で行う(`cleanCheck.bodyReader`)。
    */
   function scheduleCleanCheck(): void {
     if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
     cleanCheckTimer = setTimeout(() => {
       cleanCheckTimer = null;
-      void settleIfClean();
+      void cleanCheck.settle();
     }, 300);
   }
-  /** `body` は読み済みの本文(変更の通知の待ちのあとに読んだもの)。無ければここで読む。 */
-  async function settleIfClean(body?: string): Promise<void> {
-    const base = confirmedCanonical;
-    if (!base || !dirty.value) return;
-    if ((body ?? g.getBodyHtml()) !== base.html || g.getCss() !== base.css) return;
-    dirty.value = false;
+  /**
+   * 確定版と同じ内容へ戻ったあとの後始末。autosave の予約を取り消し、下書きがありうるなら進行中の
+   * 保存の完了を待ってから消す。
+   */
+  async function discardSettledDraft(): Promise<void> {
     autosave.cancel();
     if (!draftMayExist) return;
     await autosave.settled();
