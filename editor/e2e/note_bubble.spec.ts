@@ -11,7 +11,14 @@
 // 閉じた吹き出しが投稿の追加で開き直すこと(件数だけ増えて何も見えない事故)も固定する。
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { expectSelectedPart, login, openEditor, partLocator, selectPart } from './helpers';
+import {
+  commentInput,
+  expectSelectedPart,
+  login,
+  openEditor,
+  partLocator,
+  selectPart,
+} from './helpers';
 
 const SEED_ID = 'XX01_950037_20240710_交付版';
 
@@ -23,7 +30,7 @@ test('メモ吹き出しは閉じる・編集・削除を実際に受け付け�
 
   await login(page);
   const frame = await openEditor(page, SEED_ID);
-  const draft = page.getByPlaceholder('このパーツへのコメントを書く');
+  const draft = commentInput(page);
   const addButton = page.locator('button[data-add-submit]');
   const bubble = page.locator('.note-bubble');
 
@@ -77,7 +84,7 @@ test('吹き出しから返信と解決ができ、マーカーが灰色にな�
   await part.waitFor({ state: 'visible', timeout: 30_000 });
   await selectPart(frame, part);
   await page.locator('[data-pane-tab="comments"]').click();
-  await page.getByPlaceholder('このパーツへのコメントを書く').fill('親コメント');
+  await commentInput(page).fill('親コメント');
   await page.locator('button[data-add-submit]').click();
 
   const bubble = page.locator('.note-bubble');
@@ -107,7 +114,7 @@ test('吹き出しは選択だけでは開かず、マーカーのクリック�
   const partA = partLocator(frame).nth(1);
   await selectPart(frame, partA);
   await page.locator('[data-pane-tab="comments"]').click();
-  await page.getByPlaceholder('このパーツへのコメントを書く').fill('マーカーで開く');
+  await commentInput(page).fill('マーカーで開く');
   await page.locator('button[data-add-submit]').click();
   await expect(bubble).toHaveCount(1); // 投稿の追加では開く
 
@@ -160,7 +167,9 @@ test('クラスの無いパーツのメモは、選択を外しても目印と�
 
   await selectPart(frame, partB);
   await page.locator('[data-pane-tab="comments"]').click();
-  await page.getByPlaceholder('このパーツへのコメントを書く').fill('乙へのメモ');
+  // 宛先の枠は選んだパーツ(乙)を指す。
+  await expect(page.locator('[data-comment-target]')).toContainText('乙のパーツ');
+  await commentInput(page).fill('乙へのメモ');
   await page.locator('button[data-add-submit]').click();
   await expect(bubble).toContainText('乙へのメモ');
 
@@ -177,6 +186,13 @@ test('クラスの無いパーツのメモは、選択を外しても目印と�
   await expect(selected).toContainText('甲のパーツ');
   await expect(bubble).toHaveCount(0);
   await page.locator('[data-comment-row]', { hasText: '乙へのメモ' }).click();
+  await expect(bubble).toContainText('乙へのメモ');
+  await expect(selected).toContainText('乙のパーツ');
+
+  // 一覧の見出し(メモを書いたパーツ)からも、そのパーツを選んで開く。
+  await partA.click();
+  await expect(selected).toContainText('甲のパーツ');
+  await page.locator('[data-comment-group-head]', { hasText: '乙のパーツ' }).click();
   await expect(bubble).toContainText('乙へのメモ');
   await expect(selected).toContainText('乙のパーツ');
 });

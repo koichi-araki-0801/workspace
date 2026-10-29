@@ -181,33 +181,94 @@ export async function openReviewDetail(page: Page, id: string): Promise<void> {
 }
 
 /**
- * 承認タブ詳細の区画 `item` で、未判定パーツを一括承認する。一括承認のボタンは文字の変更の
- * タブと下部の決着箱(`data-review-decision`)の両方に出るので、タブに依らない決着箱の方を押す。
- * 確認ダイアログは確定ラベルで押す。
+ * 承認タブの状態の絞り込みチップ(見出しの行。`ReviewTabView.vue` の `data-review-chip`)の件数。
+ * チップの文言は「承認待ち <b>N</b>」で、件数は `b` に入る。
  */
-export async function approvePendingParts(page: Page, item: Locator): Promise<void> {
-  await item
-    .locator('[data-review-decision]')
-    .getByRole('button', { name: '未判定を一括承認' })
-    .click();
-  await page.getByRole('alertdialog').getByRole('button', { name: '一括承認する' }).click();
-  await expect(
-    page.getByRole('status').filter({ hasText: 'パーツを一括承認しました' }),
-  ).toBeVisible({ timeout: 30_000 });
+export function chipCount(page: Page, status: 'pending' | 'approved' | 'rejected'): Locator {
+  return page.locator(`[data-review-chip="${status}"] b`);
 }
 
 /**
- * 承認タブ詳細の区画 `item` で申請を最終確定する。決着箱の「最終確定する」は未判定パーツが
- * 残る間は押せない(`ReviewDetail.vue` の `finalizationBlocked`)ので、押せることを先に
- * 確かめる。確認ダイアログの確定ボタンも同じ名前なので、区画内の決着箱に絞って指す。
+ * パーツの判定の保存(`POST /api/review-requests/:reqId/part-decisions`)の応答を待つ約束。
+ * 押す操作の前に作り、押したあとで待つ(押してから作ると速い応答を取り逃す)。
+ */
+export function partDecisionsSaved(page: Page): Promise<unknown> {
+  return page.waitForResponse(
+    (r) =>
+      r.request().method() === 'POST' &&
+      /\/api\/review-requests\/[^/]+\/part-decisions$/.test(r.url()),
+    { timeout: 30_000 },
+  );
+}
+
+/**
+ * 承認タブの申請カード `item` の右欄「変更と判定」で、未判定のパーツをまとめて承認する。
+ * 帯の「未判定をすべて選ぶ」で選び、「まとめて承認」を押して保存の応答を待つ。
+ */
+export async function approvePendingParts(page: Page, item: Locator): Promise<void> {
+  await item.locator('[data-review-pick-all]').check();
+  const saved = partDecisionsSaved(page);
+  await item.locator('[data-review-band]').getByRole('button', { name: 'まとめて承認' }).click();
+  await saved;
+  await expect(item.locator('[data-review-no][data-decision="pending"]')).toHaveCount(0);
+}
+
+/**
+ * 承認タブの申請カード `item` で申請を最終確定する。判定バーの「最終確定する」は未判定の
+ * パーツが残る間は押せない(`ReviewDecisionBar.vue`)ので、押せることを先に確かめる。確認の
+ * ダイアログの確定ボタンも同じ名前なので、ダイアログに絞って押す。
  */
 export async function finalizeReview(page: Page, item: Locator): Promise<void> {
-  const finalize = item
-    .locator('[data-review-decision]')
-    .getByRole('button', { name: '最終確定する', exact: true });
+  const finalize = item.locator('[data-decision-bar] [data-finalize]');
   await expect(finalize).toBeEnabled();
   await finalize.click();
   await page.getByRole('alertdialog').getByRole('button', { name: '最終確定する' }).click();
+}
+
+/**
+ * 承認タブの申請カード `item` の左右の紙面(変更前・変更後)。作成経路の 1 面のカードでは
+ * `before` を使わない。
+ */
+export function comparePapers(item: Locator): { before: FrameLocator; after: FrameLocator } {
+  return {
+    before: item.locator('[data-side="before"]').frameLocator('iframe[title="プレビュー"]'),
+    after: item.locator('[data-side="after"]').frameLocator('iframe[title="プレビュー"]'),
+  };
+}
+
+/** 承認タブの申請カード `item` の左右の紙面が、組版を終えてページを描くまで待つ。 */
+export async function waitForComparePapers(item: Locator): Promise<void> {
+  const { before, after } = comparePapers(item);
+  for (const f of [before, after]) {
+    await f
+      .locator('[data-vivliostyle-page-container]:visible')
+      .first()
+      .waitFor({ state: 'visible', timeout: 60_000 });
+  }
+}
+
+/** 承認タブの申請カード `item` の右欄の、番号 `no` の行(`ReviewDecisionRow.vue`)。 */
+export function decisionRow(item: Locator, no: number): Locator {
+  return item.locator(`[data-review-row-no="${no}"]`);
+}
+
+/** 右ペインのコメント一覧の新規投稿の入力欄(`CommentPanel.vue` の `data-add-content`)。 */
+export function commentInput(page: Page): Locator {
+  return page.locator('textarea[data-add-content]');
+}
+
+/**
+ * 編集タブの申請を画面を通さず API で出す(本文を細かく作るため)。CSS は dataRoot の確定版の
+ * CSS をそのまま付ける。申請者は呼び出し時点のログインユーザー。
+ */
+export async function submitEditReviewViaApi(
+  page: Page,
+  input: { templateId: string; html: string; css: string },
+): Promise<void> {
+  const res = await page.request.post('/api/review-requests', {
+    data: { ...input, origin: 'edit' },
+  });
+  expect(res.ok(), `POST review-requests ${res.status()}`).toBeTruthy();
 }
 
 /**

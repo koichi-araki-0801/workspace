@@ -4,10 +4,18 @@
 // `useGrapes.ts` の composable 分割(リファクタ)に先行して、単体テストが届かない
 // GrapesJS 統合部の実画面挙動を固定する。2 系統の出し分けは `twoSystems.guard.test.ts`
 // (単体)の実画面版 — canvas body の `jinja-vars-highlight` クラスまで確認する。
+// 末尾は変更の目印(確定版から変わったパーツの丸数字。`useChangeNumbers.ts`・`EditorView.vue`)。
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { login, openEditor as openEditorAt, partLocator, readDraft, selectPart } from './helpers';
+import {
+  commentInput,
+  login,
+  openEditor as openEditorAt,
+  partLocator,
+  readDraft,
+  selectPart,
+} from './helpers';
 
 const SEED_ID = 'XX01_950037_20240710_交付版';
 
@@ -248,7 +256,7 @@ test('往復統合: 選択のみ非 dirty / 往復後の赤入れとコメント
   // コメントを付け(選択が要る)、別パーツを 1 語置換
   await selectPart(frame, partLocator(frame).nth(1));
   await page.locator('[data-pane-tab="comments"]').click();
-  await page.getByPlaceholder('このパーツへのコメントを書く').fill('往復テスト');
+  await commentInput(page).fill('往復テスト');
   await page.locator('button[data-add-submit]').click();
   await expect(page.locator('[data-comment-row]', { hasText: '往復テスト' })).toBeVisible();
   await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
@@ -348,4 +356,244 @@ test('余白のハンドルは canvas の上まで動かしても追随し、can
   const marginAfterUp = await part.evaluate((e) => getComputedStyle(e).marginBottom);
   await page.mouse.move(x, y + 200, { steps: 5 });
   expect(await part.evaluate((e) => getComputedStyle(e).marginBottom)).toBe(marginAfterUp);
+});
+
+// ── 変更の目印(確定版から変わったパーツの丸数字) ──
+// 番号は承認タブと同じ差分の仕組みで振り(`useChangeNumbers.ts`)、目印は overlay にだけ描く
+// (canvas の DOM・保存内容には載せない)。計算は本文が変わったときだけ、1,000ms の予約のあとで行う。
+
+/** 変更の目印(`EditorView.vue` の `data-change-marker`)。 */
+const changeMarkers = (page: Page): Locator => page.locator('[data-change-marker]');
+
+/** 編集を許可し、「受益者のみなさまへ」の 1 語を直して目印が 1 つ出るまで待つ。 */
+async function editOneWord(page: Page, frame: ReturnType<Page['frameLocator']>): Promise<void> {
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  await replaceWord(page, frame, '受益者のみなさまへ', 'みなさま', '皆様');
+  await expect(changeMarkers(page)).toHaveCount(1, { timeout: 30_000 });
+}
+
+test('文字を変えたパーツに①が付き、押すと修正履歴がそのパーツで開く', async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  // 未編集の帳票には目印が出ない(切替は既定で ON)。
+  await expect(page.locator('.chg-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(changeMarkers(page)).toHaveCount(0);
+
+  await editOneWord(page, frame);
+  const mark = changeMarkers(page);
+  await expect(mark).toHaveText('1');
+  // 目印は変えたパーツの左上隅に重なる。
+  const changed = partLocator(frame).filter({ hasText: '皆様' });
+  const [markBox, partBox] = await Promise.all([mark.boundingBox(), changed.boundingBox()]);
+  expect(Math.abs((markBox?.x ?? 0) - (partBox?.x ?? 0))).toBeLessThan(8);
+  expect(Math.abs((markBox?.y ?? 0) - (partBox?.y ?? 0))).toBeLessThan(8);
+
+  // 変えたパーツを選んだときの、目印と選択のつまみ(`.pg-move`)の重なりを記録する(目視用)。
+  await selectPart(frame, changed);
+  if (markBox) {
+    const shot = test.info().outputPath('change-mark-and-grip.png');
+    await page.screenshot({
+      path: shot,
+      clip: {
+        x: Math.max(0, markBox.x - 160),
+        y: Math.max(0, markBox.y - 60),
+        width: 520,
+        height: 160,
+      },
+    });
+    await test.info().attach('change-mark-and-grip', { path: shot, contentType: 'image/png' });
+  }
+
+  // 別のパーツを選び、右ペインをコメントにしてから目印を押すと、そのパーツが選ばれ、右ペインは
+  // プロパティ(修正履歴のある面)へ戻り、番号つきの見出しと修正履歴が出る。
+  await selectPart(frame, partLocator(frame).first());
+  await page.locator('[data-pane-tab="comments"]').click();
+  await mark.click();
+  await expect(frame.locator('.gjs-selected')).toContainText('皆様');
+  await expect(page.locator('[data-pane-tab="props"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-selected-part] .no-pill')).toHaveText('1');
+  await expect(page.getByRole('button', { name: /^修正履歴 \d+ 件$/ })).toBeVisible();
+});
+
+test('変更の目印を切ると丸数字が消え、再読み込みしても切ったまま', async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  await editOneWord(page, frame);
+  // 下書きに直しが残るまで待つ(再読み込みのあとも番号の元がある)。
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+
+  const toggle = page.locator('.chg-toggle');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(changeMarkers(page)).toHaveCount(0);
+
+  page.on('dialog', (d) => void d.accept());
+  await page.reload({ waitUntil: 'commit' });
+  const re = page.frameLocator('iframe.gjs-frame');
+  await partLocator(re).first().waitFor({ state: 'visible', timeout: 30_000 });
+  await expect(page.locator('.chg-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(changeMarkers(page)).toHaveCount(0);
+  // 切っている間も番号は数えている(入れ直すとすぐ出る)。0 件が計算前の空振りでないことの確認。
+  await page.locator('.chg-toggle').click();
+  await expect(changeMarkers(page)).toHaveCount(1, { timeout: 30_000 });
+});
+
+test('目印は保存内容に載らない', async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  await editOneWord(page, frame);
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+  // 目印は親画面の overlay にあり、canvas の文書には無い。
+  await expect(frame.locator('.chg-mark, [data-change-marker]')).toHaveCount(0);
+  // 下書き(`getHtml` の書き出し)にも端末側の保存にも載らない。
+  const draft = await readDraft(page, SEED_ID);
+  expect(draft?.html).toContain('皆様');
+  expect(draft?.html).not.toContain('chg-mark');
+  expect(draft?.html).not.toContain('data-change-marker');
+  const leakedLocal = await page.evaluate(() =>
+    Object.keys(localStorage).some((k) => (localStorage.getItem(k) ?? '').includes('chg-mark')),
+  );
+  expect(leakedLocal).toBe(false);
+});
+
+interface DiffRun {
+  start: number;
+  end?: number;
+}
+
+/**
+ * 番号の計算(worker の `buildHtmlDiff`。Comlink の要求に `path` が載る)の開始・終了の時刻と、
+ * 変更の目印が画面に現れた時刻を、ページの `performance.now()` で記録する。アプリの外から測る
+ * ので、アプリに計測用のコードを足さない。
+ */
+async function trackChangeNumberRuns(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    if (window.top !== window) return;
+    const w = window as unknown as { __diffRuns: DiffRun[]; __markerAt: number[] };
+    w.__diffRuns = [];
+    w.__markerAt = [];
+    const byId = new Map<unknown, DiffRun>();
+    const hooked = new WeakSet<Worker>();
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (this: Worker, msg: unknown, ...rest: unknown[]) {
+      const m = msg as { id?: unknown; path?: unknown } | null;
+      if (m && Array.isArray(m.path) && m.path.includes('buildHtmlDiff')) {
+        const run: DiffRun = { start: performance.now() };
+        w.__diffRuns.push(run);
+        byId.set(m.id, run);
+        if (!hooked.has(this)) {
+          hooked.add(this);
+          this.addEventListener('message', (e) => {
+            const id = (e.data as { id?: unknown } | null)?.id;
+            const r = byId.get(id);
+            if (!r) return;
+            r.end = performance.now();
+            byId.delete(id);
+          });
+        }
+      }
+      return (post as (...a: unknown[]) => void).call(this, msg, ...rest);
+    } as typeof Worker.prototype.postMessage;
+    let had = false;
+    new MutationObserver(() => {
+      const has = document.querySelector('[data-change-marker]') !== null;
+      if (has && !had) w.__markerAt.push(performance.now());
+      had = has;
+    }).observe(document, { childList: true, subtree: true });
+  });
+}
+
+async function changeNumberRuns(page: Page): Promise<{ runs: DiffRun[]; markerAt: number[] }> {
+  return page.evaluate(() => {
+    const w = window as unknown as { __diffRuns: DiffRun[]; __markerAt: number[] };
+    return { runs: w.__diffRuns, markerAt: w.__markerAt };
+  });
+}
+
+/** 走っている番号の計算が無く、少なくとも 1 回終わっている。 */
+async function changeNumbersSettled(page: Page): Promise<boolean> {
+  const { runs } = await changeNumberRuns(page);
+  return runs.length > 0 && runs.every((r) => r.end !== undefined);
+}
+
+/** 帳票の本文を `copies` 回くり返した値入り HTML を返す(fixture は増やさない)。 */
+async function serveRepeatedBody(page: Page, copies: number): Promise<void> {
+  const templatePath = `/api/templates/${encodeURIComponent(SEED_ID)}`;
+  await page.route(
+    (url) => url.pathname === templatePath,
+    async (route) => {
+      const res = await route.fetch();
+      const tpl = (await res.json()) as { filled?: string };
+      if (tpl.filled) {
+        tpl.filled = tpl.filled.replace(
+          /(<body[^>]*>)([\s\S]*)(<\/body>)/,
+          (_m, open, body, close) =>
+            `${open}${Array.from({ length: copies }, () => body).join('<div class="pagebreak"></div>')}${close}`,
+        );
+      }
+      await route.fulfill({ response: res, json: tpl });
+    },
+  );
+}
+
+/** 所要時間の基準(計画で決めたこと。予約の 1,000ms は含めない)。超えたら直さずに止めて相談する。 */
+const RECOMPUTE_BUDGET_MS = 1_500;
+
+test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内', async ({ page }) => {
+  test.setTimeout(300_000);
+  // fixture の帳票はどれも 10 パーツ前後なので、本文を 34 回くり返して 300 パーツ程度にする。
+  await serveRepeatedBody(page, 34);
+  await trackChangeNumberRuns(page);
+  await login(page);
+  const frame = await openEditor(page);
+  const parts = await partLocator(frame).count();
+  expect(parts).toBeGreaterThanOrEqual(300);
+  // 開いた直後の計算(未編集なので目印は出ない)が終わるのを待つ。
+  await expect.poll(() => changeNumbersSettled(page), { timeout: 120_000 }).toBe(true);
+  const opened = (await changeNumberRuns(page)).runs.at(-1);
+  const t0 = await page.evaluate(() => performance.now());
+
+  await editOneWord(page, frame);
+  await expect.poll(() => changeNumbersSettled(page), { timeout: 60_000 }).toBe(true);
+  const { runs, markerAt } = await changeNumberRuns(page);
+  const shownAt = markerAt.find((t) => t > t0);
+  if (shownAt === undefined) throw new Error('目印の出現の時刻が記録されていない');
+  const run = runs.filter((r) => r.start > t0 && r.start < shownAt).at(-1);
+  if (!run || run.end === undefined) throw new Error('編集のあとの番号の計算が記録されていない');
+  const elapsed = shownAt - run.start;
+  const summary =
+    `parts=${parts} runsAfterEdit=${runs.filter((r) => r.start > t0).length} ` +
+    `openedWorker=${Math.round((opened?.end ?? 0) - (opened?.start ?? 0))}ms ` +
+    `editWorker=${Math.round(run.end - run.start)}ms editStartToMarker=${Math.round(elapsed)}ms`;
+  console.log(`[change-numbers] ${summary}`);
+  test.info().annotations.push({ type: 'change-numbers', description: summary });
+  expect(elapsed).toBeLessThan(RECOMPUTE_BUDGET_MS);
+});
+
+test('本文が変わらない変更では番号を計算し直さず、目印も出ない', async ({ page }) => {
+  test.setTimeout(120_000);
+  await trackChangeNumberRuns(page);
+  await login(page);
+  const frame = await openEditor(page);
+  await expect.poll(() => changeNumbersSettled(page), { timeout: 60_000 }).toBe(true);
+  const before = (await changeNumberRuns(page)).runs.length;
+
+  // 余白を 1 つ増やしてすぐ戻す。変更の通知は 2 回来るが、本文を読みに行く 300ms の待ちの
+  // うちに元へ戻るので、本文は開いたときと同じ(保存内容の変わらない通知)。
+  await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
+  await selectPart(frame, partLocator(frame).first());
+  await page.getByRole('button', { name: '下の余白を増やす' }).click();
+  await page.getByRole('button', { name: '下の余白を減らす' }).click();
+  // 予約(300ms の待ち + 1,000ms)が過ぎるまで待ち、計算が増えていないことを見る。何も起きない
+  // ことの確認なので、待つ条件が無い。
+  await page.waitForTimeout(2_500);
+  expect((await changeNumberRuns(page)).runs.length).toBe(before);
+  await expect(changeMarkers(page)).toHaveCount(0);
 });
