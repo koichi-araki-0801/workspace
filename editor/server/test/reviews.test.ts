@@ -48,7 +48,9 @@ d('review workflow (reviewRepo)', () => {
   // 承認が `filled/` へ Jinja 骨組みを書いてしまう)。既定の origin に合わせて種を撒く。
   const submit = (templateId: string, html: string, origin: 'edit' | 'create' = 'edit') => {
     if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
-    return reviews.submitReview({ templateId, html, css: '.x{}', origin }, submitter);
+    // 作成経路は値入り HTML が要る(受付で原文とパーツの構造を比べる)。原文と同じ構造で足りる。
+    const filled = origin === 'create' ? { filledHtml: html } : {};
+    return reviews.submitReview({ templateId, html, css: '.x{}', origin, ...filled }, submitter);
   };
   /**
    * edit 申請の変更パーツを全部承認する(判定の揃わない edit 申請は確定できない)。最終確定が
@@ -379,8 +381,11 @@ d('review workflow (reviewRepo)', () => {
   });
 
   it("origin='create' は値入り HTML がなければ最終確定できない", async () => {
+    // 受付は値入り HTML の無い申請を止めるので、受付の検査より前に保存された申請を模す
+    // (受付を通して保存された値入り HTML を消す)。
     const tplId = 'XX01_212122_交付版';
     const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
+    fs.rmSync(path.join(tmp, 'reviews', meta.id, 'filled.html'));
 
     await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
       kind: 'validation',
@@ -840,6 +845,76 @@ d('review workflow (reviewRepo)', () => {
         kind: 'validation',
         message: 'パーツ識別子にJinjaを使用できません',
       });
+    });
+
+    it('作成経路で値入り HTML の無い申請・原文と値入りのパーツの構造が合わない申請は、受付で 400 にする', async () => {
+      const html = '<body><section data-part-id="s">{{ fund.name }}</section></body>';
+      const submitCreate = (templateId: string, filledHtml?: string) =>
+        reviews.submitReview(
+          {
+            templateId,
+            html,
+            css: '.x{}',
+            origin: 'create',
+            ...(filledHtml === undefined ? {} : { filledHtml }),
+          },
+          submitter,
+        );
+      await expect(submitCreate('XX01_720016_交付版')).rejects.toMatchObject({
+        kind: 'validation',
+        message: '作成タブの最終確定には値入りHTMLが必要です',
+      });
+      await expect(
+        submitCreate(
+          'XX01_720017_交付版',
+          '<body><section data-part-id="t">ダミー</section></body>',
+        ),
+      ).rejects.toMatchObject({
+        kind: 'validation',
+        message: 'Jinja原文と値入りHTMLのパーツ構造が一致しません',
+      });
+    });
+
+    it('作成経路の受付の検査は、テスト用の全 fixture(Jinja 原文と値入りの組)を拒まない', async () => {
+      const fixtures = path.resolve(__dirname, '../../fixtures');
+      const names = fs
+        .readdirSync(path.join(fixtures, 'templates'))
+        .filter((n) => n.endsWith('.html'));
+      expect(names.length).toBeGreaterThan(0);
+      for (const n of names) {
+        const [company, fund, , edition] = n.replace(/\.html$/, '').split('_');
+        const templateId = `${company}_${fund}_${edition}`;
+        const source = fs.readFileSync(path.join(fixtures, 'templates', n), 'utf8');
+        // テンプレ JS の照合の基準(生成済みのテンプレート)を置く。作成タブは生成物を直して申請する。
+        fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+        fs.writeFileSync(path.join(tmp, 'templates', `${templateId}.html`), source, 'utf8');
+        const meta = await reviews.submitReview(
+          {
+            templateId,
+            html: source,
+            css: '.x{}',
+            origin: 'create',
+            filledHtml: fs.readFileSync(path.join(fixtures, 'filled', n), 'utf8'),
+          },
+          { username: `fixture-${n}`, role: 'editor' },
+        );
+        expect(meta.status, n).toBe('pending');
+      }
+    }, 60_000);
+
+    it('作成経路でパーツの境界が閉じていない申請も、受付で 400 にする', async () => {
+      await expect(
+        reviews.submitReview(
+          {
+            templateId: 'XX01_720015_交付版',
+            html: '<body><section data-part-id="s">{{ fund.name }}</section><!-- 閉じない</body>',
+            css: '.x{}',
+            origin: 'create',
+            filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
+          },
+          submitter,
+        ),
+      ).rejects.toMatchObject({ kind: 'validation', message: 'HTMLのパーツ境界を確認できません' });
     });
 
     it('作成経路で Jinja 原文のパーツを読めないときは、照合を飛ばさずにその 400 を返す', async () => {

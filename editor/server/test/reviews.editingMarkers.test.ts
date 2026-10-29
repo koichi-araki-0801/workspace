@@ -75,7 +75,13 @@ d('申請本文の編集用の印(両経路)', () => {
 
   it('印の無い申請は両経路とも通る', async () => {
     const created = await reviews.submitReview(
-      { templateId: CREATE_ID, html: '<p>{{ fund.name }}</p>', css: '', origin: 'create' },
+      {
+        templateId: CREATE_ID,
+        html: '<p>{{ fund.name }}</p>',
+        filledHtml: '<p>日本株式オープン</p>',
+        css: '',
+        origin: 'create',
+      },
       submitter,
     );
     expect(created.status).toBe('pending');

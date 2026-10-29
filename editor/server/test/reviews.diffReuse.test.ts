@@ -81,4 +81,34 @@ d('申請の差分の使い回し', () => {
       '<p>新しい本文</p>',
     );
   });
+
+  it('承認・却下で決着した申請の差分とキーは覚えておかない', async () => {
+    const { cachedReviewIds } = await import('../src/repositories/reviewRepo.js');
+    const submitEdit = async (tplId: string) => {
+      fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'filled', `${tplId}.html`), '<p>既存の値入り</p>', 'utf8');
+      const meta = await reviews.submitReview(
+        { templateId: tplId, html: '<p>変えた本文</p>', css: '.x{}', origin: 'edit' },
+        submitter,
+      );
+      await reviews.updatePartDecisions(
+        meta.id,
+        { decisions: [{ partKey: 'p#1', status: 'approved' }] },
+        approver,
+      );
+      const cached = cachedReviewIds();
+      expect(cached.diffs).toContain(meta.id);
+      expect(cached.keys).toContain(meta.id);
+      return meta.id;
+    };
+    const approved = await submitEdit('XX01_730002_20250101_交付版');
+    await reviews.approveReview(approved, {}, approver);
+    const rejected = await submitEdit('XX01_730003_20250101_交付版');
+    await reviews.rejectReview(rejected, { comment: '戻す' }, approver);
+    const after = cachedReviewIds();
+    for (const id of [approved, rejected]) {
+      expect(after.diffs).not.toContain(id);
+      expect(after.keys).not.toContain(id);
+    }
+  });
 });

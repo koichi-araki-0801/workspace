@@ -123,6 +123,20 @@ const decidableKeysCache = new Map<string, ReadonlySet<string> | null>();
 const REVIEW_DIFF_CACHE_SIZE = 4;
 const reviewDiffCache = new Map<string, HtmlDiff>();
 
+/**
+ * 決着した申請の差分とキーを捨てる。決着後は判定も最終確定もしないので、覚えておく理由が無い
+ * (差分は上限に近い帳票で百 MB 級になりうる)。
+ */
+function forgetReview(reqId: string): void {
+  reviewDiffCache.delete(reqId);
+  decidableKeysCache.delete(reqId);
+}
+
+/** (テスト用)いま覚えている申請の id。 */
+export function cachedReviewIds(): { diffs: string[]; keys: string[] } {
+  return { diffs: [...reviewDiffCache.keys()], keys: [...decidableKeysCache.keys()] };
+}
+
 /** 古い順に捨てて、`size` 件までに収める。 */
 function remember<V>(cache: Map<string, V>, size: number, key: string, value: V): V {
   if (!cache.has(key) && cache.size >= size) {
@@ -186,6 +200,26 @@ function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<stri
       page.blocks.filter((block) => block.status !== 'same').map((block) => block.partKey),
     ),
   );
+}
+
+/**
+ * 作成経路の申請を受けてよいか。判定の保存と最終確定は Jinja 原文のパーツ(`extractReviewParts`)
+ * で照合し、最終確定は値入り HTML と原文のパーツの構造が同じことを要る(shared の
+ * `buildCreateReviewedHtml`)。原文のパーツを読めない申請(パーツ識別子の Jinja・閉じていない
+ * 境界)、値入り HTML の無い申請、原文と値入りでパーツの構造が合わない申請は、承認・却下や最終確定が
+ * 必ず 400 になり決着できないので、受付で同じ検査をして止める(すでに保存された申請は今のまま、
+ * 判定の保存・最終確定で 400)。文言は最終確定と同じ。
+ */
+function assertCreateReviewable(html: string, filledHtml: string | undefined): void {
+  const sourceKeys = extractReviewParts(html).map((part) => part.partKey);
+  if (filledHtml === undefined) throw validation('作成タブの最終確定には値入りHTMLが必要です');
+  const filledKeys = extractReviewParts(filledHtml).map((part) => part.partKey);
+  if (
+    sourceKeys.length !== filledKeys.length ||
+    sourceKeys.some((key, i) => key !== filledKeys[i])
+  ) {
+    throw validation('Jinja原文と値入りHTMLのパーツ構造が一致しません');
+  }
 }
 
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
@@ -341,16 +375,12 @@ export function createReviewRepo({
           `編集タブの申請は値入り HTML(会社_ファンド_基準日_版種)の id だけを受けます: ${req.templateId}`,
         );
       }
-      // 作成経路は、判定の保存と最終確定が Jinja 原文のパーツ(`extractReviewParts`)で照合する。
-      // 原文のパーツを読めない申請(パーツ識別子の Jinja・閉じていない境界)は、承認・却下が
-      // 毎回 400 になり決着できないので、受付で同じ検査をして止める(すでに保存された申請は
-      // 今のまま、判定の保存で 400)。
-      if (req.origin === 'create') extractReviewParts(req.html);
       await assertFilledPresentForEdit(req.origin, req.templateId);
       // 承認側(`applyConfirmedWrite`)でも止まるが、入口で弾かないと精査者のキューに
       // 「承認できない申請」が積まれる。プレビュー文書(`filledHtml`)も同じ本文から作るので見る。
       assertNoEditingMarkers(req.html, req.templateId);
       if (req.filledHtml !== undefined) assertNoEditingMarkers(req.filledHtml, req.templateId);
+      if (req.origin === 'create') assertCreateReviewable(req.html, req.filledHtml);
       // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
       // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
       // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。
@@ -609,6 +639,7 @@ export function createReviewRepo({
           reviewedAt: new Date().toISOString(),
           comment: decision.comment ?? null,
         });
+        forgetReview(reqId);
         // 承認の完結後に交付版⇄全体版のパーツと CSS の自動同期を掛ける(ベストエフォート。失敗しても
         // 承認は成立済みで、結果/理由は summary として UI へ返す)。ペア対象外なら null。
         const sync = await pairSync.syncPairAfterConfirm(
@@ -635,12 +666,14 @@ export function createReviewRepo({
         const review = await readReview(reqId);
         if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
         assertUndecided(review);
-        return updateReviewMeta(reqId, {
+        const meta = await updateReviewMeta(reqId, {
           status: 'rejected',
           reviewedBy: actor.username,
           reviewedAt: new Date().toISOString(),
           comment: decision.comment ?? null,
         });
+        forgetReview(reqId);
+        return meta;
       });
     },
   };
