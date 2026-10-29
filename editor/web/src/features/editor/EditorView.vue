@@ -46,6 +46,10 @@ const {
   assetWarnings,
   displayHistory,
   partLabels,
+  historyGroups,
+  selectedNo,
+  selectedName,
+  selectedKey,
   changeMarksAvailable,
   selectedPart,
   selectedGeom,
@@ -620,6 +624,10 @@ const statusText = computed(() => {
         :part-break="selectedPartBreak"
         :history="displayHistory"
         :part-labels="partLabels"
+        :history-groups="historyGroups"
+        :selected-no="selectedNo"
+        :selected-name="selectedName"
+        :selected-key="selectedKey"
         :pane-tab="paneTab"
         :comment-count="openNoteCount"
         :edit-mode="allowEdit"
@@ -632,6 +640,7 @@ const statusText = computed(() => {
         @del="deletePart"
         @pane-tab="paneTab = $event"
         @collapse="rightCollapsed = true"
+        @select-part="selectPartByKey"
       >
         <template #comments>
           <CommentPanel

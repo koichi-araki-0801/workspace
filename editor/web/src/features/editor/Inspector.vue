@@ -29,7 +29,6 @@ import {
   FileText,
   History,
   MessageSquare,
-  PanelRight,
   PanelRightClose,
   RotateCcw,
   SplitSquareVertical,
@@ -45,6 +44,7 @@ import StepperInput from '@/components/ui/StepperInput.vue';
 import { formatDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { type Align, alignForWidth, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
+import type { HistoryGroup } from './historyGroups';
 import InspectorSection from './InspectorSection.vue';
 import type { BreakEdge } from './partBreak';
 import type { SelectedInfo } from './useGrapes';
@@ -68,6 +68,12 @@ const props = defineProps<{
   editMode: boolean;
   canUp: boolean;
   canDown: boolean;
+  /** 未選択のときの修正履歴。変更の番号ごとの見出し(`historyGroups.ts`)。 */
+  historyGroups: HistoryGroup[];
+  /** 選択中のパーツの変更の番号(差分が無ければ null)・名前・キー(`title` のページN・パーツM用)。 */
+  selectedNo: number | null;
+  selectedName: string;
+  selectedKey: string | null;
 }>();
 
 // 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeomEdit` / `setPartBreak` / `moveSelected` /
@@ -80,6 +86,7 @@ const emit = defineEmits<{
   del: [];
   'pane-tab': ['props' | 'comments'];
   collapse: [];
+  'select-part': [key: string];
 }>();
 
 const label = computed(() => props.part?.name ?? props.selected?.name ?? '');
@@ -292,23 +299,49 @@ const PB_CLASS =
       <slot name="comments" />
     </div>
 
-    <!-- 未選択 -->
-    <div
-      v-else-if="!selected || !geom"
-      class="grid flex-1 place-items-center px-6 text-center text-muted-foreground"
-    >
-      <div>
-        <PanelRight class="mx-auto mb-2.5 h-[26px] w-[26px] opacity-40" />
-        <p class="text-[13px] leading-relaxed">
-          キャンバスでパーツを選ぶと、<br />現在の設定と修正履歴を表示します。
-        </p>
-      </div>
+    <!-- 未選択: 全パーツの修正履歴を変更の番号ごとの見出しで並べる -->
+    <div v-else-if="!selected || !geom" class="flex-1 overflow-y-auto px-4 py-3">
+      <h3 class="mb-2 text-[12.5px] font-bold text-foreground">修正履歴（全パーツ）</h3>
+      <p class="mb-3 rounded-md border border-dashed px-3 py-2 text-[12px] leading-relaxed text-muted-foreground">
+        パーツを選ぶと、そのパーツの設定と履歴だけを出します
+      </p>
+      <template v-for="(g, gi) in historyGroups" :key="`${g.key}:${g.removed}`">
+        <h4
+          v-if="g.offCanvas && !historyGroups[gi - 1]?.offCanvas"
+          class="mb-1 mt-3 text-[11.5px] font-bold text-muted-foreground"
+        >現在の紙面に無いパーツ</h4>
+        <section class="mb-3" :data-history-group="g.key">
+          <button
+            type="button"
+            class="flex w-full items-center gap-1.5 whitespace-nowrap rounded px-1 py-1 text-left hover:bg-muted"
+            :data-history-heading="g.key"
+            :disabled="g.removed || g.offCanvas"
+            @click="emit('select-part', g.key)"
+          >
+            <span v-if="g.no !== null" class="no-pill">{{ g.no }}</span>
+            <span class="min-w-0 truncate text-[12.5px] font-bold text-foreground">{{ g.name }}</span>
+          </button>
+          <p v-if="g.entries.length === 0" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
+          <div v-for="h in g.entries" :key="h.id" class="px-1 py-1">
+            <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
+            <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
+          </div>
+        </section>
+      </template>
     </div>
 
     <template v-else>
       <!-- 選択パーツの識別情報(常に表示、折りたたみ不可) -->
       <div class="border-b bg-primary-soft/50 px-4 py-3">
-        <div class="text-sm font-bold text-foreground">{{ label }}</div>
+        <div class="mb-1 text-[11px] text-muted-foreground">選択中のパーツ</div>
+        <div
+          class="flex items-center gap-1.5 whitespace-nowrap"
+          data-selected-part
+          :title="selectedKey ? (partLabels.get(selectedKey) ?? undefined) : undefined"
+        >
+          <span v-if="selectedNo !== null" class="no-pill">{{ selectedNo }}</span>
+          <span class="min-w-0 truncate text-sm font-bold text-foreground">{{ selectedName || label }}</span>
+        </div>
         <div class="mt-0.5 text-[11.5px] text-muted-foreground">
           {{ group }} ・ <span class="mono">#{{ selected.id }}</span>
           <template v-if="selected.isJinja"> ・ <span class="text-warning-foreground">自動入力</span></template>
@@ -492,6 +525,20 @@ const PB_CLASS =
 </template>
 
 <style scoped>
+/* 変更の番号の丸。紙面の目印(`EditorView.vue` の `.chg-mark`)と同じ青 */
+.no-pill {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: #3b82c4;
+  border-radius: 10px;
+}
 /* ラベル + コントロールの 1 行 */
 .ins-row {
   display: flex;

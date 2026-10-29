@@ -11,6 +11,8 @@ import {
   type PairSyncStatus,
   type PartCatalogItem,
   type PartHistoryEntry,
+  partDisplayName,
+  partNameOfElement,
   type Template,
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
@@ -26,10 +28,12 @@ import {
   writeConfirmedCanonical,
 } from '@/lib/confirmedCanonical';
 import { companyCodeOfTemplateId, fundCodeOfTemplateId } from '@/lib/fundImages';
+import { partNameOf } from '@/lib/partNames';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { canvasRoot } from './canvasGeometry';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
+import { groupHistoryByPart } from './historyGroups';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
 import { pageWarnings } from './pageWarnings';
@@ -294,6 +298,48 @@ export function useTemplateEditor(
     const root = canvasRoot(g.editor);
     return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
   });
+
+  /**
+   * canvas の全パーツ(紙面の順)のキー → 表示名。業務名 → 先頭の文字 → `ページN・パーツM` の順
+   * (承認タブ・紙面の目印と同じ決め方。`useChangeNumbers.ts` の削除パーツの名前と揃える)。
+   */
+  const partNames = computed<Map<string, string>>(() => {
+    void g.revision.value;
+    void g.pageBlocks.value;
+    const ed = g.editor.value;
+    const root = canvasRoot(g.editor);
+    const out = new Map<string, string>();
+    if (!ed || !root) return out;
+    const nameById = new Map([...partsById.values()].map((p) => [p.id, p.name]));
+    for (const e of partEntries(root, canvasRawKey(ed))) {
+      out.set(
+        e.key,
+        partDisplayName({
+          catalogName: partNameOf(e.key, nameById),
+          firstText: partNameOfElement(e.part),
+          fallbackLabel: partLabels.value.get(e.key) ?? '',
+        }),
+      );
+    }
+    return out;
+  });
+
+  /**
+   * 未選択のときの修正履歴を、変更の番号ごとの見出しへ束ねたもの。変更の目印の出し入れ
+   * (`changeMarksEnabled`)とは無関係に、番号が有れば見出しに出す。
+   */
+  const historyGroups = computed(() =>
+    groupHistoryByPart({
+      entries: displayHistory.value,
+      numbers: changeNumbers.numbers.value,
+      partOrder: [...partNames.value.keys()],
+      nameOf: (key) => partNames.value.get(key) ?? '',
+    }),
+  );
+  const selectedNo = computed(
+    () => changeNumbers.numbers.value.byKey.get(currentNoteKeyRef.value ?? '') ?? null,
+  );
+  const selectedName = computed(() => partNames.value.get(currentNoteKeyRef.value ?? '') ?? '');
 
   /**
    * 根の直下のパーツのうち、アンカーの属性の原文に Jinja を持つものの数(警告用。`partLabels` と
@@ -779,6 +825,10 @@ export function useTemplateEditor(
     ]),
     displayHistory,
     partLabels,
+    historyGroups,
+    selectedNo,
+    selectedName,
+    selectedKey: currentNoteKeyRef,
     /** 確定版との差分のあるパーツの番号(作成経路・値入り HTML の無いテンプレでは常に空)。 */
     changeNumbers: changeNumbers.numbers,
     /** 変更の目印を出せる経路か(作成経路では切替も目印も出さない)。 */
