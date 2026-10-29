@@ -50,6 +50,9 @@ const {
   selectedNo,
   selectedName,
   selectedKey,
+  selectedRejected,
+  partNames,
+  changeNumbers,
   changeMarksAvailable,
   selectedPart,
   selectedGeom,
@@ -628,6 +631,7 @@ const statusText = computed(() => {
         :selected-no="selectedNo"
         :selected-name="selectedName"
         :selected-key="selectedKey"
+        :selected-rejected="selectedRejected"
         :pane-tab="paneTab"
         :comment-count="openNoteCount"
         :edit-mode="allowEdit"
@@ -648,6 +652,8 @@ const statusText = computed(() => {
             :selected-key="currentNoteKey"
             :can-add="canNote"
             :part-labels="partLabels"
+            :part-numbers="changeNumbers.byKey"
+            :part-names="partNames"
             @add="(content) => addNote(content)"
             @reply="replyNote"
             @set-status="setNoteStatus"

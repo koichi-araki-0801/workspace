@@ -3,7 +3,7 @@ import { TooltipProvider } from 'reka-ui';
 import { describe, expect, it } from 'vitest';
 import { defineComponent, h } from 'vue';
 import { DEFAULT_GEOM } from '@/features/editor/geom';
-import type { HistoryGroup } from '@/features/editor/historyGroups';
+import type { HistoryGroup, RejectedReason } from '@/features/editor/historyGroups';
 import Inspector from '@/features/editor/Inspector.vue';
 
 const entry = (id: string, partKey: string) => ({
@@ -179,5 +179,65 @@ describe('Inspector の修正履歴の見出し', () => {
     await more.trigger('click');
     expect(wrapper.text()).toContain('変更6');
     expect(wrapper.find('[data-history-more]').exists()).toBe(false);
+  });
+});
+
+describe('Inspector の却下の理由', () => {
+  const reason: RejectedReason = {
+    partKey: 'a',
+    reason: '数値が<b>違う</b>\n2 行目',
+    decidedBy: '承認 太郎',
+    decidedAt: '2026-10-28T01:02:00.000Z',
+    name: null,
+  };
+
+  it('選択中のパーツの見出しのすぐ下に、判定者と日時の見出しと理由をエスケープして出す', () => {
+    const { wrapper } = mountInspector({
+      selected: { id: 'c1', name: 'div', isJinja: false },
+      geom: DEFAULT_GEOM,
+      selectedNo: 1,
+      selectedName: '概況',
+      selectedKey: 'a',
+      selectedRejected: reason,
+    });
+    const box = wrapper.find('[data-rejected-reason]');
+    expect(box.text()).toContain('却下の理由（承認 太郎・');
+    expect(box.find('.rejected-body').text()).toBe('数値が<b>違う</b>\n2 行目');
+    expect(box.find('b').exists()).toBe(false);
+    // 選択中のパーツの枠の直後に置く。
+    expect(wrapper.find('[data-selected-part] + [data-rejected-reason]').exists()).toBe(true);
+  });
+
+  it('選択中でも理由が無ければ枠を出さない', () => {
+    const { wrapper } = mountInspector({
+      selected: { id: 'c1', name: 'div', isJinja: false },
+      geom: DEFAULT_GEOM,
+      selectedKey: 'a',
+      selectedRejected: null,
+    });
+    expect(wrapper.find('[data-rejected-reason]').exists()).toBe(false);
+  });
+
+  it('未選択の修正履歴は見出しの下に枠を出し、紙面に無い却下は末尾の小見出しの下に並べる', () => {
+    const off: HistoryGroup = {
+      key: 'p#2',
+      no: null,
+      name: '申請の本文の名前',
+      removed: false,
+      offCanvas: true,
+      entries: [],
+      rejected: { ...reason, partKey: 'p#2', reason: '追加は不要', name: '申請の本文の名前' },
+    };
+    const { wrapper } = mountInspector({
+      historyGroups: [{ ...groups[0], rejected: reason }, groups[3], off],
+    });
+    const a = wrapper.find('[data-history-group="a"]');
+    expect(a.find('[data-rejected-reason]').text()).toContain('数値が<b>違う</b>');
+    expect(wrapper.find('[data-history-group="c"] [data-rejected-reason]').exists()).toBe(false);
+    const o = wrapper.find('[data-history-group="p#2"]');
+    expect(o.text()).toContain('申請の本文の名前');
+    expect(o.find('[data-rejected-reason]').text()).toContain('追加は不要');
+    expect(o.text()).not.toContain('このパーツの修正履歴はありません');
+    expect(wrapper.find('[data-off-canvas-heading]').text()).toBe('現在の紙面に無いパーツ');
   });
 });

@@ -17,7 +17,7 @@ import {
 } from '@editor/shared';
 import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
-import { useFundAssetRepo, useNoteRepo } from '@/api/repositories';
+import { useFundAssetRepo, useNoteRepo, useReviewRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
 import { submitBodyOf } from '@/features/preview/services/submitBody';
 import { logError } from '@/lib/appError';
@@ -59,6 +59,7 @@ import { changeBaselineOf, createChangeCheckScheduler, useChangeNumbers } from '
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
+import { useRejectedReasons } from './useRejectedReasons';
 import { useSnapshotHistory } from './useSnapshotHistory';
 
 /**
@@ -322,8 +323,20 @@ export function useTemplateEditor(
   });
 
   /**
+   * 前回の申請で却下されたパーツの理由(本人のいちばん新しい申請が決着済みのときだけ。条件は
+   * `useRejectedReasons.ts`)。読み込みで 1 回だけ取る(承認タブから戻れば再マウントで読み直る)。
+   */
+  const rejectedReasons = useRejectedReasons({
+    templateId: id,
+    me: () => auth.user?.username ?? null,
+    reviews: useReviewRepo(),
+    canvasKeys: () => new Set(partNames.value.keys()),
+  });
+
+  /**
    * 未選択のときの修正履歴を、変更の番号ごとの見出しへ束ねたもの。変更の目印の出し入れ
-   * (`changeMarksEnabled`)とは無関係に、番号が有れば見出しに出す。
+   * (`changeMarksEnabled`)とは無関係に、番号が有れば見出しに出す。却下の理由は見出しの下に付け、
+   * 今の紙面に無いキーの却下は申請の本文から作った名前で末尾へ並べる。
    */
   const historyGroups = computed(() =>
     groupHistoryByPart({
@@ -331,7 +344,12 @@ export function useTemplateEditor(
       numbers: changeNumbers.numbers.value,
       partOrder: [...partNames.value.keys()],
       nameOf: (key) => partNames.value.get(key) ?? '',
+      offCanvasNameOf: (key) => rejectedReasons.reasons.value.get(key)?.name ?? undefined,
+      rejected: rejectedReasons.reasons.value,
     }),
+  );
+  const selectedRejected = computed(
+    () => rejectedReasons.reasons.value.get(currentNoteKeyRef.value ?? '') ?? null,
   );
   const selectedNo = computed(
     () => changeNumbers.numbers.value.byKey.get(currentNoteKeyRef.value ?? '') ?? null,
@@ -655,6 +673,8 @@ export function useTemplateEditor(
     changeMarksAvailable.value = changeBaseline !== null;
     changeCheck.reset();
     void changeNumbers.flush();
+    // 前回の申請の却下の理由。作成経路は確定版が無く、比べる前回の申請も無いので出さない。
+    if (!isCreateRoute.value) void rejectedReasons.reload();
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshPartMarkers` が位置を測り直す。
     void note.reload();
@@ -827,6 +847,10 @@ export function useTemplateEditor(
     selectedNo,
     selectedName,
     selectedKey: currentNoteKeyRef,
+    /** 選択中のパーツの、前回の申請の却下の理由(無ければ null)。 */
+    selectedRejected,
+    /** canvas の全パーツのキー → 表示名(コメントの宛先枠・見出し)。 */
+    partNames,
     /** 確定版との差分のあるパーツの番号(作成経路・値入り HTML の無いテンプレでは常に空)。 */
     changeNumbers: changeNumbers.numbers,
     /** 変更の目印を出せるか(比較元が無い経路では切替も凡例も目印も出さない)。 */

@@ -377,12 +377,44 @@ describe('CommentPanel', () => {
     expect(w.emitted('focus')).toBeUndefined();
   });
 
-  it('collapseInputUntilTarget が無い(編集画面)ときは今の入力欄と文言のまま', () => {
+  it('編集画面: 未選択は点線の宛先枠と「パーツを選ぶと書けます」', () => {
     const w = mountPanel({ selectedKey: null, canAdd: false });
+    const none = w.find('[data-comment-target-none]');
+    expect(none.text()).toBe('宛先のパーツが未選択です。紙面でパーツを選んでください');
+    expect(none.classes()).toContain('border-dashed');
+    expect(w.find('[data-comment-target]').exists()).toBe(false);
+    const area = w.find('textarea[data-add-content]');
+    expect(area.attributes('placeholder')).toBe('パーツを選ぶと書けます');
+    expect(area.attributes('disabled')).toBeDefined();
+    expect(w.find('[data-comment-scope]').text()).toBe('全パーツのコメント');
+    // 「選択パーツのみ」は今のまま既定オフ。
+    expect((w.find('[data-filter-selected]').element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('編集画面: 選択中は宛先枠(番号 + 名前)と、名前入りの入力欄の文言', () => {
+    const w = mountPanel({
+      partNumbers: new Map([[COVER, 2]]),
+      partNames: new Map([[COVER, '表紙']]),
+    });
+    const target = w.find('[data-comment-target]');
+    expect(target.text()).toContain('宛先');
+    expect(target.find('[data-part-no]').text()).toBe('2');
+    expect(target.text()).toContain('表紙');
+    expect(target.classes()).toContain('target-box');
+    expect(w.find('[data-comment-target-none]').exists()).toBe(false);
     expect(w.find('textarea[data-add-content]').attributes('placeholder')).toBe(
-      'このパーツへのコメントを書く…',
+      '「表紙」へのコメントを書く…',
     );
-    expect(w.text()).toContain('パーツを選ぶと書けます');
-    expect(w.find('[data-filter-selected]').exists()).toBe(true);
+  });
+
+  it('編集画面: 「選択パーツのみ」を入れると見出しの文が「「<名前>」のコメント」になる', async () => {
+    const w = mountPanel({ partNames: new Map([[COVER, '表紙']]) });
+    await w.find('[data-filter-selected]').setValue(true);
+    expect(w.find('[data-comment-scope]').text()).toBe('「表紙」のコメント');
+  });
+
+  it('承認タブ(compact)には見出しの文を出さない', () => {
+    const w = mountPanel({ compact: true, collapseInputUntilTarget: true });
+    expect(w.find('[data-comment-scope]').exists()).toBe(false);
   });
 });

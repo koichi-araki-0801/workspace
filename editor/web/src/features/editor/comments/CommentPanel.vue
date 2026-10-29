@@ -7,10 +7,11 @@
 // 行を開いた中で行い、canvas の吹き出し(`NoteBubble.vue`)と同じ規則で emit する。
 // 一覧はパーツごとの見出し(番号 + 名前)の下に並べ、見出しを押すとそのパーツを選ぶ。
 // 絞り込み・並びの規則は `commentFilter.ts` に閉じ、ここは描画と入力だけを持つ。
-// 編集画面と承認タブ(`ReviewTabView.vue`)の両方が使う。承認タブは `collapseInputUntilTarget` で
-// 宛先が決まるまで入力欄を畳み、決まったら宛先枠(番号 + 名前)を出す。
+// 編集画面と承認タブ(`ReviewTabView.vue`)の両方が使う。どちらも宛先が決まれば入力欄の上に
+// 宛先枠(番号 + 名前)を出す。承認タブは `collapseInputUntilTarget` で宛先が決まるまで入力欄を畳み、
+// 編集画面は畳まずに点線の枠で未選択を示す(モック 案3)。
 import type { NoteStatus, PartNoteEntry } from '@editor/shared';
-import { Check, ChevronDown, ChevronRight, MessageSquare, Pencil, RotateCcw, Trash2 } from '@lucide/vue';
+import { Check, ChevronDown, ChevronRight, Pencil, RotateCcw, Trash2 } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -114,9 +115,15 @@ const inputMode = computed<'blocked' | 'collapsed' | 'input'>(() => {
   return 'input';
 });
 const addPlaceholder = computed(() =>
-  props.collapseInputUntilTarget && props.selectedKey !== null
+  props.selectedKey !== null
     ? `「${partName(props.selectedKey)}」へのコメントを書く…`
-    : 'このパーツへのコメントを書く…',
+    : 'パーツを選ぶと書けます',
+);
+/** 一覧の範囲の文。「選択パーツのみ」を入れて宛先があるときだけ、そのパーツの名前を出す。 */
+const scopeText = computed(() =>
+  filter.onlySelected && props.selectedKey !== null
+    ? `「${partName(props.selectedKey)}」のコメント`
+    : '全パーツのコメント',
 );
 function submitAdd(): void {
   const text = draft.value.trim();
@@ -169,19 +176,20 @@ function submitReply(t: CommentThread): void {
       </p>
       <template v-else>
         <div
-          v-if="collapseInputUntilTarget && selectedKey"
+          v-if="selectedKey"
           data-comment-target
           class="mb-1.5 flex min-w-0 items-center gap-1.5 text-[12px]"
+          :class="collapseInputUntilTarget ? '' : 'target-box'"
         >
           <span class="shrink-0 text-[11px] text-muted-foreground">宛先</span>
           <span v-if="partNo(selectedKey) !== undefined" data-part-no class="part-no">{{ partNo(selectedKey) }}</span>
           <b class="truncate">{{ partName(selectedKey) }}</b>
         </div>
-        <div v-else class="mb-1.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-          <MessageSquare class="h-3.5 w-3.5" />
-          <span class="truncate">{{ selectedKey ? `宛先: ${partLabel(selectedKey)}` : 'パーツを選ぶと書けます' }}</span>
-          <span class="flex-1" />
-        </div>
+        <p
+          v-else
+          data-comment-target-none
+          class="mb-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-[11.5px] text-muted-foreground"
+        >宛先のパーツが未選択です。紙面でパーツを選んでください</p>
         <textarea
           v-model="draft"
           data-add-content
@@ -224,6 +232,7 @@ function submitReply(t: CommentThread): void {
         </select>
       </div>
       <div v-if="!compact" class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+        <b data-comment-scope class="min-w-0 truncate text-[11.5px]">{{ scopeText }}</b>
         <label class="ml-auto flex cursor-pointer items-center gap-1">
           <input v-model="filter.onlySelected" type="checkbox" data-filter-selected /> 選択パーツのみ
         </label>
@@ -381,6 +390,13 @@ function submitReply(t: CommentThread): void {
   padding: 6px 8px;
   font-size: 12px;
   line-height: 1.5;
+}
+/* 編集画面の宛先枠(モック 案3 の `.target`)。未選択の点線の枠と対にする。 */
+.target-box {
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary-soft);
+  padding: 6px 9px;
 }
 /* 番号の丸札。紙面の番号札と同じ番号だが、判定の色は持たない(コメントは判定と独立)。 */
 .part-no {

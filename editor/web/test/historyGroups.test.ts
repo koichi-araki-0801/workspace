@@ -77,7 +77,13 @@ describe('groupHistoryByPart', () => {
   });
 
   it('却下の理由は番号なし・紙面外のキーにも付き、理由だけでも見出しを作る', () => {
-    const r: RejectedReason = { by: 'x', at: '2026-10-28T00:00:00Z', reason: '理由' };
+    const r: RejectedReason = {
+      partKey: 'a',
+      decidedBy: 'x',
+      decidedAt: '2026-10-28T00:00:00Z',
+      reason: '理由',
+      name: null,
+    };
     const groups = groupHistoryByPart({
       entries: [],
       numbers: numbers([['a', 1]], [{ no: 2, key: 'gone', name: '旧' }]),
@@ -107,5 +113,30 @@ describe('groupHistoryByPart', () => {
       offCanvasNameOf: (k) => (k === 'x' ? '申請の本文の名前' : undefined),
     });
     expect(groups[0].name).toBe('申請の本文の名前');
+  });
+  it('キーがずれて canvas に無い却下の理由は、末尾の「現在の紙面に無いパーツ」へ並べる', () => {
+    // 申請の本文では 2 つ目の `p` だったパーツが、今の紙面では 1 つしかない(キーが `p#2` → 無し)。
+    const r: RejectedReason = {
+      partKey: 'p#2',
+      decidedBy: '承認者',
+      decidedAt: '2026-10-28T00:00:00Z',
+      reason: '数値が違う',
+      name: '申請の本文の名前',
+    };
+    const reasons = new Map([[r.partKey, r]]);
+    const groups = groupHistoryByPart({
+      entries: [h('1', 'p#1')],
+      numbers: numbers([['p#1', 1]]),
+      partOrder: ['p#1'],
+      nameOf: (k) => (k === 'p#1' ? '段落' : ''),
+      offCanvasNameOf: (k) => reasons.get(k)?.name ?? undefined,
+      rejected: reasons,
+    });
+    expect(groups.map((g) => [g.key, g.offCanvas, g.name])).toEqual([
+      ['p#1', false, '段落'],
+      ['p#2', true, '申請の本文の名前'],
+    ]);
+    expect(groups[0].rejected).toBeNull();
+    expect(groups[1].rejected).toBe(r);
   });
 });

@@ -8,14 +8,21 @@
 import type { PartHistoryEntry } from '@editor/shared';
 import type { ChangeNumbers } from './useChangeNumbers';
 
-/** 却下された変更の理由(Task 13 が値を入れる。ここでは型だけを定める)。 */
+/**
+ * 前回の申請で却下されたパーツの理由(`useRejectedReasons.ts` が申請の判定 `partDecisions` から作る)。
+ * 読み取り専用で出すだけで、コメントへは投稿しない(D1)。
+ */
 export interface RejectedReason {
-  /** 却下した人。 */
-  by: string;
-  /** 却下の日時(ISO 文字列)。 */
-  at: string;
-  /** 却下の理由。 */
+  /** 判定のパーツのキー(`DiffBlock.partKey` と同じ。canvas のキーと同じ規則)。 */
+  partKey: string;
+  /** 却下の理由(承認者が書いた文字列。利用者入力としてエスケープして描く)。 */
   reason: string;
+  /** 却下した人。 */
+  decidedBy: string;
+  /** 却下の日時(ISO 文字列)。 */
+  decidedAt: string;
+  /** 申請の本文から作ったパーツ名。canvas に同じキーのパーツがあるときは null(canvas の名前を使う)。 */
+  name: string | null;
 }
 
 export interface HistoryGroup {
@@ -39,7 +46,7 @@ export function groupHistoryByPart(input: {
   /** canvas のパーツのキー(紙面の順)。 */
   partOrder: readonly string[];
   nameOf: (key: string) => string;
-  /** 紙面に無いキーの名前の差し込み口(Task 13 が申請の本文から作る)。無ければ `nameOf` → 「削除済みパーツ」。 */
+  /** 紙面に無いキーの名前の差し込み口(`useRejectedReasons.ts` が申請の本文から作る)。無ければ `nameOf` → 「削除済みパーツ」。 */
   offCanvasNameOf?: (key: string) => string | undefined;
   rejected?: ReadonlyMap<string, RejectedReason>;
 }): HistoryGroup[] {

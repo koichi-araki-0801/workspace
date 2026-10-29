@@ -41,10 +41,10 @@ import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import StepperInput from '@/components/ui/StepperInput.vue';
-import { formatDateTime } from '@/lib/format';
+import { formatDateTime, formatDateTimeShort } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { type Align, alignForWidth, clampMarginMm, clampWidthPct, type LayoutGeom, WIDTH_PCT_MAX } from './geom';
-import type { HistoryGroup } from './historyGroups';
+import type { HistoryGroup, RejectedReason } from './historyGroups';
 import InspectorSection from './InspectorSection.vue';
 import type { BreakEdge } from './partBreak';
 import type { SelectedInfo } from './useGrapes';
@@ -74,6 +74,8 @@ const props = defineProps<{
   selectedNo: number | null;
   selectedName: string;
   selectedKey: string | null;
+  /** 選択中のパーツの、前回の申請の却下の理由(`useRejectedReasons.ts`)。無ければ null。 */
+  selectedRejected?: RejectedReason | null;
 }>();
 
 // 編集操作は `useTemplateEditor.ts` のハンドラ(`applyGeomEdit` / `setPartBreak` / `moveSelected` /
@@ -146,6 +148,10 @@ function headingLabel(g: HistoryGroup): string | undefined {
   if (g.removed) return `${g.name}。削除したパーツのため選べません`;
   if (g.offCanvas) return `${g.name}。現在の紙面に無いため選べません`;
   return undefined;
+}
+/** 却下の理由の枠の見出し。理由の本文は `{{ }}` でエスケープして描く(`v-html` を使わない)。 */
+function rejectedHeading(r: RejectedReason): string {
+  return `却下の理由（${r.decidedBy}・${formatDateTimeShort(r.decidedAt)}）`;
 }
 function onHeadingClick(g: HistoryGroup): void {
   if (g.removed || g.offCanvas) return;
@@ -346,7 +352,11 @@ const PB_CLASS =
               <span class="min-w-0 truncate text-[12.5px] font-bold text-foreground">{{ g.name }}</span>
             </button>
           </h4>
-          <p v-if="g.entries.length === 0 && !g.removed" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
+          <div v-if="g.rejected" class="rejected-box mx-1 mb-1" data-rejected-reason>
+            <div class="rejected-head">{{ rejectedHeading(g.rejected) }}</div>
+            <p class="rejected-body">{{ g.rejected.reason }}</p>
+          </div>
+          <p v-if="g.entries.length === 0 && !g.removed && !(g.offCanvas && g.rejected)" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
           <div v-for="h in visibleEntries(g)" :key="h.id" class="px-1 py-1">
             <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
             <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
@@ -373,6 +383,10 @@ const PB_CLASS =
         >
           <span v-if="selectedNo !== null" class="no-pill">{{ selectedNo }}</span>
           <span class="min-w-0 truncate text-sm font-bold text-foreground">{{ selectedName || label }}</span>
+        </div>
+        <div v-if="selectedRejected" class="rejected-box mt-1.5" data-rejected-reason>
+          <div class="rejected-head">{{ rejectedHeading(selectedRejected) }}</div>
+          <p class="rejected-body">{{ selectedRejected.reason }}</p>
         </div>
         <div class="mt-0.5 text-[11.5px] text-muted-foreground">
           {{ group }} ・ <span class="mono">#{{ selected.id }}</span>
@@ -557,6 +571,26 @@ const PB_CLASS =
 </template>
 
 <style scoped>
+/* 前回の申請の却下の理由(読み取り専用)。却下の色は承認タブの判定と同じ固定色 `#c0392b`。 */
+.rejected-box {
+  border: 1px solid #c0392b;
+  border-radius: 6px;
+  background: color-mix(in srgb, #c0392b 6%, transparent);
+  padding: 6px 8px;
+}
+.rejected-head {
+  color: #c0392b;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.rejected-body {
+  margin-top: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--foreground);
+}
 /* 変更の番号の丸。紙面の目印(`EditorView.vue` の `.chg-mark`)と同じ青 */
 .no-pill {
   display: inline-grid;
