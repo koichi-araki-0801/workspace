@@ -111,6 +111,13 @@ export interface PreviewHostState {
   ready: boolean;
 }
 
+/**
+ * 紙面の倍率の下限(`PreviewHostState.zoom` はこれより小さくならない。フィットも手動の縮小も)。
+ * ホスト(`previewHost.ts` のブートスクリプト)とそれを確かめる e2e(`approval.spec.ts` の 1400px の
+ * 画面)が同じ値を読む。
+ */
+export const PREVIEW_ZOOM_MIN = 0.4;
+
 export type PreviewMarkState = 'pending' | 'approved' | 'rejected';
 
 /** 目印の描き分け。判定の状態ごとの色(紙面の枠・番号札)。 */

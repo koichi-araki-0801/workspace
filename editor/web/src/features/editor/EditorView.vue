@@ -520,7 +520,9 @@ const statusText = computed(() => {
 
           <!-- 編集の affordance(ドラッグハンドル)は編集許可時のみ -->
           <template v-if="rect && selectedGeom && allowEdit">
-            <!-- drag grip: 選択ブロックを兄弟内で並べ替える -->
+            <!-- drag grip: 選択ブロックを兄弟内で並べ替える。マウスのドラッグ専用のつまみで、
+                 キーボードでは右ペインの「上へ移動」「下へ移動」で同じ並べ替えができる -->
+            <!-- biome-ignore lint/a11y/noStaticElementInteractions: ドラッグ専用(代替あり) -->
             <div
               v-if="g.canDragSelected.value"
               class="pg-move pointer-events-auto"
@@ -743,7 +745,8 @@ const statusText = computed(() => {
 
 /* change mark: numbered blue circle at a part's top-left corner (the note marker sits at the
    top-right in amber). fixed px size like the note marker; fixed colors because it always sits on
-   the white A4 sheet (same reason as `.note-marker`). */
+   the white A4 sheet (same reason as `.note-marker`). the color is `--change-mark` (`index.css`),
+   shared with the inspector's `.no-pill` and the legend. */
 .chg-mark {
   position: absolute;
   display: grid;
@@ -760,7 +763,7 @@ const statusText = computed(() => {
   transform: translate(-2px, -2px);
   border-radius: 11px;
   color: #fff;
-  background: #3b82c4;
+  background: var(--change-mark);
   border: 1.5px solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   pointer-events: auto;
@@ -810,7 +813,7 @@ const statusText = computed(() => {
   border-radius: 8px;
   font-size: 10px;
   color: #fff;
-  background: #3b82c4;
+  background: var(--change-mark);
 }
 .chg-swatch-off {
   background: #9aa0a6;
@@ -831,7 +834,7 @@ const statusText = computed(() => {
 }
 .chg-legend-change {
   border-radius: 50%;
-  background: #3b82c4;
+  background: var(--change-mark);
 }
 .chg-legend-note {
   border-radius: 3px;

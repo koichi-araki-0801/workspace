@@ -174,6 +174,14 @@ export function changeBaselineOf(input: {
 const CHANGE_CHECK_WAIT_MS = 300;
 
 /**
+ * 変更の通知を受けた時刻の目印(`performance.mark` の名前)。e2e(`canvas.spec.ts` の所要時間の
+ * テスト)が、通知から紙面の目印が出るまでを測る始点に読む。e2e はアプリの中を見られないので、
+ * 時刻はアプリが残す。前の目印は消してから打ち、長い編集でも 1 つしか残さない(e2e は
+ * `PerformanceObserver` で打たれるたびに受け取る)。
+ */
+export const CHANGE_NOTIFY_MARK = 'change-numbers:notify';
+
+/**
  * canvas の変更の通知を、本文(`getBodyHtml()`)が変わったときだけの差分の予約へ振り分ける。CSS
  * だけの変更や、保存内容の変わらない通知では予約しない(番号はパーツの差分だけで決まり、CSS は
  * 比べない)。通知は style・選択の状態などでも頻繁に来る(ハンドルの drag では連続する)ので、本文の
@@ -204,6 +212,8 @@ export function createChangeCheckScheduler(opts: {
     },
     notify() {
       if (opts.baseline() === null) return;
+      performance.clearMarks(CHANGE_NOTIFY_MARK);
+      performance.mark(CHANGE_NOTIFY_MARK);
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;

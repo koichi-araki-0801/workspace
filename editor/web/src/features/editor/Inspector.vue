@@ -143,11 +143,15 @@ const expanded = reactive(new Set<string>());
 const headingId = (g: HistoryGroup): string => `${g.key}:${g.removed}`;
 const visibleEntries = (g: HistoryGroup): PartHistoryEntry[] =>
   expanded.has(headingId(g)) ? g.entries : g.entries.slice(0, HISTORY_PREVIEW);
-/** 選べない見出し(削除・紙面外)はフォーカスを残したまま押下を無視し、理由を読み上げに載せる。 */
-function headingLabel(g: HistoryGroup): string | undefined {
-  if (g.removed) return `${g.name}。削除したパーツのため選べません`;
-  if (g.offCanvas) return `${g.name}。現在の紙面に無いため選べません`;
-  return undefined;
+/**
+ * 選べない見出し(削除・紙面外)はフォーカスを残したまま押下を無視し、理由を読み上げに載せる。
+ * 理由は中身(番号・名前)の後ろへ読み上げ用の文字で足す。`aria-label` にすると中身の
+ * 「変更 N」を上書きする。
+ */
+function headingReason(g: HistoryGroup): string | null {
+  if (g.removed) return '。削除したパーツのため選べません';
+  if (g.offCanvas) return '。現在の紙面に無いため選べません';
+  return null;
 }
 /** 却下の理由の枠の見出し。理由の本文は `{{ }}` でエスケープして描く(`v-html` を使わない)。 */
 function rejectedHeading(r: RejectedReason): string {
@@ -341,22 +345,30 @@ const PB_CLASS =
           <h4 class="m-0">
             <button
               type="button"
-              class="flex w-full items-center gap-1.5 whitespace-nowrap rounded px-1 py-1 text-left"
+              class="relative flex w-full items-center gap-1.5 whitespace-nowrap rounded px-1 py-1 text-left"
               :class="g.removed || g.offCanvas ? 'cursor-default' : 'hover:bg-muted'"
               :data-history-heading="g.key"
               :aria-disabled="g.removed || g.offCanvas ? 'true' : undefined"
-              :aria-label="headingLabel(g)"
               @click="onHeadingClick(g)"
             >
-              <span v-if="g.no !== null" class="no-pill" :aria-label="`変更 ${g.no}`">{{ g.no }}</span>
+              <!-- 丸は見た目だけ。番号は読み上げ用の文字で渡す(役割の無い span の aria-label は
+                   支援技術に無視されうる)。読み上げ用の文字(`sr-only`)は absolute なので、ボタンを
+                   relative にして包む(包まないと履歴の下端の外に置かれ、文書全体が縦に伸びる) -->
+              <template v-if="g.no !== null">
+                <span class="no-pill" aria-hidden="true">{{ g.no }}</span>
+                <span class="sr-only">変更 {{ g.no }}</span>
+              </template>
               <span class="min-w-0 truncate text-[12.5px] font-bold text-foreground">{{ g.name }}</span>
+              <span v-if="headingReason(g)" class="sr-only">{{ headingReason(g) }}</span>
             </button>
           </h4>
           <div v-if="g.rejected" class="rejected-box mx-1 mb-1" data-rejected-reason>
             <div class="rejected-head">{{ rejectedHeading(g.rejected) }}</div>
             <p class="rejected-body">{{ g.rejected.reason }}</p>
           </div>
-          <p v-if="g.entries.length === 0 && !g.removed && !(g.offCanvas && g.rejected)" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
+          <!-- 履歴が無いことは、削除の見出しと却下の理由の枠があるときは書かない(枠と並べると、理由が
+               あるのに「何も無い」と読める) -->
+          <p v-if="g.entries.length === 0 && !g.removed && !g.rejected" class="px-1 text-[12px] text-muted-foreground">このパーツの修正履歴はありません</p>
           <div v-for="h in visibleEntries(g)" :key="h.id" class="px-1 py-1">
             <div class="text-[12.5px] leading-snug text-foreground">{{ h.change }}</div>
             <div class="mt-0.5 text-[11px] text-muted-foreground">{{ formatDateTime(h.timestamp) }} ・ {{ h.user }}</div>
@@ -377,11 +389,14 @@ const PB_CLASS =
       <div class="border-b bg-primary-soft/50 px-4 py-3">
         <div class="mb-1 text-[11px] text-muted-foreground">選択中のパーツ</div>
         <div
-          class="flex items-center gap-1.5 whitespace-nowrap"
+          class="relative flex items-center gap-1.5 whitespace-nowrap"
           data-selected-part
           :title="selectedKey ? (partLabels.get(selectedKey) ?? undefined) : undefined"
         >
-          <span v-if="selectedNo !== null" class="no-pill">{{ selectedNo }}</span>
+          <template v-if="selectedNo !== null">
+            <span class="no-pill" aria-hidden="true">{{ selectedNo }}</span>
+            <span class="sr-only">変更 {{ selectedNo }}</span>
+          </template>
           <span class="min-w-0 truncate text-sm font-bold text-foreground">{{ selectedName || label }}</span>
         </div>
         <div v-if="selectedRejected" class="rejected-box mt-1.5" data-rejected-reason>
@@ -591,7 +606,8 @@ const PB_CLASS =
   line-height: 1.5;
   color: var(--foreground);
 }
-/* 変更の番号の丸。紙面の目印(`EditorView.vue` の `.chg-mark`)と同じ青 */
+/* 変更の番号の丸。紙面の目印(`EditorView.vue` の `.chg-mark`)と同じ色
+   (`index.css` の `--change-mark`) */
 .no-pill {
   display: inline-grid;
   place-items: center;
@@ -602,7 +618,7 @@ const PB_CLASS =
   font-weight: 700;
   line-height: 1;
   color: #fff;
-  background: #3b82c4;
+  background: var(--change-mark);
   border-radius: 10px;
 }
 /* ラベル + コントロールの 1 行 */

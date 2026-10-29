@@ -11,15 +11,12 @@ import {
   type PairSyncStatus,
   type PartCatalogItem,
   type PartHistoryEntry,
-  partDisplayName,
-  partNameOfElement,
   type Template,
 } from '@editor/shared';
-import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, shallowRef, watch } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useFundAssetRepo, useNoteRepo, useReviewRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
-import { submitBodyOf } from '@/features/preview/services/submitBody';
 import { logError } from '@/lib/appError';
 import { editorAssetWarnings } from '@/lib/assetWarnings';
 import {
@@ -28,12 +25,10 @@ import {
   writeConfirmedCanonical,
 } from '@/lib/confirmedCanonical';
 import { companyCodeOfTemplateId, fundCodeOfTemplateId } from '@/lib/fundImages';
-import { partNameOf } from '@/lib/partNames';
 import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { canvasRoot } from './canvasGeometry';
 import { DEFAULT_GEOM, geomChangeLabel, geomFromStyle, geomToStyle, type LayoutGeom } from './geom';
-import { groupHistoryByPart } from './historyGroups';
 import { leaveAfterSave } from './leaveGuard';
 import { openCanvas } from './openCanvas';
 import { pageWarnings } from './pageWarnings';
@@ -44,7 +39,6 @@ import {
   jinjaAnchoredParts,
   legacyPartKeyCount,
   partEntries,
-  partLabelMap,
   partPathKeyFor,
 } from './partKey';
 import { type PartRenderContext, renderPartForInsert } from './partRender';
@@ -55,11 +49,10 @@ import { syncUi } from './syncUi';
 import { afterTextEdit } from './textEditFinish';
 import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
-import { changeBaselineOf, createChangeCheckScheduler, useChangeNumbers } from './useChangeNumbers';
 import { useComments } from './useComments';
+import { useEditorChangeView } from './useEditorChangeView';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
-import { useRejectedReasons } from './useRejectedReasons';
 import { useSnapshotHistory } from './useSnapshotHistory';
 
 /**
@@ -124,8 +117,11 @@ export function useTemplateEditor(
   const previewPart = ref<PartCatalogItem | null>(null);
   /** 現在の canvas 選択から解決した part(catalog part でなければ null)。 */
   const canvasPart = ref<PartCatalogItem | null>(null);
-  /** canvas 選択を docs へ解決するため cache した catalog parts。 */
-  const partsById = new Map<string, PartCatalogItem>();
+  /**
+   * canvas 選択を docs へ解決するため cache した catalog parts。読み込みで丸ごと差し替える ref に
+   * する(パーツの表示名がカタログの読み込みに追随する。書き込みの順に頼らない)。
+   */
+  const partsById = shallowRef<ReadonlyMap<string, PartCatalogItem>>(new Map());
 
   /** 左ペイン「パーツを追加」トグル: catalog を表示し挿入を許可する。 */
   const allowAdd = ref(false);
@@ -172,26 +168,6 @@ export function useTemplateEditor(
   });
   // ON/OFF はセッションの ui 状態を継ぐ(プレビュー往復で保持、永続ミラー経由でリロードでも復元)。
   redline.enabled.value = sess.ui.redlineEnabled;
-
-  // 確定版との差分のあるパーツの番号(紙面の丸数字と修正履歴の見出し)。比較元・比較先は読み込みで
-  // 決める(`changeBaselineOf`・`submitBodyOf`)。読み込みまでは比較元が null で計算しない。
-  let changeBaseline: string | null = null;
-  let filledHtml = '';
-  /** 変更の目印を出せるか(比較元がある経路だけ。作成経路・値入り HTML の無いテンプレでは出さない)。 */
-  const changeMarksAvailable = ref(false);
-  const changeNumbers = useChangeNumbers({
-    baseline: () => changeBaseline,
-    // 本文は振り分けが読んだもの(`lastBody`)を使い、直列化を 2 度しない。
-    current: () => submitBodyOf(filledHtml, changeCheck.lastBody() ?? g.getBodyHtml()),
-    nameById: () => new Map([...partsById.values()].map((p) => [p.id, p.name])),
-  });
-  // 本文が変わった変更だけを予約する(CSS だけの変更では予約しない。`createChangeCheckScheduler`)。
-  const changeCheck = createChangeCheckScheduler({
-    readBody: () => g.getBodyHtml(),
-    baseline: () => changeBaseline,
-    schedule: () => changeNumbers.schedule(),
-  });
-  watch(changeNumbers.numbers, (n) => g.setChangeNumbers(n.byKey));
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -284,77 +260,32 @@ export function useTemplateEditor(
   }
 
   /**
-   * canvas 全パーツの安定キー → 表示ラベル(`ページN・パーツM`)。全パーツ横断の修正履歴で
-   * 各行がどのパーツの変更かを示すのに使う。canvas 構築/編集で再評価させるため reactive 値を読む。
+   * canvas の全パーツ(紙面の順)とそのキー。ラベル・表示名・却下の理由の照合は、この 1 回の数え上げ
+   * から作る(`useEditorChangeView.ts`)。canvas 構築/編集で再評価させるため reactive 値を読む。
+   * load 直後は wrapper 要素がまだ無く、`root` を引けてもパーツの列挙が空になる。`pageBlocks`
+   * (ページの数え直しの結果)も依存に含め、ページ確定後の再評価を取りこぼさない。
    */
-  const partLabels = computed<Map<string, string>>(() => {
-    void g.revision.value;
-    // load 直後は wrapper 要素がまだ無く、`root` を引けてもパーツの列挙が空 Map になる。
-    // `pageBlocks`(ページの数え直しの結果)も依存に含め、ページ確定後の再評価を取りこぼさない。
-    void g.pageBlocks.value;
-    const ed = g.editor.value;
-    const root = canvasRoot(g.editor);
-    return ed && root ? partLabelMap(root, canvasRawKey(ed)) : new Map();
-  });
-
-  /**
-   * canvas の全パーツ(紙面の順)のキー → 表示名。業務名 → 先頭の文字 → `ページN・パーツM` の順
-   * (承認タブ・紙面の目印と同じ決め方。`useChangeNumbers.ts` の削除パーツの名前と揃える)。
-   */
-  const partNames = computed<Map<string, string>>(() => {
+  const canvasEntries = computed(() => {
     void g.revision.value;
     void g.pageBlocks.value;
     const ed = g.editor.value;
     const root = canvasRoot(g.editor);
-    const out = new Map<string, string>();
-    if (!ed || !root) return out;
-    const nameById = new Map([...partsById.values()].map((p) => [p.id, p.name]));
-    for (const e of partEntries(root, canvasRawKey(ed))) {
-      out.set(
-        e.key,
-        partDisplayName({
-          catalogName: partNameOf(e.key, nameById),
-          firstText: partNameOfElement(e.part),
-          fallbackLabel: partLabels.value.get(e.key) ?? '',
-        }),
-      );
-    }
-    return out;
+    return ed && root ? partEntries(root, canvasRawKey(ed)) : [];
   });
 
-  /**
-   * 前回の申請で却下されたパーツの理由(本人のいちばん新しい申請が決着済みのときだけ。条件は
-   * `useRejectedReasons.ts`)。読み込みで 1 回だけ取る(承認タブから戻れば再マウントで読み直る)。
-   */
-  const rejectedReasons = useRejectedReasons({
+  // 変更の番号(紙面の丸数字と修正履歴の見出し)・パーツの名前・前回の申請の却下の理由。
+  const changeView = useEditorChangeView({
+    canvasEntries,
+    partsById,
+    selectedKey: currentNoteKeyRef,
+    history: displayHistory,
+    readBody: () => g.getBodyHtml(),
+    setChangeNumbers: (byKey) => g.setChangeNumbers(byKey),
     templateId: id,
     me: () => auth.user?.username ?? null,
     reviews: useReviewRepo(),
-    canvasKeys: () => new Set(partNames.value.keys()),
   });
-
-  /**
-   * 未選択のときの修正履歴を、変更の番号ごとの見出しへ束ねたもの。変更の目印の出し入れ
-   * (`changeMarksEnabled`)とは無関係に、番号が有れば見出しに出す。却下の理由は見出しの下に付け、
-   * 今の紙面に無いキーの却下は申請の本文から作った名前で末尾へ並べる。
-   */
-  const historyGroups = computed(() =>
-    groupHistoryByPart({
-      entries: displayHistory.value,
-      numbers: changeNumbers.numbers.value,
-      partOrder: [...partNames.value.keys()],
-      nameOf: (key) => partNames.value.get(key) ?? '',
-      offCanvasNameOf: (key) => rejectedReasons.reasons.value.get(key)?.name ?? undefined,
-      rejected: rejectedReasons.reasons.value,
-    }),
-  );
-  const selectedRejected = computed(
-    () => rejectedReasons.reasons.value.get(currentNoteKeyRef.value ?? '') ?? null,
-  );
-  const selectedNo = computed(
-    () => changeNumbers.numbers.value.byKey.get(currentNoteKeyRef.value ?? '') ?? null,
-  );
-  const selectedName = computed(() => partNames.value.get(currentNoteKeyRef.value ?? '') ?? '');
+  const { partLabels, partNames } = changeView;
 
   /**
    * 根の直下のパーツのうち、アンカーの属性の原文に Jinja を持つものの数(警告用。`partLabels` と
@@ -567,7 +498,7 @@ export function useTemplateEditor(
   watch(
     () => g.selected.value,
     (sel) => {
-      canvasPart.value = sel?.partId ? (partsById.get(sel.partId) ?? null) : null;
+      canvasPart.value = sel?.partId ? (partsById.value.get(sel.partId) ?? null) : null;
     },
   );
 
@@ -594,7 +525,7 @@ export function useTemplateEditor(
     }
     // 旧形式の下書きの破棄は利用者の編集を捨てるので、黙らずに知らせる。
     if (res.value.discardedLegacyDraft) toast(LEGACY_DRAFT_MESSAGE);
-    for (const p of res.value.parts) partsById.set(p.id, p);
+    partsById.value = new Map(res.value.parts.map((p) => [p.id, p]));
 
     const canvas = canvasEl.value;
     const layers = layersEl.value;
@@ -662,19 +593,13 @@ export function useTemplateEditor(
     // `filled` が空になり、基準が無いまま機能が黙って死ぬため。作成経路(`?created=1`)は確定版
     // そのものが無いので機能を出さない。
     redline.setBaseline(isCreateRoute.value ? undefined : res.value.confirmedBody);
-    // 変更の番号は確定版の原文(`confirmedBody`)と、申請と同じ組み立ての本文で比べる。値入り HTML の
-    // 無いテンプレと作成経路は比較元を持たない(番号を出さない)。開いた直後に 1 回計算する。
-    filledHtml = res.value.template.filled;
-    changeBaseline = changeBaselineOf({
+    // 変更の番号の比較元・比較先を決めて 1 回計算し、前回の申請の却下の理由を読む(作成経路は
+    // どちらも出さない。`useEditorChangeView.ts` の `open`)。
+    changeView.open({
       isCreateRoute: isCreateRoute.value,
       filled: res.value.template.filled,
       confirmedBody: res.value.confirmedBody,
     });
-    changeMarksAvailable.value = changeBaseline !== null;
-    changeCheck.reset();
-    void changeNumbers.flush();
-    // 前回の申請の却下の理由。作成経路は確定版が無く、比べる前回の申請も無いので出さない。
-    if (!isCreateRoute.value) void rejectedReasons.reload();
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshPartMarkers` が位置を測り直す。
     void note.reload();
@@ -741,7 +666,7 @@ export function useTemplateEditor(
     draftMayExist = true;
     autosave.trigger();
     scheduleCleanCheck();
-    changeCheck.notify();
+    changeView.notify();
   }
 
   /**
@@ -807,8 +732,7 @@ export function useTemplateEditor(
     if (persistTimer) clearTimeout(persistTimer);
     persistUndo();
     if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
-    changeCheck.cancel();
-    changeNumbers.cancel();
+    changeView.dispose();
     g.destroy();
   });
 
@@ -843,18 +767,18 @@ export function useTemplateEditor(
     ]),
     displayHistory,
     partLabels,
-    historyGroups,
-    selectedNo,
-    selectedName,
+    historyGroups: changeView.historyGroups,
+    selectedNo: changeView.selectedNo,
+    selectedName: changeView.selectedName,
     selectedKey: currentNoteKeyRef,
     /** 選択中のパーツの、前回の申請の却下の理由(無ければ null)。 */
-    selectedRejected,
+    selectedRejected: changeView.selectedRejected,
     /** canvas の全パーツのキー → 表示名(コメントの宛先枠・見出し)。 */
     partNames,
     /** 確定版との差分のあるパーツの番号(作成経路・値入り HTML の無いテンプレでは常に空)。 */
-    changeNumbers: changeNumbers.numbers,
+    changeNumbers: changeView.changeNumbers,
     /** 変更の目印を出せるか(比較元が無い経路では切替も凡例も目印も出さない)。 */
-    changeMarksAvailable,
+    changeMarksAvailable: changeView.changeMarksAvailable,
     selectedPart,
     selectedGeom,
     selectedPartBreak,

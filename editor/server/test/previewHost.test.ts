@@ -17,6 +17,7 @@ import {
   PREVIEW_MSG_MARKS,
   PREVIEW_MSG_PART_CLICK,
   PREVIEW_MSG_PART_PAGES,
+  PREVIEW_ZOOM_MIN,
   parsePreviewDocSeq,
   parsePreviewMarks,
   REVIEW_GHOST_ATTR,
@@ -157,6 +158,8 @@ describe('GET /api/preview-host/index.html', () => {
     expect(boot).toContain('editor:preview-marks');
     expect(() => new Function(boot)).not.toThrow();
     expect(boot).toContain(REVIEW_GHOST_TEXT.rejectedAdded);
+    // 倍率の下限は shared の定数から埋める(e2e が同じ定数で下限に張り付かないことを見る)。
+    expect(boot).toContain(`var ZOOM_MIN=${PREVIEW_ZOOM_MIN},`);
   });
 
   it('ブートスクリプトの marks の検査は shared の parsePreviewMarks と同じ入力に同じ答えを返す', async () => {

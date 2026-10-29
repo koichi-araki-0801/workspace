@@ -132,12 +132,36 @@ describe('Inspector の修正履歴の見出し', () => {
     const { wrapper, emitted } = mountInspector({ historyGroups: gs });
     const b = wrapper.find('[data-history-heading="b"]');
     expect(b.attributes('aria-disabled')).toBe('true');
-    expect(b.attributes('aria-label')).toContain('削除したパーツのため選べません');
-    expect(b.find('.no-pill').attributes('aria-label')).toBe('変更 2');
+    // 選べない理由は読み上げの文字として中身の後ろに足す(aria-label で中身を上書きしない)。
+    expect(b.attributes('aria-label')).toBeUndefined();
+    expect(b.text()).toBe('2変更 2旧表（削除）。削除したパーツのため選べません');
+    expect(b.find('.sr-only').exists()).toBe(true);
     await b.trigger('click');
     await wrapper.find('[data-history-heading="x"]').trigger('click');
     expect(emitted).toEqual([]);
     expect(wrapper.text()).not.toContain('このパーツの修正履歴はありません');
+  });
+
+  it('番号の丸は読み上げから外し、役割を持つ見出しのボタンの名前に「変更 N」を文字で入れる', () => {
+    const { wrapper } = mountInspector();
+    const a = wrapper.find('[data-history-heading="a"]');
+    // 丸は見た目だけ(役割の無い span の aria-label は支援技術に無視されうる)。
+    const pill = a.find('.no-pill');
+    expect(pill.attributes('aria-hidden')).toBe('true');
+    expect(pill.attributes('aria-label')).toBeUndefined();
+    expect(a.find('.sr-only').text()).toBe('変更 1');
+    expect(a.attributes('aria-label')).toBeUndefined();
+    // 選択中のパーツの枠の丸も同じ。
+    const { wrapper: sel } = mountInspector({
+      selected: { id: 'c1', name: 'div', isJinja: false },
+      geom: DEFAULT_GEOM,
+      selectedNo: 3,
+      selectedName: '概況',
+      selectedKey: 'a',
+    });
+    const frame = sel.find('[data-selected-part]');
+    expect(frame.find('.no-pill').attributes('aria-hidden')).toBe('true');
+    expect(frame.find('.sr-only').text()).toBe('変更 3');
   });
 
   it('「現在の紙面に無いパーツ」の小見出しは 1 回だけ出す', () => {
@@ -239,5 +263,14 @@ describe('Inspector の却下の理由', () => {
     expect(o.find('[data-rejected-reason]').text()).toContain('追加は不要');
     expect(o.text()).not.toContain('このパーツの修正履歴はありません');
     expect(wrapper.find('[data-off-canvas-heading]').text()).toBe('現在の紙面に無いパーツ');
+  });
+
+  it('紙面にあるパーツでも、履歴が無く却下の理由だけなら「修正履歴はありません」を並べない', () => {
+    const { wrapper } = mountInspector({
+      historyGroups: [{ ...groups[2], rejected: { ...reason, partKey: 'd' } }],
+    });
+    const d = wrapper.find('[data-history-group="d"]');
+    expect(d.find('[data-rejected-reason]').exists()).toBe(true);
+    expect(d.text()).not.toContain('このパーツの修正履歴はありません');
   });
 });

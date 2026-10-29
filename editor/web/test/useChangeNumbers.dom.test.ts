@@ -5,7 +5,11 @@
 // 呼び出しを数え、解決の順を入れ替えられるようにする。
 import { buildHtmlDiff, type HtmlDiff } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createChangeCheckScheduler, useChangeNumbers } from '@/features/editor/useChangeNumbers';
+import {
+  CHANGE_NOTIFY_MARK,
+  createChangeCheckScheduler,
+  useChangeNumbers,
+} from '@/features/editor/useChangeNumbers';
 import { defaultHtmlParser } from '@/lib/htmlParser';
 
 const diffCalls = vi.fn(
@@ -250,6 +254,35 @@ describe('createChangeCheckScheduler(本文が変わった変更だけを差分�
     await vi.advanceTimersByTimeAsync(1000);
     expect(readBody).not.toHaveBeenCalled();
     expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('通知のたびに performance の目印を打ち、残すのは最後の 1 つだけ(e2e が通知の時刻を読む)', () => {
+    const mark = vi.spyOn(performance, 'mark');
+    try {
+      const { check } = setup();
+      check.notify();
+      check.notify();
+      expect(mark.mock.calls.map(([name]) => name)).toEqual([
+        CHANGE_NOTIFY_MARK,
+        CHANGE_NOTIFY_MARK,
+      ]);
+      // 打ちっぱなしにすると長い編集で目印が溜まるので、前の目印は消してから打つ。
+      expect(performance.getEntriesByName(CHANGE_NOTIFY_MARK, 'mark')).toHaveLength(1);
+      check.cancel();
+    } finally {
+      mark.mockRestore();
+      performance.clearMarks(CHANGE_NOTIFY_MARK);
+    }
+  });
+
+  it('baseline が null の通知では目印を打たない', () => {
+    const mark = vi.spyOn(performance, 'mark');
+    try {
+      setup(null).check.notify();
+      expect(mark).not.toHaveBeenCalled();
+    } finally {
+      mark.mockRestore();
+    }
   });
 
   it('cancel は待っている振り分けを捨てる', async () => {

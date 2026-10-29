@@ -263,6 +263,19 @@ describe('ReviewVisualCompare', () => {
     expect(before?.props.marks?.visible).toBe(false);
   });
 
+  it('「紙面に変更を描く」の文言は for でチェックボックスに結び、文言を押しても切り替わる', async () => {
+    const { wrapper, after } = setup();
+    const box = wrapper.get('[data-highlight-toggle]');
+    const id = box.attributes('id');
+    expect(id).toBeTruthy();
+    const label = wrapper.get(`label[for="${id}"]`);
+    expect(label.text()).toBe('紙面に変更を描く（番号と文字の差分）');
+    // id は `useId`(同じアプリの中で一意。申請カードを 2 つ開いてもぶつからない)。
+    await label.trigger('click');
+    await flushPromises();
+    expect(after.props.marks?.visible).toBe(false);
+  });
+
   it('ページ送りは左右へ同時に送る', async () => {
     const { wrapper, before, after } = setup();
     after.emit('state', state({ currentPage: 2, atFirst: false, atLast: false }));

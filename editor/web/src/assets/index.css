@@ -39,6 +39,10 @@
   /* エディタ/プレビューの用紙下地(A4 ページの外周)。`EditorView.vue` の canvas と
      `PreviewPanel.vue`(Vivliostyle viewport の #aaaaaa 上書き)で共用し、二重定義を防ぐ。 */
   --canvas-backdrop: hsl(220 16% 91%);
+  /* 編集画面の変更の番号の丸(紙面の目印 `.chg-mark`・右ペインの `.no-pill`・凡例)。白い文字との
+     コントラストが 4.5:1 になるよう、承認タブの未判定の青 `#3b82c4` を色相を保ったまま暗くした
+     (`#3b82c4` は 4.06:1)。白い A4 の上に置くので dark でも変えない。 */
+  --change-mark: #377ab8;
   --border: oklch(0.915 0.006 85);
   --input: oklch(0.86 0.008 85);
   --ring: oklch(0.585 0.105 240);
@@ -265,27 +269,27 @@
    はみ出し、overflow でクリップされ到達不能になるため、超過時は上揃えにする。判定 class は
    `useGrapes.ts` の `updateScrollMode` が `<div ref=canvasEl>` へ付与する。 */
 .gjs-frame-wrapper {
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン幅を上書きする */
   width: 210mm !important;
   left: 0;
   right: 0;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書きし上揃えするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書き(上揃え) */
   top: 0 !important;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン bottom を上書きし上揃えするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の bottom を上書き(上揃え) */
   bottom: auto !important;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きする */
   margin: 28px auto 0 !important; /* 28px = FIT_MARGIN(56)/2: 上の余白を従来の中央寄せと揃える */
 }
 /* 収まる時: 従来どおり縦中央寄せ。zoom は canvas 中央原点 scale なので、収まっている限り中央が
    自然(クリップしない)。`getElementPos` の `getViewportDelta`(center 原点前提)とも整合する。 */
 .ret-canvas-fits .gjs-frame-wrapper {
-  /* biome-ignore lint/complexity/noImportantStyles: 上の上揃えを打ち消し垂直中央寄せへ戻すため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: 上の上揃えを打ち消し縦中央へ戻す */
   bottom: 0 !important;
-  /* biome-ignore lint/complexity/noImportantStyles: 上の margin-top のみ指定を打ち消し上下対称の中央寄せへ戻すため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: 上の margin-top を打ち消し上下対称に */
   margin: auto !important;
 }
 .gjs-frame {
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン幅を上書きする */
   width: 100% !important;
   background: transparent;
 }

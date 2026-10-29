@@ -48,8 +48,9 @@ function latestOwnReview(
 /**
  * 申請の本文(値入りが有れば値入り)からパーツのキー → 名前を作る。キーは canvas と同じ規則
  * (`partEntries`、静的な文書なので既定の `rawKey`)で数えるので、判定の `partKey` で引ける。
+ * 規則が canvas(`canvasRawKey`)と一致することは `changeNumbersParity.dom.test.ts` が固定する。
  */
-function namesFromBody(html: string, keys: ReadonlySet<string>): Map<string, string> {
+export function namesFromBody(html: string, keys: ReadonlySet<string>): Map<string, string> {
   const root = new DOMParser().parseFromString(html, 'text/html').body;
   const out = new Map<string, string>();
   for (const e of partEntries(root)) {

@@ -95,7 +95,7 @@ export function partPathKeyFor(el: HTMLElement, root: HTMLElement, keyOf: RawKey
 }
 
 /** パーツ 1 つの、キー・ページ番号(0 始まり)・ページの中の番号(0 始まり)。 */
-interface PartEntry {
+export interface PartEntry {
   part: HTMLElement;
   key: string;
   page: number;

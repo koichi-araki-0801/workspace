@@ -20,7 +20,7 @@ import {
   type PreviewMarks,
   type ReviewPartDecision,
 } from '@editor/shared';
-import { computed, ref, watch } from 'vue';
+import { computed, ref, useId, watch } from 'vue';
 import Button from '@/components/ui/Button.vue';
 import Checkbox from '@/components/ui/Checkbox.vue';
 import PreviewPanel from '@/features/preview/PreviewPanel.vue';
@@ -51,6 +51,8 @@ const props = defineProps<{
 const emit = defineEmits<{ select: [no: number] }>();
 
 const highlight = ref(true);
+/** 「紙面に変更を描く」のチェックボックスと文言を `for` で結ぶ id(申請カードごとに別)。 */
+const highlightId = useId();
 
 // ── 1. 文書 ──────────────────────────────────────────────────
 
@@ -332,10 +334,10 @@ defineExpose({ gotoPart, gotoPage });
           </button>
         </template>
       </span>
-      <label class="ml-auto flex cursor-pointer items-center gap-1.5">
-        <Checkbox v-model="highlight" data-highlight-toggle />
-        <span class="text-xs">紙面に変更を描く（番号と文字の差分）</span>
-      </label>
+      <span class="ml-auto flex items-center gap-1.5">
+        <Checkbox :id="highlightId" v-model="highlight" data-highlight-toggle />
+        <label :for="highlightId" class="cursor-pointer text-xs">紙面に変更を描く（番号と文字の差分）</label>
+      </span>
     </div>
     </Teleport>
     <div class="grid min-h-0 flex-1 gap-3" :class="isCreate ? '' : 'md:grid-cols-2'">

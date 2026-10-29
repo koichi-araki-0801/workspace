@@ -29,6 +29,7 @@ import { canvasRoot } from '@/features/editor/canvasGeometry';
 import { canvasRawKey, partEntries } from '@/features/editor/partKey';
 import { changeBaselineOf, useChangeNumbers } from '@/features/editor/useChangeNumbers';
 import { useGrapes } from '@/features/editor/useGrapes';
+import { namesFromBody } from '@/features/editor/useRejectedReasons';
 import { submitBodyOf } from '@/features/preview/services/submitBody';
 import { createTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { createReviewDiffService } from '@/features/reviews/services/reviewDiffService';
@@ -258,6 +259,20 @@ describe('編集画面と承認タブの変更の番号', () => {
     expect(g.getBodyHtml()).not.toContain('data-redline');
     expect(sig(await editorSide())).toEqual(before);
     expect(canvasKeys()).toEqual(keysBefore);
+  });
+
+  it('申請の本文から名前を引くキー(`namesFromBody`)は、canvas のキーと同じ規則で同じ順に数える', () => {
+    // 前回の申請の却下は申請の本文(静的な文書。既定の `rawKey`)でキーを数え、編集画面は canvas
+    // (`canvasRawKey`)のキーで引く。規則がずれると、紙面にあるパーツの却下が「紙面に無い」へ回る。
+    const check = (body: string) => {
+      const keys = canvasKeys();
+      expect(keys.size).toBeGreaterThan(0);
+      expect([...namesFromBody(body, keys).keys()]).toEqual([...keys]);
+    };
+    // 未編集の確定版と、canvas で直したあとの申請の本文(申請と同じ組み立て)。
+    check(FILLED);
+    editCanvas();
+    check(submitBodyOf(FILLED, g.getBodyHtml()));
   });
 
   it('tpl.filled が無い経路(作成経路)では番号を出さない', async () => {

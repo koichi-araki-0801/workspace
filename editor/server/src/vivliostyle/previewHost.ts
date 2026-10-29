@@ -48,6 +48,7 @@ import {
   PREVIEW_MSG_PART_PAGES,
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
+  PREVIEW_ZOOM_MIN,
   REVIEW_GHOST_ATTR,
   REVIEW_GHOST_TEXT,
   REVIEW_KEEP_ATTR,
@@ -240,7 +241,7 @@ const BOOT_SCRIPT = `(function(){
   // 空き枠を display:none の CSS から残す利用者スタイルシート(承認タブの紙面だけに当てる)。
   var GHOST_USER_CSS='['+GHOST_ATTR+']{display:block !important;visibility:visible !important;opacity:1 !important}';
   // ズームの範囲/刻み/フィット余白は編集画面(useGrapes.ts)に合わせる。
-  var ZOOM_MIN=0.4, ZOOM_MAX=1.4, ZOOM_STEP=0.1, FIT_MARGIN=32;
+  var ZOOM_MIN=${JSON.stringify(PREVIEW_ZOOM_MIN)}, ZOOM_MAX=1.4, ZOOM_STEP=0.1, FIT_MARGIN=32;
   var V=window.Vivliostyle, viewer=null, blobUrl=null, errTimer=null;
   var currentPage=1, pageCount=0, atFirst=true, atLast=false, zoom=1, userZoomed=false, ready=false;
   // 目印の状態。どれも文書単位で、load() の先頭で捨てる。saved は申請者の要素へ書く前の値で、
