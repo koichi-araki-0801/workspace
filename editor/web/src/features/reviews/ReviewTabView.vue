@@ -456,12 +456,14 @@ function goEdit() {
         <div class="flex items-center gap-3 px-4 py-2.5">
           <button
             type="button"
-            class="flex min-w-0 flex-1 flex-wrap items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="relative flex min-w-0 flex-1 flex-wrap items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-review-toggle
             :aria-expanded="!isOverview && expanded.includes(m.id)"
             :aria-controls="!isOverview && expanded.includes(m.id) ? panelIdOf(m.id) : undefined"
             @click="isOverview ? openReview(m) : toggle(m.id)"
           >
+            <!-- 読み上げ用の文字(`sr-only`)は absolute なので、ボタンを relative にして包む(包まないと
+                 一覧の下端の外に置かれ、文書全体が縦に伸びうる) -->
             <span class="sr-only">
               {{ isOverview ? '申請の詳細を開く' : '申請内容を開閉する' }}
             </span>

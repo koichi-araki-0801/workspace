@@ -134,7 +134,7 @@ describe('Inspector の修正履歴の見出し', () => {
     expect(b.attributes('aria-disabled')).toBe('true');
     // 選べない理由は読み上げの文字として中身の後ろに足す(aria-label で中身を上書きしない)。
     expect(b.attributes('aria-label')).toBeUndefined();
-    expect(b.text()).toBe('2変更 2旧表（削除）。削除したパーツのため選べません');
+    expect(b.text()).toBe('2変更 2、旧表（削除）。削除したパーツのため選べません');
     expect(b.find('.sr-only').exists()).toBe(true);
     await b.trigger('click');
     await wrapper.find('[data-history-heading="x"]').trigger('click');
@@ -149,7 +149,7 @@ describe('Inspector の修正履歴の見出し', () => {
     const pill = a.find('.no-pill');
     expect(pill.attributes('aria-hidden')).toBe('true');
     expect(pill.attributes('aria-label')).toBeUndefined();
-    expect(a.find('.sr-only').text()).toBe('変更 1');
+    expect(a.find('.sr-only').text()).toBe('変更 1、');
     expect(a.attributes('aria-label')).toBeUndefined();
     // 選択中のパーツの枠の丸も同じ。
     const { wrapper: sel } = mountInspector({
@@ -161,7 +161,7 @@ describe('Inspector の修正履歴の見出し', () => {
     });
     const frame = sel.find('[data-selected-part]');
     expect(frame.find('.no-pill').attributes('aria-hidden')).toBe('true');
-    expect(frame.find('.sr-only').text()).toBe('変更 3');
+    expect(frame.find('.sr-only').text()).toBe('変更 3、');
   });
 
   it('「現在の紙面に無いパーツ」の小見出しは 1 回だけ出す', () => {

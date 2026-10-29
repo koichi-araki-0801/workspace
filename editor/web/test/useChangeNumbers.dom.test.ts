@@ -7,6 +7,7 @@ import { buildHtmlDiff, type HtmlDiff } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CHANGE_NOTIFY_MARK,
+  CHANGE_RUN_MARK,
   createChangeCheckScheduler,
   useChangeNumbers,
 } from '@/features/editor/useChangeNumbers';
@@ -93,6 +94,26 @@ describe('useChangeNumbers', () => {
     expect(diffCalls).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(diffCalls).toHaveBeenCalledTimes(1);
+  });
+
+  it('予約が満了して計算を始める直前に performance の目印を打つ(e2e の所要時間の始点。最後の 1 つだけ残す)', async () => {
+    // performance は本物のまま(目印の記録を見る)。時計の差し替えはタイマーだけにする。
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const mark = vi.spyOn(performance, 'mark');
+    try {
+      const n = useChangeNumbers({ baseline: () => BASE, current: () => doc(BASE) });
+      n.schedule();
+      n.schedule();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(mark).not.toHaveBeenCalledWith(CHANGE_RUN_MARK);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mark.mock.calls.filter(([name]) => name === CHANGE_RUN_MARK)).toHaveLength(1);
+      expect(performance.getEntriesByName(CHANGE_RUN_MARK, 'mark')).toHaveLength(1);
+      n.cancel();
+    } finally {
+      mark.mockRestore();
+      performance.clearMarks(CHANGE_RUN_MARK);
+    }
   });
 
   it('debounceMs に 1,000ms 未満を渡しても 1,000ms 待つ', async () => {
@@ -273,6 +294,56 @@ describe('createChangeCheckScheduler(本文が変わった変更だけを差分�
       mark.mockRestore();
       performance.clearMarks(CHANGE_NOTIFY_MARK);
     }
+  });
+
+  it('onRead を渡すと、待ちのあとに読んだ本文を同じ 1 回の読み出しで渡す(本文が同じでも・baseline が null でも)', async () => {
+    vi.useFakeTimers();
+    for (const baseline of ['<p class="a">1</p>', null]) {
+      const canvas = { html: '<body><p class="a">1</p></body>' };
+      const readBody = vi.fn(() => canvas.html);
+      const onRead = vi.fn();
+      const schedule = vi.fn();
+      const check = createChangeCheckScheduler({
+        readBody,
+        baseline: () => baseline,
+        schedule,
+        onRead,
+      });
+      check.reset();
+      readBody.mockClear();
+      check.notify();
+      check.notify();
+      await vi.advanceTimersByTimeAsync(300);
+      // 2 回の通知でも、読み出しは待ちのあとの 1 回で、その本文を onRead へ渡す。
+      expect(readBody).toHaveBeenCalledTimes(1);
+      expect(onRead).toHaveBeenCalledExactlyOnceWith(canvas.html);
+      expect(schedule).not.toHaveBeenCalled();
+    }
+  });
+
+  it('wantsRead が false の間は、番号を出さない経路で本文を読まず、onRead も呼ばない', async () => {
+    vi.useFakeTimers();
+    const readBody = vi.fn(() => '<body></body>');
+    const onRead = vi.fn();
+    let wants = false;
+    const check = createChangeCheckScheduler({
+      readBody,
+      baseline: () => null,
+      schedule: vi.fn(),
+      onRead,
+      wantsRead: () => wants,
+    });
+    check.notify();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(readBody).not.toHaveBeenCalled();
+    // 通知の時点で要らなければ待ちも張らない(あとで要るようになっても読まない)。次の通知から読む。
+    check.notify();
+    wants = true;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(readBody).not.toHaveBeenCalled();
+    check.notify();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(onRead).toHaveBeenCalledExactlyOnceWith('<body></body>');
   });
 
   it('baseline が null の通知では目印を打たない', () => {

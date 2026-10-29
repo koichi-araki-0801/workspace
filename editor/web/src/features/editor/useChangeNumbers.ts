@@ -26,6 +26,13 @@ import { htmlWorker } from '@/workers';
 /** 差分の予約の最短の待ち。打鍵のたびに文書全体の差分を取らないための下限。 */
 const MIN_DEBOUNCE_MS = 1000;
 
+/**
+ * 予約が満了して番号の計算を始める時刻の目印(`performance.mark` の名前)。e2e(`canvas.spec.ts` の
+ * 所要時間のテスト)が、ここから紙面の目印が出るまでを基準の 1,500ms と比べる。前の目印は消してから
+ * 打ち、1 つしか残さない(e2e は `PerformanceObserver` で打たれるたびに受け取る)。
+ */
+export const CHANGE_RUN_MARK = 'change-numbers:run';
+
 export interface ChangeNumbers {
   /** canvas のキー(after 側の `partKey`) → 番号。紙面にあるパーツ(変更・追加)。 */
   byKey: Map<string, number>;
@@ -136,6 +143,8 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
+      performance.clearMarks(CHANGE_RUN_MARK);
+      performance.mark(CHANGE_RUN_MARK);
       void compute();
     }, delay);
   }
@@ -175,9 +184,9 @@ const CHANGE_CHECK_WAIT_MS = 300;
 
 /**
  * 変更の通知を受けた時刻の目印(`performance.mark` の名前)。e2e(`canvas.spec.ts` の所要時間の
- * テスト)が、通知から紙面の目印が出るまでを測る始点に読む。e2e はアプリの中を見られないので、
- * 時刻はアプリが残す。前の目印は消してから打ち、長い編集でも 1 つしか残さない(e2e は
- * `PerformanceObserver` で打たれるたびに受け取る)。
+ * テスト)が、通知から紙面の目印が出るまでの全体を記録に残すのに読む(基準の始点は
+ * `CHANGE_RUN_MARK`)。e2e はアプリの中を見られないので、時刻はアプリが残す。前の目印は消してから
+ * 打ち、長い編集でも 1 つしか残さない(e2e は `PerformanceObserver` で打たれるたびに受け取る)。
  */
 export const CHANGE_NOTIFY_MARK = 'change-numbers:notify';
 
@@ -194,6 +203,15 @@ export function createChangeCheckScheduler(opts: {
   baseline: () => string | null;
   schedule: () => void;
   waitMs?: number;
+  /**
+   * 待ちのあとに読んだ本文を受け取る(本文が同じでも、`baseline` が null でも呼ぶ)。同じ待ちで
+   * 本文を読む別の処理(`useTemplateEditor.ts` の確定版との同一判定)が、直列化をもう 1 度しない
+   * ためにある。大きい帳票では本文の直列化が主スレッドを数百 ms 占め、2 度読むと番号の計算が
+   * 遅れる。
+   */
+  onRead?: (body: string) => void;
+  /** `onRead` が本文を要るか(既定は常に要る)。要らない間は、番号を出さない経路で本文を読まない。 */
+  wantsRead?: () => boolean;
 }): {
   /** 今の本文を基準にする(開いた直後)。 */
   reset(): void;
@@ -211,14 +229,21 @@ export function createChangeCheckScheduler(opts: {
       last = opts.readBody();
     },
     notify() {
-      if (opts.baseline() === null) return;
-      performance.clearMarks(CHANGE_NOTIFY_MARK);
-      performance.mark(CHANGE_NOTIFY_MARK);
+      const counting = opts.baseline() !== null;
+      const reading = () => opts.onRead !== undefined && (opts.wantsRead?.() ?? true);
+      if (!counting && !reading()) return;
+      if (counting) {
+        performance.clearMarks(CHANGE_NOTIFY_MARK);
+        performance.mark(CHANGE_NOTIFY_MARK);
+      }
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
+        if (opts.baseline() === null && !reading()) return;
         const body = opts.readBody();
-        if (body === last) return;
+        if (reading()) opts.onRead?.(body);
+        // 番号を出さない経路(比較元が null)は、読んだ本文を渡すだけで終える。
+        if (opts.baseline() === null || body === last) return;
         last = body;
         opts.schedule();
       }, wait);

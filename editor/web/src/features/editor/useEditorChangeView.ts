@@ -19,7 +19,7 @@ import { computed, type Ref, ref, watch } from 'vue';
 import { submitBodyOf } from '@/features/preview/services/submitBody';
 import { partNameOf } from '@/lib/partNames';
 import { groupHistoryByPart } from './historyGroups';
-import type { PartEntry } from './partKey';
+import { type PartEntry, partLabelOf } from './partKey';
 import { changeBaselineOf, createChangeCheckScheduler, useChangeNumbers } from './useChangeNumbers';
 import { useRejectedReasons } from './useRejectedReasons';
 
@@ -34,6 +34,13 @@ export function useEditorChangeView(ctx: {
   history: Readonly<Ref<readonly PartHistoryEntry[]>>;
   /** canvas の本文(`getBodyHtml()`)。 */
   readBody: () => string;
+  /**
+   * 変更の通知の待ちのあとに読んだ本文(番号を出さない経路でも呼ぶ)。確定版との同一判定が同じ本文を
+   * 使い、直列化を 1 回にする(`createChangeCheckScheduler` の `onRead`)。
+   */
+  onBodyRead?: (body: string) => void;
+  /** `onBodyRead` が本文を要るか(要らない間は、番号を出さない経路で本文を読まない)。 */
+  wantsBodyRead?: () => boolean;
   /** 番号の変化を紙面の目印へ流す(`useCanvasMarkers.ts` の `setChangeNumbers`)。 */
   setChangeNumbers: (byKey: Map<string, number>) => void;
   /** 前回の申請の却下の理由を引くための材料(`useRejectedReasons.ts`)。 */
@@ -48,11 +55,10 @@ export function useEditorChangeView(ctx: {
 
   /**
    * canvas 全パーツの安定キー → 表示ラベル(`ページN・パーツM`)。全パーツ横断の修正履歴で各行が
-   * どのパーツの変更かを示す。番号はページの番号とページの中の番号(`partLabelMap` と同じ振り方)。
+   * どのパーツの変更かを示す。書式は `partKey.ts` の `partLabelOf`(`partLabelMap` と同じ)。
    */
-  const labelOf = (e: PartEntry): string => `ページ${e.page + 1}・パーツ${e.index + 1}`;
   const partLabels = computed(
-    () => new Map(ctx.canvasEntries.value.map((e) => [e.key, labelOf(e)])),
+    () => new Map(ctx.canvasEntries.value.map((e) => [e.key, partLabelOf(e)])),
   );
 
   /**
@@ -68,7 +74,7 @@ export function useEditorChangeView(ctx: {
         partDisplayName({
           catalogName: partNameOf(e.key, nameById.value),
           firstText: partNameOfElement(e.part),
-          fallbackLabel: labelOf(e),
+          fallbackLabel: partLabelOf(e),
         }),
       );
     }
@@ -97,6 +103,8 @@ export function useEditorChangeView(ctx: {
     readBody: ctx.readBody,
     baseline: () => changeBaseline,
     schedule: () => changeNumbers.schedule(),
+    onRead: ctx.onBodyRead,
+    wantsRead: ctx.wantsBodyRead,
   });
   watch(changeNumbers.numbers, (n) => ctx.setChangeNumbers(n.byKey));
 
@@ -170,5 +178,38 @@ export function useEditorChangeView(ctx: {
     /** canvas の変更の通知(本文が変わったときだけ番号の計算を予約する)。 */
     notify: () => changeCheck.notify(),
     dispose,
+  };
+}
+
+/**
+ * `useTemplateEditor.ts` から `useEditorChangeView` への受け渡し。読み込みの結果から `open` に渡す値を
+ * 選び、canvas の変更は即時の処理(dirty・autosave)のあとで `notify` へ、画面を離れるときは `dispose`
+ * へ流す。オーケストレーションは GrapesJS 一式を起こすので単体で組めず、受け渡しだけをここで確かめる。
+ */
+export function wireEditorChangeView(deps: {
+  view: Pick<ReturnType<typeof useEditorChangeView>, 'open' | 'notify' | 'dispose'>;
+  /** canvas の変更で即時にすること(dirty を立て、autosave を予約する)。 */
+  onChange: () => void;
+}) {
+  return {
+    /** 本文を canvas へ読み込んだあと(`loadForEdit` の結果)。 */
+    loaded(input: {
+      isCreateRoute: boolean;
+      template: { filled: string };
+      confirmedBody: string;
+    }): void {
+      deps.view.open({
+        isCreateRoute: input.isCreateRoute,
+        filled: input.template.filled,
+        confirmedBody: input.confirmedBody,
+      });
+    },
+    changed(): void {
+      deps.onChange();
+      deps.view.notify();
+    },
+    unmounted(): void {
+      deps.view.dispose();
+    },
   };
 }

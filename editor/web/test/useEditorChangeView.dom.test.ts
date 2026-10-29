@@ -17,7 +17,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { nextTick, ref, shallowRef } from 'vue';
 import { type PartEntry, partEntries } from '@/features/editor/partKey';
-import { useEditorChangeView } from '@/features/editor/useEditorChangeView';
+import { useEditorChangeView, wireEditorChangeView } from '@/features/editor/useEditorChangeView';
 
 vi.mock('@/workers', async () => {
   const { htmlWorkerImpl } = await import('@/workers/htmlWorkerImpl');
@@ -87,8 +87,11 @@ function reviewsWith(list: ReviewRequestMeta[]) {
   };
 }
 
-function setup(opts: { body?: string; reviews?: ReviewRepository } = {}) {
+function setup(
+  opts: { body?: string; reviews?: ReviewRepository; onBodyRead?: (body: string) => void } = {},
+) {
   let body = opts.body ?? BASE;
+  const readBody = vi.fn(() => body);
   const canvasEntries = shallowRef(entriesOf(body));
   const partsById = shallowRef<ReadonlyMap<string, PartCatalogItem>>(new Map());
   const selectedKey = ref<string | null>(null);
@@ -99,7 +102,8 @@ function setup(opts: { body?: string; reviews?: ReviewRepository } = {}) {
     partsById,
     selectedKey,
     history,
-    readBody: () => body,
+    readBody,
+    onBodyRead: opts.onBodyRead,
     setChangeNumbers,
     templateId: TID,
     me: () => 'me',
@@ -112,6 +116,7 @@ function setup(opts: { body?: string; reviews?: ReviewRepository } = {}) {
     selectedKey,
     history,
     setChangeNumbers,
+    readBody,
     /** canvas の本文を変える(GrapesJS の編集の代わり)。 */
     edit(next: string) {
       body = next;
@@ -260,6 +265,24 @@ describe('useEditorChangeView', () => {
     await vi.waitFor(() => expect(view.changeNumbers.value.byKey.size).toBe(1));
   });
 
+  it('1 回の通知で本文を読むのは 1 回で、確定版との同一判定にも同じ本文を渡す', async () => {
+    vi.useFakeTimers();
+    const onBodyRead = vi.fn();
+    const { view, edit, readBody } = setup({ onBodyRead });
+    view.open({ isCreateRoute: false, filled: FILLED, confirmedBody: BASE });
+    await vi.advanceTimersByTimeAsync(0);
+    readBody.mockClear();
+    edit(EDITED);
+    view.notify();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(readBody).toHaveBeenCalledTimes(1);
+    expect(onBodyRead).toHaveBeenCalledExactlyOnceWith(EDITED);
+    // 番号の計算(予約のあと)も同じ本文を使い、読み直さない。
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(view.changeNumbers.value.byKey.size).toBe(1));
+    expect(readBody).toHaveBeenCalledTimes(1);
+  });
+
   it('dispose のあとは、待ちと予約が残っていても計算しない', async () => {
     vi.useFakeTimers();
     const { view, edit } = setup();
@@ -270,5 +293,35 @@ describe('useEditorChangeView', () => {
     view.dispose();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(view.changeNumbers.value.byKey.size).toBe(0);
+  });
+});
+
+describe('wireEditorChangeView(useTemplateEditor からの受け渡し)', () => {
+  function fakeView() {
+    return { open: vi.fn(), notify: vi.fn(), dispose: vi.fn() };
+  }
+
+  it('読み込みの結果から open に経路・値入り HTML・確定版の原文を渡す', () => {
+    const view = fakeView();
+    const wire = wireEditorChangeView({ view, onChange: vi.fn() });
+    wire.loaded({ isCreateRoute: false, template: { filled: FILLED }, confirmedBody: BASE });
+    expect(view.open).toHaveBeenCalledExactlyOnceWith({
+      isCreateRoute: false,
+      filled: FILLED,
+      confirmedBody: BASE,
+    });
+  });
+
+  it('canvas の変更は即時の処理(dirty・autosave)のあとで notify へ流し、離れるときに dispose する', () => {
+    const order: string[] = [];
+    const view = {
+      open: vi.fn(),
+      notify: vi.fn(() => order.push('notify')),
+      dispose: vi.fn(() => order.push('dispose')),
+    };
+    const wire = wireEditorChangeView({ view, onChange: () => order.push('change') });
+    wire.changed();
+    wire.unmounted();
+    expect(order).toEqual(['change', 'notify', 'dispose']);
   });
 });

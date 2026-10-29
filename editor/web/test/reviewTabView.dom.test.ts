@@ -462,6 +462,10 @@ describe('アコーディオン', () => {
     // `button` の内容モデルは phrasing content に限られる(`div` は不可)。`AttributeBar` は
     // `inline` 指定で `span` ルートを描くので、行ヘッダの内側に `div` が残っていないことを検査する。
     expect(w.find('[data-review-toggle] div').exists()).toBe(false);
+    // 中の読み上げ用の文字(`sr-only`、absolute)をボタンの中に留める(文書の高さを伸ばさない)。
+    const toggle = w.find('[data-review-toggle]');
+    expect(toggle.find('.sr-only').exists()).toBe(true);
+    expect(toggle.classes()).toContain('relative');
     await w.findAll('[data-review-toggle]')[1].trigger('click');
     await w.findAll('[data-review-toggle]')[2].trigger('click');
     expect(expandedCount()).toBe(2);

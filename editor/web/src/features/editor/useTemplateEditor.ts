@@ -50,7 +50,7 @@ import { afterTextEdit } from './textEditFinish';
 import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
 import { useComments } from './useComments';
-import { useEditorChangeView } from './useEditorChangeView';
+import { useEditorChangeView, wireEditorChangeView } from './useEditorChangeView';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
 import { useSnapshotHistory } from './useSnapshotHistory';
@@ -280,12 +280,18 @@ export function useTemplateEditor(
     selectedKey: currentNoteKeyRef,
     history: displayHistory,
     readBody: () => g.getBodyHtml(),
+    // 変更の通知から 300ms 後に読んだ本文で、確定版との同一判定もする(直列化を 1 回にする)。
+    // 判定が要るのは確定版の正規形があり、未確定のときだけ(`settleIfClean` と同じ条件)。
+    onBodyRead: (body) => void settleIfClean(body),
+    wantsBodyRead: () => confirmedCanonical !== null && dirty.value,
     setChangeNumbers: (byKey) => g.setChangeNumbers(byKey),
     templateId: id,
     me: () => auth.user?.username ?? null,
     reviews: useReviewRepo(),
   });
   const { partLabels, partNames } = changeView;
+  // canvas の変更・読み込み・離脱を `changeView` へ流す(受け渡しは `wireEditorChangeView` で確かめる)。
+  const changeWire = wireEditorChangeView({ view: changeView, onChange: markDirtyNow });
 
   /**
    * 根の直下のパーツのうち、アンカーの属性の原文に Jinja を持つものの数(警告用。`partLabels` と
@@ -595,9 +601,9 @@ export function useTemplateEditor(
     redline.setBaseline(isCreateRoute.value ? undefined : res.value.confirmedBody);
     // 変更の番号の比較元・比較先を決めて 1 回計算し、前回の申請の却下の理由を読む(作成経路は
     // どちらも出さない。`useEditorChangeView.ts` の `open`)。
-    changeView.open({
+    changeWire.loaded({
       isCreateRoute: isCreateRoute.value,
-      filled: res.value.template.filled,
+      template: res.value.template,
       confirmedBody: res.value.confirmedBody,
     });
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
@@ -616,7 +622,7 @@ export function useTemplateEditor(
     });
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
-    g.onChange(markChanged);
+    g.onChange(changeWire.changed);
     // 前回セッションの draft が確定版と同じ内容なら、開いた時点で「変更なし」へ戻す。
     // `confirmedLoadFailed` 時は正規形を作っていない(`settleIfClean` は base が null なら
     // 元々 return する)が、フラグでも起動自体を止めて二重に安全側へ倒す。
@@ -660,13 +666,14 @@ export function useTemplateEditor(
     watch(g.selected, () => redline.onSelected(g.editor.value?.getSelected()), { flush: 'sync' });
   });
 
-  /** canvas の変更。dirty を即時に立てて autosave を予約し、確定版との同一判定も予約する。 */
-  function markChanged(): void {
+  /**
+   * canvas の変更で即時にすること。dirty を立てて autosave を予約する。確定版との同一判定と番号の
+   * 計算の予約は、`changeView.notify` の 300ms の待ちのあとに 1 回だけ読む本文で行う(`onBodyRead`)。
+   */
+  function markDirtyNow(): void {
     dirty.value = true;
     draftMayExist = true;
     autosave.trigger();
-    scheduleCleanCheck();
-    changeView.notify();
   }
 
   /**
@@ -682,10 +689,11 @@ export function useTemplateEditor(
       void settleIfClean();
     }, 300);
   }
-  async function settleIfClean(): Promise<void> {
+  /** `body` は読み済みの本文(変更の通知の待ちのあとに読んだもの)。無ければここで読む。 */
+  async function settleIfClean(body?: string): Promise<void> {
     const base = confirmedCanonical;
     if (!base || !dirty.value) return;
-    if (g.getBodyHtml() !== base.html || g.getCss() !== base.css) return;
+    if ((body ?? g.getBodyHtml()) !== base.html || g.getCss() !== base.css) return;
     dirty.value = false;
     autosave.cancel();
     if (!draftMayExist) return;
@@ -732,7 +740,7 @@ export function useTemplateEditor(
     if (persistTimer) clearTimeout(persistTimer);
     persistUndo();
     if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
-    changeView.dispose();
+    changeWire.unmounted();
     g.destroy();
   });
 

@@ -119,6 +119,14 @@ export function partEntries(root: HTMLElement, keyOf: RawKeyOf = rawKey): PartEn
   return out;
 }
 
+/**
+ * パーツの人間向けラベル `ページ{p}・パーツ{q}`(1 始まり)。`partLabelMap` と編集画面の
+ * `useEditorChangeView.ts` が同じ書式で振る。
+ */
+export function partLabelOf(e: Pick<PartEntry, 'page' | 'index'>): string {
+  return `ページ${e.page + 1}・パーツ${e.index + 1}`;
+}
+
 /** 各パーツについて、キー・ページ番号(0 始まり)・ページの中の番号(0 始まり)を順に呼ぶ。 */
 function eachPart(
   root: HTMLElement,
@@ -136,7 +144,7 @@ function eachPart(
  */
 export function partLabelMap(root: HTMLElement, keyOf: RawKeyOf = rawKey): Map<string, string> {
   const map = new Map<string, string>();
-  eachPart(root, keyOf, (key, pi, qi) => map.set(key, `ページ${pi + 1}・パーツ${qi + 1}`));
+  eachPart(root, keyOf, (key, page, index) => map.set(key, partLabelOf({ page, index })));
   return map;
 }
 

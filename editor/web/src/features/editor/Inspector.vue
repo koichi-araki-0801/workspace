@@ -356,7 +356,7 @@ const PB_CLASS =
                    relative にして包む(包まないと履歴の下端の外に置かれ、文書全体が縦に伸びる) -->
               <template v-if="g.no !== null">
                 <span class="no-pill" aria-hidden="true">{{ g.no }}</span>
-                <span class="sr-only">変更 {{ g.no }}</span>
+                <span class="sr-only">変更 {{ g.no }}、</span>
               </template>
               <span class="min-w-0 truncate text-[12.5px] font-bold text-foreground">{{ g.name }}</span>
               <span v-if="headingReason(g)" class="sr-only">{{ headingReason(g) }}</span>
@@ -395,7 +395,7 @@ const PB_CLASS =
         >
           <template v-if="selectedNo !== null">
             <span class="no-pill" aria-hidden="true">{{ selectedNo }}</span>
-            <span class="sr-only">変更 {{ selectedNo }}</span>
+            <span class="sr-only">変更 {{ selectedNo }}、</span>
           </template>
           <span class="min-w-0 truncate text-sm font-bold text-foreground">{{ selectedName || label }}</span>
         </div>
