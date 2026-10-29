@@ -5,6 +5,7 @@ import {
   DEFAULT_COMMENT_FILTER,
   filterThreads,
   formatCommentAt,
+  groupThreadsByPart,
   openKeysOf,
   openThreadCount,
   threadsOf,
@@ -171,5 +172,41 @@ describe('openThreadCount', () => {
 describe('formatCommentAt', () => {
   it('ISO 日時を月/日 時:分へ整形する', () => {
     expect(formatCommentAt('2026-09-01T09:05:00.000Z')).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+  });
+});
+
+describe('groupThreadsByPart', () => {
+  const DELETED = '.page#9/gone#1';
+  const threads = threadsOf([
+    entry({ id: 'd', pathKey: DELETED, createdAt: '2026-09-01T00:00:01.000Z' }),
+    entry({ id: 's1', pathKey: SUMMARY, createdAt: '2026-09-01T00:00:02.000Z' }),
+    entry({ id: 'c1', pathKey: COVER, createdAt: '2026-09-01T00:00:03.000Z' }),
+    entry({ id: 's2', pathKey: SUMMARY, createdAt: '2026-09-01T00:00:04.000Z' }),
+  ]);
+
+  it('partOrder の順に見出しを並べ、見出しの中は渡された順を保つ', () => {
+    const groups = groupThreadsByPart(threads, ctx.partOrder);
+    expect(groups.map((g) => g.key)).toEqual([COVER, SUMMARY, DELETED]);
+    expect(groups[1].threads.map((t) => t.parent.id)).toEqual(['s1', 's2']);
+  });
+
+  it('partOrder に無いキー(削除済みパーツ)は末尾に、出現順で並べる', () => {
+    const other = '.page#8/gone#1';
+    const more = [...threads, ...threadsOf([entry({ id: 'o', pathKey: other })])];
+    expect(groupThreadsByPart(more, ctx.partOrder).map((g) => g.key)).toEqual([
+      COVER,
+      SUMMARY,
+      DELETED,
+      other,
+    ]);
+  });
+
+  it('スレッドの無いパーツの見出しは作らない', () => {
+    const groups = groupThreadsByPart(
+      threadsOf([entry({ id: 's', pathKey: SUMMARY })]),
+      ctx.partOrder,
+    );
+    expect(groups.map((g) => g.key)).toEqual([SUMMARY]);
+    expect(groupThreadsByPart([], ctx.partOrder)).toEqual([]);
   });
 });

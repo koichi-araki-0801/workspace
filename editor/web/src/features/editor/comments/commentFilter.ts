@@ -130,3 +130,33 @@ export function filterThreads(
     (a, b) => order(a) - order(b) || a.parent.createdAt.localeCompare(b.parent.createdAt),
   );
 }
+
+/** 一覧のパーツの見出し 1 つ分。`key` は宛先パーツの `pathKey`。 */
+export interface CommentGroup {
+  key: string;
+  threads: CommentThread[];
+}
+
+/**
+ * スレッドを宛先パーツごとの見出しへ束ねる。見出しは `partOrder`(canvas の出現順)に従い、
+ * 無いキー(削除済みパーツ)は末尾へ出現順で回す。見出しの中は渡された順(`filterThreads` の
+ * 並び)を保つ。スレッドの無いパーツの見出しは作らない。
+ */
+export function groupThreadsByPart(
+  threads: readonly CommentThread[],
+  partOrder: ReadonlyMap<string, number>,
+): CommentGroup[] {
+  const byKey = new Map<string, CommentGroup>();
+  for (const t of threads) {
+    const key = t.parent.pathKey;
+    let g = byKey.get(key);
+    if (!g) {
+      g = { key, threads: [] };
+      byKey.set(key, g);
+    }
+    g.threads.push(t);
+  }
+  const order = (key: string) => partOrder.get(key) ?? Number.MAX_SAFE_INTEGER;
+  // `Array.prototype.sort` は安定なので、末尾へ回したキー同士は出現順のまま残る。
+  return [...byKey.values()].sort((a, b) => order(a.key) - order(b.key));
+}

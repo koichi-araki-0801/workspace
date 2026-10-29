@@ -4,7 +4,7 @@
 // `index.css` の `body` に置いた `line-break: strict` / `word-break: auto-phrase` の宣言を
 // 実機で固定する。対象は承認タブの申請カードの長い説明文(句読点・長音を含む)。紙面(canvas・
 // プレビュー・承認の紙面)は別文書の iframe なので宣言は届かない。PDF と同じ見えを保つため、
-// 届かないことも検査する。
+// 届かないことも検査する。承認タブのパンくずの ID は逆に語の途中でも折る(`data-break-anywhere`)。
 // `auto-phrase` は Chromium 119+ の機能で、非対応の版では宣言が無視され禁則だけが効く。
 import fs from 'node:fs';
 import path from 'node:path';
@@ -149,6 +149,20 @@ test('アプリの文言は句読点・閉じ括弧・小さい仮名を行頭�
       expect(LINE_START_FORBIDDEN, `${t.name}: ${lines.join(' / ')}`).not.toContain(line[0]);
     }
   }
+});
+
+test('承認タブのパンくずの ID は語の途中でも折り返す(data-break-anywhere)', async ({ page }) => {
+  await openPendingReview(page);
+  const id = page.locator('[data-review-crumb] [data-review-crumb-id]');
+  await expect(id).toHaveText(SEED_ID);
+  await expect(id).toHaveAttribute('data-break-anywhere', '');
+  expect(await id.evaluate((el) => getComputedStyle(el).overflowWrap)).toBe('anywhere');
+  // 区切りの無い ID でも、狭い幅で枠からはみ出さずに複数行へ折れる。
+  const lines = await narrowedLines(id);
+  expect(lines.length, lines.join(' / ')).toBeGreaterThan(1);
+  expect(lines.join('')).toBe(SEED_ID);
+  const overflow = await id.evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
 });
 
 test('文節の途中で改行しない(auto-phrase が効く版のとき)', async ({ page }) => {

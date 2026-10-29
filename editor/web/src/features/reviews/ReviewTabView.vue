@@ -4,8 +4,11 @@
 // =============================================================================
 // query なしでは可視範囲内の全申請を状態別に表示し、行を選ぶと `?template=<id>` 付きの
 // テンプレート詳細へ進む。詳細では対象テンプレートの申請を新しい順にアコーディオンで並べ、
-// 展開した区画だけが `ReviewDetail` とコメントパネルを持つ。全件一覧ではテンプレートごとの
-// パーツ構造・コメントを混在させず、詳細へ移ってから読み込む。
+// 展開した区画だけが `ReviewDetail` を持ち、その右欄の「コメント」タブ(`#comments` の slot)へ
+// コメントパネルを差し込む。全件一覧ではテンプレートごとのパーツ構造・コメントを混在させず、
+// 詳細へ移ってから読み込む。
+// 画面の上端は 1 行の見出し(パンくず・状態の絞り込みチップ・「編集画面へ」)。申請の見出しも
+// 1 行で、開閉のボタンと「申請ごと却下する…」のボタンを並べる(button を入れ子にしない)。
 
 import {
   isErr,
@@ -14,7 +17,7 @@ import {
   type ReviewStatus,
   type TemplateMeta,
 } from '@editor/shared';
-import { ChevronDown, ChevronRight, ClipboardCheck, Info } from '@lucide/vue';
+import { ChevronDown, ChevronRight, ClipboardCheck } from '@lucide/vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useNoteRepo, useReviewRepo, useTemplateRepo } from '@/api/repositories';
@@ -46,34 +49,31 @@ const pending = usePendingReviewsStore();
 const { loading, run } = useAsyncResult();
 const latestLoad = useLatest();
 
-/** 見出し・説明文は読者のロールで分ける(精査者=承認する側 / 編集者=自分の申請を追う側)。 */
+/** 画面の見出し(読み上げ用)は読者のロールで分ける(精査者=承認する側 / 編集者=自分の申請を追う側)。 */
 const heading = computed(() => (auth.isApprover ? '承認' : '申請状況'));
-const description = computed(() => {
-  if (isOverview.value) {
-    return auth.isApprover
-      ? 'すべての申請を状態別に確認します。申請を選ぶと詳細を開きます。'
-      : '自分が出したすべての申請を状態別に確認します。';
-  }
-
-  return auth.isApprover
-    ? '対象テンプレートの申請を、1件ずつ確認して承認・却下します。'
-    : '対象テンプレートについて、自分が出した申請の状況を確認します。';
-});
 
 // ── 1. 対象テンプレート ──
 const targetId = computed(() => resolveReviewTarget(route.query));
 const isOverview = computed(() => targetId.value === null);
 
-// 選択中パーツ(コメント宛先。区画〈申請 id〉ごとに持つ — 2 区画を同時展開しても互いに
-// 干渉しない。「直近に操作した区画」で解決すると、A で本文を打ち B の select を触ってから
-// A の追加を押すと B 宛に投稿される〈表示と結果がずれる〉ので、投稿先は必ず呼び出し側
-// 〈区画〉が明示する)とアコーディオンの展開状態。
-const selectedKey = reactive<Record<string, string | null>>({});
+/**
+ * コメントの宛先として選んだパーツ。`key` は `ReviewDetail` の `select` が渡すコメントのキー
+ * (編集経路は確定版側の `beforePartKey`、作成経路は `partKey`)で、確定版に無い追加パーツは null。
+ * 「まだ選んでいない」(区画の値が null)と「追加パーツを選んだ」(`key` が null)を分けて持つ。
+ */
+interface CommentTarget {
+  key: string | null;
+}
+
+// 宛先(区画〈申請 id〉ごとに持つ — 2 区画を同時展開しても互いに干渉しない。「直近に操作した
+// 区画」で解決すると、A で本文を打ち B の紙面を触ってから A の追加を押すと B 宛に投稿される
+// 〈表示と結果がずれる〉ので、投稿先は必ず呼び出し側〈区画〉が明示する)とアコーディオンの展開状態。
+const targets = reactive<Record<string, CommentTarget | null>>({});
 const expanded = ref<string[]>([]);
 watch(targetId, () => {
-  // 同じルートで template だけが変わると画面は再マウントされない。前テンプレートの選択
-  // パーツ・展開状態・絞り込みを持ち越さないよう、下の読み込み系 watch より先にリセットする。
-  for (const k of Object.keys(selectedKey)) delete selectedKey[k];
+  // 同じルートで template だけが変わると画面は再マウントされない。前テンプレートの宛先・
+  // 展開状態・絞り込みを持ち越さないよう、下の読み込み系 watch より先にリセットする。
+  for (const k of Object.keys(targets)) delete targets[k];
   expanded.value = [];
   statusFilter.value = 'pending';
   searchText.value = '';
@@ -85,26 +85,22 @@ const scoped = computed(() =>
   targetId.value === null ? all.value : all.value.filter((m) => m.templateId === targetId.value),
 );
 
-// 行バッジ・決着状態行・要約箱の文言は「却下」で統一する(操作ボタン・理由欄も同語。「差し戻し」は
-// 使わない)。
+// 行バッジ・決着状態行・絞り込みチップの文言は「却下」系で統一する(操作ボタン・理由欄も同語。
+// 「差し戻し」は使わない)。
 const STATUS_META: Record<
   ReviewStatus,
   { label: string; variant: 'warning' | 'success' | 'destructive' }
 > = {
   pending: { label: '承認待ち', variant: 'warning' },
   approved: { label: '承認済み', variant: 'success' },
-  rejected: { label: '却下', variant: 'destructive' },
+  rejected: { label: '却下済み', variant: 'destructive' },
 };
 const ORIGIN_LABEL: Record<ReviewRequestMeta['origin'], string> = {
   edit: '編集',
-  create: '新規作成',
+  create: '作成',
 };
 
-const SUMMARY_FILTERS: { label: string; value: ReviewStatus }[] = [
-  { label: '承認待ち', value: 'pending' },
-  { label: '承認済み', value: 'approved' },
-  { label: '却下', value: 'rejected' },
-];
+const STATUS_CHIPS: ReviewStatus[] = ['pending', 'approved', 'rejected'];
 const statusFilter = ref<ReviewStatus | 'all'>('pending');
 /** 全申請一覧の簡易検索。テンプレートID・属性・申請者・処理者・申請元を部分一致で探す。 */
 const searchText = ref('');
@@ -198,20 +194,12 @@ function toggle(id: string) {
 }
 const detailRefs = reactive<Record<string, InstanceType<typeof ReviewDetail> | undefined>>({});
 
-// 区画(申請)ごとのコメント宛先キーを `null` で初期化する。`<select v-model>` はモデル値が
-// `undefined` だと「宛先を選ぶ」(value=null)を選択済みとして表せず選択が全滅する
-// (`looseEqual(null, undefined)` が外れて `selectedIndex = -1` になり、閉じた select から
-// 「宛先を選ぶ」の見た目が消える)。`items` computed より後(TDZ 回避)、既存の
-// `watch(items)`(アコーディオン)の隣に置く。
-watch(
-  items,
-  (list) => {
-    for (const m of list) if (!(m.id in selectedKey)) selectedKey[m.id] = null;
-  },
-  { immediate: true },
-);
+/** 見出しの「申請ごと却下する…」。理由欄はその申請の `ReviewDetail` が開く。 */
+function openRequestReject(id: string): void {
+  detailRefs[id]?.openRequestReject();
+}
 
-/** 決着した申請を一覧へ写す(要約箱の件数もここで動く)。承認待ちバッジも取り直す。 */
+/** 決着した申請を一覧へ写す(チップの件数もここで動く)。承認待ちバッジも取り直す。 */
 function onDecided(meta: ReviewRequestMeta) {
   all.value = all.value.map((m) => (m.id === meta.id ? meta : m));
   void pending.refresh();
@@ -220,7 +208,7 @@ const allDone = computed(
   () => !isOverview.value && scoped.value.length > 0 && countOf('pending') === 0,
 );
 
-// ── 4. コメント(対象テンプレートの全投稿。宛先パーツは区画内のセレクトで選ぶ) ──
+// ── 4. コメント(対象テンプレートの全投稿。宛先は紙面・右欄・コメント一覧の見出しで選ぶ) ──
 // 承認タブは区画(申請)ごとに宛先を持ち、投稿先は呼び出し側(区画)が明示する(`comments.add`
 // の第 3 引数)。`currentKey` は「今開いている 1 つの選択」という編集タブ向けの概念で、
 // 複数区画が同時展開されうる承認タブには対応しないため常に `null` を返す。
@@ -270,13 +258,49 @@ watch(targetId, loadParts, { immediate: true });
  * 作るため、申請側にだけ在る追加パーツ(新規追加ブロック等)にも宛てられない。 */
 const partsUnavailable = computed(() => partsLoaded.value && partLabels.value.size === 0);
 
-/** コメント一覧の行から選択・ページ送りする。削除済みパーツ(現行構造に無いキー)は無視する
- * (削除済みパーツ宛に新規投稿させない — `partLabels` に無い = 宛先の選択肢からも外れている)。 */
-function focusPart(reqId: string, key: string) {
+const PARTS_UNAVAILABLE_TEXT =
+  'このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません';
+const ADDED_PART_TEXT = '追加したパーツは確定版にまだ無いため、コメントを書けません。';
+
+/** 紙面・右欄で選んだパーツを宛先にする(`ReviewDetail` の `select`)。 */
+function onSelect(reqId: string, commentKey: string | null): void {
+  targets[reqId] = { key: commentKey };
+}
+
+/**
+ * 区画のコメントの宛先のキー。宛先は確定版の構造(`partLabels`)にあるキーだけ(計画で決めた
+ * こと 13)。編集経路の追加パーツ(`key` が null)と、作成経路で確定版に無い `partKey` は書けない。
+ * 構造の読み込み中は確かめられないので書かせない。
+ */
+function addKeyOf(reqId: string): string | null {
+  const key = targets[reqId]?.key ?? null;
+  return key !== null && partLabels.value.has(key) ? key : null;
+}
+
+/** 入力欄の代わりに出す理由。宛先を選ぶ前は出さない(入力欄は畳んで案内を出す)。 */
+function addBlockedTextOf(reqId: string): string | undefined {
+  if (partsUnavailable.value) return PARTS_UNAVAILABLE_TEXT;
+  if (!partsLoaded.value) return undefined;
+  const target = targets[reqId];
+  if (!target) return undefined;
+  return addKeyOf(reqId) === null ? ADDED_PART_TEXT : undefined;
+}
+
+/**
+ * コメント一覧の見出しから選ぶ。変更のあるパーツ(`partNumbers` にある)は `ReviewDetail` に選ばせ
+ * (紙面と右欄が動き、`select` で宛先が返る)、変更の無いパーツは宛先にしてページだけ送る。
+ * 削除済みパーツ(確定版の構造に無いキー)は無視する(宛先にさせない)。
+ */
+function focusPart(reqId: string, key: string, partNumbers: ReadonlyMap<string, number>) {
   if (!partLabels.value.has(key)) return;
-  selectedKey[reqId] = key;
+  targets[reqId] = { key };
+  const detail = detailRefs[reqId];
+  if (partNumbers.has(key)) {
+    detail?.selectPart(key);
+    return;
+  }
   const page = partPages.value.get(key);
-  if (page !== undefined) detailRefs[reqId]?.gotoPage(page);
+  if (page !== undefined) detail?.gotoPage(page);
 }
 
 function goEdit() {
@@ -297,63 +321,48 @@ function goEdit() {
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <h2 class="text-lg font-bold">{{ heading }}</h2>
-      <p class="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-        <Info class="h-3.5 w-3.5 shrink-0" />
-        {{ description }}
-      </p>
-    </div>
-    <div
-      class="flex w-fit items-center gap-1 rounded-[10px] border bg-muted/40 p-1"
-      aria-label="承認画面の表示範囲"
-    >
-      <button
-        type="button"
-        class="rounded-[8px] px-3 py-1.5 text-sm font-medium transition-colors"
-        :class="
-          isOverview ? 'bg-background shadow-sm' : 'text-muted-foreground hover:bg-background/70'
-        "
-        data-review-mode="overview"
-        :aria-pressed="isOverview"
-        @click="openOverview"
-      >
-        すべての申請
-      </button>
+    <h2 class="sr-only">{{ heading }}</h2>
 
-      <button
-        type="button"
-        class="rounded-[8px] px-3 py-1.5 text-sm font-medium transition-colors"
-        :class="
-          !isOverview
-            ? 'bg-background shadow-sm'
-            : 'cursor-not-allowed text-muted-foreground opacity-60'
-        "
-        data-review-mode="target"
-        :aria-pressed="!isOverview"
-        :disabled="isOverview"
-      >
-        対象テンプレート
-      </button>
-    </div>
-    <div
-      v-if="!isOverview"
-      class="flex flex-wrap items-center gap-3 rounded-[12px] border bg-card px-4 py-3"
-    >
-      <span class="text-sm font-bold">対象テンプレート</span>
-      <span class="mono text-sm" data-break-anywhere>{{ targetId }}</span>
+    <!-- 1 行の見出し: パンくず・状態の絞り込みチップ・編集画面へ -->
+    <div class="flex flex-wrap items-center gap-x-3.5 gap-y-2" data-review-head>
+      <nav class="flex min-w-0 items-center gap-2 text-[15px]" aria-label="現在の位置" data-review-crumb>
+        <span v-if="isOverview" class="font-bold">すべての申請</span>
+        <template v-else>
+          <button
+            type="button"
+            class="shrink-0 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            @click="openOverview"
+          >
+            すべての申請
+          </button>
+          <span class="shrink-0 text-muted-foreground" aria-hidden="true">›</span>
+          <span class="mono min-w-0 font-bold" data-review-crumb-id data-break-anywhere aria-current="page">{{
+            targetId
+          }}</span>
+        </template>
+      </nav>
       <span class="flex-1" />
-
-      <Button variant="outline" size="sm" @click="openOverview"> すべての申請へ戻る </Button>
-
-      <Button variant="outline" size="sm" @click="goEdit"> 編集画面へ </Button>
-    </div>
-
-    <div v-else class="flex flex-wrap items-center gap-3 rounded-[12px] border bg-card px-4 py-3">
-      <span class="text-sm font-bold">すべての申請</span>
-      <span class="text-sm text-muted-foreground">
-        申請を選ぶと、そのテンプレートの詳細を開きます。
-      </span>
+      <fieldset class="m-0 flex flex-wrap gap-1.5 border-0 p-0">
+        <legend class="sr-only">状態で絞り込む</legend>
+        <!-- 選択中は塗りで示す(フォーカスの輪 `ring` と紛らわしくしない)。もう一度押すと解除。 -->
+        <button
+          v-for="s in STATUS_CHIPS"
+          :key="s"
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-full border px-3 py-[3px] text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          :class="
+            statusFilter === s
+              ? 'border-foreground bg-foreground text-background'
+              : 'bg-card hover:bg-muted/60'
+          "
+          :data-review-chip="s"
+          :aria-pressed="statusFilter === s"
+          @click="toggleFilter(s)"
+        >
+          {{ STATUS_META[s].label }} <b class="tabular-nums">{{ countOf(s) }}</b>
+        </button>
+      </fieldset>
+      <Button v-if="!isOverview" variant="outline" size="sm" @click="goEdit"> 編集画面へ </Button>
     </div>
 
     <div
@@ -376,23 +385,6 @@ function goEdit() {
       <Button variant="outline" size="sm" :disabled="searchText === ''" @click="searchText = ''">
         クリア
       </Button>
-    </div>
-
-    <!-- 状態の要約箱 = 絞り込み(同じ箱の再クリックで解除) -->
-    <div class="grid grid-cols-3 gap-3" data-review-summary>
-      <button
-        v-for="f in SUMMARY_FILTERS"
-        :key="f.value"
-        type="button"
-        class="rounded-[12px] border bg-card px-4 py-3 text-left shadow-sm transition-colors"
-        :class="statusFilter === f.value ? 'ring-2 ring-ring' : 'hover:bg-muted/40'"
-        :data-summary="f.value"
-        :aria-pressed="statusFilter === f.value"
-        @click="toggleFilter(f.value)"
-      >
-        <div class="text-[12px] text-muted-foreground">{{ f.label }}</div>
-        <div class="text-2xl font-bold">{{ countOf(f.value) }}</div>
-      </button>
     </div>
 
     <Skeleton v-if="loading && scoped.length === 0" class="h-24 w-full" />
@@ -423,7 +415,7 @@ function goEdit() {
       :hint="
         isOverview && normalizedSearchText !== ''
           ? '検索文字を変更するか、クリアしてください。'
-          : '上の箱をもう一度押すと絞り込みを解除します。'
+          : '上のチップをもう一度押すと絞り込みを解除します。'
       "
     />
 
@@ -435,45 +427,64 @@ function goEdit() {
         class="rounded-[12px] border bg-card shadow-sm"
         :data-review-item="m.id"
       >
-        <!-- `data-review-toggle` は phrasing content のみ(button の内容モデル制約)。
-               `AttributeBar` は `inline` 指定でルート・各列を `span` で描かせる。 -->
-        <button
-          type="button"
-          class="flex w-full flex-wrap items-center gap-3 px-4 py-3 text-left"
-          data-review-toggle
-          :aria-expanded="!isOverview && expanded.includes(m.id)"
-          @click="isOverview ? openReview(m) : toggle(m.id)"
-        >
-          <span class="sr-only">
-            {{ isOverview ? '申請の詳細を開く' : '申請内容を開閉する' }}
-          </span>
+        <!-- 申請の見出し 1 行。開閉のボタンと「申請ごと却下する…」のボタンを並べる。
+             `data-review-toggle` は phrasing content のみ(button の内容モデル制約)。
+             `AttributeBar` は `inline` 指定でルート・各列を `span` で描かせる。 -->
+        <div class="flex items-center gap-3 px-4 py-2.5">
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 flex-wrap items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-review-toggle
+            :aria-expanded="!isOverview && expanded.includes(m.id)"
+            @click="isOverview ? openReview(m) : toggle(m.id)"
+          >
+            <span class="sr-only">
+              {{ isOverview ? '申請の詳細を開く' : '申請内容を開閉する' }}
+            </span>
 
-          <ChevronDown v-if="!isOverview && expanded.includes(m.id)" class="h-4 w-4 shrink-0" />
+            <ChevronDown v-if="!isOverview && expanded.includes(m.id)" class="h-4 w-4 shrink-0" />
 
-          <ChevronRight v-else class="h-4 w-4 shrink-0" />
-          <Badge :variant="STATUS_META[m.status].variant">{{ STATUS_META[m.status].label }}</Badge>
-          <Badge variant="secondary">{{ ORIGIN_LABEL[m.origin] }}</Badge>
-          <AttributeBar inline :attributes="m.attributes" class="min-w-0 flex-1" />
-          <span class="text-xs text-muted-foreground">
-            申請: {{ m.submittedBy }}・{{ formatDateTimeShort(m.submittedAt) }}
-          </span>
-          <span v-if="m.changedSummary" class="basis-full text-xs text-muted-foreground">
-            変更 {{ m.changedSummary.count }} か所<template v-if="m.changedSummary.names.length">
-              （{{ m.changedSummary.names.join('、') }}）</template
-            >（申請者の申告。実際の差分は開いて確認します）
-          </span>
-          <span v-if="m.reviewedBy" class="basis-full text-xs text-muted-foreground">
-            {{ m.status === 'approved' ? '承認' : '却下' }}: {{ m.reviewedBy }}・{{
-              formatDateTimeShort(m.reviewedAt)
-            }}
-            <template v-if="m.status === 'rejected' && m.comment">・理由: {{ m.comment }}</template>
-          </span>
-        </button>
+            <ChevronRight v-else class="h-4 w-4 shrink-0" />
+            <Badge :variant="STATUS_META[m.status].variant">{{ STATUS_META[m.status].label }}</Badge>
+            <Badge variant="secondary">{{ ORIGIN_LABEL[m.origin] }}</Badge>
+            <!-- 属性は枠と地を外して見出しの行に溶かす(モックの `.attrs`)。 -->
+            <AttributeBar
+              inline
+              :attributes="m.attributes"
+              class="min-w-0 flex-1 border-0! bg-transparent! px-0! py-0!"
+            />
+            <span class="text-xs text-muted-foreground">
+              申請: {{ m.submittedBy }}・{{ formatDateTimeShort(m.submittedAt) }}
+            </span>
+            <!-- 申請者の申告件数は閉じているときだけ。開いたら実際の差分(右欄)を見る。 -->
+            <span
+              v-if="m.changedSummary && !(!isOverview && expanded.includes(m.id))"
+              class="basis-full text-xs text-muted-foreground"
+            >
+              変更 {{ m.changedSummary.count }} か所<template v-if="m.changedSummary.names.length">
+                （{{ m.changedSummary.names.join('、') }}）</template
+              >（申請者の申告。実際の差分は開いて確認します）
+            </span>
+            <span v-if="m.reviewedBy" class="basis-full text-xs text-muted-foreground">
+              {{ m.status === 'approved' ? '承認' : '却下' }}: {{ m.reviewedBy }}・{{
+                formatDateTimeShort(m.reviewedAt)
+              }}
+              <template v-if="m.status === 'rejected' && m.comment">・理由: {{ m.comment }}</template>
+            </span>
+          </button>
+          <!-- 申請ごと却下は例外の操作なので、最終確定から離して見出しの右端に控えめに置く。 -->
+          <button
+            v-if="!isOverview && expanded.includes(m.id) && m.status === 'pending' && auth.isApprover"
+            type="button"
+            class="shrink-0 rounded-sm px-1 py-0.5 text-xs text-destructive underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-review-reject-link
+            @click="openRequestReject(m.id)"
+          >
+            申請ごと却下する…
+          </button>
+        </div>
 
-        <div
-          v-if="!isOverview && expanded.includes(m.id)"
-          class="grid gap-4 border-t p-4 xl:grid-cols-[minmax(0,1fr)_312px]"
-        >
+        <div v-if="!isOverview && expanded.includes(m.id)" class="border-t p-4">
           <ReviewDetail
             :ref="
               (el) => {
@@ -482,45 +493,28 @@ function goEdit() {
             "
             :req-id="m.id"
             @decided="onDecided"
-          />
-          <aside
-            class="flex max-h-[720px] min-h-[320px] flex-col overflow-hidden rounded-[12px] border bg-card"
+            @select="(key) => onSelect(m.id, key)"
           >
-            <div class="flex items-center gap-2 border-b px-3 py-2 text-[12.5px] font-bold">
-              コメント
-              <span class="flex-1" />
-              <select
-                v-model="selectedKey[m.id]"
-                class="max-w-[170px] rounded border bg-background px-1.5 py-0.5 text-[11px] font-normal"
-                aria-label="コメントの宛先パーツ"
-                :disabled="!partsLoaded || partsUnavailable"
-              >
-                <option :value="null">宛先を選ぶ</option>
-                <option v-for="[ key, label ] in [...partLabels.entries()]" :key="key" :value="key">
-                  {{ label }}
-                </option>
-              </select>
-            </div>
-            <p
-              v-if="partsUnavailable"
-              class="border-b px-3 py-2 text-[11.5px] text-muted-foreground"
-            >
-              このテンプレートの確定版がまだ無いため、パーツ宛のコメントは付けられません
-            </p>
-            <CommentPanel
-              :entries="comments.all.value"
-              :selected-key="selectedKey[m.id] ?? null"
-              :can-add="!partsUnavailable && (selectedKey[m.id] ?? null) !== null"
-              :part-labels="partLabels"
-              compact
-              @add="(content) => comments.add(content, selectedKey[m.id] ?? undefined)"
-              @reply="comments.reply"
-              @set-status="comments.setStatus"
-              @update="comments.update"
-              @remove="comments.remove"
-              @focus="(key) => focusPart(m.id, key)"
-            />
-          </aside>
+            <template #comments="slot">
+              <CommentPanel
+                :entries="comments.all.value"
+                :selected-key="addKeyOf(m.id)"
+                :can-add="addKeyOf(m.id) !== null"
+                :part-labels="partLabels"
+                :part-numbers="slot.partNumbers"
+                :part-names="slot.partNames"
+                :add-blocked-text="addBlockedTextOf(m.id)"
+                collapse-input-until-target
+                compact
+                @add="(content) => comments.add(content, addKeyOf(m.id) ?? undefined)"
+                @reply="comments.reply"
+                @set-status="comments.setStatus"
+                @update="comments.update"
+                @remove="comments.remove"
+                @focus="(key) => focusPart(m.id, key, slot.partNumbers)"
+              />
+            </template>
+          </ReviewDetail>
         </div>
       </li>
     </ul>
