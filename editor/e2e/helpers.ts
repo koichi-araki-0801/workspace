@@ -29,6 +29,53 @@ export function markColorRgb(state: PreviewMarkState): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
+/** 静かに保つことを確かめる間に、値を読み直す間隔(ms)。 */
+const STAY_INTERVAL_MS = 100;
+
+/**
+ * `ms` の間、`read()` が `expected` のまま動かないこと。短い間隔で毎回 `toEqual` で比べるので、
+ * 動いたらその場で落ちる(最後にまとめて比べると、動いて戻った値を見逃す)。
+ */
+export async function expectStays<T>(
+  page: Page,
+  read: () => Promise<T>,
+  expected: T,
+  ms: number,
+  message?: string,
+): Promise<void> {
+  const until = Date.now() + ms;
+  do {
+    expect((await read()) as unknown, message).toEqual(expected);
+    await page.waitForTimeout(STAY_INTERVAL_MS);
+  } while (Date.now() < until);
+  expect((await read()) as unknown, message).toEqual(expected);
+}
+
+/**
+ * 手で作るブラウザコンテキスト(`browser.newContext`)へ、project の `use` のうちコンテキストの
+ * 設定(baseURL・画面の幅・端末・言語・時間帯など)を引き継ぐ。手で作るコンテキストには config の
+ * `use` が付かない。
+ */
+export function contextOptionsOf(use: Record<string, unknown>): Record<string, unknown> {
+  const keys = [
+    'baseURL',
+    'viewport',
+    'userAgent',
+    'deviceScaleFactor',
+    'isMobile',
+    'hasTouch',
+    'locale',
+    'timezoneId',
+    'colorScheme',
+    'extraHTTPHeaders',
+    'ignoreHTTPSErrors',
+    'javaScriptEnabled',
+    'permissions',
+    'geolocation',
+  ];
+  return Object.fromEntries(keys.filter((k) => use[k] !== undefined).map((k) => [k, use[k]]));
+}
+
 /**
  * 測った値を残す。HTML レポートの annotation と、実行ログ(`console.log`。独立プロセスのログで
  * 読む)の両方へ同じ文字列を 1 回で出す。

@@ -12,6 +12,7 @@ import { expect, test } from './fixtures';
 import {
   chipCount,
   commentInput,
+  expectStays,
   login,
   openEditor,
   openReviewDetail,
@@ -159,6 +160,9 @@ async function addCanvasComment(page: Page, part: Locator, content: string): Pro
   await expect(page.locator('[data-comment-row]', { hasText: content })).toBeVisible();
 }
 
+/** 組版の前に押した送り先が、放す前に使われないことを見る間(ms)。押下の処理と 1 回の描画が済む長さ。 */
+const HOLD_CHECK_MS = 1_000;
+
 test('承認タブのコメントの行クリックで左右の紙面が該当ページ(2 ページ目)へ移動する', async ({
   page,
 }) => {
@@ -209,7 +213,14 @@ test('承認タブのコメントの行クリックで左右の紙面が該当�
   // locator で見ると、読み込みを待ち続けて進まない)。
   await expect(item.getByText('プレビューを生成中…', { exact: true })).toHaveCount(2);
   await row.click();
-  await expect(pageIndicator).not.toHaveText(onSecondPage);
+  // 紙面が組まれるまでは送らない(預けたまま)。放す前のしばらくの間、表示は 1 ページ目のまま。
+  await expectStays(
+    page,
+    async () => onSecondPage.test((await pageIndicator.textContent()) ?? ''),
+    false,
+    HOLD_CHECK_MS,
+    '組版の前に 2 ページ目へ移った',
+  );
   releaseHost();
   await waitForComparePapers(item);
   await expect(pageIndicator).toHaveText(onSecondPage, { timeout: 15_000 });

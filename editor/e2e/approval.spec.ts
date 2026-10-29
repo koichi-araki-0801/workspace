@@ -22,7 +22,9 @@ import {
   approvePendingParts,
   chipCount,
   comparePapers,
+  contextOptionsOf,
   decisionRow,
+  expectStays,
   finalizeReview,
   login,
   markColorRgb,
@@ -224,17 +226,13 @@ async function expectDocSeqStays(
   item: Locator,
   expected: { before: number; after: number },
 ): Promise<void> {
-  const until = Date.now() + DOC_SEQ_QUIET_MS;
-  await expect
-    .poll(
-      async () => {
-        const now = { before: await docSeq(item, 'before'), after: await docSeq(item, 'after') };
-        if (now.before !== expected.before || now.after !== expected.after) return now;
-        return Date.now() >= until ? 'quiet' : 'waiting';
-      },
-      { timeout: DOC_SEQ_QUIET_MS + 10_000, intervals: [250] },
-    )
-    .toBe('quiet');
+  await expectStays(
+    item.page(),
+    async () => ({ before: await docSeq(item, 'before'), after: await docSeq(item, 'after') }),
+    expected,
+    DOC_SEQ_QUIET_MS,
+    '判定のあとで紙面の文書の番号が動いた',
+  );
 }
 
 /** 番号 `no` の行の 1 行の却下(理由欄を開き、書いて、保存の応答を待つ)。 */
@@ -377,9 +375,10 @@ test.describe('申請カードの操作', () => {
   }) => {
     const item = await openPartialReview(page);
     // 2 人目(admin も承認者)は別のブラウザコンテキストで同じ申請を開く。手で作るコンテキストには
-    // config の `use`(baseURL・画面の幅)が付かないので、project の設定から渡す。
-    const { baseURL, viewport } = test.info().project.use;
-    const other = await browser.newContext({ baseURL, viewport });
+    // config の `use` が付かないので、project の設定のうちコンテキストの分を引き継ぐ。
+    const other = await browser.newContext(
+      contextOptionsOf(test.info().project.use as Record<string, unknown>),
+    );
     try {
       const page2 = await other.newPage();
       await login(page2, 'admin');

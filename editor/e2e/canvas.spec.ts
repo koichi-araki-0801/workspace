@@ -434,6 +434,47 @@ test('文字を変えたパーツに①が付き、押すと修正履歴がそ�
   await expect(page.getByRole('button', { name: /^修正履歴 \d+ 件$/ })).toBeVisible();
 });
 
+test('右ペインの読み上げ用の文字は、はみ出しを切る枠の中の要素に位置を決められる(文書の高さを伸ばさない)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  await editOneWord(page, frame);
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+  // 未選択の修正履歴の見出しと、選択中のパーツの枠の両方に番号の読み上げ用の文字が出る。選択は
+  // 再読み込みで外れる(`capture_docs.spec.ts` と同じ)。
+  page.on('dialog', (d) => void d.accept());
+  await page.reload({ waitUntil: 'commit' });
+  const reloaded = page.frameLocator('iframe.gjs-frame');
+  await partLocator(reloaded).first().waitFor({ state: 'visible', timeout: 30_000 });
+  await expect(page.locator(`aside [data-history-heading] .${NUMBER_PILL_CLASS}`)).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  const where = async () =>
+    page.locator('aside .sr-only').evaluateAll((els) =>
+      els.map((el) => {
+        // いちばん近い、はみ出しを切る祖先(右ペインのスクロール枠・右ペインそのもの)。absolute の
+        // 位置の基準(offsetParent)がその中に無いと、枠の外の静的位置に置かれて文書を伸ばしうる。
+        let clip = el.parentElement;
+        while (clip && getComputedStyle(clip).overflowY === 'visible') clip = clip.parentElement;
+        const parent = (el as HTMLElement).offsetParent;
+        return { text: el.textContent, inside: parent !== null && clip?.contains(parent) === true };
+      }),
+    );
+  const unselected = await where();
+  expect(unselected.length).toBeGreaterThan(0);
+  for (const w of unselected) expect(w, JSON.stringify(unselected)).toMatchObject({ inside: true });
+
+  await selectPart(reloaded, partLocator(reloaded).filter({ hasText: '皆様' }));
+  await expect(page.locator(`[data-selected-part] .${NUMBER_PILL_CLASS}`)).toHaveText('1');
+  const selected = await where();
+  expect(selected.some((w) => w.text?.startsWith('変更 1'))).toBe(true);
+  for (const w of selected) expect(w, JSON.stringify(selected)).toMatchObject({ inside: true });
+});
+
 test('変更の目印を切ると丸数字が消え、再読み込みしても切ったまま', async ({ page }) => {
   test.setTimeout(120_000);
   await login(page);
@@ -488,18 +529,19 @@ interface DiffRun {
 }
 
 /**
- * 変更の通知を受けた時刻の目印(`useChangeNumbers.ts` の `CHANGE_NOTIFY_MARK`)。アプリは通知の
- * たびに前の目印を消して打ち直すので、`PerformanceObserver` で打たれるたびに受け取る。
+ * アプリが打つ時刻の目印(`useChangeNumbers.ts` の `CHANGE_NOTIFY_MARK`・`CHANGE_RUN_MARK`)。
+ * 通知を受けた時刻と、予約が満了して番号の計算を始めた時刻。アプリは打つたびに前の目印を消すので、
+ * `PerformanceObserver` で打たれるたびに受け取る。
  */
-const CHANGE_NOTIFY_MARK = 'change-numbers:notify';
+const CHANGE_MARKS = { notify: 'change-numbers:notify', run: 'change-numbers:run' } as const;
 
 /**
  * 番号の計算(worker の `buildHtmlDiff`。Comlink の要求に `path` が載る)の開始・終了の時刻と、
- * 変更の通知の時刻(アプリが打つ `performance.mark`)と、変更の目印が画面に現れた時刻を、ページの
- * `performance.now()` で記録する。
+ * 変更の通知・計算の始まりの時刻(アプリが打つ `performance.mark`)と、変更の目印が画面に現れた
+ * 時刻を、ページの `performance.now()` で記録する。
  */
 async function trackChangeNumberRuns(page: Page): Promise<void> {
-  await page.addInitScript((notifyMark) => {
+  await page.addInitScript((marks) => {
     if (window.top !== window) return;
     const w = window as unknown as {
       __diffRuns: DiffRun[];
@@ -510,12 +552,14 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
     w.__markerAt = [];
     // 主スレッドの長いタスク(50ms 超)。所要時間の内訳を見る手がかりにする。
     w.__longTasks = [];
-    // 変更の通知の時刻。番号の計算の起点(`useChangeNumbers.ts` の `createChangeCheckScheduler` の
-    // `notify`)が、通知を受けるたびに `performance.mark` で打つ。
-    const tn = window as unknown as { __notifyAt: number[] };
+    // 変更の通知の時刻(`createChangeCheckScheduler` の `notify`)と、予約が満了して番号の計算を
+    // 始めた時刻(`useChangeNumbers` の `schedule`)。どちらもアプリが `performance.mark` で打つ。
+    const tn = window as unknown as { __notifyAt: number[]; __runAt: number[] };
     tn.__notifyAt = [];
+    tn.__runAt = [];
     new PerformanceObserver((list) => {
-      for (const e of list.getEntriesByName(notifyMark, 'mark')) tn.__notifyAt.push(e.startTime);
+      for (const e of list.getEntriesByName(marks.notify, 'mark')) tn.__notifyAt.push(e.startTime);
+      for (const e of list.getEntriesByName(marks.run, 'mark')) tn.__runAt.push(e.startTime);
     }).observe({ type: 'mark' });
     try {
       new PerformanceObserver((list) => {
@@ -552,7 +596,7 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
       if (has && !had) w.__markerAt.push(performance.now());
       had = has;
     }).observe(document, { childList: true, subtree: true });
-  }, CHANGE_NOTIFY_MARK);
+  }, CHANGE_MARKS);
 }
 
 async function changeNumberRuns(
@@ -600,14 +644,17 @@ function longTasksIn(tasks: [number, number][], from: number, to: number): strin
   return `${Math.round(hit.reduce((sum, [, d]) => sum + d, 0))}ms/${hit.length}`;
 }
 
-/** 所要時間の基準(計画で決めたこと。予約の 1,000ms と 300ms の待ちは含めない)。超えたら止めて相談する。 */
+/**
+ * 所要時間の基準(計画で決め、2026-10-29 に当てる区間を決め直した)。予約が満了して番号の計算を
+ * 始めた時刻から、紙面に目印が出るまで(本文の組み立て・worker の計算・描画)に当てる。
+ */
 const RECOMPUTE_BUDGET_MS = 1_500;
-/** 番号の計算の予約(`useChangeNumbers.ts` の `MIN_DEBOUNCE_MS`)。基準の値はこれを引いて出す。 */
+/** 番号の計算の予約(`useChangeNumbers.ts` の `MIN_DEBOUNCE_MS`)。 */
 const CHANGE_NUMBERS_DEBOUNCE_MS = 1_000;
 /** 変更の通知から本文を読みに行くまでの待ち(`useChangeNumbers.ts` の `CHANGE_CHECK_WAIT_MS`)。 */
 const CHANGE_CHECK_WAIT_MS = 300;
 
-test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(編集の確定の通知から目印まで、待ちと予約を除く)', async ({
+test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が満了して計算を始めてから目印まで)', async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -622,31 +669,37 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(編集の�
   await expect.poll(() => changeNumbersSettled(page), { timeout: 120_000 }).toBe(true);
   const opened = (await changeNumberRuns(page)).runs.at(-1);
 
-  // 始点は、入力のあとで最初に来た変更の通知(GrapesJS が編集の確定で出す。入力そのものでは
-  // 通知は来ない)。入力から確定までは、パーツの外を押す操作の待ちで、アプリの処理ではない。
-  // 終点は目印が画面に現れた時刻。基準と比べる値は、そこから本文を読みに行く待ち(300ms)と
-  // 予約(1,000ms)を引いたもの(主スレッドの本文の読み出し・組み立て・worker の計算・描画が残る)。
+  // 基準と比べるのは、入力のあとで予約が満了して番号の計算を始めた時刻(アプリの目印)から、目印が
+  // 画面に現れた時刻まで。通知(GrapesJS が編集の確定で出す。入力そのものでは来ない)から目印までの
+  // 全体・入力から通知まで・worker の計算・長いタスクは、記録として annotation に残す。
   await page.getByRole('button', { name: '閲覧のみ(クリックで編集を許可)' }).click();
   const inputAt = await replaceWord(page, frame, '受益者のみなさまへ', 'みなさま', '皆様');
   await expect(changeMarkers(page)).toHaveCount(1, { timeout: 30_000 });
   await expect.poll(() => changeNumbersSettled(page), { timeout: 60_000 }).toBe(true);
   const { runs, markerAt, longTasks } = await changeNumberRuns(page);
-  const notifyAt = (
-    await page.evaluate(() => (window as unknown as { __notifyAt: number[] }).__notifyAt)
-  ).find((t) => t > inputAt);
+  const appMarks = await page.evaluate(() => {
+    const w = window as unknown as { __notifyAt: number[]; __runAt: number[] };
+    return { notifyAt: w.__notifyAt, runAt: w.__runAt };
+  });
+  const notifyAt = appMarks.notifyAt.find((t) => t > inputAt);
   if (notifyAt === undefined) throw new Error('編集のあとの変更の通知が記録されていない');
   const shownAt = markerAt.find((t) => t > notifyAt);
   if (shownAt === undefined) throw new Error('目印の出現の時刻が記録されていない');
+  // 目印を出した計算の始まり(目印より前で最後のもの)。
+  const runAt = appMarks.runAt.filter((t) => t > notifyAt && t < shownAt).at(-1);
+  if (runAt === undefined) throw new Error('予約の満了で計算を始めた時刻が記録されていない');
   const run = runs.filter((r) => r.start > notifyAt && r.start < shownAt).at(-1);
   if (!run || run.end === undefined) throw new Error('編集のあとの番号の計算が記録されていない');
   const notifyToMarker = shownAt - notifyAt;
-  const measured = notifyToMarker - CHANGE_CHECK_WAIT_MS - CHANGE_NUMBERS_DEBOUNCE_MS;
+  const measured = shownAt - runAt;
   const summary =
     `parts=${parts} openedWorker=${Math.round((opened?.end ?? 0) - (opened?.start ?? 0))}ms ` +
     `inputToNotify=${Math.round(notifyAt - inputAt)}ms notifyToMarker=${Math.round(notifyToMarker)}ms ` +
-    `measured(-${CHANGE_CHECK_WAIT_MS}-${CHANGE_NUMBERS_DEBOUNCE_MS})=${Math.round(measured)}ms ` +
-    `editWorker=${Math.round(run.end - run.start)}ms ` +
-    `longTasks(notify→marker)=${longTasksIn(longTasks, notifyAt, shownAt)}`;
+    `notifyToRun=${Math.round(runAt - notifyAt)}ms ` +
+    `(wait ${CHANGE_CHECK_WAIT_MS}+debounce ${CHANGE_NUMBERS_DEBOUNCE_MS}) ` +
+    `measured(run→marker)=${Math.round(measured)}ms editWorker=${Math.round(run.end - run.start)}ms ` +
+    `longTasks(notify→marker)=${longTasksIn(longTasks, notifyAt, shownAt)} ` +
+    `longTasks(run→marker)=${longTasksIn(longTasks, runAt, shownAt)}`;
   reportMeasure('change-numbers', summary);
   expect(measured).toBeLessThan(RECOMPUTE_BUDGET_MS);
 });
