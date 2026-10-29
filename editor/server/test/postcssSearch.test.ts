@@ -13,9 +13,17 @@
 // ディレクトリへ隔離する `vi.hoisted` が、`os.tmpdir()` を前提にした契約テストと両立しないため。
 // `os.tmpdir()` 配下ではワークスペースのルートが見つからず、探索の上限が本番と変わる。
 //
-// ⚠ Vite / postcss-load-config はプラグインを同じパスなら 2 回目以降キャッシュから読み、
-// cli 11.4.0 は PostCSS 設定を探索ディレクトリごとにプロセス内でキャッシュする。各テストは
+// ⚠ cli 11.4.0 は PostCSS 設定を探索ディレクトリごとにプロセス内でキャッシュする。各テストは
 // 新しい名前の marker と新しい展開ディレクトリを使う(本番は展開ディレクトリが毎回ランダム)。
+//
+// ⚠ Vite の探索は待たないと観測できない。Vite 8.3.5 の `cssPlugin` は生成時に
+// `resolvePostcssConfig(config)` を投げっぱなしで始め(`.catch(() => {})` だけで誰も await
+// しない)、プラグインの import もその中で走る。cli の preview は CSS を自前の middleware で返し、
+// config モードでは cli の PostCSS 設定が `css.postcss: {}`(`parseProjectConfig` が注入)なので、
+// 応答は Vite の探索の完了を待たない。記録を読む前に Vite 自身の CSS 変換(`/style.css` を base の
+// 外から取る。`compilePostCSS` が同じ promise を await する)を 1 回通して完了を待つ。待たないと、
+// 対照は負荷の高い CI で読み込みを見落とし(2026-10-29 の CI で 3 回続けて落ちた)、陰性側は
+// 探索が止まっていなくても通ってしまう。
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -36,13 +44,21 @@ vi.hoisted(() => {
   process.env.TMP_DIR = `.tmp/test-postcss-search-${process.pid}-${Date.now().toString(36)}`;
 });
 
-/** require と実行の時点で `MARKER_LOG` に 1 行ずつ書く PostCSS プラグイン。 */
+/**
+ * 読み込みと実行の時点で `MARKER_LOG` に 1 行ずつ書く PostCSS プラグイン。読み込みをわざと
+ * `MARKER_LOAD_DELAY_MS` 遅らせ、テストが探索の完了を待たずに記録を読むと手元でも必ず落ちる
+ * ようにする(CI の負荷でだけ出ていた揺れを決定的にする)。postcss-load-config は `import()` で
+ * 読むので ESM で書ける。
+ */
+const MARKER_LOAD_DELAY_MS = 300;
 const MARKER_SOURCE = [
-  "const fs = require('node:fs');",
+  "import fs from 'node:fs';",
   "const log = (s) => fs.appendFileSync(process.env.MARKER_LOG, s + '\\n');",
+  `await new Promise((r) => setTimeout(r, ${MARKER_LOAD_DELAY_MS}));`,
   "log('load');",
-  "module.exports = () => ({ postcssPlugin: 'marker', Once() { log('once'); } });",
-  'module.exports.postcss = true;',
+  "const plugin = () => ({ postcssPlugin: 'marker', Once() { log('once'); } });",
+  'plugin.postcss = true;',
+  'export default plugin;',
   '',
 ].join('\n');
 
@@ -58,7 +74,7 @@ let seq = 0;
 
 /** 新しい名前の marker を書き、展開ディレクトリの祖先(`config.tmpDir`)に設定を置く。 */
 async function plantAncestorMarker(): Promise<void> {
-  const marker = path.join(config.tmpDir, `marker-${++seq}.cjs`);
+  const marker = path.join(config.tmpDir, `marker-${++seq}.mjs`);
   await fs.writeFile(marker, MARKER_SOURCE, 'utf8');
   const plugins = { [marker.split(path.sep).join('/')]: {} };
   await fs.writeFile(path.join(config.tmpDir, '.postcssrc.json'), JSON.stringify({ plugins }));
@@ -88,11 +104,17 @@ async function projectZip(mode: Mode): Promise<Buffer> {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 
-/** 展開したプロジェクトを本番と同じ起動形(`previewServer.ts`)で preview し、CSS を 1 回取る。 */
+type Fetched = { status: number; body: string };
+
+/**
+ * 展開したプロジェクトを本番と同じ起動形(`previewServer.ts`)で preview し、CSS を取る。`doc` は
+ * 本番の経路(base 配下。cli の middleware が返す)、`vite` は Vite 自身の CSS 変換を通した応答で、
+ * Vite の PostCSS 探索の完了を待つために取る(ファイル冒頭の ⚠)。
+ */
 async function previewOnce(
   mode: Mode,
   removeStopper: boolean,
-): Promise<{ status: number; body: string }> {
+): Promise<{ doc: Fetched; vite: Fetched }> {
   const project = await extractProjectZip(await projectZip(mode));
   type PreviewServer = Awaited<ReturnType<typeof import('@vivliostyle/cli')['preview']>>;
   let server: PreviewServer | undefined;
@@ -116,10 +138,18 @@ async function previewOnce(
     if (addr === null || addr === undefined || typeof addr !== 'object') {
       throw new Error('プレビューサーバのポートが取れません');
     }
-    const res = await fetch(`http://127.0.0.1:${addr.port}${DEFAULT_DOC_BASE}/style.css`, {
-      headers: { accept: 'text/css,*/*;q=0.1' },
-    });
-    return { status: res.status, body: await res.text() };
+    const get = async (urlPath: string): Promise<Fetched> => {
+      const res = await fetch(`http://127.0.0.1:${addr.port}${urlPath}`, {
+        headers: { accept: 'text/css,*/*;q=0.1' },
+      });
+      return { status: res.status, body: await res.text() };
+    };
+    const doc = await get(`${DEFAULT_DOC_BASE}/style.css`);
+    // base の外は cli の middleware が拾わず、Vite の `transformMiddleware` → `compilePostCSS` に
+    // 届く。そこで `resolvePostcssConfig` の promise(生成時に投げっぱなしで始まったものと共有)を
+    // await するので、この応答が返った時点で Vite の探索とプラグインの読み込みは終わっている。
+    const vite = await get('/style.css');
+    return { doc, vite };
   } finally {
     await server?.close();
     await cleanupProject(project.dir);
@@ -142,9 +172,12 @@ describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
     '展開したプロジェクトの preview(%s)で、祖先の PostCSS 設定のプラグインは読み込まれない',
     async (mode) => {
       await plantAncestorMarker();
-      const css = await previewOnce(mode, false);
-      expect(css.status).toBe(200);
-      expect(css.body).toContain('css-marker');
+      const { doc, vite } = await previewOnce(mode, false);
+      expect(doc.status).toBe(200);
+      expect(doc.body).toContain('css-marker');
+      // Vite の変換が通ったこと(= 探索の完了を待てたこと)を確かめてから、読み込みが無いと言う。
+      expect(vite.status).toBe(200);
+      expect(vite.body).toContain('css-marker');
       expect(markerLines()).toEqual([]);
     },
     CLI_TEST_TIMEOUT_MS,
@@ -152,24 +185,24 @@ describe('PostCSS 設定の親方向探索(実物の CLI)', () => {
 
   it.each<Mode>(['single', 'config'])(
     '対照(%s): 空の設定を消すと祖先のプラグインが読み込まれる(テストが空振りしていない証明)',
-    // `ci`(全プロジェクト + カバレッジ + 4 ワーカー)の下でだけ、config の対照が読み込みを
-    // 観測できないことがあった(2 回中 1 回。単独・server だけの並列では再現しない)。**機序は
-    // 特定できていない**(CSS は 200 で返り、marker の記録だけが無い)。config モードでは CLI 自身は
-    // configData の `css` で探索しないので、ここで読み込むのは Vite の探索だけ。読まれない側への
-    // 揺れなので本番の安全側だが、やり直しで覆う前に、失敗時の状態をメッセージへ出して残す。
-    // CLI 側の探索が止まることは `vivliostyleCliContract.test.ts` の PostCSS 設定の契約で固定する。
-    { timeout: CLI_TEST_TIMEOUT_MS, retry: 2 },
+    // config モードでは cli 自身は探索しない(`css.postcss: {}`)ので、ここで読み込むのは Vite の
+    // 探索だけ。その完了を待つのが `previewOnce` の `vite` の応答(ファイル冒頭の ⚠)。失敗時の
+    // 状態はメッセージへ出す。cli 側の探索が止まることは `vivliostyleCliContract.test.ts` の
+    // PostCSS 設定の契約で固定する。
+    CLI_TEST_TIMEOUT_MS,
     async (mode) => {
       await plantAncestorMarker();
-      const css = await previewOnce(mode, true);
+      const { doc, vite } = await previewOnce(mode, true);
       const state = JSON.stringify({
-        status: css.status,
-        body: css.body.slice(0, 200),
+        doc: { status: doc.status, body: doc.body.slice(0, 200) },
+        vite: { status: vite.status, body: vite.body.slice(0, 200) },
         marker: markerLines(),
         log: existsSync(logFile()),
       });
-      expect(css.status, state).toBe(200);
-      expect(css.body, state).toContain('css-marker');
+      expect(doc.status, state).toBe(200);
+      expect(doc.body, state).toContain('css-marker');
+      expect(vite.status, state).toBe(200);
+      expect(vite.body, state).toContain('css-marker');
       expect(markerLines(), state).toContain('load');
     },
   );
