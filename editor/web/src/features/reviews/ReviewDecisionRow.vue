@@ -11,7 +11,7 @@ import type { PaperDecision } from '@editor/shared';
 import { computed, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
-import { REJECT_REASON_MAX, rejectReasonProblem } from './reviewDecisionList';
+import { REJECT_REASON_MAX, reasonLength, rejectReasonProblem } from './reviewDecisionList';
 import type { ReviewChangeRow } from './services/reviewDiffService';
 
 const props = defineProps<{
@@ -200,7 +200,7 @@ function onPick(e: Event) {
       />
       <p v-if="emptyError" role="alert" class="text-xs text-destructive">理由を入力してください。</p>
       <p v-if="tooLong" role="alert" class="text-xs text-destructive">
-        理由は {{ REJECT_REASON_MAX }} 文字までです（いま {{ draft.length }} 文字）。
+        理由は {{ REJECT_REASON_MAX }} 文字までです（いま {{ reasonLength(draft) }} 文字）。
       </p>
       <p class="text-xs text-muted-foreground">理由は申請者の編集画面に表示します。</p>
       <div class="flex items-center justify-end gap-2">

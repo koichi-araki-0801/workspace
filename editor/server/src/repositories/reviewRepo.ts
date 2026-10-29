@@ -18,10 +18,12 @@ import {
   extractReviewParts,
   forbidden,
   isApprover,
+  MAX_REVIEW_PART_SCAN_BYTES,
   notFound,
   parseAnyTemplateFileName,
   parseSkeletonFileName,
   parseTemplateFileName,
+  partKeysText,
   REVIEW_ALREADY_DECIDED,
   REVIEW_PART_DECISION_TRANSITION,
   type ReviewDecisionRequest,
@@ -109,6 +111,9 @@ async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSour
   return { before, baseline: review.cssBaseline };
 }
 
+/** 判定の保存の 400・409 の文言に並べるキーの件数(残りは件数だけ。監査ログの先頭 20 件と同じ)。 */
+const MESSAGE_PART_KEYS_HEAD = 20;
+
 /** `decidablePartKeys` の結果を覚えておく申請の数。承認タブで同時に開く申請は数件。 */
 const DECIDABLE_KEYS_CACHE_SIZE = 32;
 const decidableKeysCache = new Map<string, ReadonlySet<string> | null>();
@@ -119,7 +124,8 @@ const decidableKeysCache = new Map<string, ReadonlySet<string> | null>();
  * 照合できない申請(比較元の無い古い編集経路・差分の打ち切り・走査の上限超え)は null。
  *
  * 申請の本文は申請のあと変わらないので、申請 id ごとに覚えておく。差分は 340 パーツの帳票で
- * 約 0.2 秒かかり(2026-10-29 に測定)、判定のたびに取り直すと承認の押下が重くなるため。
+ * 約 0.2 秒、打ち切られない上限に近い帳票(約 305 万字・1,400 ページ・3,500 ブロック)で約 1.6 秒
+ * かかり(2026-10-29 に測定)、判定のたびに取り直すと承認の押下が重くなるため。
  */
 function decidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
   if (decidableKeysCache.has(review.id)) return decidableKeysCache.get(review.id) ?? null;
@@ -134,11 +140,11 @@ function decidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | n
 
 function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
   if (review.origin === 'create') {
-    try {
-      return new Set(extractReviewParts(review.html).map((part) => part.partKey));
-    } catch {
-      return null;
-    }
+    // 走査の上限を超える原文だけは照合しない(最終確定の走査も同じ上限で止まる)。原文のパーツを
+    // 読めないほかの失敗(パーツの境界・Jinja の識別子)は、照合を飛ばさずにその 400 を返す。投げた
+    // ものは覚えないので、毎回同じ答えになる。
+    if (review.html.length > MAX_REVIEW_PART_SCAN_BYTES) return null;
+    return new Set(extractReviewParts(review.html).map((part) => part.partKey));
   }
   if (review.baseHtml === undefined) return null;
   const diff = buildHtmlDiff(review.baseHtml, review.html, linkedomParser);
@@ -422,14 +428,15 @@ export function createReviewRepo({
         // 差分に無いキーの承認・却下は最終確定で必ず止まる(本文に無い判定)。保存の段で拒み、
         // 申請のファイルに要らないキーを積ませない。取り消し(pending)は遷移の検査が今の判定の
         // あるキーだけに許すので、ここでは見ない。
-        const decidable = decidablePartKeys(review);
+        // 照合する判定が無い(取り消しだけの)保存では、差分を計算しない。
+        const toCheck = input.decisions.filter((d) => d.status !== 'pending');
+        const decidable = toCheck.length > 0 ? decidablePartKeys(review) : null;
         if (decidable !== null) {
-          const unknown = input.decisions
-            .filter((d) => d.status !== 'pending' && !decidable.has(d.partKey))
-            .map((d) => d.partKey);
+          const unknown = toCheck.filter((d) => !decidable.has(d.partKey)).map((d) => d.partKey);
           if (unknown.length > 0) {
             throw validation(
-              `申請の差分に無いパーツの判定があります: ${unknown.join(', ')}。画面を読み直してください。`,
+              `申請の差分に無いパーツの判定があります: ${partKeysText(unknown, MESSAGE_PART_KEYS_HEAD)}。` +
+                '画面を読み直してください。',
             );
           }
         }
@@ -443,7 +450,8 @@ export function createReviewRepo({
           .map((d) => d.partKey);
         if (refused.length > 0) {
           throw conflict(
-            `許されていない判定の変更があります: ${refused.join(', ')}。画面を読み直してください。`,
+            `許されていない判定の変更があります: ${partKeysText(refused, MESSAGE_PART_KEYS_HEAD)}。` +
+              '画面を読み直してください。',
             { code: REVIEW_PART_DECISION_TRANSITION },
           );
         }

@@ -778,12 +778,20 @@ describe('ReviewDetail の申請ごと却下', () => {
     const area = () => w.find('[data-request-reject]');
     const count = () => area().find('[data-request-reject-count]').text();
     expect(count()).toBe('あと 2000 文字');
+    // 残りの字数は理由欄の説明として読み上げられる(超えたときは上限の注意が同じ役をする)。
+    const describedBy = () => area().find('textarea').attributes('aria-describedby');
+    expect(describedBy()).toBeTruthy();
+    expect(describedBy()).toBe(area().find('[data-request-reject-count]').attributes('id'));
     await area().find('textarea').setValue('理由');
+    expect(count()).toBe('あと 1998 文字');
+    // 前後の空白は送らないので数えない(サーバが受ける長さと同じ)。
+    await area().find('textarea').setValue('  理由 \n');
     expect(count()).toBe('あと 1998 文字');
     await area().find('textarea').setValue('あ'.repeat(2001));
     expect(area().find('[role="alert"]').text()).toBe(
       '理由は 2000 文字までです（いま 2001 文字）。',
     );
+    expect(describedBy()).toBe(area().find('[role="alert"]').attributes('id'));
     expect(area().find('textarea').attributes('aria-invalid')).toBe('true');
     const send = buttonIn(area(), '申請を却下する');
     expect(send?.attributes('disabled')).toBeDefined();

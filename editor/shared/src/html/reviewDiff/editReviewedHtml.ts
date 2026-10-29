@@ -36,13 +36,16 @@ import { buildReviewedHtmlCandidate, reviewedPage } from './reviewedCandidate.js
 /** 確定を止める判定不足の文言で、該当キーを並べる上限(それ以上は件数だけ出す)。 */
 const MAX_LISTED_KEYS = 10;
 
-/** 判定不足の文言に添えるキーの並び。 */
-function keysText(keys: readonly string[]): string {
-  const listed = keys.slice(0, MAX_LISTED_KEYS).join(', ');
-  return keys.length > MAX_LISTED_KEYS
-    ? `${listed} ほか${keys.length - MAX_LISTED_KEYS}件`
-    : listed;
+/**
+ * 文言に添えるキーの並び。先頭 `max` 件だけを並べ、残りは件数だけにする(1 回の判定は 5,000 件まで
+ * 受けるので、全キーを文言へ連ねない)。サーバの判定の保存の 400・409 も使う(`reviewRepo.ts`)。
+ */
+export function partKeysText(keys: readonly string[], max: number = MAX_LISTED_KEYS): string {
+  const listed = keys.slice(0, max).join(', ');
+  return keys.length > max ? `${listed} ほか${keys.length - max}件` : listed;
 }
+
+const keysText = (keys: readonly string[]): string => partKeysText(keys);
 
 /**
  * 最終確定を止める理由の文言。承認画面(`ReviewDetail.vue` の `finalizationBlocked`)とサーバの

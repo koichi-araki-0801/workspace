@@ -507,9 +507,9 @@ export const ReviewPartDecisionChange = z
     z.object({
       partKey: ReviewPartKeyInput,
       status: z.literal('rejected'),
-      // 2,000 単位の上限は trim の前の生の文字列に掛かる(`utf16Max` の検査が `.trim()` より
-      // 先に並ぶ)。画面(web の `reviewDecisionList.ts` の `rejectReasonProblem`)も trim の前の
-      // 長さで数えるので、両者は一致する。
+      // 2,000 単位の上限は、受けた文字列(trim の前)に掛かる(`utf16Max` の検査が `.trim()` より
+      // 先に並ぶ)。画面は理由の前後の空白を除いて送り、長さも除いたあとで数える(web の
+      // `reviewDecisionList.ts` の `reasonLength`)ので、画面で通る理由はここでも通る。
       comment: utf16Max(MAX_PART_REJECT_REASON_CHARS, '却下の理由')
         .trim()
         .min(1)
@@ -633,7 +633,7 @@ export const ReviewDecisionBody = z
  */
 export const ReviewRejectBody = z
   .object({
-    // 上限は trim の前の生の文字列に掛かる(パーツの却下の理由 `ReviewPartDecisionChange` と同じ)。
+    // 上限は受けた文字列(trim の前)に掛かる(パーツの却下の理由 `ReviewPartDecisionChange` と同じ)。
     comment: utf16Max(MAX_REVIEW_REJECT_REASON_CHARS, '却下の理由')
       .trim()
       .min(1)

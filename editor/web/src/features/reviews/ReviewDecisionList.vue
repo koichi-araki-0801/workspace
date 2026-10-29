@@ -19,6 +19,7 @@ import {
   REJECT_REASON_MAX,
   ROW_HEIGHT_ESTIMATE,
   type RowWindow,
+  reasonLength,
   rejectReasonProblem,
   scrollDelta,
   windowAround,
@@ -332,7 +333,7 @@ defineExpose({ revealNo });
           理由を入力してください。
         </p>
         <p v-if="bulkTooLong" role="alert" class="text-xs text-destructive">
-          理由は {{ REJECT_REASON_MAX }} 文字までです（いま {{ bulkDraft.length }} 文字）。
+          理由は {{ REJECT_REASON_MAX }} 文字までです（いま {{ reasonLength(bulkDraft) }} 文字）。
         </p>
         <p class="text-xs text-muted-foreground">
           理由はパーツごとに 1 件ずつ保存し、申請者の編集画面に表示します。

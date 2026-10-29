@@ -12,6 +12,7 @@ import {
   ROW_HEIGHT_ESTIMATE,
   ROW_STEP,
   ROW_WINDOW_MAX,
+  reasonLength,
   rejectReasonProblem,
   scrollDelta,
   windowAround,
@@ -101,6 +102,9 @@ describe('reviewDecisionList', () => {
     expect(rejectReasonProblem(' \n ')).toBe('empty');
     expect(rejectReasonProblem('あ'.repeat(2000))).toBeNull();
     expect(rejectReasonProblem('あ'.repeat(2001))).toBe('tooLong');
+    // 画面は前後の空白を除いて送るので、長さも除いたあとで数える(サーバが受ける長さと同じ)
+    expect(rejectReasonProblem(`  ${'あ'.repeat(2000)}\n`)).toBeNull();
+    expect(reasonLength(`  ${'あ'.repeat(3)}\n`)).toBe(3);
     // サロゲートペアは 2 単位で数える(コードポイントでは数えない)
     expect(rejectReasonProblem('😀'.repeat(1001))).toBe('tooLong');
   });

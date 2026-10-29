@@ -1,9 +1,12 @@
 // =============================================================================
-// reviewDecisionList.ts — 承認タブ右欄「変更と判定」の表示窓と却下の理由の検査(純関数)
+// reviewDecisionList.ts — 承認タブの右欄の表示窓と、却下の理由の検査(純関数)
 // =============================================================================
-// 変更は数百〜千件になり得るので、右欄は `[start, end)` の窓だけを描き、上下は見込み高の余白で
-// 埋める(設計書 D8)。窓の動かし方とスクロール補正の量をここに切り出し、`ReviewDecisionList.vue`
-// は DOM の測定と `scrollTop` の書き込みだけを持つ。位置が実際に動かないことは e2e で測る。
+// 1. 表示窓: 変更は数百〜千件になり得るので、右欄「変更と判定」は `[start, end)` の窓だけを描き、
+//    上下は見込み高の余白で埋める(設計書 D8)。窓の動かし方とスクロール補正の量をここに切り出し、
+//    `ReviewDecisionList.vue` は DOM の測定と `scrollTop` の書き込みだけを持つ。位置が実際に
+//    動かないことは e2e で測る。
+// 2. 却下の理由: パーツの却下(右欄の行・まとめて却下)と申請ごと却下(`ReviewDetail.vue`)が共用
+//    する。上限は shared の契約と同じ定数で、長さは送る形(前後の空白を除いたあと)で数える。
 
 import { MAX_PART_REJECT_REASON_CHARS, MAX_REVIEW_REJECT_REASON_CHARS } from '@editor/shared';
 
@@ -80,14 +83,19 @@ export const REJECT_REASON_MAX = MAX_PART_REJECT_REASON_CHARS;
 export const REQUEST_REJECT_REASON_MAX = MAX_REVIEW_REJECT_REASON_CHARS;
 
 /**
- * 却下の理由を送れない訳。送れるなら null。空白だけの理由は空と読む(サーバも trim する)。長さは
- * trim の前で数える(サーバの契約も trim の前の長さに上限を掛ける)。
+ * 却下の理由の長さ(UTF-16 単位)。画面は理由の前後の空白を除いて送るので、除いたあとで数える。
+ * サーバの契約は受けた文字列(= 除いたあと)に上限を掛けるので、画面とサーバで同じ長さになる。
  */
+export function reasonLength(text: string): number {
+  return text.trim().length;
+}
+
+/** 却下の理由を送れない訳。送れるなら null。空白だけの理由は空と読む(サーバも trim する)。 */
 export function rejectReasonProblem(
   text: string,
   max: number = REJECT_REASON_MAX,
 ): 'empty' | 'tooLong' | null {
   if (!text.trim()) return 'empty';
-  if (text.length > max) return 'tooLong';
+  if (reasonLength(text) > max) return 'tooLong';
   return null;
 }

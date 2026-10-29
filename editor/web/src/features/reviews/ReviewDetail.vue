@@ -38,7 +38,11 @@ import ReviewDecisionBar from './ReviewDecisionBar.vue';
 import ReviewDecisionList from './ReviewDecisionList.vue';
 import ReviewNoticeBar from './ReviewNoticeBar.vue';
 import ReviewVisualCompare from './ReviewVisualCompare.vue';
-import { REQUEST_REJECT_REASON_MAX, rejectReasonProblem } from './reviewDecisionList';
+import {
+  REQUEST_REJECT_REASON_MAX,
+  reasonLength,
+  rejectReasonProblem,
+} from './reviewDecisionList';
 import { nextPendingNo } from './reviewDecisionState';
 import type { ReviewChangeRow } from './services/reviewDiffService';
 import { useReviewDecisions } from './useReviewDecisions';
@@ -408,9 +412,9 @@ const requestRejectOpen = ref(false);
 const requestRejectText = ref('');
 const requestRejectError = ref(false);
 const requestRejectEl = ref<HTMLTextAreaElement | null>(null);
-/** 理由の残りの字数(UTF-16 単位。契約と同じ数え方)。超えると負になり、送れない。 */
+/** 理由の残りの字数(UTF-16 単位。前後の空白を除いて送るので、除いたあとで数える)。超えると負。 */
 const requestRejectLeft = computed(
-  () => REQUEST_REJECT_REASON_MAX - requestRejectText.value.length,
+  () => REQUEST_REJECT_REASON_MAX - reasonLength(requestRejectText.value),
 );
 const requestRejectTooLong = computed(
   () => rejectReasonProblem(requestRejectText.value, REQUEST_REJECT_REASON_MAX) === 'tooLong',
@@ -548,18 +552,26 @@ onMounted(load);
             rows="2"
             placeholder="直してほしい点を書きます"
             :aria-invalid="requestRejectError || requestRejectTooLong || undefined"
+            :aria-describedby="`request-reject-${reqId}-count`"
             class="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             :class="requestRejectError || requestRejectTooLong ? 'border-destructive' : 'border-input'"
           />
           <p v-if="requestRejectError" role="alert" class="text-xs text-destructive">
             理由を入力してください。
           </p>
-          <p v-if="requestRejectTooLong" role="alert" class="text-xs text-destructive">
+          <!-- 上限の注意と残りの字数は同じ id で、どちらか一方を理由欄の説明にする。 -->
+          <p
+            v-if="requestRejectTooLong"
+            :id="`request-reject-${reqId}-count`"
+            role="alert"
+            class="text-xs text-destructive"
+          >
             理由は {{ REQUEST_REJECT_REASON_MAX }} 文字までです（いま
-            {{ requestRejectText.length }} 文字）。
+            {{ reasonLength(requestRejectText) }} 文字）。
           </p>
           <p
             v-else
+            :id="`request-reject-${reqId}-count`"
             data-request-reject-count
             class="text-xs text-muted-foreground"
           >

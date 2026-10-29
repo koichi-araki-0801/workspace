@@ -824,6 +824,60 @@ d('review workflow (reviewRepo)', () => {
       expect(await decisionsOf(id)).toEqual([]);
     });
 
+    it('作成経路で Jinja 原文のパーツを読めないときは、照合を飛ばさずにその 400 を返す', async () => {
+      const tplId = 'XX01_720013_交付版';
+      const meta = await reviews.submitReview(
+        {
+          templateId: tplId,
+          html: '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+          css: '.x{}',
+          origin: 'create',
+          filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
+        },
+        submitter,
+      );
+      for (let i = 0; i < 2; i++) {
+        // 2 回目も同じ 400(読めなかったことを「照合しない」として覚えない)。
+        await expect(
+          reviews.updatePartDecisions(
+            meta.id,
+            { decisions: [{ partKey: 'other#1', status: 'approved' }] },
+            approver,
+          ),
+        ).rejects.toMatchObject({
+          kind: 'validation',
+          message: 'パーツ識別子にJinjaを使用できません',
+        });
+      }
+      expect(await decisionsOf(meta.id)).toEqual([]);
+      // 取り消しだけの保存は照合しない(差分を計算しない)ので、原文を読めなくても遷移の検査へ進む。
+      await expect(
+        reviews.updatePartDecisions(
+          meta.id,
+          { decisions: [{ partKey: 's#1', status: 'pending' }] },
+          approver,
+        ),
+      ).rejects.toMatchObject({ kind: 'conflict', code: 'REVIEW_PART_DECISION_TRANSITION' });
+    });
+
+    it('400・409 の文言に並べるキーは先頭 20 件までで、残りは件数だけ', async () => {
+      const id = await fresh('XX01_720012_20250101_交付版');
+      const keys = Array.from({ length: 25 }, (_, i) => `nope#${i + 1}`);
+      const err = await reviews
+        .updatePartDecisions(
+          id,
+          { decisions: keys.map((partKey) => ({ partKey, status: 'approved' as const })) },
+          approver,
+        )
+        .catch((e: { message: string }) => e);
+      const message = (err as { message: string }).message;
+      expect(message).toBe(
+        `申請の差分に無いパーツの判定があります: ${keys.slice(0, 20).join(', ')} ほか5件。` +
+          '画面を読み直してください。',
+      );
+      expect(message).not.toContain('nope#21');
+    });
+
     it('作成経路も、申請の本文に無いパーツの判定は 400', async () => {
       const tplId = 'XX01_720011_交付版';
       const meta = await reviews.submitReview(
