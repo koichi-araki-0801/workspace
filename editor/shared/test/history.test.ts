@@ -37,8 +37,8 @@ describe('matchFilter', () => {
 describe('editHistoryRowId', () => {
   it('同一コミットの複数テンプレでも行ごとに違う id になる', () => {
     const hash = 'a'.repeat(40);
-    const first = editHistoryRowId(hash, 'AM01_999999_20250101_交付版');
-    const second = editHistoryRowId(hash, 'AM01_999999_20250101_全体版');
+    const first = editHistoryRowId(hash, 'XX01_999999_20250101_交付版');
+    const second = editHistoryRowId(hash, 'XX01_999999_20250101_全体版');
     expect(first).not.toBe(second);
     expect(first.startsWith(`${hash}:`)).toBe(true);
   });

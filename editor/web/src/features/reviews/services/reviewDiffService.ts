@@ -1,21 +1,25 @@
 // =============================================================================
 // reviewDiffService.ts — 承認画面のパーツ単位 前後プレビュー(diff)の組み立て
 // =============================================================================
-// 申請(`ReviewRequest`)を、現行版(baseline)と同一描画経路で diff し、パーツ(= `.page`
-// 直下 top-level block)ごとの着色済み前後 HTML を「行」として返す。diff 計算は版比較
+// 申請(`ReviewRequest`)を、現行版(baseline)と同一描画経路で diff し、パーツ(= 本文直下の
+// top-level block。改ページの区切りは除く)ごとの着色済み前後 HTML を「行」として返す。diff 計算は版比較
 // (`CompareView`)と完全共有(`htmlWorker.buildHtmlDiff` + `htmlBlockDiff` の `DiffBlock`)。
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
 import {
+  type ChangedPart,
+  type HtmlDiff,
   isErr,
+  numberChangedParts,
   ok,
   type PartRepository,
+  partDisplayName,
+  partNameOfHtml,
   type Result,
   type ReviewRepository,
   type ReviewRequest,
 } from '@editor/shared';
 import { usePartRepo, useReviewRepo } from '@/api/repositories';
 import {
-  type BlockStatus,
   createLcsBudget,
   type DiffOp,
   diffTokens,
@@ -23,32 +27,25 @@ import {
   type LcsBudget,
   tokenize,
 } from '@/features/compare/htmlBlockDiff';
-import { type CompareService, useCompareService } from '@/features/compare/services/compareService';
+import {
+  type CompareService,
+  renderReviewPair,
+  useCompareService,
+} from '@/features/compare/services/compareService';
+import { defaultHtmlParser } from '@/lib/htmlParser';
+import { loadPartNameMap, partNameOf } from '@/lib/partNames';
+import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
-import { businessLabel, loadPartNameMap } from './partNames';
 
-/** 承認画面の 1 パーツ行(= `DiffBlock` を presentation 用に写したもの)。 */
-export interface ReviewPartRow {
-  key: string;
+/** 承認画面の 1 変更パーツ行(番号つきの `ChangedPart` に表示名と本文語句差分を足したもの)。 */
+export interface ReviewChangeRow extends ChangedPart {
+  /** 表示名。業務名 → 先頭の文字 → 「ページN・パーツM」の順(`partDisplayName`)。 */
+  name: string;
   /**
-   * 表示ラベル。パーツカタログの業務名へ突合できれば「<業務名>（N ページ目）」、
-   * できなければ現行の機械採番「ページN・パーツM」(`partLabelMap` と同採番、`partNames.ts`
-   * の `businessLabel` フォールバック)。
-   */
-  label: string;
-  status: BlockStatus;
-  /** このパーツだけの着色済み変更前 HTML(added では空)。 */
-  beforeHtml: string;
-  /** このパーツだけの着色済み変更後 HTML(removed では空)。 */
-  afterHtml: string;
-  /**
-   * 申請者スタイルの影響を受けない**本文テキストの語句差分**。承認画面はこれを親アプリの
-   * DOM に(エスケープした上で)描く。着色済みプレビューは申請者 CSS を載せた sandbox
-   * iframe で描くため、申請者は装飾クラスでなく自分の要素の selector に未保護プロパティ
-   * (`display` / `opacity` / `transform` / `font-size` / `-webkit-text-fill-color` 等)を当てて
-   * 変更箇所を隠せる(装飾の `!important` 保護は列挙済みプロパティしか守れず、`@media screen`
-   * でも回避できる)。`textContent` は CSS を無視するので、この語句差分には隠された変更も
-   * 現れる。空配列 = このパーツは差分表示の対象外(status が `same`)。
+   * 申請者スタイルの影響を受けない**本文テキストの語句差分**。着色済みプレビューは申請者 CSS を
+   * 載せた iframe で描くため、申請者は未保護プロパティで変更箇所を隠せる。`textContent` は
+   * CSS を無視するので、この語句差分には隠された変更も現れる。移動したパーツは削除側の before と
+   * 追加側の after で作る。
    */
   textOps: DiffOp[];
 }
@@ -60,32 +57,19 @@ export interface ReviewChangeSummary {
   added: number;
   removed: number;
 }
-
 interface ReviewDiffData {
   review: ReviewRequest;
-  rows: ReviewPartRow[];
+  /** 変更のあるパーツ(`numberChangedParts` の順)。 */
+  changes: ReviewChangeRow[];
+  /** 差分そのもの(手元で最終候補・判定の不足を出すのに使う)。 */
+  diff: HtmlDiff;
   summary: ReviewChangeSummary;
   /** before ペイン(現行版)のファンド CSS。 */
   cssBefore: string;
   /** after ペイン(申請版)のファンド CSS。 */
   cssAfter: string;
-  /** before(現行版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の左面に渡す。 */
-  beforeBodyHtml: string;
-  /** after(申請版)の本文全体 HTML。見た目比較(`ReviewVisualCompare`)の右面に渡す。 */
+  /** after(申請版)の本文全体 HTML。承認タブの「PDF を開いて確認」が記入済み HTML の代わりに使う。 */
   afterBodyHtml: string;
-  /**
-   * 変更のあったページの index(0 始まり。`buildHtmlDiff` の `diff.pages` 由来)。
-   * 見た目比較(`ReviewVisualCompare`)がマーカー・アンカーを付けるページの集合になる。
-   */
-  changedPageIndexes: number[];
-  /**
-   * diff 計算(`buildHtmlDiff`)が数えた before/after 各面の期待ページ数
-   * (`HtmlDiff.beforePageCount`/`afterPageCount`)。見た目比較(`buildCompareDocs`)が
-   * 文書内の実際の `.page` 数と突き合わせ、不一致(CSS の page-break 欠落等でページ分割が
-   * 潰れた場合)なら誤ったページへのマーカー誘導を避けるため無印へ degrade する。
-   */
-  beforePageCount: number;
-  afterPageCount: number;
   /**
    * 資源上限で差分に現れなかった領域があるか。**承認者へ必ず伝える**。
    * 承認すると確定書込は申請本文を全文書くので、ここが真のまま承認されると
@@ -167,63 +151,69 @@ export function createReviewDiffService(
       const review = revRes.value;
 
       // after(申請版)は申請本文そのもの。作成タブ由来なら素の sample で描画する。
-      const afterRes = await compare.renderTemplateBody(
-        review.html,
-        review.css,
-        review.fundCode,
-        review.origin,
-      );
-      if (isErr(afterRes)) return afterRes;
-      const after = afterRes.value;
+      // before(現行版)= 既存編集なら現公開版、作成(新規)や取得できない(初回確定前など)なら空。
+      const pairRes =
+        review.origin === 'create' && review.filledHtml
+          ? ok({
+              before: { html: '', css: review.css },
+              after: {
+                html: getBodyInner(review.filledHtml),
+                css: review.css,
+              },
+            })
+          : await renderReviewPair(compare, {
+              templateId: review.templateId,
+              html: review.html,
+              css: review.css,
+              origin: review.origin,
+            });
 
-      // before(現行版)= 既存編集なら現公開版、作成(新規)なら空(= 全パーツが追加)。
-      // 現行版が取得できない(初回確定前など)場合も空に倒し、画面自体は出す。
-      let beforeHtml = '';
-      let cssBefore = after.css;
-      if (review.origin === 'edit') {
-        const beforeRes = await compare.renderVersionHtml(`baseline:${review.templateId}`);
-        if (!isErr(beforeRes)) {
-          beforeHtml = beforeRes.value.html;
-          cssBefore = beforeRes.value.css;
-        }
-      }
+      if (isErr(pairRes)) return pairRes;
 
-      const diff = await htmlWorker.buildHtmlDiff(beforeHtml, after.html, cssBefore, after.css);
+      const pair = pairRes.value;
+      const after = pair.after;
+      const before =
+        review.baseHtml !== undefined && review.baseCss !== undefined
+          ? {
+              ...pair.before,
+              html: review.baseHtml,
+              css: review.baseCss,
+            }
+          : pair.before;
+
+      const diff = await htmlWorker.buildHtmlDiff(before.html, after.html, before.css, after.css);
       // パーツカタログの業務名突合はベストエフォート(取得失敗は空 Map へ degrade)。
       const nameById = await loadPartNameMap(parts);
       // 本文語句差分の LCS 予算は**文書 1 件で 1 つ**(worker の `diffPairs` と同じ規律)。
       // 全パーツで使い切る形にして、ブロック数で計算量を青天井にできないようにする。
       const textBudget = createLcsBudget();
-      const rows: ReviewPartRow[] = diff.pages.flatMap((p) =>
-        p.blocks.map((b) => ({
-          key: b.key,
-          label: businessLabel(b.key, b.label, nameById),
-          status: b.status,
-          beforeHtml: b.beforeHtml,
-          afterHtml: b.afterHtml,
-          // 変更のあるパーツだけ本文語句差分を作る(same は表示対象外なので空)。
-          textOps: b.status === 'same' ? [] : textWordOps(b.beforeHtml, b.afterHtml, textBudget),
-        })),
-      );
+      const changes: ReviewChangeRow[] = numberChangedParts(diff).map((part) => ({
+        ...part,
+        name: partDisplayName({
+          catalogName: partNameOf(part.partKey, nameById),
+          firstText: partNameOfHtml(part.rawAfterHtml || part.rawBeforeHtml, defaultHtmlParser),
+          fallbackLabel: part.label,
+        }),
+        textOps: textWordOps(part.beforeHtml, part.afterHtml, textBudget),
+      }));
+      const blocks = diff.pages.flatMap((p) => p.blocks);
       const summary: ReviewChangeSummary = {
-        total: rows.length,
-        changed: rows.filter((r) => r.status === 'changed').length,
-        added: rows.filter((r) => r.status === 'added').length,
-        removed: rows.filter((r) => r.status === 'removed').length,
+        total: blocks.length,
+        changed: blocks.filter((b) => b.status === 'changed').length,
+        added: blocks.filter((b) => b.status === 'added').length,
+        removed: blocks.filter((b) => b.status === 'removed').length,
       };
+
       return ok({
         review,
-        rows,
+        changes,
+        diff,
         summary,
-        cssBefore,
+        cssBefore: before.css,
         cssAfter: after.css,
-        beforeBodyHtml: beforeHtml,
         afterBodyHtml: after.html,
-        changedPageIndexes: diff.pages.filter((p) => p.changed).map((p) => p.index),
-        beforePageCount: diff.beforePageCount,
-        afterPageCount: diff.afterPageCount,
         truncated: diff.truncated,
-        cssChanged: normalizeCssForCompare(cssBefore) !== normalizeCssForCompare(after.css),
+        cssChanged: normalizeCssForCompare(before.css) !== normalizeCssForCompare(after.css),
         printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),
       });
     },

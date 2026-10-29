@@ -31,7 +31,7 @@ import { appendPreviewStyle, sanitizePreviewRoot, stripExternalRefs } from '@/li
 // あたる nunjucks 実装を直に噛ませる(隔離そのものは `renderHostClient.test.ts` と
 // `ssti.guard.test.ts` が固定する)。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 
@@ -137,10 +137,7 @@ describe('findExternalRefsInCss', () => {
   });
 
   it('現行の全ファンド CSS が誤検出ゼロで通る', () => {
-    const dir = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../src/api/fixtures/css',
-    );
+    const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures/css');
     const files = readdirSync(dir).filter((n) => n.endsWith('.css'));
     // 0 件だと以下の forEach が素通りして「常に緑」になるため、下限を固定する。
     expect(files.length).toBeGreaterThanOrEqual(1);
@@ -226,7 +223,7 @@ describe('buildDiffDoc', () => {
 });
 
 describe('compareService の描画結果', () => {
-  const TEMPLATE_ID = 'AM01_510037_20240710_交付版';
+  const TEMPLATE_ID = 'XX01_950037_20240710_交付版';
   const ACTIVE = `<!doctype html><html><body>
     <p onclick="fit()">click</p>
     <script>col.width=1</script>
@@ -236,11 +233,11 @@ describe('compareService の描画結果', () => {
   /** 攻撃者の本文をそのまま返す最小のリポジトリ。描画経路だけを見たいので他は使わない。 */
   const templates = {
     getTemplate: async () =>
-      ok({ meta: { attributes: { fundCode: '510037' } }, html: ACTIVE, css: '' }),
-    getSampleData: async () => ok({ fund: { code: '510037' } }),
+      ok({ meta: { attributes: { fundCode: '950037' } }, html: ACTIVE, css: '' }),
+    getSampleData: async () => ok({ sample: { fund: { code: '950037' } }, warnings: [] }),
   };
   const history = {
-    getSnapshot: async () => ok({ html: ACTIVE, css: '', fundCode: '510037' }),
+    getSnapshot: async () => ok({ html: ACTIVE, css: '', fundCode: '950037' }),
   };
   // biome-ignore lint/suspicious/noExplicitAny: テストダブルは必要な 3 メソッドだけを持つ。
   const service = createCompareService(templates as any, history as any);
@@ -269,7 +266,7 @@ describe('compareService の描画結果', () => {
   });
 
   it('keeps active content in a submitted body (approval screen)', async () => {
-    const res = await service.renderTemplateBody(ACTIVE, '', '510037', 'create');
+    const res = await service.renderTemplateBody(ACTIVE, '', '950037', 'create');
     expect(res.ok).toBe(true);
     if (res.ok) expectActiveKept(res.value.html);
   });
@@ -279,7 +276,7 @@ describe('compareService の描画結果', () => {
     const res = await service.renderTemplateBody(
       '<!doctype html><html><body><table class="t"><tr><td style="width:1px">値</td></tr></table></body></html>',
       '',
-      '510037',
+      '950037',
       'create',
     );
     expect(res.ok).toBe(true);

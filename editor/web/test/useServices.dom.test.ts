@@ -7,13 +7,14 @@
 // の振る舞い(失敗経路・委譲)はそれぞれの service 単体テストが持つ。
 import { describe, expect, it } from 'vitest';
 import { createApp, defineComponent, h } from 'vue';
-import { localRepositories, REPOS_KEY } from '@/api/repositories';
+import { REPOS_KEY } from '@/api/repositories';
 import { useTemplateEditorService } from '@/features/editor/services/templateEditorService';
 import { useMergePdfService } from '@/features/merge/services/mergePdfService';
 import { useTemplatePreviewService } from '@/features/preview/services/templatePreviewService';
 import { useChangedSummaryService } from '@/features/reviews/services/changedSummary';
 import { useReviewDiffService } from '@/features/reviews/services/reviewDiffService';
 import { useTemplateCreationService } from '@/features/templates/services/templateCreationService';
+import { createFakeRepositories } from './helpers/fakeRepositories';
 
 /** setup の中で `fn` を呼び、戻り値を取り出す(`repositories.dom.test.ts` の `inSetup` と同形)。 */
 function inSetup<T>(fn: () => T): T {
@@ -25,7 +26,8 @@ function inSetup<T>(fn: () => T): T {
     },
   });
   const app = createApp(Comp);
-  app.provide(REPOS_KEY, localRepositories);
+  // 組み立てだけを見るので repo のメソッドは呼ばれない(呼ばれたら偽物が例外を投げる)。
+  app.provide(REPOS_KEY, createFakeRepositories());
   app.mount(document.createElement('div'));
   return out;
 }

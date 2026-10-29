@@ -409,18 +409,14 @@ describe('upload size limits', () => {
 // 素の `Number()` だと `AUTH_FAILURE_FLOOR_MS=`(空)が 0 になって**防御が無言で消え**、
 // `1e9` が受理されて全失敗応答が 11 日待ちになる。
 describe('認証失敗の時間フロア', () => {
-  it.each([
-    '',
-    ' ',
-    '1e9',
-    'abc',
-    '-1',
-    '10001',
-  ])('refuses to start when AUTH_FAILURE_FLOOR_MS=%j', async (value) => {
-    await expect(importConfigWithEnv({ AUTH_FAILURE_FLOOR_MS: value })).rejects.toThrow(
-      /AUTH_FAILURE_FLOOR_MS/,
-    );
-  });
+  it.each(['', ' ', '1e9', 'abc', '-1', '10001'])(
+    'refuses to start when AUTH_FAILURE_FLOOR_MS=%j',
+    async (value) => {
+      await expect(importConfigWithEnv({ AUTH_FAILURE_FLOOR_MS: value })).rejects.toThrow(
+        /AUTH_FAILURE_FLOOR_MS/,
+      );
+    },
+  );
 
   it('未指定なら 300ms、明示指定はそのまま効く', async () => {
     expect((await importConfigWithEnv({})).config.auth.failedAuthFloorMs).toBe(300);
@@ -501,7 +497,7 @@ describe('buildCspDirectives', () => {
 // ── Host ヘッダの許可集合(DNS リバインディングの壁) ──
 // 攻撃者ページは自分のドメインの DNS を後から 127.0.0.1 へ向け替えられる。ブラウザは
 // 同一オリジンだと考えたまま要求を出すので SameSite も CORS も効かず、唯一食い違うのが
-// `Host`。効きどころは認証を課さない配備(既定の local モード)で、そこでは実質
+// `Host`。効きどころは認証を課さない配備(無認証モード)で、そこでは実質
 // 「loopback に到達できること」だけが認可条件になっている。
 describe('resolveAllowedHosts / isAllowedHost', () => {
   const LAN = { hostname: 'desk-01', addresses: ['192.168.1.10', 'fe80::1'] };

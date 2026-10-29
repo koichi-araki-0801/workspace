@@ -83,6 +83,10 @@ function buildServerOptions(): FastifyHttpOptions<http.Server> {
   return serverOptions;
 }
 
+// canvas は相対参照のフォントをアプリの URL で取りに行く。そこへ SPA の index.html を返すと
+// OTS がフォントとして読めずエラーを出すので、フォント拡張子は 404 にする。
+const FONT_EXT_RE = /\.(woff2?|ttf|otf)$/i;
+
 export interface BuildAppOptions {
   /** DB 実行面。既定は本番のプール接続で、テストと rest e2e は in-memory フェイクを渡す。 */
   sproc?: SprocClient;
@@ -123,9 +127,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // 出すので SameSite も CORS も効かない。唯一食い違うのが `Host` で、ブラウザはこれを
   // 攻撃者ドメインのまま送る。
   //
-  // 効きどころは認証を課さない配備(既定の local モード)で、そこでは実質「loopback に到達
-  // できること」だけが認可条件になっている。`config.requireAuth` を見て出し分けては**ならない**
-  // — 設定 1 つでガードが消える形は認証系ガードで避けている作法と同じ。
+  // 効きどころは認証を課さない配備(`AUTH_REQUIRED=false` の無認証モード)で、そこでは実質
+  // 「loopback に到達できること」だけが認可条件になっている。`config.requireAuth` を見て
+  // 出し分けては**ならない** — 設定 1 つでガードが消える形は認証系ガードで避けている作法と同じ。
   //
   // 分離先 python-tools リポジトリの pdf-to-svg(`src/web/origin_guard.py`)と
   // graph-editor(`app.py`)も同じ理由で Host を完全一致集合で検査している。
@@ -144,7 +148,7 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // プロセスを枯渇させられる。ここで 401 にすればボディは 1 バイトも積まない。判定条件は
   // `isPreAuthBufferedRequest`(content-type + 上限を上げた path)。対象ルートは元々
   // `requireAuth` 付きなので、正規のクライアントから見た応答は 401 のまま変わらない。認証を
-  // 課さないローカルモード(`requireAuth=false`)は素通しする。
+  // 課さない無認証モード(`requireAuth=false`)は素通しする。
   app.addHook('onRequest', async (request) => {
     if (!config.requireAuth) return;
     // 照合は**ルーティング結果の登録パターン**で行う(`request.url` は生の request target で、
@@ -166,8 +170,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.setErrorHandler(errorHandler);
 
   // サーバ起動ごとに変わる epoch。配信する index.html に注入し、クライアントは前回値と
-  // 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(local モードの再起動検知。
-  // REST は DB セッション失効が権威的だが、両モードでシェルを確実に作り直すために共有する)。
+  // 突き合わせて「同一サーバ起動中のみログイン有効」を判定する(サーバ再起動の検知。
+  // 認証ありの配備は DB セッション失効が権威的だが、無認証モードを含むどの配備でもシェルを
+  // 確実に作り直すために使う)。
   const APP_EPOCH = String(Date.now());
 
   // SPA シェル: 起動時に epoch を埋め込んだ index.html をメモリ保持する(dev は Vite が
@@ -228,24 +233,30 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
     // ハッシュ付きアセット(`assets/`)は内容ハッシュ済みなので長期 immutable で配る。
     // `wildcard: false` で実在ファイルのみを配信し、非ファイル(SPA ルート)は notFound へ落とす
     // (= 下の setNotFoundHandler が epoch 入り index.html を返す)。`index: false` で `/` も同様。
+    // `/index.html` の直打ちも notFound へ落とす。生ファイルには epoch が入っていない。
     app.register(staticPlugin, {
       root: config.webDist,
       prefix: '/',
       index: false,
       wildcard: false,
-      setHeaders: (res, filePath) => {
+      allowedPath: (pathName) => pathName !== '/index.html',
+      setHeaders: (reply, filePath) => {
         if (filePath.includes(`${path.sep}assets${path.sep}`)) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          reply.header('Cache-Control', 'public, max-age=31536000, immutable');
         }
       },
     });
 
     // catch-all。未知の `/api/*` は 404 JSON(Express の `^(?!\/api).*` catch-all が /api を除外し
-    // 既定 404 を返していたのと同じ)。それ以外は SPA シェル(上でメモリ保持した `indexHtml`)を
-    // 返す。認証状態の更新が確実に反映されるよう `no-store`(ブラウザの旧 epoch シェル再利用防止)。
+    // 既定 404 を返していたのと同じ)。フォントの要求も 404(`FONT_EXT_RE`)。それ以外は SPA
+    // シェル(上でメモリ保持した `indexHtml`)を返す。認証状態の更新が確実に反映されるよう
+    // `no-store`(ブラウザの旧 epoch シェル再利用防止)。
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith('/api')) {
         return reply.code(404).send({ kind: 'not_found', message: '対象が見つかりません' });
+      }
+      if (FONT_EXT_RE.test(request.url.split('?')[0] ?? '')) {
+        return reply.code(404).send();
       }
       return reply
         .header('Cache-Control', 'no-store')

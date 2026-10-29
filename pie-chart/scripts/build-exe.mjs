@@ -5,27 +5,32 @@
 //   1. esbuild で cli.ts を単一 CJS(build/cli.cjs)へバンドル
 //      - samples.json は静的 import なので inline される
 //      - subset-font とその JS 閉包も**バンドルへ取り込む**
-//      - msnodesqlv8(ネイティブ optional)だけは external(バンドル不能)
+//      - msnodesqlv8 は JS をバンドルし、ネイティブドライバだけを SEA アセットにする(--no-db では external)
 //   2. sea-config.json を生成(harfbuzz wasm + フォント woff2 + OFL を assets へ)
 //      → node --experimental-sea-config で SEA blob を生成
 //   3. node 実行体を dist-exe/pie-chart.exe へコピー、既存 Authenticode 署名を剥がし
 //      postject で blob を inject
-//   4. (Windows)署名: sign-exe.ps1 で SHA256 署名し公開証明書(.cer)を書き出す
-// 配布物は **exe 1 個 + .cer + OFL ライセンス + SIGNING-INFO.txt** の 4 点だけで、
+//   4. (Windows)`--sign` を付けたときだけ署名する: sign-exe.ps1 で SHA256 署名し公開証明書(.cer)を書き出す
+// 未署名の既定では配布物は **exe 1 個 + OFL ライセンス** だけで(`--sign` なら + .cer +
+// SIGNING-INFO.txt)、
 // `fonts/` や `node_modules/` の sidecar は作らない。sidecar を置くと、署名の外にある
 // 書き込み可能なファイルを実行時に読むことになり、上位ディレクトリへ偽 `subset-font` を
 // 置くだけで別ユーザーの exe 内でコードが走る。実行されるものは
-// すべて exe の中 = Authenticode 署名の内側に入れる。SEA 側の受け口は
+// すべて exe の中に入れる。SEA 側の受け口は
 // `src/runtime/seaRuntime.ts`(アセット許可リスト・モジュール解決封鎖)。
 //
-// ビルドを止めるアサートを 3 つ持つ(壊れたら黙って劣化させず落とす):
-//   A. バンドル内に `require.resolve("harfbuzzjs/hb-subset.wasm")` がちょうど 1 回ある
+// ビルドを止めるアサートを 5 つ持つ(壊れたら黙って劣化させず落とす):
+//   A. バンドル内に `require.resolve("harfbuzzjs/dist/harfbuzz-subset.wasm")` がちょうど 1 回ある
 //      = shim が受ける前提が依存の更新で崩れていない
 //   B. `scripts/sidecar-pins.json` の版・wasm ハッシュが実解決値と一致する
 //      = 依存を上げたら render_hash スナップショットの更新要否に気づける
-//   C. Node >= 20.12(sea-config の `assets` / `sea.getAsset` の要件)
-// 依存: esbuild / postject(devDependencies)。ビルド時の `npm install` は無い
-// (完全オフラインで exe を作れる)。
+//   C. Node >= 24(リポジトリの engines。DB ドライバは N-API 製なので版には縛られない。SEA の `assets` は 20.12 以降)
+//   D. DB ドライバの版・ハッシュが pin と一致し、この Node で dlopen できる(--no-db 以外)
+//   E. バンドル内のドライバ require が shim へ差し替わっている(--no-db 以外)
+// 加えて、pie-chart の node_modules が pnpm で入ったものでなければ止める(npm で入れ直すと
+// pnpm-lock.yaml と別の版を掴む)。
+// 依存: esbuild / postject(devDependencies)。依存の install はしない(リポジトリ直下の
+// `pnpm install` で入れた node_modules を使うので、完全オフラインで exe を作れる)。
 // =============================================================================
 
 import { execFileSync } from 'node:child_process';
@@ -47,6 +52,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { installLayout } from './install-layout.mjs';
 
 const require = createRequire(import.meta.url);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -65,9 +71,20 @@ const signingLocalPath = join(here, 'signing.local.json');
 // SEA blob を識別するための fuse(Node 公式ドキュメントの固定値)。
 const FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 
-// 署名が付かない配布物をうっかり配らないよう、既定は署名失敗 = ビルド失敗。開発中の動作確認
-// でだけ明示的に外す。
-const allowUnsigned = process.argv.slice(2).includes('--allow-unsigned');
+// 引数は 2 つだけ。綴り違い(旧 `--allow-unsigned` を含む)を黙って無視すると、意図と違う
+// 配布物ができるので止める。
+//   --no-db : DB 機能を外す(DB ドライバの .node が置かれていない端末でビルドするとき)
+//   --sign  : コード署名する(配布先に AppLocker / WDAC の発行者ルールがある場合に使う)
+const KNOWN_ARGS = new Set(['--no-db', '--sign']);
+const cliArgs = process.argv.slice(2);
+for (const arg of cliArgs) {
+  if (!KNOWN_ARGS.has(arg)) {
+    console.error(`[build-exe] ERROR: unknown argument "${arg}" (allowed: --no-db, --sign)`);
+    process.exit(1);
+  }
+}
+const noDb = cliArgs.includes('--no-db');
+const sign = cliArgs.includes('--sign');
 
 function log(msg) {
   console.log(`[build-exe] ${msg}`);
@@ -123,14 +140,28 @@ function stripPeSignature(file) {
 }
 
 // 0. アサート C: Node 版 -------------------------------------------------------
-// sea-config の `assets` と `sea.getAsset` は Node 20.12 で入った。旧 Node20 系(build-exe.ps1
-// 経路)では `assets` が無視され、**アセットが空のまま exe ができてしまう**ので先に止める。
+// リポジトリの engines が Node 24 なので、ほかの版では作らせない(DB ドライバは N-API 製で Node の
+// メジャー版には縛られないが、exe の実体はこの node のコピーなので版を揃えておく)。
 {
-  const [maj, min] = process.versions.node.split('.').map(Number);
-  if (maj < 20 || (maj === 20 && min < 12)) {
+  const maj = Number(process.versions.node.split('.')[0]);
+  if (maj < 24) {
+    fail(`Node ${process.versions.node} is not supported (needs >= 24). Upgrade Node first.`);
+  }
+}
+
+// 0-a. 依存の入り方 ------------------------------------------------------------
+// pie-chart のフォルダで npm を実行すると、node_modules が npm の構成で入れ直され、
+// pnpm-lock.yaml と別の版を掴む(wasm の指定子やハッシュが pin とずれ、アサート A / B で止まる)。
+{
+  const layout = installLayout(root);
+  if (layout !== 'pnpm') {
     fail(
-      `Node ${process.versions.node} does not support SEA assets (needs >= 20.12). ` +
-        'Upgrade Node before building the exe.',
+      (layout === 'npm'
+        ? 'pie-chart\\node_modules was installed by npm, not pnpm. '
+        : 'pie-chart\\node_modules is missing. ') +
+        'Reinstall at the repository root with the same command as offline\\setup-offline: ' +
+        '`corepack pnpm install --offline --frozen-lockfile --store-dir .pnpm-store`. ' +
+        'Do not run npm in the pie-chart folder.',
     );
   }
 }
@@ -139,7 +170,7 @@ function stripPeSignature(file) {
 // pnpm ツリーではルートから `harfbuzzjs` を直接引けないので、`subset-font` を基点に解決する。
 const subsetFontEntry = require.resolve('subset-font');
 const subsetFontVersion = require('subset-font/package.json').version;
-const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/hb-subset.wasm');
+const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/dist/harfbuzz-subset.wasm');
 const hbWasmSha256 = sha256(hbWasmPath);
 {
   if (!existsSync(pinsPath)) fail(`missing ${pinsPath}`);
@@ -158,6 +189,53 @@ const hbWasmSha256 = sha256(hbWasmPath);
         'test/render_hash.test.ts.',
     );
   }
+}
+
+// 0-c. アサート D: DB ドライバの版・ハッシュ・読み込み可否 ------------------------------
+// ドライバは N-API 製の公式 prebuild で、npm tarball の `prebuilds/<platform>-<arch>/` に入っている
+// (install スクリプトは allowBuilds で止めているので `build/Release` は無い)。exe の実体は
+// このビルドを走らせている node のコピーなので、ここで実際に dlopen できれば exe でも読める。
+let driverPath = '';
+let driverSha256 = '';
+let msUtilPath = '';
+if (!noDb) {
+  const msPkgDir = dirname(require.resolve('msnodesqlv8/package.json'));
+  const msVersion = require('msnodesqlv8/package.json').version;
+  msUtilPath = join(msPkgDir, 'lib', 'util.js');
+  driverPath = join(
+    msPkgDir,
+    'prebuilds',
+    `${process.platform}-${process.arch}`,
+    'msnodesqlv8.node',
+  );
+  if (!existsSync(driverPath))
+    fail(`DB driver not found at ${driverPath} (pass --no-db to build without DB support)`);
+  driverSha256 = sha256(driverPath);
+  const pins = JSON.parse(readFileSync(pinsPath, 'utf8'));
+  if (pins.msnodesqlv8 !== msVersion) {
+    fail(
+      `msnodesqlv8 version mismatch: pinned ${pins.msnodesqlv8} but resolved ${msVersion}. Update scripts/sidecar-pins.json.`,
+    );
+  }
+  if (pins.sqlserverv8NodeSha256 !== driverSha256) {
+    fail(
+      `DB driver (msnodesqlv8.node) hash mismatch: pinned ${pins.sqlserverv8NodeSha256} but resolved ${driverSha256}. Update scripts/sidecar-pins.json.`,
+    );
+  }
+  try {
+    execFileSync(
+      process.execPath,
+      ['-e', 'process.dlopen({ exports: {} }, process.argv[1])', driverPath],
+      { stdio: 'pipe' },
+    );
+  } catch (e) {
+    fail(
+      `this Node (${process.version}) cannot load ${driverPath}; rebuild msnodesqlv8 for this Node or pass --no-db. ${String(e.stderr ?? e.message)}`,
+    );
+  }
+  log(`DB driver: msnodesqlv8 ${msVersion} / sha256 ${driverSha256}`);
+} else {
+  log('building WITHOUT DB support (--no-db)');
 }
 
 // 1. esbuild バンドル ---------------------------------------------------------
@@ -185,6 +263,43 @@ const subsetFontFsPlugin = {
   },
 };
 
+/**
+ * msnodesqlv8 の `lib/util.js` は、ドライバを `require('../build/Debug/sqlserver.node')`(try)、
+ * 失敗したら `require('node-gyp-build')(<パッケージ>)` の順で探す。node-gyp-build は `prebuilds/` を
+ * ディスク上で走査して読むので SEA では動かない。そこで util.js からの 2 つの require だけを
+ * 差し替える esbuild plugin(依存のソース文字列は書き換えない)。
+ *   - `node-gyp-build` → `src/runtime/sqlserverv8Shim.cjs` を返す関数。shim は子プロセスが
+ *     照合済みのパスを登録してから dlopen する
+ *   - `../build/Debug/sqlserver.node` → 読み込むと投げるモジュール(util.js の catch へ落とす)
+ */
+const sqlserverv8Plugin = {
+  name: 'sqlserverv8-shim',
+  setup(pluginBuild) {
+    const shim = join(root, 'src', 'runtime', 'sqlserverv8Shim.cjs');
+    const ns = 'pie-chart-driver';
+    const utilKey = resolve(msUtilPath).toLowerCase();
+    const fromUtil = (args) => resolve(args.importer).toLowerCase() === utilKey;
+    pluginBuild.onResolve({ filter: /^node-gyp-build$/ }, (args) =>
+      fromUtil(args) ? { path: 'node-gyp-build', namespace: ns } : null,
+    );
+    pluginBuild.onResolve({ filter: /\.node$/ }, (args) =>
+      fromUtil(args) ? { path: 'debug-build', namespace: ns } : null,
+    );
+    pluginBuild.onLoad({ filter: /.*/, namespace: ns }, (args) =>
+      args.path === 'node-gyp-build'
+        ? {
+            contents: `module.exports = () => require(${JSON.stringify(shim)});`,
+            loader: 'js',
+            resolveDir: root,
+          }
+        : {
+            contents: "throw new Error('pie-chart: the msnodesqlv8 debug build is not bundled');",
+            loader: 'js',
+          },
+    );
+  },
+};
+
 log('esbuild: bundling src/cli.ts -> build/cli.cjs');
 await build({
   entryPoints: [join(root, 'src', 'cli.ts')],
@@ -194,13 +309,14 @@ await build({
   format: 'cjs',
   // target は **このビルドを走らせている Node のメジャー版**に追従させる。SEA exe の実体は
   // `process.execPath`(= 実行中の node)をコピーしたものなので、bundle の syntax をその node に
-  // 必ず一致させる。24 系開発機なら node24、20 系の古い環境(npm 直叩き)なら node20 が選ばれ、
-  // exe 本体とバンドルの想定が常に揃う(従来の node22 ハードコードは node20 ビルドでズレた)。
+  // 必ず一致させる(固定値にすると、Node を上げたときに exe 本体とバンドルの想定がずれる)。
   target: `node${process.versions.node.split('.')[0]}`,
-  // external はネイティブ optional の msnodesqlv8 のみ。SEA では `loadDbItems` の isSea()
-  // ガードが手前で止めるので、この import へは到達しない(exe 版は DB 入力非対応)。
-  external: ['msnodesqlv8'],
-  plugins: [subsetFontFsPlugin],
+  // DB 機能つきでは msnodesqlv8 の JS もバンドルし、ネイティブドライバだけを shim 経由にする。
+  // --no-db では msnodesqlv8 を external のまま残す(SEA では builtin 以外を解決できないので、
+  // そこへ到達する前に `runDbHelper` が「DB 機能なし」で止める)。
+  external: noDb ? ['msnodesqlv8'] : [],
+  plugins: noDb ? [subsetFontFsPlugin] : [subsetFontFsPlugin, sqlserverv8Plugin],
+  define: { __PIE_SQLSERVERV8_SHA256__: JSON.stringify(driverSha256) },
   logLevel: 'info',
 });
 
@@ -210,13 +326,31 @@ await build({
 // 想定外の呼び出し元が増えたということなので、どちらもビルドを止める。
 {
   const bundleSrc = readFileSync(bundlePath, 'utf8');
-  const hits = bundleSrc.match(/require\.resolve\(\s*["']harfbuzzjs\/hb-subset\.wasm["']\s*\)/g);
+  const hits = bundleSrc.match(
+    /require\.resolve\(\s*["']harfbuzzjs\/dist\/harfbuzz-subset\.wasm["']\s*\)/g,
+  );
   const count = hits ? hits.length : 0;
   if (count !== 1) {
     fail(
-      `expected exactly 1 require.resolve("harfbuzzjs/hb-subset.wasm") in the bundle, ` +
+      `expected exactly 1 require.resolve("harfbuzzjs/dist/harfbuzz-subset.wasm") in the bundle, ` +
         `found ${count}. The subset-font wasm shim (src/runtime/seaRuntime.ts) assumes ` +
         'that single call site; re-check the dependency before shipping.',
+    );
+  }
+}
+
+// 1-c. アサート E: ドライバの require が shim へ差し替わったこと -----------------------
+if (!noDb) {
+  const bundleSrc = readFileSync(bundlePath, 'utf8');
+  const leftovers = bundleSrc.match(/require\(\s*["'][^"']*\.node["']\s*\)/g) ?? [];
+  const shimHits = bundleSrc.match(/pie-chart:sqlserverv8-shim/g) ?? [];
+  // node-gyp-build 本体が入っていれば差し替えが空振りしている(SEA で prebuilds/ を探して落ちる)。
+  const ngbHits = bundleSrc.match(/No native build was found/g) ?? [];
+  if (leftovers.length !== 0 || shimHits.length !== 1 || ngbHits.length !== 0) {
+    fail(
+      'expected the driver loader to be replaced by the shim exactly once ' +
+        `(leftover .node requires: ${leftovers.length}, shim markers: ${shimHits.length}, ` +
+        `node-gyp-build copies: ${ngbHits.length}).`,
     );
   }
 }
@@ -230,6 +364,9 @@ const seaAssets = {
   'BIZUDPGothic-Bold.woff2': join(root, 'fonts', 'BIZUDPGothic-Bold.woff2'),
   'OFL-BIZUDPGothic.txt': join(root, 'fonts', 'OFL-BIZUDPGothic.txt'),
 };
+// DB ドライバは --no-db でなければ埋め込む(キーは seaRuntime の SEA_ASSET_KEYS と同じ)。
+const DB_DRIVER_ASSET = 'sqlserverv8.node';
+if (!noDb) seaAssets[DB_DRIVER_ASSET] = driverPath;
 for (const [key, file] of Object.entries(seaAssets)) {
   if (!existsSync(file)) fail(`SEA asset "${key}" not found at ${file}`);
 }
@@ -279,11 +416,14 @@ execFileSync(process.execPath, postjectArgs, { stdio: 'inherit' });
 // で同じ本文を出せる(アセットにも入っている)。
 copyFileSync(join(root, 'fonts', 'OFL-BIZUDPGothic.txt'), join(distDir, 'OFL-BIZUDPGothic.txt'));
 
-// 7. 署名(Windows のみ・既定は失敗したらビルドも失敗) --------------------------
+// 7. 署名(--sign のときだけ) ---------------------------------------------------
+// 署名は `--sign` を付けたときだけ行う。付けた場合は、thumbprint が無い・署名に失敗したら
+// ビルドも失敗する(署名したつもりの配布物が未署名で出ないように)。
 // postject 注入後が exe への最終変更なので、署名はこの直後に行う(以降 exe は不変)。
 // 署名鍵の thumbprint は **明示指定が必須**。ビルドが証明書を暗黙生成すると、端末ごとに
 // 同名の別ルート証明書が増えて「どの .cer を配ったか」が追跡不能になる。
-if (process.platform === 'win32') {
+if (sign) {
+  if (process.platform !== 'win32') fail('--sign is only supported on Windows.');
   const certOut = join(distDir, 'pie-chart-codesign.cer');
   const local = existsSync(signingLocalPath)
     ? JSON.parse(readFileSync(signingLocalPath, 'utf8'))
@@ -295,8 +435,7 @@ if (process.platform === 'win32') {
       'no signing thumbprint. Create a key once with scripts/new-signing-cert.bat and put ' +
       'its thumbprint into scripts/signing.local.json (gitignored) or the env var ' +
       'PIECHART_SIGN_THUMBPRINT.';
-    if (!allowUnsigned) fail(`${msg} Pass --allow-unsigned to build a deliberately unsigned exe.`);
-    log(`WARNING: building an UNSIGNED exe — ${msg}`);
+    fail(msg);
   } else {
     const args = [
       '-NoProfile',
@@ -322,10 +461,7 @@ if (process.platform === 'win32') {
     } catch (e) {
       signOut = e.stdout ? String(e.stdout) : '';
       process.stdout.write(signOut);
-      if (!allowUnsigned) {
-        fail(`signing failed: ${e.message}. Fix the signing key before shipping.`);
-      }
-      log(`WARNING: signing failed but --allow-unsigned was given: ${e.message}`);
+      fail(`signing failed: ${e.message}. Fix the signing key before shipping.`);
     }
     process.stdout.write(signOut);
     // どの鍵で署名した配布物かを追跡できるよう、sign-exe.ps1 の `SIGN-INFO key=value` 行を
@@ -342,4 +478,12 @@ if (process.platform === 'win32') {
   }
 }
 
-log(`done: dist-exe/ (${exeName} + .cer + OFL-BIZUDPGothic.txt + SIGNING-INFO.txt)`);
+if (!sign) {
+  log('built an UNSIGNED exe (pass --sign to sign it for AppLocker / WDAC publisher rules)');
+}
+
+log(
+  sign
+    ? `done: dist-exe/ (${exeName} + .cer + OFL-BIZUDPGothic.txt + SIGNING-INFO.txt)`
+    : `done: dist-exe/ (${exeName} + OFL-BIZUDPGothic.txt)`,
+);

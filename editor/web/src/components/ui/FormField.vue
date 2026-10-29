@@ -12,7 +12,7 @@ const formFieldVariants = cva('space-y-1.5', {
       md: 'min-w-[180px]',
       lg: 'min-w-[190px]',
       xl: 'min-w-[220px]',
-      // 項目名を含む placeholder(「委託会社コードを入力/選択」= 193px)が入力欄へ収まる幅。
+      // 項目名を含む placeholder(最長の「ファンドコードを入力/選択」)が入力欄へ収まる幅。
       // 入力欄は枠の padding と chevron の分だけ外枠より約 40px 狭い。
       '2xl': 'min-w-[240px]',
     },

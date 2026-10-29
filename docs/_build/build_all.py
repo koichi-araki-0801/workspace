@@ -23,7 +23,7 @@ import sys
 import md2html
 
 DOCS = pathlib.Path(__file__).resolve().parents[1]   # <repo>/docs
-SKIP_DIRS = {"_build", "_samples"}
+SKIP_DIRS = {"_build"}
 
 
 def discover_projects():

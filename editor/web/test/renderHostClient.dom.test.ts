@@ -287,7 +287,7 @@ describe('renderHostClient — フレームの生成', () => {
 // 壊れていた(プレビューは素の値を使うため動いていて、差が見えにくかった)。
 describe('renderHostClient — 差し込みデータの受け渡し', () => {
   it('Vue の ref を渡しても素の値になって届き、描画できる', async () => {
-    const plain = { fund: { code: '510037', name: 'テスト' }, rows: [{ a: 1 }] };
+    const plain = { fund: { code: '950037', name: 'テスト' }, rows: [{ a: 1 }] };
     const p = client.render('<p>{{ fund.name }}</p>', ref(plain).value);
     const post = vi.spyOn(childWindow(), 'postMessage');
     deliver({ type: MSG_READY }, childWindow());

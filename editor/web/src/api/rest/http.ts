@@ -4,7 +4,7 @@
 // 役割: `apiFetch` は same-origin の `/api` を叩き、session cookie を送り
 // (`credentials: 'include'`)、HTTP 失敗を共有 {@link AppError} へ写す。サーバの構造化
 // ボディ `{ kind, message, code }` を優先し、無ければステータスコードへフォールバック
-// する。`attemptRest`(throw→Result シーム)は local repos の `attempt` を再 export する。
+// する。`attemptRest`(throw→Result シーム)は同じ階層の `attempt` を再 export する。
 import {
   type AppError,
   type AppErrorKind,
@@ -14,9 +14,8 @@ import {
 } from '@editor/shared';
 import { notifyUnauthorized } from '@/lib/sessionExpiry';
 
-// throw→Result シームは local と REST で同一なので、REST は local の `attempt` を再利用
-// する(既存 import を保つため `attemptRest` として再 export)。
-export { attempt as attemptRest } from '../local/attempt';
+// 既存の import を保つため `attemptRest` の名前で再 export する。
+export { attempt as attemptRest } from './attempt';
 
 const BASE = '/api';
 

@@ -69,13 +69,23 @@ beforeEach(() => {
 });
 
 describe('reflectNoteMasterAfterConfirm', () => {
+  it('カタログは版種を絞らずに全件で読み、別の版種専用のパーツも書き戻す', async () => {
+    readTemplateHtmlMock.mockResolvedValue(doc(part('note-a', 'A')));
+    listPartsMock.mockResolvedValue([
+      { ...catalogItem('note-a', '反映'), targetEdition: '全体版' },
+    ]);
+    const res = await reflectNoteMasterAfterConfirm('XX01_950037_交付版', 'approver1', 'template');
+    expect(res).toEqual({ updated: ['note-a'], error: null });
+    expect((listPartsMock.mock.calls[0] as unknown[])[0]).toEqual({});
+  });
+
   it('テンプレート(3 つ区切り)の承認でも、id のファンド・版種で書き戻す', async () => {
     readTemplateHtmlMock.mockResolvedValue(doc(part('note-a', 'A')));
     listPartsMock.mockResolvedValue([catalogItem('note-a', '反映')]);
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_全体版', 'approver1', 'template');
+    const res = await reflectNoteMasterAfterConfirm('XX01_950037_全体版', 'approver1', 'template');
     expect(res).toEqual({ updated: ['note-a'], error: null });
     expect(paramMap(callSprocMock.mock.calls[0][2] ?? [])).toMatchObject({
-      ファンドコード: '510037',
+      ファンドコード: '950037',
       版種: '全体版',
     });
   });
@@ -88,7 +98,7 @@ describe('reflectNoteMasterAfterConfirm', () => {
     callSprocMock.mockResolvedValue([]);
 
     const res = await reflectNoteMasterAfterConfirm(
-      'AM01_510037_20240710_交付版',
+      'XX01_950037_20240710_交付版',
       'approver1',
       'template',
     );
@@ -100,7 +110,7 @@ describe('reflectNoteMasterAfterConfirm', () => {
     expect(op).toBe('反映');
     expect(paramMap(params ?? [])).toEqual({
       パーツID: 'note-a',
-      ファンドコード: '510037',
+      ファンドコード: '950037',
       版種: '交付版',
       注記HTML: part('note-a', '一回目'),
       更新者: 'approver1',
@@ -112,7 +122,7 @@ describe('reflectNoteMasterAfterConfirm', () => {
     listPartsMock.mockResolvedValue([catalogItem('no', '非反映'), catalogItem('undecided', null)]);
 
     const res = await reflectNoteMasterAfterConfirm(
-      'AM01_510037_20240710_交付版',
+      'XX01_950037_20240710_交付版',
       'approver1',
       'template',
     );
@@ -133,7 +143,7 @@ describe('reflectNoteMasterAfterConfirm', () => {
     callSprocMock.mockRejectedValue(new Error('DB 停止中'));
 
     const res = await reflectNoteMasterAfterConfirm(
-      'AM01_510037_20240710_交付版',
+      'XX01_950037_20240710_交付版',
       'approver1',
       'template',
     );
@@ -145,7 +155,7 @@ describe('reflectNoteMasterAfterConfirm', () => {
     listPartsMock.mockRejectedValue(new Error('カタログ不達'));
 
     const res = await reflectNoteMasterAfterConfirm(
-      'AM01_510037_20240710_交付版',
+      'XX01_950037_20240710_交付版',
       'approver1',
       'template',
     );
@@ -160,11 +170,41 @@ describe('reflectNoteMasterAfterConfirm', () => {
     readTemplateHtmlMock.mockResolvedValue(doc(part('note1', 'Jinja 注記')));
     callSprocMock.mockResolvedValue([]);
 
-    const res = await reflectNoteMasterAfterConfirm('AM01_510037_20240710_交付版', 'u', 'filled');
+    const res = await reflectNoteMasterAfterConfirm('XX01_950037_20240710_交付版', 'u', 'filled');
 
     expect(res?.updated).toEqual(['note1']);
     expect(readTemplateHtmlMock).not.toHaveBeenCalled();
     expect(paramMap(callSprocMock.mock.calls[0]?.[2] ?? []).注記HTML).toContain('値入り注記');
+  });
+
+  it('値入り HTML の承認では、カタログの内容HTML が Jinja を含むパーツを書き戻さない', async () => {
+    // 編集タブで挿入した Jinja パーツは承認したファンドの値で描かれており、マスタへ載せると
+    // 次回作成のテンプレへその基準日の値が固定文として入る。
+    listPartsMock.mockResolvedValue([
+      { ...catalogItem('note-j', '反映'), content: '<p>{{ fund.name }}</p>' },
+      { ...catalogItem('note-plain', '反映'), content: '<p>固定</p>' },
+    ]);
+    readFilledHtmlMock.mockResolvedValue(
+      doc(part('note-j', 'ファンドA'), part('note-plain', '固定')),
+    );
+    callSprocMock.mockResolvedValue([]);
+
+    const res = await reflectNoteMasterAfterConfirm('XX01_950037_20240710_交付版', 'u', 'filled');
+
+    expect(res).toEqual({ updated: ['note-plain'], error: null });
+    expect(callSprocMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('テンプレートの承認では今までどおり書き戻す', async () => {
+    listPartsMock.mockResolvedValue([
+      { ...catalogItem('note-j', '反映'), content: '<p>{{ fund.name }}</p>' },
+    ]);
+    readTemplateHtmlMock.mockResolvedValue(doc(part('note-j', '{{ fund.name }}')));
+    callSprocMock.mockResolvedValue([]);
+
+    const res = await reflectNoteMasterAfterConfirm('XX01_950037_交付版', 'u', 'template');
+
+    expect(res).toEqual({ updated: ['note-j'], error: null });
   });
 
   it('Error でない失敗値も文字列化して error へ載せる', async () => {
@@ -172,7 +212,7 @@ describe('reflectNoteMasterAfterConfirm', () => {
     listPartsMock.mockRejectedValue('文字列 reject');
 
     const res = await reflectNoteMasterAfterConfirm(
-      'AM01_510037_20240710_交付版',
+      'XX01_950037_20240710_交付版',
       'approver1',
       'template',
     );
@@ -186,35 +226,35 @@ describe('applyNoteMasterToHtml', () => {
     callSprocMock.mockResolvedValue([{ パーツID: 'note-a', 注記HTML: master }]);
     const html = doc(part('note-a', '生成器の旧文言'), part('b', 'B'), part('note-a', '別出現'));
 
-    const res = await applyNoteMasterToHtml(html, '510037', '交付版');
+    const res = await applyNoteMasterToHtml(html, '950037', '交付版');
 
     expect(res).toBe(doc(master, part('b', 'B'), master));
     const [, op, params] = callSprocMock.mock.calls[0];
     expect(op).toBe('取得');
-    expect(paramMap(params ?? [])).toEqual({ ファンドコード: '510037', 版種: '交付版' });
+    expect(paramMap(params ?? [])).toEqual({ ファンドコード: '950037', 版種: '交付版' });
   });
 
   it('マスタが空なら入力をそのまま返す', async () => {
     callSprocMock.mockResolvedValue([]);
     const html = doc(part('note-a', 'A'));
-    await expect(applyNoteMasterToHtml(html, '510037', '交付版')).resolves.toBe(html);
+    await expect(applyNoteMasterToHtml(html, '950037', '交付版')).resolves.toBe(html);
   });
 
   it('注記HTML が NULL の行は適用対象にしない', async () => {
     callSprocMock.mockResolvedValue([{ パーツID: 'note-a', 注記HTML: null }]);
     const html = doc(part('note-a', 'A'));
-    await expect(applyNoteMasterToHtml(html, '510037', '交付版')).resolves.toBe(html);
+    await expect(applyNoteMasterToHtml(html, '950037', '交付版')).resolves.toBe(html);
   });
 
   it('マスタ行の partId が生成 HTML に無ければそのまま返す', async () => {
     callSprocMock.mockResolvedValue([{ パーツID: 'ghost', 注記HTML: part('ghost', 'G') }]);
     const html = doc(part('note-a', 'A'));
-    await expect(applyNoteMasterToHtml(html, '510037', '交付版')).resolves.toBe(html);
+    await expect(applyNoteMasterToHtml(html, '950037', '交付版')).resolves.toBe(html);
   });
 
   it('DB 失敗は throw せず未適用のまま返す(生成をブロックしない)', async () => {
     callSprocMock.mockRejectedValue(new Error('DB 停止中'));
     const html = doc(part('note-a', 'A'));
-    await expect(applyNoteMasterToHtml(html, '510037', '交付版')).resolves.toBe(html);
+    await expect(applyNoteMasterToHtml(html, '950037', '交付版')).resolves.toBe(html);
   });
 });

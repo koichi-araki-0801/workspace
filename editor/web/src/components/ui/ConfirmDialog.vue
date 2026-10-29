@@ -36,7 +36,7 @@ const open = computed({
         </AlertDialogTitle>
         <AlertDialogDescription
           v-if="confirmState.description"
-          class="mt-2 text-sm text-muted-foreground"
+          class="mt-2 text-sm text-muted-foreground whitespace-pre-line"
         >
           {{ confirmState.description }}
         </AlertDialogDescription>

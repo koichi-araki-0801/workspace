@@ -8,8 +8,9 @@ const webUrl = `http://localhost:${E2E_REST_WEB_PORT}`;
  * Fastify サーバの待受。`127.0.0.1` で書くのは、このサーバが `HOST=127.0.0.1` で待つため
  * (`localhost` は環境により `::1` へ解決されて到達しない)。ポートは e2e サーバ側と同じ
  * 定数から引き、ヘルスチェック先と proxy 先が別々にずれる形を作らない。
- * ルート `package.json` の `check-ports.mjs 24680 24681` は**既定値**の事前検査なので、
- * `E2E_REST_PORT` / `E2E_REST_WEB_PORT` を env で変えるときは呼び出し側が引数も変える。
+ * ルート `package.json` の `check-ports.mjs 24680 24681 24682` は**既定値**の事前検査なので、
+ * `E2E_REST_PORT` / `E2E_REST_WEB_PORT` / `E2E_REST_CONTROL_PORT` を env で変えるときは
+ * 呼び出し側が引数も変える。
  */
 const apiUrl = `http://127.0.0.1:${E2E_REST_PORT}`;
 
@@ -57,9 +58,8 @@ export default defineConfig({
       // の editor 領域)だけが `--project docs` で選ぶ。editor に触れた push でだけ再撮影が走り、
       // 差分は「再撮影」としてコミットする。
       name: 'docs',
-      // `timezoneId` は撮影する画面の時刻表示を固定するため。`capture_docs.spec.ts` の
-      // `setFixedTime` が固定するのは瞬間だけで、表示は `Date` のローカル getter 経由=
-      // ブラウザの地方時で組み立てられる。両方を固定して初めて PNG がバイト一致する。
+      // `timezoneId` は撮影する画面の時刻表示を実行機の地方時に依存させないため。表示は `Date` の
+      // ローカル getter 経由=ブラウザの地方時で組み立てられる(時刻そのものはサーバが付ける)。
       use: { ...devices['Desktop Chrome'], timezoneId: 'Asia/Tokyo' },
       testMatch: '**/capture_docs.spec.ts',
     },
@@ -85,9 +85,8 @@ export default defineConfig({
       // だから(`editor/` ではない。隣の webServer が `pnpm --filter` で効いているのと同じ理由)。
       command: `node editor/e2e/tools/e2e-vite.ts --port ${E2E_REST_WEB_PORT}`,
       cwd: fileURLToPath(new URL('..', import.meta.url)),
-      // `VITE_API_MODE=rest` は既定と同じだが、呼び出し元シェルの `local` 指定に引きずられない
-      // よう明示する。`API_PROXY_TARGET` は vite.config.ts の proxy 先の上書き。
-      env: { VITE_API_MODE: 'rest', API_PROXY_TARGET: apiUrl },
+      // `API_PROXY_TARGET` は vite.config.ts の proxy 先の上書き。
+      env: { API_PROXY_TARGET: apiUrl },
       url: webUrl,
       reuseExistingServer: false,
       // Vite は実行中に黙って落ちたことがある。終了時の出力を捕まえて原因を残す。

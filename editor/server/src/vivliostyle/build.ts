@@ -2,23 +2,24 @@
 // build.ts — `@vivliostyle/cli` で PDF をビルドする(inline / project / merge)
 // =============================================================================
 import { execFile } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { DOC_DIR } from '@editor/shared';
 import { config } from '../config.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { BuildAdmissionGate } from './buildAdmission.js';
-import { buildWorkerPool } from './buildWorkerServer.js';
+import { buildWorkerPool, killProcessTree } from './buildWorkerServer.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
 import { type BuildOriginReservation, reserveBuildOrigin } from './egressGuard.js';
 import { inlineCss } from './inlineCss.js';
 import { inlineDocScripts } from './inlineDocScripts.js';
-import { type MergeDocument, materializeMergeProject } from './mergeInput.js';
+import { type MergeDocument, materializeMergeProject, mergeConfigObject } from './mergeInput.js';
 import { sharedInlineConfig } from './options.js';
 import type { SafeProjectConfig } from './projectConfig.js';
 import { cleanupProject } from './projectInput.js';
 import { rebaseRequestCss } from './requestCss.js';
+import { makeWorkDir } from './workDir.js';
 
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
@@ -77,25 +78,33 @@ function withSpawnFallbackSlot<T>(
  * ハングさせるため(`pdf-build-worker.mjs` 冒頭の解説参照)`child_process` へ分離し、
  * `config.vivliostyle.build.timeoutMs` の timeout を必ず効かせる。timeout(kill)/非 0 exit は
  * Error を reject し、上位(`auditedRethrow`)経由で 5xx を返す。
+ *
+ * timeout は `execFile` の `timeout` に任せず自前のタイマーで掛ける。組み込みの timeout は
+ * 子(node)だけを殺すので、Windows では子が起こした chromium が孤児として残る。プール経路と
+ * 同じ `killProcessTree` でツリーごと止める。
  */
 function runBuildWorkerSpawn(buildOptions: unknown): Promise<void> {
   const timeoutMs = config.vivliostyle.build.timeoutMs;
   return new Promise((resolve, reject) => {
-    execFile(
+    let timedOut = false;
+    const child = execFile(
       process.execPath,
       [config.pdf.workerScript, JSON.stringify(buildOptions)],
-      { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
+      { maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
       (err, _stdout, stderr) => {
+        clearTimeout(timer);
         if (err) {
-          // `execFile` は timeout 時に子を kill し `err.killed = true` を立てる。
-          const killed = (err as NodeJS.ErrnoException & { killed?: boolean }).killed;
-          const reason = killed ? `タイムアウト(${timeoutMs}ms)で中断` : err.message;
+          const reason = timedOut ? `タイムアウト(${timeoutMs}ms)で中断` : err.message;
           reject(new Error(`${PDF_BUILD_FAILED}: ${reason}${stderr ? `\n${stderr.trim()}` : ''}`));
           return;
         }
         resolve();
       },
     );
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killProcessTree(child);
+    }, timeoutMs);
   });
 }
 
@@ -135,22 +144,25 @@ async function buildScope(): Promise<{
   }
 }
 
+/**
+ * inline 文書の作業フォルダ内のエントリ。CLI へは単一入力(`input`)ではなく entry 配列の
+ * config(`configData`)で渡す — 単一入力はエントリの親(`doc/`)を配信ルートにするので、兄弟の
+ * `css/` `images/` に届かない。config なら `cwd`(作業フォルダ)から資産が配られる
+ * (`test/vivliostyleCliContract.test.ts` の実測)。
+ */
+const INLINE_ENTRY = `${DOC_DIR}/index.html`;
+
 /** inline(レンダリング済み HTML + 任意の CSS)ビルド入力。 */
 interface BuildInlineInput {
   html: string;
   css?: string;
   /** vivliostyle へ渡すページサイズ(既定 'A4')。 */
   size?: string;
-  /** 入力を単一ドキュメントとして扱う(ファイル単位のページ分割をしない)。 */
-  singleDoc?: boolean;
 }
 
 /**
  * レンダリング済み HTML(+ 任意の CSS)から `@vivliostyle/cli` で PDF を生成する。
  * CSS は vivliostyle へ渡す前に HTML へインライン展開する。
- *
- * `{html, css}` のみ(size は 'A4' 既定)の単純入力は最小構成の CLI 呼び出しへ落とし、
- * 追加オプション無しの出力と一致させる(単純入力のドロップイン互換)。
  */
 export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   // リクエスト CSS は入口で 1 回だけ付け替える(`requestCss.ts`)。検査は付け替え後の CSS に
@@ -170,18 +182,22 @@ async function buildInlineInSlot(
   runBuild: (buildOptions: unknown) => Promise<void>,
 ): Promise<Buffer> {
   await fs.mkdir(config.tmpDir, { recursive: true });
-  const stamp = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
-  // ⚠ **ビルドごとに専用ディレクトリを作る。** `config.tmpDir` 直下へ書いていた頃は、
-  // CLI の `workspaceDir`(= エントリ HTML の親)が `.tmp` そのものになり、同時に走る
-  // 他のプレビューセッションや展開済み zip まで丸ごと loopback の Vite サーバから
-  // 配信されていた。1 文書 = 1 ルートにするのが「作業ディレクトリの外へ出さない」の実体。
-  const dir = path.join(config.tmpDir, `vivlio-inline-${stamp}`);
-  await fs.mkdir(dir, { recursive: true });
-  const htmlPath = path.join(dir, 'index.html');
+  // ⚠ **ビルドごとに専用ディレクトリを作る。** `config.tmpDir` 直下へ書くと、CLI の配信
+  // ルートが `.tmp` そのものになり、同時に走る他のプレビューセッションや展開済み zip まで
+  // 丸ごと loopback の Vite サーバから配信される。1 文書 = 1 ルートにするのが「作業
+  // ディレクトリの外へ出さない」の実体。
+  // 文書は `doc/` に書き、資産は `stageDocAssets` が兄弟(`css/` `js/` `images/`)へ置く —
+  // 文書の `../css/…` がそのまま実体へ届く形(`docAssets.ts` 冒頭)。
+  const dir = makeWorkDir('vivlio-inline');
+  const htmlPath = path.join(dir, ...INLINE_ENTRY.split('/'));
   const pdfPath = path.join(dir, 'output.pdf');
-  const scope = await buildScope();
+  // 予約(ポート選び・中継の起動)も try の内側で取る。外に出すと、予約の失敗で
+  // 作ったばかりの作業フォルダが残る。
+  let scope: Awaited<ReturnType<typeof buildScope>> | undefined;
 
   try {
+    await fs.mkdir(path.join(dir, DOC_DIR), { recursive: true });
+    scope = await buildScope();
     // 配置するのは**この文書が参照している**資産だけ(`docRefs.ts` の理由を見よ)。
     const served = await stageDocAssets(dir, {
       referenced: collectDocumentAssetRefs(input.html, input.css ?? ''),
@@ -205,27 +221,33 @@ async function buildInlineInSlot(
     );
 
     await runBuild({
-      input: htmlPath,
       // `cwd` を明示する。省略すると CLI の `entryContextDir` がサーバの作業ディレクトリ
       // (= リポジトリルート)になり、そこが `sirv` で配信対象に載る。
+      configData: mergeConfigObject([INLINE_ENTRY], input.size ?? 'A4'),
       cwd: dir,
       output: [{ path: pdfPath, format: 'pdf' }],
-      size: input.size ?? 'A4',
-      ...(input.singleDoc ? { singleDoc: true } : {}),
+      // `singleDoc` は渡さない。entry 1 本の config は文書中のリンクを辿らないので既に単一文書
+      // として組まれ、configData 渡しで `bookMode=false` にすると出版物の manifest
+      // (`publication.json`)を文書として読み、組版がエラーページ 1 枚に壊れる。
       ...scope.options,
     });
 
     return await fs.readFile(pdfPath);
   } finally {
-    scope.reservation.release();
+    scope?.reservation.release();
     await cleanupProject(dir);
   }
 }
 
 /** project(展開済みディレクトリ)ビルド入力。`projectInput.ts` を見よ。 */
 interface BuildProjectInput {
-  /** 展開済み vivliostyle プロジェクトを格納するディレクトリ。 */
+  /** 展開済み vivliostyle プロジェクトを格納するディレクトリ。出力 PDF もここへ書く。 */
   dir: string;
+  /**
+   * CLI の `cwd`(config・エントリの解決基準)。config を入れ子のフォルダに置いた zip では
+   * その config の置き場になる(`projectInput.extractProjectZip` の `cwd`)。省略時は `dir`。
+   */
+  cwd?: string;
   /**
    * 許可リストで組み直した config(`projectConfig.parseProjectConfig` の出力)。CLI へは
    * **パスではなくこのオブジェクト**を `configData` で渡す。パスを渡すと CLI 側が
@@ -236,6 +258,7 @@ interface BuildProjectInput {
   /** config が無い場合に使う相対エントリファイル。 */
   entry?: string;
   size?: string;
+  /** config が無いときだけ CLI へ渡す(config があるときは無視する)。 */
   singleDoc?: boolean;
 }
 
@@ -258,15 +281,16 @@ export async function buildProjectInSlot(
 
   try {
     // どちらの場合も `cwd` を設定し、vivliostyle がエントリをサーバの作業ディレクトリ
-    // ではなく展開済みプロジェクトディレクトリ基準で解決するようにする。
-    const entry = input.config
-      ? { configData: input.config, cwd: input.dir }
-      : { cwd: input.dir, input: input.entry };
+    // ではなく展開済みプロジェクト(config の置き場)基準で解決するようにする。
+    const cwd = input.cwd ?? input.dir;
+    const entry = input.config ? { configData: input.config, cwd } : { cwd, input: input.entry };
     await runBuild({
       ...entry,
       output: [{ path: pdfPath, format: 'pdf' }],
       ...(input.size ? { size: input.size } : {}),
-      ...(input.singleDoc ? { singleDoc: true } : {}),
+      // config があるときは `singleDoc` を渡さない(inline と同じ理由で、configData と併用すると
+      // 組版が XML パースエラーの 1 ページに壊れる)。効くのは config の無い zip だけ。
+      ...(input.singleDoc && !input.config ? { singleDoc: true } : {}),
       ...scope.options,
     });
 
@@ -279,7 +303,7 @@ export async function buildProjectInSlot(
 
 /**
  * 複数のレンダリング済み文書を 1 つの PDF へ結合ビルドする。文書群と entry 配列 config の
- * 実体化は `mergeInput.ts` が担い、ビルド自体は既存の `buildProjectPdf`(config 経路)へ
+ * 実体化は `mergeInput.ts` が担い、ビルド自体は既存の `buildProjectInSlot`(config 経路)へ
  * 委譲する — worker/daemon は build オプションを無検査で CLI へ渡すため変更不要。
  */
 export async function buildMergedPdf(input: {
@@ -297,7 +321,10 @@ export async function buildMergedPdf(input: {
   // 実体化(文書数ぶんのファイル書き出し)も枠の内側で行う。外に出すと、順番待ちの
   // あいだ最大 30 文書ぶんの展開済みディレクトリが並んで残る。
   return withBuildSlot(async (runBuild) => {
-    const { dir, config: mergeConfig } = await materializeMergeProject(documents, input.size);
+    const { dir, config: mergeConfig } = await materializeMergeProject(
+      documents,
+      input.size ?? 'A4',
+    );
     try {
       return await buildProjectInSlot({ dir, config: mergeConfig }, runBuild);
     } finally {
@@ -310,19 +337,30 @@ export async function buildMergedPdf(input: {
  * inline(HTML + CSS)ドキュメントをライブプレビュー用に新規 temp ディレクトリへ書き出す。
  * `buildInlinePdf` と異なりファイルは残し続ける必要がある(プレビューサーバがライブ配信する)
  * ため、返したディレクトリのクリーンアップは呼び出し側の責務とする。
+ * 戻り値の `config` を `cwd: dir` と組で CLI へ渡す(`INLINE_ENTRY` の理由)。
  */
 export async function prepareInlineDoc(
   input: BuildInlineInput,
-): Promise<{ dir: string; entry: string }> {
+): Promise<{ dir: string; config: SafeProjectConfig }> {
   // リクエスト CSS は入口で 1 回だけ付け替える(`requestCss.ts`)。
   const css = rebaseRequestCss(input.css);
-  await fs.mkdir(config.tmpDir, { recursive: true });
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-  const dir = path.join(config.tmpDir, `vivlio-prev-${stamp}`);
-  await fs.mkdir(dir, { recursive: true });
-  const entry = path.join(dir, 'index.html');
+  // 検査は作業フォルダを作る**前**に行う(拒否すべき入力でディレクトリを作らない)。
   assertNoDocumentExternalRefs(input.html, css, 'preview.inline');
-  // プレビューも配信ルートは同じ形にする(同梱資産を相対パスで引ける)。
+  const dir = makeWorkDir('vivlio-prev');
+  try {
+    await fs.mkdir(path.join(dir, DOC_DIR), { recursive: true });
+    await writePreviewInlineDoc(dir, input.html, css);
+  } catch (e) {
+    // 成功時の掃除は呼び出し側の責務だが、ここで失敗したら dir は誰にも渡らない。
+    await cleanupProject(dir);
+    throw e;
+  }
+  return { dir, config: mergeConfigObject([INLINE_ENTRY], input.size ?? 'A4') };
+}
+
+/** preview-inline の文書と、それが参照する資産を作業フォルダへ置く。 */
+async function writePreviewInlineDoc(dir: string, html: string, css: string): Promise<void> {
+  // プレビューも作業フォルダは同じ形にする(文書は `doc/`、資産はその兄弟)。
   //
   // ⚠ ここは**外部クライアント向けのライブプレビュー API**(`/api/preview`)の経路で、
   // 画面内プレビュー(`web/src/features/preview/PreviewPanel.vue` + `previewHost.ts`)とは
@@ -330,8 +368,11 @@ export async function prepareInlineDoc(
   // 止まったままで(中継先が我々のオリジンで返るため隔離が効かない)、外部 JS の
   // インライン展開も行わない — 「JS を止める面」であることを CSP と揃えて据え置く。
   const served = await stageDocAssets(dir, {
-    referenced: collectDocumentAssetRefs(input.html, css),
+    referenced: collectDocumentAssetRefs(html, css),
   });
-  await fs.writeFile(entry, inlineCss(input.html, css, { servedAssets: served }), 'utf8');
-  return { dir, entry };
+  await fs.writeFile(
+    path.join(dir, ...INLINE_ENTRY.split('/')),
+    inlineCss(html, css, { servedAssets: served }),
+    'utf8',
+  );
 }

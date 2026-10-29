@@ -10,10 +10,9 @@
 # さらに、Python 依存（リポジトリが追跡する全 requirements.txt。列挙は
 # `Get-OfflineRequirementsFiles` へ一本化 — ハードコード列挙だと新規追加時に検知が
 # 空振りする drift を生む）と、同梱物の manifest（git-tools の `git-tools\manifest.txt`、
-# docs mermaid の `docs\_build\vendor\manifest.txt`、msnodesqlv8 prebuild の
-# `native-prebuilds\manifest.txt`）も折り込む。requirements は重量物バンドルへ
-# 同梱する `python-wheelhouse` の内容を、manifest は同梱する git / TortoiseGit / mermaid.min.js /
-# ネイティブ prebuild の版を規定するため、
+# docs mermaid の `docs\_build\vendor\manifest.txt`）も折り込む。requirements は重量物バンドルへ
+# 同梱する `python-wheelhouse` の内容を、manifest は同梱する git / TortoiseGit / mermaid.min.js の
+# 版を規定するため、
 # 変われば重量物バンドルの再生成・再配布が要る。1 キーで pnpm 依存・pnpm 本体・Playwright・
 # Python wheel・git ツールすべての変化を覆える。
 #
@@ -133,8 +132,7 @@ function Get-LockContentKey {
   foreach ($rp in (Get-OfflineRequirementsFiles -RepoRoot $repoRoot)) {
     if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }
   }
-  foreach ($rel in @('docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt',
-      'native-prebuilds\manifest.txt')) {
+  foreach ($rel in @('docs\_build\vendor\manifest.txt', 'git-tools\manifest.txt')) {
     $rp = Join-Path $repoRoot $rel
     if (Test-Path -LiteralPath $rp) { $acc.AddRange((& $readSignificant $rp)) }
   }

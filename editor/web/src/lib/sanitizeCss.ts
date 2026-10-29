@@ -10,16 +10,14 @@
 // `content:"</style><script>…"` と書くだけで style 要素を閉じ、スクリプトを注入できる。
 // HTML 側は DOMPurify(`sanitizeHtml.ts`)が見るが、CSS 文字列はそこを通らないため、
 // `<style>` へ差し込む直前にここで潰す。
-import { findExternalRefsInCss, isSelfContainedUrl } from '@editor/shared';
+import { findExternalRefsInCss, MAX_REPORTED_REFS, neutralizeRawTextClose } from '@editor/shared';
 
-// 置換は「`</` の `/` を CSS のエスケープ `\/` にする」だけに留める。CSS 文字列の中では
-// `\/` は `/` と同義なので見た目・意味とも変わらず、HTML パーサからは `</style` に
-// 一致しなくなる(= 要素が閉じない)。正当な CSS がこの並びを必要とすることはない。
-const STYLE_CLOSE_RE = /<\/(?=style)/gi;
-
-/** `<style>` の中身として安全な形にする(要素を閉じられなくする)。 */
+/**
+ * `<style>` の中身として安全な形にする(要素を閉じられなくする)。置換は shared の
+ * `neutralizeRawTextClose` で、サーバの PDF 経路(`inlineCss.ts`)と同じもの。
+ */
 export function sanitizeStyleContent(css: string): string {
-  return css.replace(STYLE_CLOSE_RE, '<\\/');
+  return neutralizeRawTextClose(css, 'style');
 }
 
 /**
@@ -27,7 +25,8 @@ export function sanitizeStyleContent(css: string): string {
  *
  * ⚠ これは*包む*(前後に定数を連結する)専用で、素材が 100% 自分の管理下にある場合にだけ
  * 使ってよい。DOM が使える経路では `sanitizeHtml.ts` の `appendPreviewStyle` を使うこと。
- * 現在の唯一の利用者は `htmlBlockDiff.buildDiffDoc`(srcdoc 文字列の組み立て)。
+ * 利用者は `htmlBlockDiff.buildDiffDoc`(srcdoc 文字列の組み立て)と、承認タブの紙面の文書を包む
+ * `reviewCompareDocs.buildCompareDoc`。
  */
 export function styleTag(css: string, attrs = ''): string {
   return `<style${attrs ? ` ${attrs}` : ''}>${sanitizeStyleContent(css)}</style>`;
@@ -36,10 +35,7 @@ export function styleTag(css: string, attrs = ''): string {
 // ── CSS の外部参照検出 ──────────────────────────────────
 // 実体は `@editor/shared` の `security/cssExternalRefs.ts`。サーバの build 入口と web が
 // **同一の関数**を使うことが要件で、片方だけを直す退行を構造で防ぐ。
-export { findExternalRefsInCss, isSelfContainedUrl };
-
-/** 利用者へ見せる参照の最大件数。全部並べると入力の反射になるので頭だけ出す。 */
-const MAX_REPORTED_REFS = 5;
+export { findExternalRefsInCss };
 
 /**
  * CSS に外部参照があればその要約(先頭数件)を、無ければ `null` を返す。

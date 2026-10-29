@@ -25,7 +25,6 @@ const DERIVED_KEYS: (keyof PieLayoutConfig)[] = [
   'scaledLabelRadius',
   'renderLabelRadius',
   'scaledRadialExitLen',
-  'renderRadialExitLen',
   'scaledMinGap',
   'scaledMinGapMultiline',
   'scaledMinGapDense',
@@ -42,7 +41,6 @@ const DERIVED_KEYS: (keyof PieLayoutConfig)[] = [
   'leftInitTopInset',
   'bottomSpecialY',
   'lowerBandYThreshold',
-  'flipHorizontalCap',
   'flipPieClearance',
   'singleSliceLabelOffset',
 ];

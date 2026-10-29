@@ -34,11 +34,12 @@ export function useSnapshotHistory<T>(
   capture: () => T,
   apply: (snap: T) => void,
   max = 100,
-  init?: { past: T[]; future: T[]; onChange?: () => void },
+  init?: { past: T[]; future: T[]; onChange?: () => void; equals?: (a: T, b: T) => boolean },
 ) {
   const past: T[] = init?.past ?? [];
   const future: T[] = init?.future ?? [];
   const onChange = init?.onChange;
+  const equals = init?.equals ?? Object.is;
   const canUndo = ref(false);
   const canRedo = ref(false);
   let applying = false;
@@ -73,10 +74,19 @@ export function useSnapshotHistory<T>(
   /**
    * ジェスチャ開始時の state を保留 capture する。past / future はまだ動かさないので、
    * 無変更で終わっても Redo は残る。`commitUndo` / `cancelUndo` と対で使う。
+   *
+   * 保留中に呼ばれたら、先に保留を片付けてから新しい保留を始める。上書きすると保留していた
+   * 開始時点が消え、そのジェスチャを単独の 1 手として戻せなくなる。保留が現在の `capture` と
+   * 同じ(`init.equals`。既定は `Object.is`)なら変更が無いので捨てる。片付けた保留は消えるので、
+   * ジェスチャの終わりの `commitUndo` は何も積まない。`useTemplateEditor.ts` の操作はテキスト
+   * 編集を先に閉じてから(`finishTextEdit`)呼ぶのでこの形には通常ならない。閉じ損ねた経路が
+   * 残っていても開始時点を失わないための多重防御。
    */
   function beginUndo(): void {
     if (applying) return;
-    pending = { snap: capture() };
+    const now = capture();
+    if (pending && !equals(pending.snap, now)) pushSnapshot(pending.snap);
+    pending = { snap: now };
   }
 
   /** 保留中の開始時 snapshot を past へ積む(変更が実際に起きたときだけ呼ぶ)。 */

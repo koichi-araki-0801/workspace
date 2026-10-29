@@ -51,7 +51,7 @@
 
   <rect class="sub" x="770" y="360" width="300" height="64" rx="6"/>
   <text class="name mono" x="790" y="386">layout/placement.ts</text>
-  <text class="small" x="790" y="410">角度ゾーン別配置 10 種 + leader path</text>
+  <text class="small" x="790" y="410">build*Draft + finalizePlacement</text>
 
   <rect class="sub" x="130" y="444" width="300" height="64" rx="6"/>
   <text class="name mono" x="150" y="470">svg_export/mode_passes.ts</text>

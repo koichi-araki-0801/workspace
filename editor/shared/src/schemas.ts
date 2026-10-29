@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { isValidAnyTemplateId } from './domain/template.js';
 import { isValidUsername, USERNAME_MAX_LENGTH } from './domain/user.js';
 import { APP_ERROR_KINDS } from './errors.js';
+import { MAX_TOP_LEVEL_BLOCKS } from './html/reviewDiff/htmlDiff.js';
 
 // ── 0. 資源上限 — 契約の段で本文の大きさを縛る ──
 //
@@ -40,11 +41,21 @@ export const MAX_NOTE_PATH_KEY_CHARS = 512;
 export const MAX_NOTE_ENTRIES_PER_PART = 200;
 /**
  * メモ 1 ファイル(1 版インスタンス)が保持できる `pathKey` の件数上限(パーツ数の実物は
- * 1 版あたり数十)。web の local 実装(`api/local/noteRepo.ts`)と server 実装
- * (`server/src/files/notesFile.ts`)の双方が同じ値を強制する必要があるため shared に置く —
- * 複製すると片方だけが追随しない値の乖離を構造的に作る。
+ * 1 版あたり数十)。server 実装(`server/src/files/notesFile.ts`)が強制する値で、メモの
+ * 他の上限と並べて shared に置く。
  */
 export const MAX_NOTES_PER_TEMPLATE = 1000;
+
+/**
+ * UTF-16 単位で `max` 以下の文字列。`.max(N)` は zod 4.6 からコードポイントで数えるので、
+ * UTF-16 で数える相手(NTFS のファイル名、ストアドの `NVARCHAR(N)` 引数)へ渡す値は `.length`
+ * でも縛る。ストアドの引数は長すぎても**エラーにならず切り詰められる**ので、契約の段で落とす。
+ */
+const utf16Max = (max: number, what: string) =>
+  z
+    .string()
+    .max(max)
+    .refine((s) => s.length <= max, { message: `${what}が長すぎます(UTF-16 で ${max} 単位まで)` });
 
 // ── 1. Template identity — テンプレート同定 ──
 
@@ -60,7 +71,7 @@ export const TemplateId = z
   .refine(isValidAnyTemplateId, { message: '不正なテンプレート id です' })
   .meta({
     id: 'TemplateId',
-    example: 'AM01_510037_20240710_交付版',
+    example: 'XX01_950037_20240710_交付版',
     // 制約の実体は `refine` で、JSON Schema へは `minLength` すら書き出されない。散文で
     // 添えないと、公開 OpenAPI 上は「ただの string」に見えて外部クライアントが素の文字列を
     // 送れると誤解する(`$ref` へ寄せると `minLength` のような字面上の制約は消える)。
@@ -77,12 +88,14 @@ export const TemplateId = z
  */
 export const TemplateAttributes = z
   .object({
-    companyCode: z.string().meta({ description: '委託会社コード' }),
+    companyCode: z
+      .string()
+      .meta({ description: '委託会社(ファイル名の会社コード = Rep1 の委託会社略称)' }),
     fundCode: z.string().meta({ description: 'ファンドコード' }),
     baseDate: z.string().optional().meta({
       description:
-        '基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
-      example: '20240710',
+        '基準日(yyyymmdd または yyyy-mm-dd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない',
+      example: '2024-05-17',
     }),
     editionType: z.string().meta({ description: '版種' }),
   })
@@ -92,7 +105,7 @@ export const TemplateMeta = z
   .object({
     id: z.string().meta({ description: 'ファイル名(拡張子なし)由来の安定 ID' }),
     attributes: TemplateAttributes,
-    fileName: z.string().meta({ example: 'AM01_510037_20240710_kr.html' }),
+    fileName: z.string().meta({ example: 'XX01_950037_20240710_kr.html' }),
     status: TemplateStatus,
     updatedAt: z.string().nullable().meta({ description: '最終確定保存の ISO タイムスタンプ' }),
     updatedBy: z.string().nullable(),
@@ -103,12 +116,22 @@ export const Template = z
   .object({
     meta: TemplateMeta,
     html: z.string().meta({ description: 'Jinja2 生 HTML(タグ保持)' }),
-    css: z.string().meta({ description: 'fundCode ごとの共有 CSS' }),
+    css: z.string().meta({
+      description: 'テンプレ単位の CSS(css/<会社>_<ファンド>_<版種>.css。基準日違いの文書で共有)',
+    }),
     filled: z.string().meta({
       description:
         'エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。' +
         '静的な fill が無ければ空で、エディタは都度描画にフォールバックする',
     }),
+    cssMissing: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。' +
+          'あれば付けない。生成直後(pending)は pending の CSS ファイルが無いとき true',
+      }),
   })
   .meta({ id: 'Template' });
 
@@ -128,6 +151,22 @@ export const TemplateDraft = z
 export const SampleData = z
   .record(z.string(), z.unknown())
   .meta({ id: 'SampleData', description: 'プレビュー用サンプルデータ(任意の JSON)' });
+
+export const SampleDataResult = z
+  .object({
+    sample: SampleData,
+    warnings: z.array(z.string()).meta({
+      description: '共通サンプルの合成で見つかった問題(キーの重複・壊れた行)。無ければ空',
+    }),
+  })
+  .meta({ id: 'SampleDataResult' });
+
+export const TemplateValues = z
+  .object({
+    found: z.boolean().meta({ description: '値ファイル(json)があったか。無ければ false' }),
+    values: SampleData.meta({ description: '値ファイルの中身。found が false なら空' }),
+  })
+  .meta({ id: 'TemplateValues' });
 
 // ── 3. Users / auth — ユーザと認証 ──
 
@@ -221,7 +260,8 @@ export const Username = z
 export const CreateUserRequest = z
   .object({
     username: Username,
-    displayName: z.string(),
+    // ストアドの `@表示名 NVARCHAR(128)` と同じ長さ(超えると黙って切り詰められる)。
+    displayName: utf16Max(128, '表示名'),
     role: UserRole,
     disabled: z.boolean(),
     mustChangePassword: z.boolean(),
@@ -232,7 +272,7 @@ export const CreateUserRequest = z
 export const UpdateUserRequest = z
   .object({
     username: Username,
-    displayName: z.string(),
+    displayName: utf16Max(128, '表示名'),
     role: UserRole,
     disabled: z.boolean(),
     mustChangePassword: z.boolean(),
@@ -278,6 +318,9 @@ export const CreateHistoryEntry = z
       .string()
       .optional()
       .meta({ description: 'シリーズから作成したときのコピー元ファンドコード' }),
+    requestedFundCode: z.string().optional().meta({
+      description: '組入先として取り込んだときの、作成画面で選んだファンドのコード',
+    }),
   })
   .meta({ id: 'CreateHistoryEntry' });
 
@@ -288,7 +331,7 @@ export const PartHistoryEntry = z
     templateId: z.string(),
     partKey: z.string().meta({
       description:
-        '版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネント' +
+        '版を跨いで安定なパーツ構造キー(文書全体でのアンカー#通し番号)。GrapesJS のコンポーネント' +
         'id は再採番され不安定なため構造キーで紐づける',
     }),
     user: z.string(),
@@ -312,8 +355,15 @@ export const RecordPdfExportRequest = z
 /** (server 専用) パーツ変更の記録ボディ。`templateId` はパスから取る。 */
 export const RecordPartChangeRequest = z
   .object({
-    partKey: z.string().min(1).meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    partKey: z
+      .string()
+      .min(1)
+      .meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     change: z.string(),
+    id: z
+      .uuid()
+      .optional()
+      .meta({ description: '履歴 1 件の id(web が採番。重複表示の除去に使う)' }),
   })
   .meta({ id: 'RecordPartChangeRequest' });
 
@@ -353,6 +403,145 @@ export const ReviewStatus = z
   .enum(['pending', 'approved', 'rejected'])
   .meta({ id: 'ReviewStatus' });
 
+/**
+ * パーツの却下理由の最大長(UTF-16 単位。`utf16Max` と同じ数え方)。承認タブの理由欄も同じ値で
+ * 送る前に止める(契約で拒まれる理由を書かせ切らない)。
+ */
+export const MAX_PART_REJECT_REASON_CHARS = 2000;
+/**
+ * 申請ごと却下の理由の最大長(UTF-16 単位)。パーツの却下の理由と同じ値・同じ数え方で、承認タブの
+ * 申請ごと却下の理由欄も同じ値で送る前に止める。理由は申請のファイルと監査ログに残るので縛る。
+ */
+export const MAX_REVIEW_REJECT_REASON_CHARS = MAX_PART_REJECT_REASON_CHARS;
+/**
+ * パーツ判定の `partKey` の最大長。実物は `<アンカー>#<通し番号>` で数十文字。判定は申請の
+ * ファイルへ保存し監査ログにも載るので、本文に無いキーをいくらでも長く書かせない。
+ */
+export const MAX_REVIEW_PART_KEY_CHARS = 512;
+
+/** 保存済みのパーツ判定の `partKey`(review 内で一意)。3 つの状態で同じ定義を使う。 */
+const ReviewPartKey = z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' });
+
+/** 判定の変更で受ける `partKey`。長さの上限を 3 つの状態で同じ定義に揃える。 */
+const ReviewPartKeyInput = z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
+  description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+});
+
+/** review内のパーツ1件に対する現在の判定状態。 */
+export const ReviewPartDecisionStatus = z
+  .enum(['pending', 'approved', 'rejected'])
+  .meta({ id: 'ReviewPartDecisionStatus' });
+
+/**
+ * review内のパーツ判定を変更した履歴。初回判定も `pending` からの変更として記録する。
+ * 現在状態とは分離して保持し、最終確定前に判定を変更した経緯を追跡できるようにする。
+ */
+export const ReviewPartDecisionHistoryEntry = z
+  .object({
+    from: ReviewPartDecisionStatus.meta({ description: '変更前の判定状態' }),
+    to: ReviewPartDecisionStatus.meta({ description: '変更後の判定状態' }),
+    changedBy: z.string().meta({ description: '判定を変更したユーザ' }),
+    changedAt: z.string().meta({ description: '判定を変更したISOタイムスタンプ' }),
+    comment: z
+      .string()
+      .nullable()
+      .meta({ description: '判定時のメモまたは却下理由。無ければnull' }),
+  })
+  .meta({ id: 'ReviewPartDecisionHistoryEntry' });
+
+/**
+ * review内のパーツ1件について、現在有効な判定と変更履歴を保持する。
+ *
+ * `partKey` は申請時点の比較元と申請版から決定する、
+ * 文書全体での `<アンカー>#<通し番号>` 形式のパーツ構造キーである。
+ * ページ番号を含めず、`htmlBlockDiff.ts` の `DiffBlock.partKey` と同じ値を使用する。
+ *
+ * 状態ごとに判定者・日時・commentの必須条件を分け、不正な組合せを契約の段で拒否する。
+ */
+export const ReviewPartDecision = z
+  .discriminatedUnion('status', [
+    z.object({
+      partKey: ReviewPartKey,
+      status: z.literal('pending'),
+      decidedBy: z.null(),
+      decidedAt: z.null(),
+      comment: z.null(),
+      history: z.array(ReviewPartDecisionHistoryEntry),
+    }),
+    z.object({
+      partKey: ReviewPartKey,
+      status: z.literal('approved'),
+      decidedBy: z.string().min(1).meta({ description: '最後に判定したユーザ' }),
+      decidedAt: z.string().meta({ description: '最後に判定したISOタイムスタンプ' }),
+      comment: z
+        .string()
+        .nullable()
+        .meta({
+          description:
+            '承認メモ。いまの API は承認のメモを受けないので新しい判定では null' +
+            '(旧 API で保存したものは残る)',
+        }),
+      history: z.array(ReviewPartDecisionHistoryEntry),
+    }),
+    z.object({
+      partKey: ReviewPartKey,
+      status: z.literal('rejected'),
+      decidedBy: z.string().min(1).meta({ description: '最後に判定したユーザ' }),
+      decidedAt: z.string().meta({ description: '最後に判定したISOタイムスタンプ' }),
+      comment: z.string().trim().min(1).meta({ description: '現在の却下理由' }),
+      history: z.array(ReviewPartDecisionHistoryEntry),
+    }),
+  ])
+  .meta({ id: 'ReviewPartDecision' });
+
+/**
+ * パーツ判定 1 件の変更。承認は判定メモを受けず、却下は理由を必須にする。
+ * `pending` は判定の取り消しで、サーバが返す `status: 'pending'` と同じく「未判定」を指す。
+ */
+export const ReviewPartDecisionChange = z
+  .discriminatedUnion('status', [
+    z.object({
+      partKey: ReviewPartKeyInput,
+      status: z.literal('approved'),
+    }),
+    z.object({
+      partKey: ReviewPartKeyInput,
+      status: z.literal('rejected'),
+      // 2,000 単位の上限は、受けた文字列(trim の前)に掛かる(`utf16Max` の検査が `.trim()` より
+      // 先に並ぶ)。画面は理由の前後の空白を除いて送り、長さも除いたあとで数える(web の
+      // `reviewDecisionList.ts` の `reasonLength`)ので、画面で通る理由はここでも通る。
+      comment: utf16Max(MAX_PART_REJECT_REASON_CHARS, '却下の理由')
+        .trim()
+        .min(1)
+        .meta({ description: 'パーツの却下理由' }),
+    }),
+    z.object({
+      partKey: ReviewPartKeyInput,
+      status: z.literal('pending'),
+    }),
+  ])
+  .meta({ id: 'ReviewPartDecisionChange' });
+
+/** パーツ判定をまとめて変更する入力。同じ `partKey` を 2 回含められない。 */
+export const UpdateReviewPartDecisionsRequest = z
+  .object({
+    decisions: z.array(ReviewPartDecisionChange).min(1).max(MAX_TOP_LEVEL_BLOCKS),
+  })
+  .superRefine((req, ctx) => {
+    const seen = new Set<string>();
+    for (const [i, d] of req.decisions.entries()) {
+      if (seen.has(d.partKey)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['decisions', i, 'partKey'],
+          message: `partKey が重複しています: ${d.partKey}`,
+        });
+      }
+      seen.add(d.partKey);
+    }
+  })
+  .meta({ id: 'UpdateReviewPartDecisionsRequest' });
+
 export const ReviewOrigin = z.enum(['edit', 'create']).meta({
   id: 'ReviewOrigin',
   description: '編集タブ(既存編集) / 作成タブ(新規) 由来。2 系統の区別を申請に保持する',
@@ -376,7 +565,6 @@ export const ReviewRequestMeta = z
     id: z.string(),
     templateId: z.string(),
     attributes: TemplateAttributes,
-    fundCode: z.string(),
     origin: ReviewOrigin,
     status: ReviewStatus,
     submittedBy: z.string(),
@@ -386,6 +574,10 @@ export const ReviewRequestMeta = z
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
     changedSummary: ReviewChangedSummary.nullable().optional(),
+    partDecisions: z.array(ReviewPartDecision).optional().meta({
+      description:
+        'パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う',
+    }),
   })
   .meta({ id: 'ReviewRequestMeta' });
 
@@ -394,20 +586,31 @@ export const ReviewRequest = ReviewRequestMeta.extend({
   html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
   css: z.string(),
   filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
+  baseHtml: z.string().optional().meta({
+    description:
+      '申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+  }),
+  baseCss: z.string().optional().meta({
+    description:
+      '申請時点の比較元CSS。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+  }),
 }).meta({ id: 'ReviewRequest' });
 
 /**
  * 確定保存の申請ボディ。`templateId` はボディで運ぶ(POST /review-requests)。
  * `templateId` を素の文字列にすると、トークン内部に空白を持つ id
- * (`AM01 _510037_…`)が承認経路へ通ってしまう。契約の段で `TemplateId` に通す。
+ * (`XX01 _950037_…`)が承認経路へ通ってしまう。契約の段で `TemplateId` に通す。
  */
 export const SubmitReviewBody = z
   .object({
     templateId: TemplateId,
     html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
-    fundCode: z.string().min(1),
     filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
+    cssBaseline: z.string().max(MAX_DOCUMENT_CSS_CHARS).optional().meta({
+      description:
+        '確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす',
+    }),
     origin: ReviewOrigin.meta({
       description: "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
     }),
@@ -429,7 +632,13 @@ export const ReviewDecisionBody = z
  * 承認・保留のメモを必須にはしない(通すだけの承認で無意味な文字列を書かせることになる)。
  */
 export const ReviewRejectBody = z
-  .object({ comment: z.string().trim().min(1).meta({ description: '却下理由(必須)' }) })
+  .object({
+    // 上限は受けた文字列(trim の前)に掛かる(パーツの却下の理由 `ReviewPartDecisionChange` と同じ)。
+    comment: utf16Max(MAX_REVIEW_REJECT_REASON_CHARS, '却下の理由')
+      .trim()
+      .min(1)
+      .meta({ description: '却下理由(必須。UTF-16 で 2,000 単位まで)' }),
+  })
   .meta({ id: 'ReviewRejectBody' });
 
 /** (server 専用) 申請一覧の絞り込みクエリ。 */
@@ -446,6 +655,23 @@ export const PairSyncSummary = z
     skipped: z
       .array(z.object({ partKey: z.string(), reason: z.string() }))
       .meta({ description: '転写しなかったパーツと理由(競合・初期差分・未判断など)' }),
+    // 保存済みの承認結果(この欄が無い)も読めるよう既定を空にする。
+    valueWarnings: z
+      .array(z.object({ partKey: z.string(), reason: z.string() }))
+      .default([])
+      .meta({
+        description:
+          '写したが値を確かめてほしいパーツと理由(写し元の値のまま写した・写し先の値が欠けた)',
+      }),
+    css: z
+      .object({
+        applied: z.array(z.string()).meta({ description: 'ペアの CSS へ写した規則のキー' }),
+        conflicts: z
+          .array(z.string())
+          .meta({ description: 'ペア側が承認前と違うため写さなかった規則のキー' }),
+      })
+      .nullable()
+      .meta({ description: 'CSS の転写結果。承認で CSS が変わらなかったときは null' }),
     error: z.string().nullable().meta({ description: '同期処理自体の失敗理由。正常時は null' }),
   })
   .meta({ id: 'PairSyncSummary' });
@@ -463,10 +689,19 @@ export const NoteMasterReflectSummary = z
 
 /**
  * ペア同期の現況(編集画面のバナー・要判断表示用の軽量ビュー)。未解決競合 = 自動同期を
- * 停止して人間の判断を待っているパーツ。競合の解消は「両版の内容を一致させる」か
+ * 停止して人間の判断を待っているパーツと CSS 規則。競合の解消は「両版の内容を一致させる」か
  * 「先行変更した側を承認して逆方向の転写を走らせる」ことで次回承認時に自動で消える
  * (専用の解消 API は持たない)。
  */
+/** ペア同期でパーツ 1 件に記録する競合の種類。状態ファイルの検査と API 応答で共有する。 */
+export const PAIR_PART_CONFLICT_KINDS = [
+  '初期差分',
+  '両側変更',
+  'ペア側先行',
+  'ペア側削除',
+  'ペア側削除・ソース変更',
+] as const;
+
 export const PairSyncStatus = z
   .object({
     pairTemplateId: z
@@ -478,11 +713,49 @@ export const PairSyncStatus = z
       .array(
         z.object({
           partKey: z.string(),
-          kind: z.enum(['初期差分', '両側変更', 'ペア側先行']),
+          kind: z.enum(PAIR_PART_CONFLICT_KINDS),
           detectedAt: z.string(),
+          deletedIn: z
+            .string()
+            .optional()
+            .meta({ description: 'ペア側削除系の競合で、パーツを消した側の版種(交付版 / 全体版)' }),
         }),
       )
       .meta({ description: '未解決競合(自動同期停止中)のパーツ一覧' }),
+    valueChecks: z
+      .array(
+        z.object({
+          partKey: z.string(),
+          reasons: z
+            .array(z.string())
+            .meta({ description: '値を確かめてほしい理由(利用者向けの文)' }),
+          detectedAt: z.string(),
+        }),
+      )
+      .meta({
+        description:
+          'ペアから写したパーツのうち、この版で値を確かめてほしいもの(写し元の値のまま写した・' +
+          '値が欠けて空欄で写した)。そのパーツが次に描き直されるか、この版で直して承認されると消える',
+      }),
+    cssConflicts: z
+      .array(
+        z.object({
+          ruleKey: z.string(),
+          detectedAt: z.string(),
+          kind: z
+            .enum(['照合不可'])
+            .optional()
+            .meta({ description: '規則を相手側の規則と照合できず転写を止めたときの種類' }),
+          sourceEdition: z
+            .string()
+            .optional()
+            .meta({ description: '変更を持っていた側(転写元)の版種' }),
+        }),
+      )
+      .meta({
+        description:
+          '未解決の CSS 規則の競合(ペア側が版種固有に直してある、または照合できず転写を止めた規則)',
+      }),
   })
   .meta({ id: 'PairSyncStatus' });
 
@@ -490,9 +763,10 @@ export const PairSyncStatus = z
 export const ApproveReviewResult = z
   .object({
     meta: TemplateMeta,
-    staleWarning: z
-      .boolean()
-      .meta({ description: '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)' }),
+    staleWarning: z.boolean().meta({
+      description:
+        '申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意。CSS は基準日をまたいで共有されるため、他の基準日の承認による変更も含む)',
+    }),
     sync: PairSyncSummary.nullable()
       .optional()
       .meta({ description: 'ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落' }),
@@ -592,15 +866,32 @@ export const PartCatalogItem = z
     masterReflectDefault: PartMasterReflectDefault.nullable()
       .optional()
       .meta({ description: '注記マスタ書き戻しの既定。null/欠落 = 未判断(反映しない)' }),
+    targetEdition: z.string().nullable().optional().meta({
+      description:
+        '対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める',
+    }),
+    companyCode: z.string().nullable().optional().meta({
+      description:
+        '対象の委託会社コード(Rep1 と同じ値)。null/欠落 = 未設定。一覧の絞り込みだけに使い、全社共通の意味は持たない',
+    }),
   })
   .meta({ id: 'PartCatalogItem' });
 
-/** (server 専用) カスケードするパーツ分類のクエリパラメータ(すべて任意)。 */
+/**
+ * (server 専用) カスケードするパーツ分類のクエリパラメータ(すべて任意)。上限は `part.sql` の
+ * 引数(`NVARCHAR(64)` / 版種 `NVARCHAR(32)`)と同じ。超えると黙って切り詰められ、別の値で引かれる。
+ */
 export const PartClassificationQuery = z.object({
-  category: z.string().optional(),
-  majorClass: z.string().optional(),
-  middleClass: z.string().optional(),
-  minorClass: z.string().optional(),
+  category: utf16Max(64, 'カテゴリ').optional(),
+  majorClass: utf16Max(64, '大分類').optional(),
+  middleClass: utf16Max(64, '中分類').optional(),
+  minorClass: utf16Max(64, '小分類').optional(),
+  editionType: utf16Max(32, '版種')
+    .optional()
+    .meta({ description: 'テンプレートの版種。指定時は対象版種が空か一致するパーツだけ' }),
+  companyCode: utf16Max(32, '委託会社コード')
+    .optional()
+    .meta({ description: '委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)' }),
 });
 
 /** コメントの状態。返信は親と同じ値を持ち、切り替えは親投稿にだけ許す。 */
@@ -615,7 +906,7 @@ export const PartNoteEntry = z
   .object({
     id: z.string().meta({ description: '投稿 ID(UUID)' }),
     templateId: z.string().meta({ description: '投稿が属する版インスタンス ID' }),
-    pathKey: z.string().meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+    pathKey: z.string().meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     content: z.string().meta({ description: '投稿本文' }),
     createdAt: z.string(),
     createdBy: z.string(),
@@ -639,7 +930,7 @@ export const AddNoteRequest = z
       .string()
       .min(1)
       .max(MAX_NOTE_PATH_KEY_CHARS)
-      .meta({ description: 'パーツ構造パスキー(pageAnchor/partAnchor)' }),
+      .meta({ description: 'パーツ構造キー(文書全体でのアンカー#通し番号)' }),
     content: z.string().min(1).max(MAX_NOTE_CONTENT_CHARS).meta({ description: '投稿本文' }),
     replyTo: z
       .string()
@@ -689,49 +980,68 @@ export const FundOption = z
 export const SeriesFundOption = FundOption.extend({
   hasTemplate: z.boolean().meta({
     description:
-      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか',
+      'コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)が交付版・' +
+      '全体版の両方にあるか(生成は両版をコピーするので、片方だけでは選べない)',
   }),
 }).meta({ id: 'SeriesFundOption' });
 
-export const CreatableInfo = z
+export const CreatableEditionStatus = z
   .object({
-    created: z.boolean().meta({
+    editionType: z.string().meta({ description: '版種(交付版・全体版)' }),
+    state: z.enum(['none', 'created', 'pendingReview', 'inProgress']).meta({
       description:
-        '選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)',
+        'none = 無い / created = templates/ に作成済み(会社_ファンド_版種.html。大文字小文字は区別しない) / ' +
+        'pendingReview = 承認待ちの作成申請がある / inProgress = 同じ id の下書きか pending/ がある(作業中。' +
+        '作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける)。作成済みの版の下書きは作業中に数えない',
     }),
-    templateId: z.string().optional().meta({
-      description:
-        '作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く',
-    }),
-    inProgressId: z
+    templateId: z
       .string()
       .optional()
       .meta({
         description:
-          '作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。' +
-          '作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける',
+          'created ならテンプレートの id(templates/ のファイルの綴りのまま)、inProgress なら pending を優先し' +
+          '無ければ下書きの id。作成タブの「既存の…を開く」「作成中の…を開く」で開く。none と pendingReview では持たない',
       }),
+  })
+  .meta({ id: 'CreatableEditionStatus' });
+
+export const CreatableInfo = z
+  .object({
+    editions: z.array(CreatableEditionStatus).meta({
+      description:
+        '版ごとの状態。版種を指定すればその版の 1 件、指定しなければ交付版・全体版の順に 2 件',
+    }),
     seriesFunds: z
       .array(SeriesFundOption)
       .meta({ description: '同じシリーズの他のファンド(シリーズから作成のコピー元候補)' }),
   })
   .meta({ id: 'CreatableInfo' });
 
-export const FundsQuery = z.object({ rep1CompanyCode: z.string().min(1).max(32) });
+export const FundsQuery = z.object({ rep1CompanyCode: utf16Max(32, '委託会社コード').min(1) });
 
 export const CreatableQuery = z.object({
   companyCode: z.string().min(1),
-  rep1CompanyCode: z.string().min(1).max(32),
+  rep1CompanyCode: utf16Max(32, '委託会社コード').min(1),
   fundCode: z.string().min(1),
-  editionType: z.string().min(1),
+  editionType: z.string().min(1).optional(),
 });
 
-/** 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。 */
+/**
+ * 作成タブ: 属性をサーバ側で解決し、Python ツール経由で生成する。1 回の作成で、選んだファンドの
+ * 交付版・全体版と組入先を取り込む。
+ */
 export const GenerateRequest = z
   .object({
-    companyCode: z.string().min(1),
+    companyCode: z.string().min(1).meta({ description: '会社(Rep1 の委託会社略称)' }),
+    rep1CompanyCode: utf16Max(32, '委託会社コード').min(1).meta({
+      description:
+        'Rep1 の委託会社コード。サーバは companyCode と同じ会社の組であることを Rep1 で確かめてから生成器へ渡す',
+    }),
     fundCode: z.string().min(1),
-    editionType: z.string().min(1),
+    editionType: z.string().min(1).optional().meta({
+      description:
+        '作る版(交付版・全体版のどちらか)。省略すると、作成済み・申請中でない版をすべて作る',
+    }),
     sourceFundCode: z.string().optional().meta({
       description: 'シリーズから作成するときのコピー元ファンドコード(会社と版種は作成先と同じ)',
     }),
@@ -739,14 +1049,44 @@ export const GenerateRequest = z
       .boolean()
       .optional()
       .meta({ description: '償還ファンドとして作成(生成器へパラメータとして渡す)' }),
-    replaceExisting: z.boolean().optional().meta({
-      description:
-        '同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409',
-    }),
+    replaceExisting: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '作る版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。' +
+          '作らない版には効かない',
+      }),
   })
   .meta({ id: 'GenerateRequest' });
 
-export const GenerateResult = z.object({ template: Template }).meta({ id: 'GenerateResult' });
+/** 版種を選ばない作成で、作成済みか申請中のため作らなかった版。生成器の出力は output/ に残す。 */
+export const GenerateSkipped = z
+  .object({
+    templateId: z.string(),
+    editionType: z.string(),
+    reason: z.enum(['created', 'pendingReview']).meta({
+      description: 'created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある',
+    }),
+  })
+  .meta({ id: 'GenerateSkipped' });
+
+/** 取り込んだ 1 版。 */
+export const GenerateImported = z
+  .object({ templateId: z.string(), editionType: z.string() })
+  .meta({ id: 'GenerateImported' });
+
+/**
+ * 生成の結果。`template` は取り込んだ版がちょうど 1 つのときだけ返す(その版を開く)。両版を
+ * 取り込んだときは返さず、画面はどちらを開くかを選ばせる。組入先は取り込まない。
+ */
+export const GenerateResult = z
+  .object({
+    template: Template.optional(),
+    imported: z.array(GenerateImported).meta({ description: '取り込んだ版(交付版・全体版の順)' }),
+    skipped: z.array(GenerateSkipped).meta({ description: '作成済みか申請中のため作らなかった版' }),
+  })
+  .meta({ id: 'GenerateResult' });
 
 export const SaveDraftRequest = z
   .object({
@@ -769,7 +1109,10 @@ export const BuildInlineRequest = z
       .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
-    singleDoc: z.boolean().optional().meta({ description: '単一ドキュメント扱い' }),
+    singleDoc: z.boolean().optional().meta({
+      description:
+        '受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)',
+    }),
   })
   .meta({ id: 'BuildInlineRequest' });
 
@@ -799,6 +1142,41 @@ export const BuildMergeRequest = z
     size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
   })
   .meta({ id: 'BuildMergeRequest' });
+
+/** 画像の確認 API が 1 回に受け付ける参照の上限(1 文書の画像は実物で数枚〜十数枚)。 */
+export const MAX_FUND_ASSET_INSPECT_REFS = 50;
+
+/** ファイル名・フォルダ名 1 要素。NTFS の上限は UTF-16 で 255 単位。 */
+const fsNameComponent = () => utf16Max(255, '名前');
+
+/** 画像の参照 1 件。`dir` は会社フォルダ(`images/` 直下なら null)。 */
+export const FundAssetRef = z
+  .object({
+    dir: fsNameComponent().nullable().meta({ description: '会社フォルダ(直下なら null)' }),
+    file: fsNameComponent().meta({ description: 'ファイル名' }),
+  })
+  .meta({ id: 'FundAssetRef' });
+
+/** 画像が配信されるかの確認(配信ルートと同じ判定。ファイルの中身は返さない)。 */
+export const FundAssetInspectRequest = z
+  .object({ refs: z.array(FundAssetRef).max(MAX_FUND_ASSET_INSPECT_REFS) })
+  .meta({ id: 'FundAssetInspectRequest' });
+
+/**
+ * 1 件の判定。`missing` は配信対象外(存在しない・経路が不正・許可外の拡張子)をまとめたもので、
+ * どれに当たったかは返さない — 画像の置き場の外にある名前の有無を確かめる手段にしない。
+ */
+export const FundAssetInspectResult = FundAssetRef.extend({
+  status: z.enum(['ok', 'missing', 'svg_rejected']),
+  violations: z
+    .array(z.string())
+    .optional()
+    .meta({ description: '`svg_rejected` のときだけ。SVG の検査の違反の文言' }),
+}).meta({ id: 'FundAssetInspectResult' });
+
+export const FundAssetInspectResponse = z
+  .object({ results: z.array(FundAssetInspectResult) })
+  .meta({ id: 'FundAssetInspectResponse' });
 
 /** (server 専用) ライブプレビューセッションの公開メタデータ(サーバ内部情報は露出しない)。 */
 export const PreviewSession = z

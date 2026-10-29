@@ -1,9 +1,9 @@
 // =============================================================================
 // index.ts — web/server 共通のドメイン型と API 契約型 (barrel)
 // =============================================================================
-// `web/api/local` 実装と `server` の REST 実装は、いずれも `./repositories/*` の
-// 集約別リポジトリ interface を満たさねばならない。これによりデータソースを
-// 画面/サービス/ストアに触れず差し替えできる。
+// web の REST リポジトリ(とテスト用の偽物)は、`./repositories/*` の集約別リポジトリ
+// interface を満たさねばならない。これによりデータソースを画面/サービス/ストアに触れず
+// 差し替えできる。
 //
 // API 契約型(ワイヤ形式)の正典は `./schemas.ts` の Zod スキーマで、1:1 対応する型は
 // `z.infer` で導出する(手書き二重定義は置かない。フィールドの説明は schemas 側に置く)。
@@ -32,6 +32,11 @@ export type TemplateDraft = z.infer<typeof sch.TemplateDraft>;
 // ── 2. Domain: sample data (nunjucks プレビュー文脈)。fundCode をキーにする ──
 
 export type SampleData = z.infer<typeof sch.SampleData>;
+/** 共通サンプルに Rep1 の実名を被せた値と、合成の警告。 */
+export type SampleDataResult = z.infer<typeof sch.SampleDataResult>;
+
+/** 編集タブの値ファイル(dataRoot/json/<ID>.json)。無いときは found: false と空の values。 */
+export type TemplateValues = z.infer<typeof sch.TemplateValues>;
 
 // ── 3. Domain: users / auth ──
 
@@ -88,6 +93,24 @@ export type TemplateVersionMeta = z.infer<typeof sch.TemplateVersionMeta>;
 
 export type ReviewStatus = z.infer<typeof sch.ReviewStatus>;
 
+/** review内のパーツ1件に対する現在の判定状態。 */
+export type ReviewPartDecisionStatus = z.infer<typeof sch.ReviewPartDecisionStatus>;
+
+/** review内のパーツ判定を変更した履歴。 */
+export type ReviewPartDecisionHistoryEntry = z.infer<typeof sch.ReviewPartDecisionHistoryEntry>;
+
+/** review内のパーツ1件について、現在有効な判定と変更履歴を保持する。 */
+export type ReviewPartDecision = z.infer<typeof sch.ReviewPartDecision>;
+
+/** パーツ判定 1 件の変更(承認・却下・取り消し)。 */
+export type ReviewPartDecisionChange = z.infer<typeof sch.ReviewPartDecisionChange>;
+
+/** パーツ判定をまとめて変更する入力。 */
+export type UpdateReviewPartDecisionsRequest = z.infer<typeof sch.UpdateReviewPartDecisionsRequest>;
+
+/** 申請元の経路。`'edit'` は編集タブ、`'create'` は作成タブ。 */
+export type ReviewOrigin = z.infer<typeof sch.ReviewOrigin>;
+
 /**
  * 申請時に申請者ブラウザが計算した変更概要(パーツ数と業務名)。一覧の先出し表示専用の
  * 参考情報で、承認判断には使わない(承認は精査画面がその場で計算する実差分に基づく)。
@@ -99,6 +122,13 @@ export type ReviewRequestMeta = z.infer<typeof sch.ReviewRequestMeta>;
 
 /** 申請の本体込み(承認画面のプレビュー・承認反映に使う)。 */
 export type ReviewRequest = z.infer<typeof sch.ReviewRequest>;
+
+/**
+ * 保存している申請。`ReviewRequest` に、承認時のペア同期だけが読む `cssBaseline`(確定版の CSS を
+ * 編集画面が読み込んだ直後の形。最大で CSS 1 本分)を足したもの。承認画面は使わないので、
+ * 単件の取得の応答には載せない(`toReviewResponse`)。
+ */
+export type StoredReviewRequest = ReviewRequest & { cssBaseline?: string };
 
 /**
  * 確定保存の申請ボディ。`PreviewView` が editor/approver いずれの操作でも積む。
@@ -172,10 +202,14 @@ export type UpdateNoteRequest = z.infer<typeof sch.UpdateNoteRequest>;
 
 export {
   DROPDOWN_SCOPES,
+  MAX_FUND_ASSET_INSPECT_REFS,
   MAX_NOTE_CONTENT_CHARS,
   MAX_NOTE_ENTRIES_PER_PART,
   MAX_NOTE_PATH_KEY_CHARS,
   MAX_NOTES_PER_TEMPLATE,
+  MAX_PART_REJECT_REASON_CHARS,
+  MAX_REVIEW_REJECT_REASON_CHARS,
+  PAIR_PART_CONFLICT_KINDS,
 } from './schemas.js';
 
 /** カスケード問い合わせ: 既知の分類を入力、残りの候補を出力。 */
@@ -188,29 +222,24 @@ export type PartClassificationOptions = z.infer<typeof sch.PartClassificationOpt
 export type CompanyOption = z.infer<typeof sch.CompanyOption>;
 export type FundOption = z.infer<typeof sch.FundOption>;
 export type SeriesFundOption = z.infer<typeof sch.SeriesFundOption>;
+export type CreatableEditionStatus = z.infer<typeof sch.CreatableEditionStatus>;
 export type CreatableInfo = z.infer<typeof sch.CreatableInfo>;
 
 export type GenerateRequest = z.infer<typeof sch.GenerateRequest>;
+
+export type GenerateSkipped = z.infer<typeof sch.GenerateSkipped>;
+export type GenerateImported = z.infer<typeof sch.GenerateImported>;
 
 export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 
 export type SaveDraftRequest = z.infer<typeof sch.SaveDraftRequest>;
 
-export interface ConfirmSaveRequest {
-  templateId: string;
-  /** テンプレファイル (ファンド別テンプレ) に書き戻す、復元済みの生 Jinja2 HTML。 */
-  html: string;
-  /** ファンド別の共有スタイルシートへマージする CSS。 */
-  css: string;
-  fundCode: string;
-  /** 申請元の経路。`'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。 */
-  origin: 'edit' | 'create';
-  /**
-   * 描画済みの "filled" ドキュメント (値差込済み・Jinja なし)。この確定の帳票
-   * インスタンスとして保持する。任意。描画対象が無ければ省略する。
-   */
-  filledHtml?: string;
-}
+/**
+ * 確定保存の入力。申請ボディ(`SubmitReviewRequest`)から、確定保存が運ばない
+ * `cssBaseline`(ペアへの CSS 転写用)と `changedSummary`(一覧の参考表示用)を除いたもの。
+ * `origin` の `'edit'` は値入り HTML(filled)を、`'create'` は Jinja(html)を更新する。
+ */
+export type ConfirmSaveRequest = Omit<SubmitReviewRequest, 'cssBaseline' | 'changedSummary'>;
 
 /** 確定済みの帳票インスタンス: テンプレと並べて保存する filled ドキュメント。 */
 export interface TemplateInstance {
@@ -233,16 +262,27 @@ export type BuildMergeDocument = z.infer<typeof sch.BuildMergeDocument>;
 /** 複数文書 → 1 PDF の結合 build リクエスト(配列順 = ページ順)。 */
 export type BuildMergeRequest = z.infer<typeof sch.BuildMergeRequest>;
 
+/** 画像の参照 1 件(`dir` は会社フォルダ。直下なら null)。 */
+export type FundAssetRef = z.infer<typeof sch.FundAssetRef>;
+
+/** 画像が配信されるかの確認の要求と応答(配信ルートと同じ判定。中身は返さない)。 */
+export type FundAssetInspectRequest = z.infer<typeof sch.FundAssetInspectRequest>;
+export type FundAssetInspectResult = z.infer<typeof sch.FundAssetInspectResult>;
+export type FundAssetInspectResponse = z.infer<typeof sch.FundAssetInspectResponse>;
+
 // ── 8. Data-access contracts ──
-// 集約別・Result を返す契約は `./repositories/*` を参照。web の `local` 層と `rest`
-// 層がいずれもこれらの interface を実装する。
+// 集約別・Result を返す契約は `./repositories/*` を参照。web の `rest` 層(とテスト用の偽物)が
+// これらの interface を実装する。
 
 // ── 9. Cross-cutting: Result/エラーモデルとドメインヘルパ (barrel 再エクスポート) ──
 
 // REST エンドポイントパスの単一正典(server/web/OpenAPI が共有)。
 export * from './api-paths.js';
+// CSS の規則分割と 3 者比較(ペア同期の CSS 転写)。
+export * from './css/cssRules.js';
 export * from './domain/history.js';
 // 承認ワークフローの純関数(メタ抽出)。
+export * from './domain/messages.js';
 export * from './domain/review.js';
 // パーツ別共通ダミー + ファンド固有マスタ合成(プレビュー文脈の組立)。
 export * from './domain/sampleCommon.js';
@@ -251,12 +291,39 @@ export * from './domain/sampleData.js';
 export * from './domain/template.js';
 export * from './domain/user.js';
 export * from './errors.js';
+// チップの原文を運ぶ base64(作成タブの往復と改ページの判定が読む)。
+export * from './html/base64Utf8.js';
+// HTML の字句解析の小さな部品と raw text の終わり探し。タグを読む走査器 7 本が共有する。
+export * from './html/htmlLex.js';
+// パーツの HTML の比較用の正規形(承認後のペア同期の「直していない」の判定)。
+export * from './html/partHtmlCompare.js';
+export * from './html/rawText.js';
+// 版の比較・承認画面・承認の確定が共有する差分(パーツの数え方とキーを画面とサーバで揃える)。
+export * from './html/reviewDiff/blockKey.js';
+export * from './html/reviewDiff/editReviewedHtml.js';
+export * from './html/reviewDiff/htmlDiff.js';
+export * from './html/reviewDiff/htmlParser.js';
+export * from './html/reviewDiff/pageSplit.js';
+export * from './html/reviewDiff/partMarks.js';
+export * from './html/reviewDiff/reviewedCandidate.js';
+export * from './html/reviewDiff/reviewPaper.js';
+export * from './html/reviewParts.js';
+
+// Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
+export * from './jinja/containsJinja.js';
+export * from './jinja/fillRender.js';
+export * from './jinja/jinjaExpr.js';
+export * from './jinja/jinjaLex.js';
+export * from './jinja/jinjaTree.js';
+// `safe` の値を生で置く許可リスト。web の canvas の刈り取りと server の関所が部分集合かを検査する。
+export { SAFE_MARKUP_ATTRS, SAFE_MARKUP_TAGS } from './jinja/safeMarkup.js';
 // プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。
 export * from './preview/hostProtocol.js';
 // Jinja 描画 iframe(隔離されたレンダーホストページ)と親の postMessage 契約。
 export * from './render/hostProtocol.js';
-// 集約別のリポジトリ契約 (web local と REST が実装)。
+// 集約別のリポジトリ契約 (web の REST リポジトリが実装)。
 export * from './repositories/AuthRepository.js';
+export * from './repositories/FundAssetRepository.js';
 export * from './repositories/HistoryRepository.js';
 export * from './repositories/NoteRepository.js';
 export * from './repositories/PartRepository.js';
@@ -267,9 +334,15 @@ export * from './result.js';
 // CSS の外部参照検出。関門はサーバ(build 入口)に置き、web は同じ関数を早期表示に使う。
 export * from './security/cssExternalRefs.js';
 export * from './security/cssRebase.js';
+// 作成タブの往復用の印の検出。関所・検出スクリプト・toTemplate の事後検査が共有する。
+export * from './security/editingMarkers.js';
 // HTML 属性値の正規化(文字参照の復号 + URL パーサ相当の空白除去)。判定の手前で必ず通す。
 export * from './security/htmlEntities.js';
 // HTML 属性の外部参照検出。同梱資産への相対参照は通し、オリジン外の絶対参照だけを拒む。
 export * from './security/htmlExternalRefs.js';
+// `<style>` / `<script>` へ差し込む本文の閉じタグの中和。web とサーバの埋め込み 4 か所が共有する。
+export * from './security/rawTextClose.js';
 // 配信する SVG の許可リスト検査。関所はサーバ(配置時と単体配信時)の 2 か所。
 export * from './security/svgInspect.js';
+// URL パーサが解析の前に外す文字の除去。HTML・CSS の外部参照検出が判定の手前で通す。
+export * from './security/urlNormalize.js';

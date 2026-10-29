@@ -49,7 +49,7 @@ export interface AuditEvent {
   /** ドット区切りのイベント名。例 'template.save'。 */
   event: string;
   outcome: 'success' | 'failure';
-  /** 操作を行った主体(actor): 認証済みユーザ名。リクエストが未認証(例 local
+  /** 操作を行った主体(actor): 認証済みユーザ名。リクエストが未認証(例 無認証
    *  モード)の時は 'anonymous'。`actorFromReq` を参照。 */
   actor: string;
   ip?: string;
@@ -71,7 +71,7 @@ export function audit(ev: AuditEvent): void {
 /**
  * 監査イベントを SQL Server の監査テーブルへベストエフォートでコピーする。
  * DB モジュールは遅延 import する(`AUDIT_DB` が on の時のみ)。これは logger↔pool の
- * import 循環を避け、`local` モードがネイティブ DB ドライバを必要としないようにするため。
+ * import 循環を避け、無認証モードがネイティブ DB ドライバを必要としないようにするため。
  * 失敗はログに出して握り潰す(swallow) — 上のファイルログが source of truth。
  */
 let dbMirror: ((ev: AuditEvent) => Promise<void>) | undefined;
@@ -127,4 +127,13 @@ export async function auditedRethrow<T>(
     });
     throw e;
   }
+}
+
+/** `inspectSvg` の違反で SVG を配信対象から外したことを警告に残す(`file` は配信ルート相対)。 */
+export function warnSvgRejected(
+  file: string,
+  violations: readonly string[],
+  message: string,
+): void {
+  logger.warn({ type: 'asset.svg_rejected', file, violations }, message);
 }

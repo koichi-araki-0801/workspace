@@ -8,9 +8,16 @@
 // 作り直して使う。パス定数は `e2e-rest-paths.ts`、seed 本体は `e2e-rest-seed.ts` 側に置き、
 // 本ファイルは何も export しない。
 
+import fs from 'node:fs/promises';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { E2E_REST_DATA_ROOT, E2E_REST_PORT } from './e2e-rest-paths.js';
+import {
+  E2E_REST_CONTROL_PORT,
+  E2E_REST_DATA_ROOT,
+  E2E_REST_LOG_DIR,
+  E2E_REST_PORT,
+} from './e2e-rest-paths.js';
 import { seedDataRoot } from './e2e-rest-seed.js';
 
 async function main(): Promise<void> {
@@ -24,6 +31,10 @@ async function main(): Promise<void> {
   process.env.AUTH_REQUIRED = 'true';
   process.env.AUDIT_DB = 'true';
   process.env.DATA_ROOT = E2E_REST_DATA_ROOT;
+  // ログ(監査ログ・修正履歴)も実行ごとの使い捨てにする(理由は `e2e-rest-paths.ts`)。
+  // `logger.ts` が import 時に作り直すので、ここでは消すだけでよい。
+  process.env.LOG_DIR = E2E_REST_LOG_DIR;
+  await fs.rm(E2E_REST_LOG_DIR, { recursive: true, force: true });
   // 作成タブ(`POST /api/generate`)は生成器を子プロセスで呼ぶ。Windows は既定の PATH 上の
   // `python` を使う(開発機もユーザー環境変数 PATH の先頭に Python 3.13 を置く)。`python` が
   // Python 3 を指すとは限らない Linux(CI)だけ python3 を直接指す。
@@ -35,6 +46,24 @@ async function main(): Promise<void> {
   const { createSprocClient } = await import('../src/db/sproc.js');
   const { createFakeQuery } = await import('../test/fakes/sprocFake.js');
   const { startServer } = await import('../src/serve.js');
+
+  // テスト専用の制御ルート。`startServer` は app を返さず、本番の `buildApp` へテスト専用
+  // ルートを足さない方針なので、同じプロセスに別の loopback サーバを立てる(`resetLoginRateLimit`
+  // が触るのは同じモジュールインスタンスの計数)。127.0.0.1 でしか待ち受けないため認証は
+  // 不要のままにする: 受けるのは計数の白紙化だけで、e2e サーバ自体が使い捨てのフェイク環境。
+  const { resetLoginRateLimit } = await import('../src/auth/loginRateLimit.js');
+  const control = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/__e2e/reset-login-limit') {
+      resetLoginRateLimit();
+      res.writeHead(204).end();
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    control.once('error', reject);
+    control.listen(E2E_REST_CONTROL_PORT, '127.0.0.1', resolve);
+  });
 
   await startServer({ sproc: createSprocClient(await createFakeQuery()) });
   console.log(

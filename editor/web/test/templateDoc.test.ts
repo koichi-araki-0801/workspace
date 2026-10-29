@@ -72,10 +72,7 @@ describe('replaceBodyInner', () => {
 });
 
 describe('round-trip identity on real fixtures', () => {
-  const FIXTURES = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    '../src/api/fixtures',
-  );
+  const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../fixtures');
   const cases: Array<{ label: string; raw: string }> = [];
   for (const sub of ['filled', 'templates']) {
     const dir = path.join(FIXTURES, sub);
@@ -85,6 +82,9 @@ describe('round-trip identity on real fixtures', () => {
       cases.push({ label: `${sub}/${name}`, raw: readFileSync(path.join(dir, name), 'utf8') });
     }
   }
+
+  // 0 件だと it.each が素通りして「常に緑」になるため、下限を固定する。
+  it('fixture を読めている', () => expect(cases.length).toBe(8));
 
   it.each(cases)('$label: replaceBodyInner(raw, getBodyInner(raw)) === raw', ({ raw }) => {
     expect(replaceBodyInner(raw, getBodyInner(raw))).toBe(raw);

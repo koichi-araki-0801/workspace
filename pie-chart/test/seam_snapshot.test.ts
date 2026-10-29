@@ -35,8 +35,6 @@ function makePlacement(): Placement {
     minTextY: -1.2,
     origTextX: 1.5,
     origTextY: -0.25,
-    upperLeftHairpinCheck: false,
-    skipLeader: false,
     insideSlice: false,
     dominantOutsideEdge: true,
     nameScaleX: 0.7,
@@ -73,7 +71,6 @@ describe('seamSnapshot / seamRestore', () => {
     p.leaderBendFollowsEndpointX = true;
     p.forceTopRight = true;
     p.dominantOutsideEdge = false;
-    p.skipLeader = true;
     p.origTextX = 0;
     p.origTextY = 0;
     p.maxTextX = undefined;

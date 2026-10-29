@@ -136,11 +136,8 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     leaderRenderScale: 1,
     labelRadiusRenderScale: 0.88,
     denseSideOutsideRadiusFactor: 1.12,
-    radialExitRenderScale: 0.82,
     radialExitLen: 0.1,
 
-    yTop: 1.18,
-    yBottom: -1.18,
     minGap: 0.16,
     minGapMultiline: 0.25,
     minGapDense: 0.21,
@@ -300,9 +297,6 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     get scaledRadialExitLen(): number {
       return this.radialExitLen * Math.max(0.85, 1.0 + (this.fontScale - 1.0) * 0.2);
     },
-    get renderRadialExitLen(): number {
-      return this.scaledRadialExitLen * this.radialExitRenderScale;
-    },
     get scaledMinGap(): number {
       return this.minGap * this.gapScale;
     },
@@ -353,9 +347,6 @@ export function createPieLayoutConfig(overrides: Partial<PieLayoutConfig> = {}):
     },
     get lowerBandYThreshold(): number {
       return -0.55 * this.geometryScale;
-    },
-    get flipHorizontalCap(): number {
-      return 0.18 * this.geometryScale;
     },
     get flipPieClearance(): number {
       return 0.12 * this.gapScale;

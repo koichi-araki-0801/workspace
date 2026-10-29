@@ -99,7 +99,7 @@ interface Session {
 /** プロキシが 1 回の lookup で必要とする値。port と docBase を別々に引くと、その間に
  * TTL 失効や `evictOldest` が走って「別セッションの docBase で別セッションの port へ
  * 転送する」形が理論上作れるため、1 つにまとめる。 */
-export interface PreviewTarget {
+interface PreviewTarget {
   port: number;
   docBase: string;
 }

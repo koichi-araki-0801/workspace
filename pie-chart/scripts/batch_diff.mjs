@@ -1,7 +1,7 @@
 // =============================================================================
 // batch_diff.mjs — `out/svg_js` と `out/_baseline` の SHA256 byte-diff 検証
 // =============================================================================
-// リファクタの挙動保証(出力バイト不変の鉄則)を機械化する。`npm run batch` で
+// リファクタの挙動保証(出力バイト不変の鉄則)を機械化する。`pnpm run batch` で
 // `out/svg_js` を再生成した後に実行し、baseline と 1 バイトでも違えば非 0 exit で
 // 差分ファイル名を列挙する。比較は SVG のみ(compare.html は生成時刻を含むため対象外)。
 
@@ -20,11 +20,11 @@ function listSvgNames(dir) {
     if (dir === baselineDir) {
       console.error(
         '[batch:diff] baseline がありません。初回はコミット済みのクリーンな状態で ' +
-          '`npm run batch` → `npm run baseline:accept` を実行して基準を作成してください',
+          '`pnpm run batch` → `pnpm run baseline:accept` を実行して基準を作成してください',
       );
     } else {
       console.error(
-        '[batch:diff] out/svg_js がありません。`npm run batch` で出力を生成してください',
+        '[batch:diff] out/svg_js がありません。`pnpm run batch` で出力を生成してください',
       );
     }
     process.exit(1);
@@ -64,6 +64,6 @@ if (extra.length > 0) console.error(`[batch:diff] 追加 (${extra.length}): ${ex
 if (changed.length > 0)
   console.error(`[batch:diff] 差分 (${changed.length}): ${changed.join(', ')}`);
 console.error(
-  '[batch:diff] NG — 出力が baseline と一致しません (意図的な場合は `npm run baseline:accept` で baseline を更新)',
+  '[batch:diff] NG — 出力が baseline と一致しません (意図的な場合は `pnpm run baseline:accept` で baseline を更新)',
 );
 process.exit(1);

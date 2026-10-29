@@ -133,6 +133,42 @@ describe('xlsx 入力の明示エラー', () => {
     );
   });
 
+  it('エラー値のセルは name 列でも value 列でも、行番号とエラー値を添えて投げる', async () => {
+    // エラー値は `{ error: '#N/A' }` というオブジェクトで、文字列化すると
+    // "[object Object]" という名前のスライスとして黙って帳票へ載る。
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Sheet1');
+    ws.getCell('A1').value = { error: '#N/A' } as ExcelJS.CellErrorValue;
+    ws.getCell('B1').value = 1;
+    const namePath = join(work, 'error-name.xlsx');
+    await wb.xlsx.writeFile(namePath);
+    await expect(resolveInputDataAsync(xlsxOpts(namePath, 'Sheet1', 'A1:B1'))).rejects.toThrow(
+      /Excel error value #N\/A at row 1 \(name column\)\./,
+    );
+
+    const wb2 = new ExcelJS.Workbook();
+    const ws2 = wb2.addWorksheet('Sheet1');
+    ws2.getCell('A1').value = 'A';
+    ws2.getCell('B1').value = { formula: '1/0', result: { error: '#DIV/0!' } } as ExcelJS.CellValue;
+    const valuePath = join(work, 'error-value.xlsx');
+    await wb2.xlsx.writeFile(valuePath);
+    await expect(resolveInputDataAsync(xlsxOpts(valuePath, 'Sheet1', 'A1:B1'))).rejects.toThrow(
+      /Excel error value #DIV\/0! at row 1 \(value column\)\./,
+    );
+  });
+
+  it('数式の結果がエラー値の名前セルも同じく投げる', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Sheet1');
+    ws.getCell('A1').value = { formula: 'NA()', result: { error: '#N/A' } } as ExcelJS.CellValue;
+    ws.getCell('B1').value = 1;
+    const path = join(work, 'error-formula-name.xlsx');
+    await wb.xlsx.writeFile(path);
+    await expect(resolveInputDataAsync(xlsxOpts(path, 'Sheet1', 'A1:B1'))).rejects.toThrow(
+      /Excel error value #N\/A at row 1 \(name column\)\./,
+    );
+  });
+
   it('range に 1 行もデータが無ければ投げる(空の SVG を書かない)', async () => {
     const path = await writeSheet('empty.xlsx', 'Sheet1', [['見出し', '値']]);
     await expect(resolveInputDataAsync(xlsxOpts(path, 'Sheet1', 'A2:B5'))).rejects.toThrow(

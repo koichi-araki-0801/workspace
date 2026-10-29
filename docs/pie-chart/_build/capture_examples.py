@@ -3,7 +3,7 @@
 
 `pie-chart/out/svg_js/` の生成済み SVG から代表 2 件を PNG 化し、`out/compare.html`
 ビューアの実画面を撮影して `docs/pie-chart/images/` へ出力する。事前に
-`pnpm --filter pie-chart run batch`（または pie-chart/ で `npm run batch`）で
+`pnpm --filter pie-chart run batch`（または pie-chart/ で `pnpm run batch`）で
 `out/` を生成しておくこと（本スクリプトは pie-chart/ 配下へ一切書き込まない）。
 
 ラスタライズ・撮影の定型部（launch/コンテキスト/解像度規約）は `docs/_build/shot.py` に
@@ -34,7 +34,7 @@ SAMPLES = [
 def main() -> int:
     missing = [s for s, _ in SAMPLES if not (OUT_DIR / "svg_js" / s).exists()]
     if missing or not (OUT_DIR / "compare.html").exists():
-        print("out/ が未生成です。先に `npm run batch` を実行してください:", missing)
+        print("out/ が未生成です。先に `pnpm run batch` を実行してください:", missing)
         return 1
 
     IMAGES.mkdir(parents=True, exist_ok=True)

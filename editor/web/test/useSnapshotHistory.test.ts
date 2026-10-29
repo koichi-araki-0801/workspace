@@ -149,6 +149,65 @@ describe('useSnapshotHistory', () => {
     expect(box.state).toBe('b');
   });
 
+  // テキスト編集の保留中に別の操作(改ページ・配置の初期化・パーツの追加)が `beginUndo` を
+  // 呼んでも、テキスト編集の開始時点を失わず、それ単独の 1 手として戻せること。
+  describe('保留中の beginUndo', () => {
+    it('保留中の変更を 1 手として確定し、新しい操作と別々に戻せる', () => {
+      const { box, h } = setup();
+      h.beginUndo(); // テキスト編集の開始 'a'
+      box.state = 'b';
+      h.beginUndo(); // 新しい操作の開始 'b'
+      box.state = 'c';
+      h.commitUndo();
+      h.commitUndo(); // テキスト編集の終了。確定済みなので積まない
+      expect(h.depth()).toBe(2);
+      h.undo();
+      expect(box.state).toBe('b');
+      h.undo();
+      expect(box.state).toBe('a');
+      expect(h.canUndo.value).toBe(false);
+    });
+
+    it('保留中の snapshot が現在と同じなら余分な 1 手を積まない', () => {
+      const { box, h } = setup();
+      h.beginUndo(); // 'a'
+      h.beginUndo(); // 無変更のまま新しい操作
+      box.state = 'b';
+      h.commitUndo();
+      expect(h.depth()).toBe(1);
+      h.undo();
+      expect(box.state).toBe('a');
+      expect(h.canUndo.value).toBe(false);
+    });
+
+    it('新しい操作が cancel されてもテキスト編集の 1 手は残る', () => {
+      const { box, h } = setup();
+      h.beginUndo(); // 'a'
+      box.state = 'b';
+      h.beginUndo();
+      h.cancelUndo();
+      expect(h.depth()).toBe(1);
+      h.undo();
+      expect(box.state).toBe('a');
+    });
+
+    it('同じかどうかは init.equals で判定する', () => {
+      const box = { state: { html: 'a', css: '' } };
+      const h = useSnapshotHistory(
+        () => ({ ...box.state }),
+        (s) => {
+          box.state = s;
+        },
+        100,
+        { past: [], future: [], equals: (a, b) => a.html === b.html && a.css === b.css },
+      );
+      h.beginUndo();
+      h.beginUndo();
+      h.cancelUndo();
+      expect(h.depth()).toBe(0);
+    });
+  });
+
   it('commitUndo は beginUndo なしでは何もしない', () => {
     const { h } = setup();
     h.commitUndo();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDateTime, formatDateTimeShort, versionLabel } from '@/lib/format';
+import { formatDateTime, formatDateTimeShort, formatYmdCompact, versionLabel } from '@/lib/format';
 
 describe('formatDateTime', () => {
   it('returns an em dash for empty values', () => {
@@ -34,5 +34,13 @@ describe('versionLabel', () => {
   it('timestamp があれば「日時・編集者」、無ければ user だけ(現行版)', () => {
     expect(versionLabel({ timestamp: '2024-07-10T11:42:00Z', user: '太郎' })).toMatch(/・太郎$/);
     expect(versionLabel({ timestamp: '', user: '現行版' })).toBe('現行版');
+  });
+});
+
+describe('formatYmdCompact', () => {
+  it('ローカル時刻の日付を YYYYMMDD で返す(UTC の日付へずらさない)', () => {
+    // ローカル 0:30。UTC より東のタイムゾーンでは UTC 換算すると前日になる時刻。
+    expect(formatYmdCompact(new Date(2024, 0, 1, 0, 30))).toBe('20240101');
+    expect(formatYmdCompact(new Date(2024, 6, 10, 23, 59))).toBe('20240710');
   });
 });

@@ -2,25 +2,27 @@
 .SYNOPSIS
   pie-chart の配布物(dist-exe)を配る前に検査する関所。
 .DESCRIPTION
-  次の 3 点を検査し、1 つでも満たさなければ非ゼロ終了する。
+  次の 4 点を検査し、1 つでも満たさなければ非ゼロ終了する。
 
-    1. dist-exe の中身が想定の 4 点だけであること。
-       pie-chart.exe / *.cer / OFL-BIZUDPGothic.txt / SIGNING-INFO.txt 以外の
-       ファイルもディレクトリも許さない。これは **sidecar が復活していないことの機械検査**
-       である。exe の隣に fonts\ や node_modules\ が居ると、署名の外にある書き換え可能な
-       ファイルを実行時に読む経路が戻ってしまう。
-    2. exe の Authenticode 署名が付いており、署名者の thumbprint が期待値と一致すること。
-       自己署名では検査端末のストア次第で Status が Valid / UnknownError のどちらにもなるので、
-       この 2 値のみを許す(HashMismatch / NotSigned は失敗)。
+    1. dist-exe の中身が想定どおりであること。未署名なら pie-chart.exe / OFL-BIZUDPGothic.txt の
+       2 点、署名ありなら加えて *.cer / SIGNING-INFO.txt の 4 点。それ以外のファイルもディレクトリも
+       許さない。これは **sidecar が復活していないことの機械検査**である。exe の隣に fonts\ や
+       node_modules\ が居ると、exe の外にある書き換え可能なファイルを実行時に読む経路が戻ってしまう。
+    2. 署名の状態。pie-chart-codesign.cer があれば署名ありとみなし、Authenticode 署名が付いていて
+       署名者の thumbprint が期待値と一致すること(自己署名では検査端末のストア次第で Status が
+       Valid / UnknownError のどちらにもなるので、この 2 値のみを許す)。.cer が無ければ未署名と
+       みなし、Status が NotSigned であること(壊れた署名 HashMismatch が残っていないこと)。
     3. exe が実際に描画でき、出力 SVG が開発版(tsx)の出力と byte 一致すること。
        フォントも harfbuzz wasm も exe に埋め込んでいるので、外部に何も置かない状態で
        同じバイト列が出るのが正しい状態である。フルフォントへ静かに落ちていれば
        ここで差分になる。
+    4. pie-chart.exe db-check が成功し、実行ごとのフォルダ(%TEMP%\pie-chart-db\...)が残らないこと。
+       DB 機能を外した exe(--no-db)を誤って配るのを防ぐ。
 .PARAMETER DistDir
   検査する配布ディレクトリ。既定は本スクリプトの 1 つ上の dist-exe。
 .PARAMETER Thumbprint
   期待する署名者 thumbprint。未指定なら scripts\signing.local.json または
-  環境変数 PIECHART_SIGN_THUMBPRINT を見る。
+  環境変数 PIECHART_SIGN_THUMBPRINT を見る。署名ありの配布物を検査するときだけ使う。
 .PARAMETER Sample
   出力比較に使う組み込みサンプル名。既定 asset_gbca_pdf_like。
 .PARAMETER SkipRender
@@ -37,6 +39,8 @@ param(
   [switch]$SkipRender
 )
 $ErrorActionPreference = 'Stop'
+# exe は UTF-8 で書く。既定の cp932 で読むと db-check の「—」などが化け、出力の照合が外れる。
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $root = Split-Path -Parent $PSScriptRoot
 if (-not $DistDir) { $DistDir = Join-Path $root 'dist-exe' }
@@ -52,7 +56,9 @@ function Fail([string]$msg) {
 }
 
 # ── 1. 配布物の閉包検査(sidecar が復活していないこと) ──
-$allowed = @('pie-chart.exe', 'pie-chart-codesign.cer', 'OFL-BIZUDPGothic.txt', 'SIGNING-INFO.txt')
+$signed = Test-Path -LiteralPath (Join-Path $DistDir 'pie-chart-codesign.cer')
+$allowed = @('pie-chart.exe', 'OFL-BIZUDPGothic.txt')
+if ($signed) { $allowed += @('pie-chart-codesign.cer', 'SIGNING-INFO.txt') }
 $entries = Get-ChildItem -LiteralPath $DistDir -Force -Recurse
 foreach ($e in $entries) {
   if ($e.PSIsContainer) {
@@ -69,26 +75,32 @@ if ($failed -eq 0) { Write-Host '[verify-dist] OK: 配布物は想定どおり(s
 
 # ── 2. 署名の検査 ──
 if (Test-Path -LiteralPath $exePath) {
-  if (-not $Thumbprint) { $Thumbprint = $env:PIECHART_SIGN_THUMBPRINT }
-  if (-not $Thumbprint) {
-    $local = Join-Path $PSScriptRoot 'signing.local.json'
-    if (Test-Path -LiteralPath $local) {
-      $Thumbprint = (Get-Content -LiteralPath $local -Raw | ConvertFrom-Json).thumbprint
-    }
-  }
   $sig = Get-AuthenticodeSignature -FilePath $exePath
-  $okStatuses = @('Valid', 'UnknownError')
-  if ($okStatuses -notcontains $sig.Status.ToString()) {
-    Fail "署名の状態が不正です: Status=$($sig.Status)"
-  } elseif (-not $Thumbprint) {
-    Fail '期待する thumbprint が不明です(scripts\signing.local.json か -Thumbprint で指定)'
-  } else {
-    $expected = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
-    if ($sig.SignerCertificate.Thumbprint -ne $expected) {
-      Fail "署名者が一致しません: $($sig.SignerCertificate.Thumbprint) != $expected"
-    } else {
-      Write-Host "[verify-dist] OK: 署名 $($sig.Status) / thumbprint $expected"
+  if ($signed) {
+    if (-not $Thumbprint) { $Thumbprint = $env:PIECHART_SIGN_THUMBPRINT }
+    if (-not $Thumbprint) {
+      $local = Join-Path $PSScriptRoot 'signing.local.json'
+      if (Test-Path -LiteralPath $local) {
+        $Thumbprint = (Get-Content -LiteralPath $local -Raw | ConvertFrom-Json).thumbprint
+      }
     }
+    $okStatuses = @('Valid', 'UnknownError')
+    if ($okStatuses -notcontains $sig.Status.ToString()) {
+      Fail "署名の状態が不正です: Status=$($sig.Status)"
+    } elseif (-not $Thumbprint) {
+      Fail '期待する thumbprint が不明です(scripts\signing.local.json か -Thumbprint で指定)'
+    } else {
+      $expected = ($Thumbprint -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()
+      if ($sig.SignerCertificate.Thumbprint -ne $expected) {
+        Fail "署名者が一致しません: $($sig.SignerCertificate.Thumbprint) != $expected"
+      } else {
+        Write-Host "[verify-dist] OK: 署名 $($sig.Status) / thumbprint $expected"
+      }
+    }
+  } elseif ($sig.Status.ToString() -ne 'NotSigned') {
+    Fail "未署名の配布物のはずが、署名の状態が NotSigned ではありません: Status=$($sig.Status)"
+  } else {
+    Write-Host '[verify-dist] OK: 未署名(NotSigned)'
   }
 }
 
@@ -107,7 +119,7 @@ if (-not $SkipRender -and (Test-Path -LiteralPath $exePath)) {
     if ($LASTEXITCODE -ne 0) { Fail "exe の描画が失敗しました (exit $LASTEXITCODE)" }
     Push-Location $root
     try {
-      npx tsx src/cli.ts one --sample $Sample --output-file $devSvg | Out-Null
+      pnpm exec tsx src/cli.ts one --sample $Sample --output-file $devSvg | Out-Null
       if ($LASTEXITCODE -ne 0) { Fail "開発版の描画が失敗しました (exit $LASTEXITCODE)" }
     } finally { Pop-Location }
     if ((Test-Path $exeSvg) -and (Test-Path $devSvg)) {
@@ -121,6 +133,32 @@ if (-not $SkipRender -and (Test-Path -LiteralPath $exePath)) {
     }
   } finally {
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
+
+# ── 4. DB ドライバを読み込めること(DB 機能を外した exe を配らない) ──
+if (Test-Path -LiteralPath $exePath) {
+  # 'Stop' のままだと、PowerShell 5.1 は native exe の stderr の行(警告など)を 2>&1 で
+  # 受けた時点で終了エラーにする。ここだけ 'Continue' にして終了コードで判定する。
+  $prevPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $out = & $exePath db-check 2>&1 | Out-String
+    $dbCheckExit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $prevPreference
+  }
+  if ($dbCheckExit -ne 0) {
+    Fail "db-check が失敗しました (exit $dbCheckExit)`n$out"
+  } else {
+    $m = [regex]::Match($out, '\[db-check\] extract: OK — (.+)')
+    if (-not $m.Success) {
+      Fail "db-check の出力に実行ごとのフォルダがありません`n$out"
+    } elseif (Test-Path -LiteralPath $m.Groups[1].Value.Trim()) {
+      Fail "実行ごとのフォルダが残っています: $($m.Groups[1].Value.Trim())"
+    } else {
+      Write-Host '[verify-dist] OK: DB ドライバを読み込め、フォルダも残っていない'
+    }
   }
 }
 

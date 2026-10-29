@@ -107,8 +107,11 @@ describe('srcdoc iframe の sandbox ガード', () => {
   it('テンプレ本文を映す iframe は allow-scripts で開く(JS を殺さない)', () => {
     // `allow-same-origin` 単独へ戻すと、承認者は「JS が効いていない見た目」を承認する。
     // 対象は srcdoc を持つ(= テンプレ本文を映す)フレームに限る。
+    // 下限は今の数(比較画面の 2 面とパーツのプレビュー)。承認タブのパーツ行の
+    // 2 面(`ReviewDetail.vue`)は、紙面を `PreviewPanel` の枠へ一本化したときに無くなった。
+    // iframe が減るのは安全側の変化なので下限を下げたが、残る iframe への検査は弱めていない。
     const srcdocFrames = FRAMES.filter((f) => /srcdoc/.test(f.tag));
-    expect(srcdocFrames.length).toBeGreaterThanOrEqual(4);
+    expect(srcdocFrames.length).toBeGreaterThanOrEqual(3);
     const inert = srcdocFrames.filter((f) => !/allow-scripts/.test(f.tag)).map((f) => f.file);
     expect(inert, `JS が動かない iframe: ${inert.join(', ')}`).toEqual([]);
   });

@@ -35,29 +35,29 @@ describe('資格情報を書き換える分岐は明示トランザクション�
     expect(sql).toMatch(/SET\s+XACT_ABORT\s+ON;/);
   });
 
-  it.each([
-    'PWリセット',
-    'PW初期化',
-  ])('%s は BEGIN TRAN 〜 COMMIT で 2 つの UPDATE を束ねる', (name) => {
-    const b = branch(name);
-    expect(b).toMatch(/BEGIN\s+TRANSACTION;/);
-    expect(b).toMatch(/COMMIT\s+TRANSACTION;/);
-    // ユーザー表とセッション表の更新が同じ束の中にある。
-    const tranStart = b.indexOf('BEGIN TRANSACTION;');
-    const tranEnd = b.indexOf('COMMIT TRANSACTION;');
-    const body = b.slice(tranStart, tranEnd);
-    expect(body).toContain('[PWハッシュ]');
-    expect(body).toContain('[失効]');
-  });
+  it.each(['PWリセット', 'PW初期化'])(
+    '%s は BEGIN TRAN 〜 COMMIT で 2 つの UPDATE を束ねる',
+    (name) => {
+      const b = branch(name);
+      expect(b).toMatch(/BEGIN\s+TRANSACTION;/);
+      expect(b).toMatch(/COMMIT\s+TRANSACTION;/);
+      // ユーザー表とセッション表の更新が同じ束の中にある。
+      const tranStart = b.indexOf('BEGIN TRANSACTION;');
+      const tranEnd = b.indexOf('COMMIT TRANSACTION;');
+      const body = b.slice(tranStart, tranEnd);
+      expect(body).toContain('[PWハッシュ]');
+      expect(body).toContain('[失効]');
+    },
+  );
 
-  it.each([
-    'PWリセット',
-    'PW初期化',
-  ])('%s は失敗時に ROLLBACK し、番号を保って再送出する', (name) => {
-    const b = branch(name);
-    expect(b).toMatch(/BEGIN\s+CATCH/);
-    expect(b).toMatch(/IF\s+XACT_STATE\(\)\s*<>\s*0\s+ROLLBACK\s+TRANSACTION;/);
-    // `THROW;`(引数なし)でないと元の THROW 番号が失われ、Node 側の番号規約が壊れる。
-    expect(b).toMatch(/\n\s*THROW;/);
-  });
+  it.each(['PWリセット', 'PW初期化'])(
+    '%s は失敗時に ROLLBACK し、番号を保って再送出する',
+    (name) => {
+      const b = branch(name);
+      expect(b).toMatch(/BEGIN\s+CATCH/);
+      expect(b).toMatch(/IF\s+XACT_STATE\(\)\s*<>\s*0\s+ROLLBACK\s+TRANSACTION;/);
+      // `THROW;`(引数なし)でないと元の THROW 番号が失われ、Node 側の番号規約が壊れる。
+      expect(b).toMatch(/\n\s*THROW;/);
+    },
+  );
 });

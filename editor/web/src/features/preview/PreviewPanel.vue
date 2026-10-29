@@ -17,22 +17,39 @@
 // `@editor/shared` の postMessage 契約(`preview/hostProtocol.ts`)を通る。フィット計算と
 // `ResizeObserver` 相当は**子側で完結**しており、親へは表示用の zoom 値だけが返る。
 import {
+  isPreviewPartNo,
   PREVIEW_HOST_URL,
   PREVIEW_MSG_CMD,
   PREVIEW_MSG_DOC,
   PREVIEW_MSG_ERROR,
+  PREVIEW_MSG_MARKS,
+  PREVIEW_MSG_PART_CLICK,
+  PREVIEW_MSG_PART_PAGES,
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
   type PreviewCommand,
   type PreviewHostState,
+  type PreviewMarks,
+  parsePreviewDocSeq,
+  parsePreviewPartPages,
   unexpected,
 } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { logError } from '@/lib/appError';
 import { selfContainPreviewDoc } from '@/lib/previewSelfContain';
+import { RENDER_HOST_BOOT_TIMEOUT_MS } from '@/lib/renderHostClient';
 
-const props = defineProps<{ html: string }>();
+const props = defineProps<{
+  html: string;
+  /** テンプレ ID の会社コード(会社フォルダの画像の照合用。不明なら会社フォルダは埋めない)。 */
+  companyCode?: string | null;
+  /**
+   * 承認タブの目印(番号札・枠・空き枠)の状態。渡すと承認タブの紙面として扱い、文書に
+   * `review: true` を付けて子へ送る。文書は組み直さず、変わったら目印だけ送り直す。
+   */
+  marks?: PreviewMarks;
+}>();
 
 /** 親(上部バー)へ渡すページ送り/ズーム状態のスナップショット。 */
 const emit = defineEmits<{
@@ -45,8 +62,17 @@ const emit = defineEmits<{
       zoom: number;
       /** vivliostyle 描画中(= ズーム/ページ送り可)。iframe フォールバック時は false。 */
       vivlioReady: boolean;
+      /**
+       * いま渡している文書の組版が終わったか。文書が変わってから子が新しい文書を組み終えるまでは
+       * false(承認タブは組み直したあとの移り直しをこれで待つ)。
+       */
+      ready: boolean;
     },
   ];
+  /** 紙面のパーツが押された(番号の文字列。形は検査済み)。 */
+  'part-click': [no: string];
+  /** 子が数えた番号 → 物理ページ(0 始まり)。形だけ検査済みで、集合・上限の照合は受け手の役目。 */
+  'part-pages': [pages: Record<string, number>];
 }>();
 
 const hostUrl = PREVIEW_HOST_URL;
@@ -66,13 +92,20 @@ const nav = ref<PreviewHostState>({
 });
 // 子の boot 完了。未完了の間に届いた文書は保留し、ready 受信時に送る。
 const hostReady = ref(false);
-
 /**
- * 子から `ready` も状態通知も来ない場合の保険。ホストページの配信失敗(認証切れ・
- * バンドル欠落)やブラウザの sandbox 制約など、子が沈黙する形の失敗は親からは
- * 区別できないため、時間で切ってフォールバック表示へ倒す。
+ * 子へ文書を送った回数で、送った文書の番号(`PREVIEW_MSG_DOC` の `seq`)。子は通知にいま組んでいる
+ * 文書の番号を載せて返すので、これと違う通知は前の文書のものとして捨てる。e2e も「組み直したか」を
+ * これで見る。
  */
-const HOST_BOOT_TIMEOUT_MS = 15_000;
+const docSeq = ref(0);
+
+/** 子へ目印を送る。承認タブの紙面でない・簡易表示のときは送らない。 */
+function sendMarks() {
+  if (props.marks === undefined || useFallback.value) return;
+  postToHost({ type: PREVIEW_MSG_MARKS, marks: props.marks });
+}
+
+// 子から `ready` も状態通知も来ない場合の保険の期限は `RENDER_HOST_BOOT_TIMEOUT_MS`(理由はそちら)。
 /** 組版が終わらない場合のローダー強制解除。 */
 const RENDER_LOADER_FAILSAFE_MS = 30_000;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;
@@ -91,6 +124,7 @@ function emitState() {
     atLast: nav.value.atLast,
     zoom: nav.value.zoom,
     vivlioReady: !useFallback.value,
+    ready: nav.value.ready && !docPending,
   });
 }
 
@@ -118,28 +152,47 @@ function postToHost(message: Record<string, unknown>) {
   frame.value?.contentWindow?.postMessage(message, '*');
 }
 
+/** 承認タブの紙面なら文書に `review: true` を付ける(ホストはこれがあるときだけ札を描く)。 */
+function reviewFlag(): { review?: true } {
+  return props.marks === undefined ? {} : { review: true };
+}
+
 /** 進行中の自己完結化を識別する連番。文書が続けて変わったとき、古い結果を子へ送らない。 */
 let sendSeq = 0;
+/** 文書が変わってから子へ送るまでの間か。この間は親へ上げる `ready` を偽にする。 */
+let docPending = false;
+
+/** 文書を子へ送る。この文書の組版が終わるまで目印を送らないよう、ここで `ready` を落とす。 */
+function postDoc(html: string) {
+  docPending = false;
+  nav.value = { ...nav.value, ready: false };
+  docSeq.value++;
+  postToHost({ type: PREVIEW_MSG_DOC, html, seq: docSeq.value, ...reviewFlag() });
+}
 
 function sendDoc() {
   if (!hostReady.value || useFallback.value) return;
   loaderFailsafe = clearTimer(loaderFailsafe);
   rendering.value = props.html !== '';
   const seq = ++sendSeq;
+  // 子へ送るまでは前の文書が子に残っている。ここで `nav.ready` を落とすと、前の文書の
+  // `ready: true` が割り込んだときに目印が前の文書へ行き、新しい文書への送信が抜ける。
+  // 落とすのは送る直前(`postDoc`)にし、それまでは親へ上げる `ready` だけを偽にする。
+  docPending = true;
+  emitState();
   if (props.html === '') {
-    postToHost({ type: PREVIEW_MSG_DOC, html: '' });
-    emitState();
+    postDoc('');
     return;
   }
   // 子は opaque オリジンでサブリソース要求にセッション cookie が付かない(SameSite=Lax)。
   // テンプレ JS・フォントは**親のここで**文書へ埋めてから渡す(`previewSelfContain.ts`)。
   // 失敗時は原文のまま送る = 認証オフ環境なら子の相対参照が今までどおり解決される。
   // 加工は表示境界限定で、申請へ保存される `previewDoc`/`filledHtml` には触れない。
-  void selfContainPreviewDoc(props.html)
+  void selfContainPreviewDoc(props.html, undefined, { companyCode: props.companyCode ?? null })
     .catch(() => props.html)
     .then((html) => {
       if (seq !== sendSeq || !hostReady.value || useFallback.value) return;
-      postToHost({ type: PREVIEW_MSG_DOC, html });
+      postDoc(html);
     });
   // 子が COMPLETE へ到達しない非同期失敗への保険。組版自体は継続しうるので、
   // フォールバックへは倒さずローダーだけ解除する。
@@ -159,8 +212,22 @@ function sendDoc() {
  */
 function onMessage(e: MessageEvent) {
   if (!frame.value || e.source !== frame.value.contentWindow) return;
-  const data = e.data as { type?: unknown; state?: unknown; message?: unknown } | null;
+  const data = e.data as {
+    type?: unknown;
+    state?: unknown;
+    message?: unknown;
+    seq?: unknown;
+  } | null;
   if (!data || typeof data.type !== 'string') return;
+  // 文書についての通知は、最後に送った文書の番号のものだけ受ける(前の文書の `ready`・ページ表・
+  // 押下・組版の失敗が、送り直した直後に届いても新しい文書のものと取り違えない)。文書を送る前の
+  // エラー(ビューアの起動の失敗)は、子も番号 0 で送る。
+  const aboutDoc =
+    data.type === PREVIEW_MSG_STATE ||
+    data.type === PREVIEW_MSG_PART_CLICK ||
+    data.type === PREVIEW_MSG_PART_PAGES ||
+    data.type === PREVIEW_MSG_ERROR;
+  if (aboutDoc && parsePreviewDocSeq(data.seq) !== docSeq.value) return;
   if (data.type === PREVIEW_MSG_READY) {
     bootTimer = clearTimer(bootTimer);
     hostReady.value = true;
@@ -170,6 +237,7 @@ function onMessage(e: MessageEvent) {
   if (data.type === PREVIEW_MSG_STATE) {
     const s = data.state as Partial<PreviewHostState> | null;
     if (!s) return;
+    const wasReady = nav.value.ready;
     nav.value = {
       currentPage: Number(s.currentPage) || 1,
       pageCount: Number(s.pageCount) || 0,
@@ -179,10 +247,22 @@ function onMessage(e: MessageEvent) {
       ready: s.ready === true,
     };
     if (nav.value.ready) {
+      // 文書ごとに 1 回、組版が終わったところで目印を送る。
+      if (!wasReady) sendMarks();
       loaderFailsafe = clearTimer(loaderFailsafe);
       rendering.value = false;
     }
     emitState();
+    return;
+  }
+  if (data.type === PREVIEW_MSG_PART_CLICK) {
+    const part = (data as { part?: unknown }).part;
+    if (isPreviewPartNo(part)) emit('part-click', part);
+    return;
+  }
+  if (data.type === PREVIEW_MSG_PART_PAGES) {
+    const pages = parsePreviewPartPages((data as { pages?: unknown }).pages);
+    if (pages !== null) emit('part-pages', pages);
     return;
   }
   if (data.type === PREVIEW_MSG_ERROR) {
@@ -197,7 +277,7 @@ function onFrameLoad() {
   bootTimer = setTimeout(() => {
     bootTimer = null;
     if (!hostReady.value) fallback('ビューアの起動確認が取れませんでした');
-  }, HOST_BOOT_TIMEOUT_MS);
+  }, RENDER_HOST_BOOT_TIMEOUT_MS);
 }
 
 const send = (cmd: PreviewCommand, page?: number) => {
@@ -225,11 +305,25 @@ function zoomOut() {
 function fit() {
   send('fit');
 }
-/** 精査画面の変更箇所ジャンプ。`id` は `buildCompareDocs` が付与する `review-anchor-<n>`。 */
+/** 承認タブのページの先頭へ移る。`id` は `buildCompareDoc` が振るアンカー(既存の id を含む)。 */
 function gotoAnchor(id: string) {
   if (useFallback.value) return;
   postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoAnchor', anchor: id });
 }
+
+/** 承認タブのパーツへ飛ぶ。`no` は番号の文字列。 */
+function gotoPart(no: string) {
+  if (useFallback.value) return;
+  postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoPart', part: no });
+}
+
+// 目印だけが変わったときは文書を送らず、目印だけ送り直す(組版中は ready 時の送信に任せる)。
+watch(
+  () => props.marks,
+  () => {
+    if (nav.value.ready) sendMarks();
+  },
+);
 
 watch(
   () => props.html,
@@ -254,11 +348,14 @@ onBeforeUnmount(() => {
   loaderFailsafe = clearTimer(loaderFailsafe);
 });
 
-defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit, gotoAnchor });
+defineExpose({ prevPage, nextPage, goToPage, zoomIn, zoomOut, fit, gotoAnchor, gotoPart });
 </script>
 
 <template>
-  <div class="relative h-full w-full overflow-hidden bg-canvas-backdrop">
+  <div
+    class="relative h-full w-full overflow-hidden bg-canvas-backdrop"
+    :data-doc-seq="docSeq"
+  >
     <div
       v-if="rendering"
       class="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-white/70 text-sm text-muted-foreground"

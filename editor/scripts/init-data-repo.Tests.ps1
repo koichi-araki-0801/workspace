@@ -24,17 +24,17 @@ function New-HandMadeContent([string]$root) {
     New-Item -ItemType Directory -Force -Path (Join-Path $root $d) | Out-Null
   }
   Set-Content -LiteralPath (Join-Path $root 'templates\T1.html') -Value '<p>t</p>' -NoNewline
-  Set-Content -LiteralPath (Join-Path $root 'css\510037.css') -Value '.a{}' -NoNewline
+  Set-Content -LiteralPath (Join-Path $root 'css\950037.css') -Value '.a{}' -NoNewline
   Set-Content -LiteralPath (Join-Path $root 'css\fonts\a.woff2') -Value 'FONT' -NoNewline
   Set-Content -LiteralPath (Join-Path $root 'assets\fonts\b.woff2') -Value 'OLD' -NoNewline
   Set-Content -LiteralPath (Join-Path $root 'js\w.js') -Value 'w()' -NoNewline
-  Set-Content -LiteralPath (Join-Path $root 'images\510037_logo.svg') -Value '<svg/>' -NoNewline
+  Set-Content -LiteralPath (Join-Path $root 'images\950037_logo.svg') -Value '<svg/>' -NoNewline
   Set-Content -LiteralPath (Join-Path $root 'notes\T1.json') -Value '{}' -NoNewline
 }
 
 function Get-Tracked([string]$root) { (@(git -C $root ls-files) | Sort-Object) -join ',' }
 
-$expectedTracked = '.gitattributes,.gitignore,css/510037.css,templates/T1.html'
+$expectedTracked = '.gitattributes,.gitignore,css/950037.css,templates/T1.html'
 
 # 本物の dataRoot になりうる場所(ユーザー環境変数 DATA_ROOT と、実リポジトリから見た既定の
 # <ワークスペースの親>\editor-data)。テストがそこへ届いたら止めるための比較にだけ使い、中は読まない。
@@ -89,7 +89,7 @@ Describe 'init-data-repo.ps1' {
       git -C $root add -A 2>$null
       Invoke-Init @{ DataRoot = $root } | Out-Null
       Get-Tracked $root | Should Be $expectedTracked
-      foreach ($f in 'assets\fonts\b.woff2', 'js\w.js', 'css\fonts\a.woff2', 'images\510037_logo.svg', 'notes\T1.json') {
+      foreach ($f in 'assets\fonts\b.woff2', 'js\w.js', 'css\fonts\a.woff2', 'images\950037_logo.svg', 'notes\T1.json') {
         Test-Path (Join-Path $root $f) | Should Be $true
       }
     } finally { Remove-Item -Recurse -Force $root }
@@ -108,7 +108,7 @@ Describe 'init-data-repo.ps1' {
       $lines -contains '/local-only/' | Should Be $true
       $lines -contains '/css/fonts/' | Should Be $true
       ((git -C $root show HEAD:.gitignore) -join '|') | Should Be ($lines -join '|')
-      foreach ($f in 'assets\fonts\b.woff2', 'js\w.js', 'css\fonts\a.woff2', 'images\510037_logo.svg', 'notes\T1.json') {
+      foreach ($f in 'assets\fonts\b.woff2', 'js\w.js', 'css\fonts\a.woff2', 'images\950037_logo.svg', 'notes\T1.json') {
         Test-Path (Join-Path $root $f) | Should Be $true
       }
     } finally { Remove-Item -Recurse -Force $root }

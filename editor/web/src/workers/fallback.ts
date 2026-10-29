@@ -7,14 +7,14 @@
 // 束ねるだけにする。
 import { isAppError, unexpected } from '@editor/shared';
 import { logError } from '@/lib/appError';
-import type { AsyncHtmlWorker } from './index';
+import type { AsyncHtmlWorker } from './htmlApi';
 
 /**
  * Worker 呼び出しの打ち切り時間。**一度でも応答が返った後**のタイムアウトは main-thread への
  * 救済ではなくエラーにするので(下記 `call` の doc を参照)、救済を失う代わりに待ち時間を
  * 長く取る。重処理(400 ページ級の diff/mask)でも数秒で済むため 120 秒は十分な余裕。
  */
-export const WORKER_CALL_TIMEOUT_MS = 120_000;
+const WORKER_CALL_TIMEOUT_MS = 120_000;
 
 /**
  * **初回応答が返る前**の打ち切り時間。この時間帯のハングは重処理ではなく
@@ -25,7 +25,7 @@ export const WORKER_CALL_TIMEOUT_MS = 120_000;
  * 残す**(120 秒待たせてから失敗にすると元の不具合が再発する)。
  * 初回は 1 回しか起きないので「同じ重処理を 2 回走らせる増幅器」にはならない。
  */
-export const WORKER_HANDSHAKE_TIMEOUT_MS = 30_000;
+const WORKER_HANDSHAKE_TIMEOUT_MS = 30_000;
 
 /** タイムアウト起因の失敗を実行時エラーと区別するための機械可読コード。 */
 const WORKER_TIMEOUT_CODE = 'WORKER_TIMEOUT';

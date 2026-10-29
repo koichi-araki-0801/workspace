@@ -18,3 +18,10 @@ allowBuilds:
   "@biomejs/biome": true
   '@scarf/scarf': false
   msnodesqlv8: false
+
+# 推移依存の脆弱な版を底上げする。
+# dompurify: @vivliostyle/cli 11.4.0 が 3.4.13 を版固定しているため。
+# trim: remark 系の古い推移依存。出力は変わらず audit の high が消える。
+overrides:
+  dompurify: ">=3.4.17"
+  trim: ">=0.0.3"

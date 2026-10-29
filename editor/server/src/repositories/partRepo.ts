@@ -20,6 +20,10 @@ function classParams(q: PartClassificationQuery): Param[] {
     p('大分類', q.majorClass),
     p('中分類', q.middleClass),
     p('小分類', q.minorClass),
+    // 版種が空なら引数ごと省く。全件取得の呼び出し元が `@版種` の無い旧 sproc でも動くようにする。
+    ...(q.editionType ? [p('版種', q.editionType)] : []),
+    // 委託会社コードも同じ理由で、空なら引数ごと省く。
+    ...(q.companyCode ? [p('委託会社コード', q.companyCode)] : []),
   ];
 }
 
@@ -32,8 +36,18 @@ export function createPartRepo(sproc: SprocClient): PartRepo {
   return {
     async getPartClassificationOptions(q) {
       const rows = await sproc.callSproc(SP.part, '分類候補', classParams(q));
+      // 実DBには未使用の分類階層が空文字で入る。空値をSelect候補へ渡すとUIが例外になるため除外し、
+      // 前後空白だけが異なる候補も同じ分類としてまとめる。一覧側の分類値は変更しない。
       const pick = (kbn: string) =>
-        rows.filter((r) => asString(r.区分) === kbn).map((r) => asString(r.値));
+        Array.from(
+          new Set(
+            rows
+              .filter((r) => asString(r.区分) === kbn)
+              .map((r) => asString(r.値).trim())
+              .filter((value) => value.length > 0),
+          ),
+        );
+
       return {
         categories: pick('カテゴリ'),
         majorClasses: pick('大分類'),
@@ -61,6 +75,9 @@ export function createPartRepo(sproc: SprocClient): PartRepo {
         // 値域は DDL の CHECK([CK_パーツ_同期既定] 等)が保証するため cast で写す。NULL = 未判断。
         syncDefault: asStringOrNull(r.同期既定) as PartSyncDefault | null,
         masterReflectDefault: asStringOrNull(r.次回反映既定) as PartMasterReflectDefault | null,
+        targetEdition: asStringOrNull(r.対象版種),
+        // CHAR(5) の末尾空白は値でないので落とす。
+        companyCode: asStringOrNull(r.委託会社コード)?.trimEnd() ?? null,
       }));
     },
   };

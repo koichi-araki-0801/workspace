@@ -7,11 +7,11 @@ import ReviewNoticeBar from '@/features/reviews/ReviewNoticeBar.vue';
 
 const noneProps = {
   cssChanged: false,
+  sharedAcrossBaseDates: false,
   cssBefore: '',
   cssAfter: '',
   printOnlyCss: false,
   truncated: false,
-  hiddenRowCount: 0,
   pdfGenerating: false,
 };
 
@@ -59,8 +59,56 @@ describe('ReviewNoticeBar', () => {
     expect(btn.attributes('disabled')).toBeDefined();
   });
 
-  it('一覧打ち切り(hiddenRowCount)は分割再申請の依頼文で出す', () => {
-    const w = mount(ReviewNoticeBar, { props: { ...noneProps, hiddenRowCount: 5 } });
-    expect(w.text()).toContain('分けて出し直す');
+  it('打ち切りは新しい文言で出し、タブ前提の語を含まない', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, truncated: true } });
+    expect(w.text()).toContain('変更が多すぎるため、文字の変更をすべては照合できませんでした');
+    expect(w.text()).toContain('この申請は最終確定できません。申請を分けてもらってください。');
+    expect(w.text()).not.toContain('文字の変更の一覧');
+    expect(w.text()).not.toContain('見た目比較');
+  });
+
+  it('注意書きは 3 種までで、CSS の差分を見る導線は出さない', () => {
+    const w = mount(ReviewNoticeBar, {
+      props: { ...noneProps, cssChanged: true, printOnlyCss: true, truncated: true },
+    });
+    expect(w.findAll('[data-notice-item]')).toHaveLength(3);
+    expect(w.find('summary').text()).toContain('3 件');
+    expect(w.text()).not.toContain('CSS の差分を見る');
+    expect(w.text()).not.toContain('見た目比較');
+  });
+
+  it('値入り HTML の申請で書式が変わったら、他の基準日にも効くことを書式の項目の中に出す', () => {
+    const w = mount(ReviewNoticeBar, {
+      props: { ...noneProps, cssChanged: true, sharedAcrossBaseDates: true },
+    });
+    const items = w.findAll('[data-notice-item]');
+    expect(items[0].find('[data-shared-base-dates]').text()).toBe(
+      'この CSS は同じテンプレの他の基準日にも効きます',
+    );
+  });
+
+  it('書式の項目は、ペアの版種へも写ることを添える', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, cssChanged: true } });
+    expect(w.findAll('[data-notice-item]')[0].text()).toContain(
+      'ペアの版種（交付版⇔全体版）にも、ペア側で個別に直していない書式は承認のときに写ります',
+    );
+  });
+
+  it('作成タブ(テンプレ)の申請では基準日の注意を出さない', () => {
+    const w = mount(ReviewNoticeBar, {
+      props: { ...noneProps, cssChanged: true, sharedAcrossBaseDates: false },
+    });
+    expect(w.find('[data-shared-base-dates]').exists()).toBe(false);
+  });
+
+  it('書式が変わっていなければ基準日の注意も出さない', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, sharedAcrossBaseDates: true } });
+    expect(w.find('[data-shared-base-dates]').exists()).toBe(false);
+  });
+
+  it('書式の項目はファンド単位の言い方をしない(CSS はテンプレ単位)', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, cssChanged: true } });
+    expect(w.text()).toContain('このテンプレートの書式設定も変更されています');
+    expect(w.text()).not.toContain('このファンドの');
   });
 });

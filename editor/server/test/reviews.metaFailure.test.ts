@@ -1,7 +1,7 @@
 // =============================================================================
 // reviews.metaFailure.test.ts — 承認確定メタ更新の部分失敗(リトライ/明示エラー)
 // =============================================================================
-// `applyConfirmedSave`(実ファイル反映 + git commit)成功後の `updateReviewMeta` 失敗を
+// `applyConfirmedWrite`(実ファイル反映 + git commit)成功後の `updateReviewMeta` 失敗を
 // 部分モックで再現し、(a) 一時失敗はリトライで回復する、(b) 恒常失敗は
 // `REVIEW_META_UPDATE_FAILED` の明示エラーになり実ファイルは反映済みのまま残る、を検証する。
 // vi.mock は hoist されるため `reviews.test.ts` とはファイルを分ける。
@@ -26,7 +26,7 @@ process.env.PENDING_DIR = path.join(tmp, 'pending');
 process.env.AUDIT_DB = 'false';
 
 // updateReviewMeta だけを差し替え、指定回数だけ失敗させる(他は実装のまま)。
-const metaFail = vi.hoisted(() => ({ remaining: 0 }));
+const metaFail = vi.hoisted(() => ({ remaining: 0, calls: 0 }));
 vi.mock('../src/files/reviewFiles.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/files/reviewFiles.js')>();
   return {
@@ -34,6 +34,7 @@ vi.mock('../src/files/reviewFiles.js', async (importOriginal) => {
     updateReviewMeta: async (
       ...args: Parameters<typeof actual.updateReviewMeta>
     ): ReturnType<typeof actual.updateReviewMeta> => {
+      metaFail.calls++;
       if (metaFail.remaining > 0) {
         metaFail.remaining--;
         throw new Error('EPERM: simulated meta write failure');
@@ -57,13 +58,20 @@ d('review approve — meta 更新の部分失敗', () => {
   const approver = { username: 'approver1', role: 'approver' };
 
   // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
-  const submit = (templateId: string, fundCode: string, html: string) => {
+  // 変わったパーツ(`p#1`)の判定が揃わないと最終確定できないので、申請と同時に承認しておく。
+  const submit = async (templateId: string, html: string) => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>既存の値入り</p>', 'utf8');
-    return reviews.submitReview(
-      { templateId, html, css: '.x{}', fundCode, origin: 'edit' },
+    const meta = await reviews.submitReview(
+      { templateId, html, css: '.x{}', origin: 'edit' },
       submitter,
     );
+    await reviews.updatePartDecisions(
+      meta.id,
+      { decisions: [{ partKey: 'p#1', status: 'approved' }] },
+      approver,
+    );
+    return meta;
   };
 
   beforeAll(async () => {
@@ -77,8 +85,8 @@ d('review approve — meta 更新の部分失敗', () => {
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   it('一時失敗(1 回)はリトライで回復し approved になる', async () => {
-    const tplId = 'AM01_111111_20250101_交付版';
-    const meta = await submit(tplId, '111111', '<p>リトライ回復</p>');
+    const tplId = 'XX01_111111_20250101_交付版';
+    const meta = await submit(tplId, '<p>リトライ回復</p>');
     metaFail.remaining = 1;
 
     const res = await reviews.approveReview(meta.id, {}, approver);
@@ -88,8 +96,8 @@ d('review approve — meta 更新の部分失敗', () => {
   });
 
   it('恒常失敗は REVIEW_META_UPDATE_FAILED を投げ、実ファイルは反映済みのまま残る', async () => {
-    const tplId = 'AM01_222222_20250101_交付版';
-    const meta = await submit(tplId, '222222', '<p>恒常失敗</p>');
+    const tplId = 'XX01_222222_20250101_交付版';
+    const meta = await submit(tplId, '<p>恒常失敗</p>');
     metaFail.remaining = Number.MAX_SAFE_INTEGER;
 
     await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
@@ -103,5 +111,44 @@ d('review approve — meta 更新の部分失敗', () => {
     // meta は pending のまま残る(申請一覧に表示 = 手動復旧の手掛かり)。
     const after = await reviews.getReview(meta.id, approver);
     expect(after.status).toBe('pending');
+  });
+
+  it('まとめた判定でも meta の書き込みは 1 回だけ', async () => {
+    const tplId = 'XX01_333333_20250101_交付版';
+    const meta = await submit(tplId, '<p>まとめて判定</p><div>二</div><section>三</section>');
+    metaFail.calls = 0;
+    await reviews.updatePartDecisions(
+      meta.id,
+      {
+        decisions: [
+          { partKey: 'div#1', status: 'approved' },
+          { partKey: 'section#1', status: 'rejected', comment: '戻す' },
+          { partKey: 'p#1', status: 'pending' },
+        ],
+      },
+      approver,
+    );
+    expect(metaFail.calls).toBe(1);
+  });
+
+  it('meta の書き込みが失敗したら、どの判定も残らない', async () => {
+    const tplId = 'XX01_444444_20250101_交付版';
+    const meta = await submit(tplId, '<p>書き込み失敗</p><div>二</div>');
+    metaFail.remaining = 1;
+    await expect(
+      reviews.updatePartDecisions(
+        meta.id,
+        {
+          decisions: [
+            { partKey: 'div#1', status: 'approved' },
+            { partKey: 'p#1', status: 'pending' },
+          ],
+        },
+        approver,
+      ),
+    ).rejects.toThrow('EPERM');
+    metaFail.remaining = 0;
+    const after = await reviews.getReview(meta.id, approver);
+    expect(after.partDecisions?.map((d) => [d.partKey, d.status])).toEqual([['p#1', 'approved']]);
   });
 });

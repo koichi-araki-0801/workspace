@@ -35,38 +35,38 @@ afterAll(async () => {
 describe('inlineDocScripts — 展開の対象', () => {
   it('配信ルートに実体のある相対参照をインライン化する', async () => {
     const out = await inlineDocScripts(
-      '<html><body><script src="js/app.js"></script></body></html>',
+      '<html><body><script src="../js/app.js"></script></body></html>',
       root,
       SERVED,
     );
     expect(out).toContain('window.MARK = 1;');
-    expect(out).not.toContain('src="js/app.js"');
+    expect(out).not.toContain('src="../js/app.js"');
   });
 
   it('配信していない参照は原文のまま残す(展開しない)', async () => {
-    const html = '<script src="js/missing.js"></script>';
+    const html = '<script src="../js/missing.js"></script>';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
   });
 
   it('絶対参照・ルート絶対は展開しない(解決器が undefined を返す)', async () => {
-    for (const src of ['https://evil/x.js', '//evil/x.js', '/js/app.js']) {
+    for (const src of ['https://evil/x.js', '//evil/x.js', '/js/app.js', 'js/app.js']) {
       const html = `<script src="${src}"></script>`;
       expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
     }
   });
 
-  it('`..` で配信ルートの外へ出る形は展開しない', async () => {
-    const html = '<script src="js/../../js/app.js"></script>';
+  it('`..` で論理ルートの外へ出る形は展開しない', async () => {
+    const html = '<script src="../../js/app.js"></script>';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
   });
 
   it('src 以外の属性(integrity など)を持つ script は展開しない', async () => {
-    const html = '<script src="js/app.js" integrity="sha384-x"></script>';
+    const html = '<script src="../js/app.js" integrity="sha384-x"></script>';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
   });
 
   it('素のインライン script・link は触らない', async () => {
-    const html = '<link rel="stylesheet" href="css/a.css"><script>var a=1;</script>';
+    const html = '<link rel="stylesheet" href="../css/a.css"><script>var a=1;</script>';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
   });
 });
@@ -74,7 +74,7 @@ describe('inlineDocScripts — 展開の対象', () => {
 describe('inlineDocScripts — 文書を壊さない', () => {
   it('`</script` を中和して要素の途中閉じを起こさない', async () => {
     const out = await inlineDocScripts(
-      '<body><script src="js/evil.js"></script><p id="after">x</p></body>',
+      '<body><script src="../js/evil.js"></script><p id="after">x</p></body>',
       root,
       SERVED,
     );
@@ -88,13 +88,13 @@ describe('inlineDocScripts — 文書を壊さない', () => {
   });
 
   it('`<!--` を含む JS は展開せず原文のまま残す(二重エスケープ回避)', async () => {
-    const html = '<script src="js/nested.js"></script><p>after</p>';
+    const html = '<script src="../js/nested.js"></script><p>after</p>';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
   });
 
   it('タグ走査が一意に決まらない入力は一切加工しない', async () => {
     // 閉じない属性引用符で `scanTags` が ok:false になる形。
-    const html = '<script src="js/app.js"></script><div title="';
+    const html = '<script src="../js/app.js"></script><div title="';
     expect(await inlineDocScripts(html, root, SERVED)).toBe(html);
   });
 });
@@ -103,16 +103,16 @@ describe('inlineDocScripts — type 属性の判定', () => {
   it('type が module / text/javascript / application/javascript なら展開し、他の type は原文のまま', async () => {
     const served = new Set(['js/app.js']);
     expect(
-      await inlineDocScripts('<script type="module" src="js/app.js"></script>', root, served),
+      await inlineDocScripts('<script type="module" src="../js/app.js"></script>', root, served),
     ).toContain('<script type="module">\nwindow.MARK');
     expect(
       await inlineDocScripts(
-        '<script type="text/javascript" src="js/app.js"></script>',
+        '<script type="text/javascript" src="../js/app.js"></script>',
         root,
         served,
       ),
     ).toContain('<script>\nwindow.MARK');
-    const ld = '<script type="application/ld+json" src="js/app.js"></script>';
+    const ld = '<script type="application/ld+json" src="../js/app.js"></script>';
     expect(await inlineDocScripts(ld, root, served)).toBe(ld);
   });
 });
@@ -128,7 +128,7 @@ describe('inlineDocScripts — 実体の状態(ファイルでない・サイズ
     const cases = ['js/missing.js', 'js/dir.js', 'js/big.js'];
     const served = new Set(cases);
     for (const rel of cases) {
-      const html = `<script src="${rel}"></script>`;
+      const html = `<script src="../${rel}"></script>`;
       expect(await inlineDocScripts(html, root, served)).toBe(html);
     }
   });

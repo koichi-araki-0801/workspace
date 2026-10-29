@@ -15,7 +15,7 @@ import { createMergePdfService } from '@/features/merge/services/mergePdfService
 // 起動しない。ここで固定したいのは順序・進捗・履歴なので、隔離の向こう側にあたる
 // nunjucks 実装を直に噛ませる(クライアントの契約は `renderHostClient.test.ts`)。
 vi.mock('@/lib/renderHostClient', async () => {
-  const { renderJinja } = await import('@/lib/nunjucksRender');
+  const { renderJinja } = await import('./helpers/renderJinja');
   return { renderJinjaIsolated: async (t: string, d: unknown) => renderJinja(t, d as never) };
 });
 
@@ -41,7 +41,7 @@ function templatesOf(edition = '交付版'): TemplateRepository {
         css: `.${id}{}`,
       } as Template),
     ),
-    getSampleData: vi.fn(async () => ok({})),
+    getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
   } as unknown as TemplateRepository;
 }
 
@@ -68,7 +68,7 @@ function filledTemplatesOf(body: (id: string) => string): TemplateRepository {
         filled: body(id),
       } as Template),
     ),
-    getSampleData: vi.fn(async () => ok({})),
+    getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
   } as unknown as TemplateRepository;
 }
 
@@ -82,11 +82,14 @@ describe('MergePdfService.renderMergedPdf', () => {
     const fetchSpy = vi.fn(async () => new Response('%PDF-1.4', { status: 200 }));
     vi.stubGlobal('fetch', fetchSpy);
     const { repo, recordPdfExport } = historyOf();
-    const svc = createMergePdfService(templatesOf(), repo);
+    const templates = templatesOf();
+    const svc = createMergePdfService(templates, repo);
 
     const res = await svc.renderMergedPdf(['t2', 't1']);
     vi.unstubAllGlobals();
 
+    expect(templates.getSampleData).toHaveBeenCalledWith('t2');
+    expect(templates.getSampleData).toHaveBeenCalledWith('t1');
     expect(isOk(res)).toBe(true);
     if (isOk(res)) expect(res.value).toBeInstanceOf(Blob);
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
@@ -160,7 +163,7 @@ describe('MergePdfService.renderMergedPdf', () => {
           ? err(notFound('no'))
           : (templatesOf().getTemplate as (id: string) => unknown)(id),
       ),
-      getSampleData: vi.fn(async () => ok({})),
+      getSampleData: vi.fn(async () => ok({ sample: {}, warnings: [] })),
     } as unknown as TemplateRepository;
     const svc = createMergePdfService(templates, historyOf().repo);
 

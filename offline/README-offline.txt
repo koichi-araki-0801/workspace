@@ -3,9 +3,12 @@
 ==============================================================================
 
 重量物（依存パッケージ・ブラウザ・wheel・git ツールなど約 1.1GB）は git に入れず、GitHub Releases の
-タグ offline-bundle-v1 に offline-deps-bundle.tar.gz として置いてある。ソースコードは git clone で
+タグ offline-bundle-5780b761 に offline-deps-bundle.tar.gz として置いてある。ソースコードは git clone で
 受け取るのが基本だが、git clone できない遮断端末向けに同じ Release へ source.zip（ソース ZIP）も
-毎回置いてある（手順 B）。
+毎回置いてある（手順 B）。既に構築済みの端末で依存だけを差し替える更新は、ソース差分パッチの
+リリース（タグ source-patch-<元>-to-<先>）で、軽い版 offline-deps-lite.tar.gz（.pnpm-store と
+ms-playwright だけ）とスクリプトを一緒に配る（このタグには置かない）。以前のタグ
+offline-bundle-v1 は旧バンドルの戻し先として残してある。
 
 ■ 重量物の内訳（Release のアセット offline-deps-bundle.tar.gz に同梱）
   - .pnpm-store/        … 依存パッケージのオフラインストア
@@ -14,7 +17,6 @@
   - python-wheelhouse/  … Python 依存の wheel（docs 閲覧 HTML のビルドとテスト用）
   - git-tools/          … PortableGit / TortoiseGit（editor のテンプレ版管理に使う git）
   - docs/_build/vendor/mermaid*.js … docs の Mermaid 描画ランタイム + ELK レイアウト
-  - native-prebuilds/   … msnodesqlv8 の公式 prebuild（Node 24.x 専用）
   同じ場所の bundle.key は、そのバンドルがどの pnpm-lock.yaml / requirements / manifest から
   作られたかを示す content-key。setup はこれと手元のソースを突き合わせる。
 
@@ -84,8 +86,8 @@ git clone できない運用端末は、ソースコードも Release から ZIP
 ------------------------------------------------------------------------------
   生成と Release への upload は git 管理外の local-only\offline-publish\publish-offline-bundle.bat で行う
   （このフォルダは配布担当の端末にだけある）。pnpm-lock.yaml / package.json の packageManager /
-  各 requirements.txt / git-tools/manifest.txt / docs/_build/vendor/manifest.txt /
-  native-prebuilds/manifest.txt のどれかを変えて push したら、忘れずに実行する。
+  各 requirements.txt / git-tools/manifest.txt / docs/_build/vendor/manifest.txt の
+  どれかを変えて push したら、忘れずに実行する。
   実行を忘れると、他端末の setup は content-key 不一致で止まる（黙って古い重量物を使うことはない）。
   コミットフックからは何も自動実行しない。
 
@@ -97,6 +99,9 @@ git clone できない運用端末は、ソースコードも Release から ZIP
     Public リポジトリを clone している前提で受け入れる。
   - source.zip のすり替えも検出しない（重量物と同じ扱い。Release を更新できるのは所有者のみ）。
   - ソースと重量物の整合は content-key（bundle.key）で担保する。
+  - ソース差分パッチのリリースの .sha256（パッチの zip と軽い版）も、Release と同じ経路で運ばれる
+    ので転送破損の検知にしか使えない。すり替えを検出できるのは、パッチの中の期待値ファイル
+    （deps-update-expected.json。その sha256 が files.zip.sha256 に載る）が持つ軽い版の sha256 の側だけ。
 
 ------------------------------------------------------------------------------
 ■ トラブルシュート

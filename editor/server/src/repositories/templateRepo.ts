@@ -5,8 +5,11 @@
 // throw し、ルートハンドラは中央の `errorHandler` に HTTP への変換を委ねる
 // (Result を返す Repository 契約は web の `rest` 層が満たす。ここでは throw する)。
 import {
+  assertAnyTemplateId,
   buildSampleData,
   type CompanyOption,
+  CREATABLE_EDITIONS,
+  type CreatableEditionStatus,
   type CreatableInfo,
   type DropdownOptions,
   type DropdownQuery,
@@ -14,46 +17,45 @@ import {
   type FundMaster,
   type FundOption,
   notFound,
+  parseAnyTemplateFileName,
   parseTemplateFileName,
-  type SampleData,
+  type SampleDataResult,
   skeletonFileName,
   type Template,
   type TemplateDraft,
   type TemplateMeta,
+  type TemplateValues,
   templateIdFromFileName,
 } from '@editor/shared';
-import { asString, asStringOrNull, firstRow, p, type SprocClient } from '../db/sproc.js';
+import { config } from '../config.js';
+import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import {
-  deleteDraft,
-  draftExists,
-  draftMtime,
-  readDraft,
-  writeDraft,
-} from '../files/draftFiles.js';
-import { findInProgressIds } from '../files/inProgress.js';
+import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
+import { inProgressLookup } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
+import { pendingCreateReviewLookup } from '../files/reviewFiles.js';
 import {
-  attrKey,
   filledExists,
   findTemplateId,
   listFilledFiles,
   listTemplateFiles,
   readFilledHtml,
-  readFundCss,
+  readTemplateCss,
   readTemplateHtml,
-  templateAttrKeys,
+  templateCssExists,
   templateExists,
 } from '../files/templateFiles.js';
-import { applyConfirmedWrite, type ConfirmedTarget } from './confirmedWrite.js';
+import { readTemplateValues } from '../files/valuesFile.js';
+import { logger } from '../logger.js';
+import { mergeCommonSampleRows } from './commonSample.js';
 import { fileToMeta } from './templateMeta.js';
 
 const ATTR_KEYS = ['companyCode', 'fundCode', 'baseDate', 'editionType'] as const;
 
 /** 大文字小文字を区別しない一致。ファイル名由来の属性と利用者の選択を照合する。 */
-export const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+const sameCi = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
-export const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
+const isMeta = (m: TemplateMeta | null): m is TemplateMeta => m !== null;
 
 /** dropdown query の先頭 `depth` 個の設定済みフィールドにメタが一致するか。 */
 function matchesUpTo(m: TemplateMeta, q: DropdownQuery, depth: number): boolean {
@@ -88,17 +90,23 @@ function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOpti
 }
 
 /**
- * 編集タブが扱うテンプレ。`filled/`(確定)に、`includePending` なら `pending/`(生成直後の
- * 未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
+ * 編集タブが扱うテンプレ(値入り HTML = 基準日を持つものだけ)。`filled/`(確定)に、
+ * `includePending` なら `pending/`(生成直後の未確定)を足す。同じ id が両方に在るときは確定を採る(承認後の pending 削除はベストエフォート)。
  */
 async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[]> {
-  const files = await listFilledFiles();
+  // 値入り HTML は基準日を持つ 4 つ区切り(会社_ファンド_基準日_版種)だけ。3 つ区切りの名前
+  // (例 ファンド_基準日_版種)はテンプレートの形に読めてしまうので、名前の形で先に外す。
+  const files = (await listFilledFiles()).filter((f) => parseTemplateFileName(f) !== null);
   const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(isMeta);
   if (!includePending) return confirmed;
   // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、
   // 綴り違いの pending が消し残ると完全一致では同じテンプレが二重に出る。
   const confirmedIds = new Set(confirmed.map((m) => m.id.toLowerCase()));
-  const pendingIds = (await listPendingIds()).filter((id) => !confirmedIds.has(id.toLowerCase()));
+  // 作成タブの生成物(基準日なし)は作成タブの「作成中のテンプレートを開く」から開くので、
+  // id の形(基準日を持つ 4 つ区切り)で先に絞り、読まずに捨てる。
+  const pendingIds = (await listPendingIds()).filter(
+    (id) => !confirmedIds.has(id.toLowerCase()) && parseTemplateFileName(`${id}.html`) !== null,
+  );
   const pending = (
     await Promise.all(
       pendingIds.map(async (id): Promise<TemplateMeta | null> => {
@@ -110,42 +118,22 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
   return [...confirmed, ...pending];
 }
 
-/** サンプルデータ台帳 JSON からファンド固有マスタ(名称/会社)を取り出す。 */
-function parseFundMaster(json: string | null): FundMaster | undefined {
-  if (!json) return undefined;
-  try {
-    const o = JSON.parse(json) as {
-      fund?: { name?: string; nickname?: string };
-      company?: { code?: string; name?: string };
-    };
-    if (o.fund?.name && o.company?.code && o.company?.name) {
-      return {
-        name: o.fund.name,
-        nickname: o.fund.nickname ?? '',
-        company: { code: o.company.code, name: o.company.name },
-      };
-    }
-  } catch {
-    /* 壊れた JSON は master 無し扱い */
-  }
-  return undefined;
-}
-
 export interface TemplateRepo {
   getDropdownOptions(q: DropdownQuery, scope: DropdownScope): Promise<DropdownOptions>;
   listTemplates(q: DropdownQuery): Promise<TemplateMeta[]>;
   getTemplate(id: string): Promise<Template>;
-  saveDraft(templateId: string, html: string, css: string, loginId: string): Promise<void>;
+  saveDraft(templateId: string, html: string, css: string): Promise<void>;
   getDraft(templateId: string): Promise<TemplateDraft | null>;
   discardDraft(templateId: string): Promise<void>;
-  getSampleData(fundCode: string): Promise<SampleData>;
+  getSampleData(templateId: string): Promise<SampleDataResult>;
+  getTemplateValues(templateId: string): Promise<TemplateValues>;
   listCompanies(): Promise<CompanyOption[]>;
   listFunds(rep1CompanyCode: string): Promise<FundOption[]>;
   getCreatableInfo(q: {
     companyCode: string;
     rep1CompanyCode: string;
     fundCode: string;
-    editionType: string;
+    editionType?: string;
   }): Promise<CreatableInfo>;
 }
 
@@ -158,6 +146,38 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       fundCode: asString(r.ファンドコード),
       fundName: asString(r.ファンド名),
     }));
+  }
+
+  /**
+   * ファイル名の会社コード(Rep1 の委託会社略称)とファンドコードから、Rep1 の実名を引く。略称は
+   * 末尾空白を落として大文字小文字を区別せず照合する。Rep1 が落ちていても共通値を返したいので、
+   * 失敗は握りつぶして undefined にする。
+   */
+  async function findFundMaster(
+    companyAbbr: string,
+    fundCode: string,
+  ): Promise<FundMaster | undefined> {
+    try {
+      const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+      const want = companyAbbr.trim().toLowerCase();
+      const company = rows.find((r) => asString(r.委託会社略称).trimEnd().toLowerCase() === want);
+      // 会社が見つからなくても company.code にはファイル名の会社コードを被せる。
+      if (!company) return { companyCode: companyAbbr };
+      const fund = (await listFunds(asString(company.委託会社コード))).find(
+        (f) => f.fundCode.trim() === fundCode,
+      );
+      return {
+        companyCode: companyAbbr,
+        companyName: asString(company.委託会社名),
+        ...(fund ? { fundName: fund.fundName } : {}),
+      };
+    } catch (err) {
+      logger.warn(
+        { err, companyAbbr, fundCode },
+        'Rep1 の委託会社・ファンド名を引けなかったため、共通サンプルの値のまま返します',
+      );
+      return { companyCode: companyAbbr };
+    }
   }
 
   return {
@@ -173,26 +193,45 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     listFunds,
 
     /**
-     * 作成タブ Step 2 の素。作成済み・作業中・コピー元の有無はファイルで、シリーズは Rep1 の会社コードで
-     * 引き、名称はファンド一覧から付ける。
+     * 作成タブ Step 2 の素。版ごとの作成済み・申請中・作業中とコピー元の有無はファイルで、シリーズは
+     * Rep1 の会社コードで引き、名称はファンド一覧から付ける。
      */
     async getCreatableInfo({ companyCode, rep1CompanyCode, fundCode, editionType }) {
       // テンプレートは基準日で使い回さないので、テンプレートフォルダ(templates/)に 3 つ区切りの
       // ファイルがあるかだけを見る。値入り HTML(filled/)や生成直後(pending/)は作成済みに数えない。
+      // 判定は版ごと。優先は 作成済み > 申請中 > 作業中 > 無し(作成済みの版の下書きは作り直しの
+      // 対象ではないので作業中に数えない)。
       const files = await listTemplateFiles();
-      const templateKeys = templateAttrKeys(files);
-      const templateId = findTemplateId(files, companyCode, fundCode, editionType);
-      const created = templateId !== null;
-      // 作業中は、作成済みでないときだけ問う。作成済みのテンプレートを作成経路で直している下書きは
-      // 作り直しの対象ではない(画面は「既存のテンプレートを開く」だけを出す)。
-      const id = templateIdFromFileName(skeletonFileName({ companyCode, fundCode, editionType }));
-      // 綴り違いも見つけ、id はファイルの綴りのまま返す(pending を優先。無ければ下書き)。
-      const found = created ? null : await findInProgressIds(id);
-      const inProgressId = found ? (found.pending[0] ?? found.drafts[0]) : undefined;
-      const extra = {
-        ...(templateId === null ? {} : { templateId }),
-        ...(inProgressId === undefined ? {} : { inProgressId }),
-      };
+      const asked = editionType === undefined ? [...CREATABLE_EDITIONS] : [editionType];
+      // 申請と作業中の一覧は 1 度だけ取る(版ごとに reviews/ や pending/ を読み直さない)。
+      const [hasPendingReview, inProgressOf] = await Promise.all([
+        pendingCreateReviewLookup(),
+        inProgressLookup(),
+      ]);
+      const editions: CreatableEditionStatus[] = [];
+      for (const e of asked) {
+        const templateId = findTemplateId(files, companyCode, fundCode, e);
+        if (templateId !== null) {
+          editions.push({ editionType: e, state: 'created', templateId });
+          continue;
+        }
+        // 申請中と作業中は要求の綴りで問う。作業中は綴り違いも見つけ、id はファイルの綴りのまま
+        // 返す(pending を優先。無ければ下書き)。
+        const id = templateIdFromFileName(
+          skeletonFileName({ companyCode, fundCode, editionType: e }),
+        );
+        if (hasPendingReview(id)) {
+          editions.push({ editionType: e, state: 'pendingReview' });
+          continue;
+        }
+        const found = inProgressOf(id);
+        const inProgressId = found.pending[0] ?? found.drafts[0];
+        editions.push(
+          inProgressId === undefined
+            ? { editionType: e, state: 'none' }
+            : { editionType: e, state: 'inProgress', templateId: inProgressId },
+        );
+      }
       const seriesRows = await sproc.callSproc(SP.series, '一覧', [
         p('委託会社コード', rep1CompanyCode),
       ]);
@@ -200,7 +239,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
       );
       const series = seriesOf.get(fundCode) ?? null;
-      if (!series) return { created, ...extra, seriesFunds: [] };
+      if (!series) return { editions, seriesFunds: [] };
       const names = new Map(
         (await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]),
       );
@@ -209,10 +248,13 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         .map(([code]) => ({
           fundCode: code,
           fundName: names.get(code) ?? '',
-          hasTemplate: templateKeys.has(attrKey(companyCode, code, editionType)),
+          // 生成は選んだファンドの両版をコピーするので、コピー元は両版がそろっている必要がある。
+          hasTemplate: CREATABLE_EDITIONS.every(
+            (e) => findTemplateId(files, companyCode, code, e) !== null,
+          ),
         }))
         .sort((a, b) => a.fundCode.localeCompare(b.fundCode));
-      return { created, ...extra, seriesFunds };
+      return { editions, seriesFunds };
     },
 
     /**
@@ -228,12 +270,11 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      * `pending/`(生成直後の未確定実体)のファイル走査から導く。`templates/`(作成タブの
      * Jinja)は一覧に出さない — 値入り HTML が無いテンプレを編集して申請する事故を防ぐため。
      *
-     * 混ぜない設計は一度採ったが不成立だった: 作成タブは生成後に `/edit/:id` へ 1 回遷移する
-     * だけで、履歴タブは遷移経路を持たない。そのため一覧から外すと、生成直後にブラウザを
-     * 閉じた時点でその id へ到達する手段が UI から消える(= 作ったテンプレが行方不明になる)。
+     * 基準日を持たないテンプレート(作成タブの生成物)は出さない。生成直後の作業中のものは
+     * 作成タブの「作成中のテンプレートを開く」(`CreatableInfo.editions` の inProgress)から開ける。
      *
      * 未承認の内容を扱ってはいけない画面(比較タブ・結合 PDF)は**呼び出し側**で
-     * `status === 'published'` に絞る。一覧側で落とすと上記の到達不能が再発する。
+     * `status === 'published'` に絞る。一覧側で落とすと、承認前の `pending/` へ編集タブから戻れなくなる。
      */
     async listTemplates(q) {
       return (await scanEditableMetas(true))
@@ -259,13 +300,13 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
       if (isFilled && (await filledExists(fileName))) {
         const html = await readFilledHtml(fileName);
-        const css = await readFundCss(meta.attributes.fundCode);
-        return { meta, html, css, filled: html };
+        const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
+        return { meta, html, css, filled: html, ...(cssFound ? {} : { cssMissing: true }) };
       }
       if (!isFilled && (await templateExists(fileName))) {
         const html = await readTemplateHtml(fileName);
-        const css = await readFundCss(meta.attributes.fundCode);
-        return { meta, html, css, filled: '' };
+        const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
+        return { meta, html, css, filled: '', ...(cssFound ? {} : { cssMissing: true }) };
       }
       const pending = await readPending(id);
       if (!pending) throw notFound(`テンプレートが見つかりません: ${id}`);
@@ -274,19 +315,26 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         html: pending.html,
         css: pending.css,
         filled: '',
+        ...(pending.cssFound ? {} : { cssMissing: true }),
       };
     },
 
     /** 自動保存ドラフトはファイルのみ(`<dataRoot>/drafts`、git 管理外)。DB は引かない。 */
-    async saveDraft(templateId, html, css, _loginId) {
+    async saveDraft(templateId, html, css) {
       await writeDraft(templateId, html, css);
     },
 
     async getDraft(templateId) {
-      if (!(await draftExists(templateId))) return null;
-      const { html, css } = await readDraft(`${templateId}.html`, `${templateId}.css`);
+      const draft = await readDraft(templateId);
+      if (!draft) return null;
       // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
-      return { templateId, html, css, savedAt: (await draftMtime(templateId)) ?? '', savedBy: '' };
+      return {
+        templateId,
+        html: draft.html,
+        css: draft.css,
+        savedAt: (await draftMtime(templateId)) ?? '',
+        savedBy: '',
+      };
     },
 
     /** 確定保存せずメニューへ戻った際に、未確定の下書き作業コピーを破棄する。 */
@@ -295,37 +343,35 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     },
 
     /**
-     * プレビュー文脈のサンプルデータ。本体はパーツ別共通ダミー(`sampleCommon`)で、
-     * DB の台帳からはファンド固有の名称/会社だけを解決して被せる。版種(ファイル名由来)は
+     * プレビュー文脈のサンプルデータ。DB の共通サンプル(分類ごとの行)を合成し、テンプレート ID の
+     * 会社・ファンドを Rep1 で引いた実名を被せる。Rep1 で引けない・取得に失敗したときは共通値のまま
+     * 返す(差込が空値になるだけで、作成タブ・プレビューは開ける)。版種(ファイル名由来)は
      * テンプレを開く web 側(`applyTemplateAttributes`)で上書きする。
      */
-    async getSampleData(fundCode) {
-      const row = firstRow(
-        await sproc.callSproc(SP.sample, '取得', [p('ファンドコード', fundCode)]),
+    async getSampleData(templateId) {
+      const attrs = parseAnyTemplateFileName(`${assertAnyTemplateId(templateId)}.html`);
+      if (!attrs) throw notFound(`テンプレートが見つかりません: ${templateId}`);
+      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      const { sample, warnings } = mergeCommonSampleRows(
+        rows.map((r) => ({
+          id: Number(r.共通サンプルID),
+          category: asStringOrNull(r.カテゴリ),
+          major: asStringOrNull(r.大分類),
+          middle: asStringOrNull(r.中分類),
+          minor: asStringOrNull(r.小分類),
+          dataJson: asString(r.データJSON),
+        })),
       );
-      const master = parseFundMaster(row ? asStringOrNull(row.データJSON) : null);
-      return buildSampleData(master, fundCode);
+      const master = await findFundMaster(attrs.companyCode, attrs.fundCode);
+      return {
+        sample: buildSampleData(sample, master, attrs.fundCode, config.sampleOverlay),
+        warnings,
+      };
+    },
+
+    /** 編集タブの値ファイル。無ければ `found: false`(検査・読み取りは `valuesFile`)。 */
+    getTemplateValues(templateId) {
+      return readTemplateValues(templateId);
     },
   };
-}
-
-/**
- * 確定内容を実ファイルへ反映する(承認ワークフロー専用の入口)。実体は
- * `confirmedWrite.applyConfirmedWrite` にあり、ここは呼び出し側
- * (`reviewRepo.approveReview`)の参照を保つための薄い委譲。名前検査・ファンド帰属検査・
- * 実行コード不変性の照合・snapshot/restore・git コミット・監査はすべてチョークポイント側。
- *
- * sproc に依存しないため `createTemplateRepo` の中へは入れない — 入れると
- * `createReviewRepo` がテンプレート集約ごと受け取る必要が生じ、承認の依存が広がる。
- */
-export function applyConfirmedSave(req: {
-  templateId: string;
-  target: ConfirmedTarget;
-  html: string;
-  css: string;
-  fundCode: string;
-  commitMessage: string;
-  author: string;
-}): Promise<TemplateMeta> {
-  return applyConfirmedWrite({ kind: 'review-approve', ...req });
 }

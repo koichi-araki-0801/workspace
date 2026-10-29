@@ -5,9 +5,13 @@
 // 役割: テンプレート 1 件の全コメントを Adobe Reader のコメントリストと同じ形で出す。
 // 新規投稿の入口はここ 1 つ(選択パーツ宛)。スレッド内の操作(返信・解決・編集・削除)は
 // 行を開いた中で行い、canvas の吹き出し(`NoteBubble.vue`)と同じ規則で emit する。
+// 一覧はパーツごとの見出し(番号 + 名前)の下に並べ、見出しを押すとそのパーツを選ぶ。
 // 絞り込み・並びの規則は `commentFilter.ts` に閉じ、ここは描画と入力だけを持つ。
+// 編集画面と承認タブ(`ReviewTabView.vue`)の両方が使う。どちらも宛先が決まれば入力欄の上に
+// 宛先枠(番号 + 名前)を出す。承認タブは `collapseInputUntilTarget` で宛先が決まるまで入力欄を畳み、
+// 編集画面は畳まずに点線の枠で未選択を示す(モック 案3)。
 import type { NoteStatus, PartNoteEntry } from '@editor/shared';
-import { Check, ChevronDown, ChevronRight, MessageSquare, Pencil, RotateCcw, Trash2 } from '@lucide/vue';
+import { Check, ChevronDown, ChevronRight, Pencil, RotateCcw, Trash2 } from '@lucide/vue';
 import { computed, reactive, ref, watch } from 'vue';
 import Badge from '@/components/ui/Badge.vue';
 import Button from '@/components/ui/Button.vue';
@@ -19,10 +23,12 @@ import {
   DEFAULT_COMMENT_FILTER,
   filterThreads,
   formatCommentAt,
+  groupThreadsByPart,
   openThreadCount,
   STATUS_LABEL,
   threadsOf,
 } from './commentFilter';
+import { entryKey, useThreadActions } from './useThreadActions';
 
 /** 削除済みパーツ(カタログ・部品ツリーから消えた `pathKey`)の表示ラベル。`Inspector.vue` の
  * `partLabelOf` と同じ文言に揃える(同じ意味の状態を画面ごとに違う言葉で言わない)。 */
@@ -42,8 +48,16 @@ const props = withDefaults(
     partLabels: Map<string, string>;
     /** 承認画面向け: 検索と絞り込みを 1 行に畳む。 */
     compact?: boolean;
+    /** pathKey → 番号(見出しと宛先枠の丸数字)。承認タブの紙面の番号札と同じ番号。 */
+    partNumbers?: Map<string, number>;
+    /** pathKey → パーツ名。無いキーは `partLabels` の表示ラベルを使う。 */
+    partNames?: Map<string, string>;
+    /** 宛先が決まっていても書けない理由(確定版に無い追加パーツなど)。入力欄の代わりに出す。 */
+    addBlockedText?: string;
+    /** 承認タブ: 宛先が決まるまで入力欄を畳み、決まったら宛先枠を出す。 */
+    collapseInputUntilTarget?: boolean;
   }>(),
-  { compact: false },
+  { compact: false, collapseInputUntilTarget: false },
 );
 
 const emit = defineEmits<{
@@ -64,10 +78,20 @@ const partOrder = computed(() => new Map([...props.partLabels.keys()].map((k, i)
 const visible = computed<CommentThread[]>(() =>
   filterThreads(threads.value, filter, { selectedKey: props.selectedKey, partOrder: partOrder.value }),
 );
+const groups = computed(() => groupThreadsByPart(visible.value, partOrder.value));
 const openCount = computed(() => openThreadCount(props.entries));
 
 function partLabel(key: string): string {
   return props.partLabels.get(key) ?? DELETED_PART_LABEL;
+}
+
+/** 見出し・宛先枠の名前。承認タブは変更の一覧の名前(`partNames`)を優先する。 */
+function partName(key: string): string {
+  return props.partNames?.get(key) ?? partLabel(key);
+}
+
+function partNo(key: string): number | undefined {
+  return props.partNumbers?.get(key);
 }
 
 /** 行の宛先パーツが削除済みか(スタイルを控えめにし、クリックを実質無害な no-op にする)。 */
@@ -84,6 +108,23 @@ function onRowClick(key: string): void {
 
 // ── 2. 新規投稿(選択パーツ宛。入口はここだけ) ──
 const draft = ref('');
+/** 入力欄の出し方。`blocked` は書けない理由、`collapsed` は宛先が決まる前の案内(承認タブ)。 */
+const inputMode = computed<'blocked' | 'collapsed' | 'input'>(() => {
+  if (props.addBlockedText) return 'blocked';
+  if (props.collapseInputUntilTarget && props.selectedKey === null) return 'collapsed';
+  return 'input';
+});
+const addPlaceholder = computed(() =>
+  props.selectedKey !== null
+    ? `「${partName(props.selectedKey)}」へのコメントを書く…`
+    : 'パーツを選ぶと書けます',
+);
+/** 一覧の範囲の文。「選択パーツのみ」を入れて宛先があるときだけ、そのパーツの名前を出す。 */
+const scopeText = computed(() =>
+  filter.onlySelected && props.selectedKey !== null
+    ? `「${partName(props.selectedKey)}」のコメント`
+    : '全パーツのコメント',
+);
 function submitAdd(): void {
   const text = draft.value.trim();
   if (text === '' || !props.canAdd) return;
@@ -99,45 +140,27 @@ watch(
 );
 
 // ── 3. 行の展開(返信・解決・編集・削除) ──
-// キーは `id` 単体ではなく `templateId/id` の対で持つ(`NoteBubble.vue` の `entryKey` と同じ
-// 理由。投稿 id の一意性は版インスタンスのファイルの中でだけ約束されている)。
-function entryKey(entry: PartNoteEntry): string {
-  return `${entry.templateId}/${entry.id}`;
-}
-
 const expandedId = ref<string | null>(null);
 const replyDraft = ref('');
-const editingId = ref<string | null>(null);
-const editDraft = ref('');
+const { editingKey, draft: editDraft, startEdit, commitEdit, cancelEdit, requestRemove, toggleStatus } =
+  useThreadActions({
+    update: (e, content) => emit('update', e, content),
+    remove: (e) => emit('remove', e),
+    setStatus: (parent, status) => emit('set-status', parent, status),
+    replyCountOf: (parent) => threads.value.find((t) => t.parent.id === parent.id)?.replies.length ?? 0,
+    confirm,
+  });
 
 function toggle(t: CommentThread): void {
   const key = entryKey(t.parent);
   expandedId.value = expandedId.value === key ? null : key;
   replyDraft.value = '';
-  editingId.value = null;
+  cancelEdit();
 }
 function submitReply(t: CommentThread): void {
   if (replyDraft.value.trim() === '') return;
   emit('reply', t.parent, replyDraft.value);
   replyDraft.value = '';
-}
-function startEdit(e: PartNoteEntry): void {
-  editingId.value = entryKey(e);
-  editDraft.value = e.content;
-}
-function commitEdit(e: PartNoteEntry): void {
-  if (editDraft.value.trim() !== '') emit('update', e, editDraft.value);
-  editingId.value = null;
-}
-async function requestRemove(e: PartNoteEntry): Promise<void> {
-  const ok = await confirm({
-    title: e.replyTo === null ? 'このコメントを削除しますか？' : 'この返信を削除しますか？',
-    description:
-      e.replyTo === null ? '返信も一緒に削除されます。削除したコメントは元に戻せません。' : '削除した返信は元に戻せません。',
-    confirmLabel: '削除する',
-    variant: 'destructive',
-  });
-  if (ok) emit('remove', e);
 }
 </script>
 
@@ -145,25 +168,43 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
   <div class="flex h-full min-h-0 flex-col">
     <!-- 新規投稿 -->
     <div class="border-b px-3 py-2.5">
-      <div class="mb-1.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-        <MessageSquare class="h-3.5 w-3.5" />
-        <span class="truncate">{{ selectedKey ? `宛先: ${partLabel(selectedKey)}` : 'パーツを選ぶと書けます' }}</span>
-        <span class="flex-1" />
-      </div>
-      <textarea
-        v-model="draft"
-        data-add-content
-        class="comment-area"
-        rows="3"
-        :disabled="!canAdd"
-        placeholder="このパーツへのコメントを書く…"
-        @keydown.ctrl.enter="submitAdd"
-      />
-      <div class="mt-1.5 flex items-center">
-        <span class="text-[10.5px] text-muted-foreground">Ctrl + Enter で追加</span>
-        <span class="flex-1" />
-        <Button size="sm" data-add-submit :disabled="!canAdd || draft.trim() === ''" @click="submitAdd">追加</Button>
-      </div>
+      <p v-if="inputMode === 'blocked'" data-add-blocked class="text-[11.5px] text-muted-foreground">
+        {{ addBlockedText }}
+      </p>
+      <p v-else-if="inputMode === 'collapsed'" data-add-collapsed class="text-[11.5px] text-muted-foreground">
+        左の紙面でパーツを押すと、そのパーツへコメントを書けます。
+      </p>
+      <template v-else>
+        <div
+          v-if="selectedKey"
+          data-comment-target
+          class="mb-1.5 flex min-w-0 items-center gap-1.5 text-[12px]"
+          :class="collapseInputUntilTarget ? '' : 'target-box'"
+        >
+          <span class="shrink-0 text-[11px] text-muted-foreground">宛先</span>
+          <span v-if="partNo(selectedKey) !== undefined" data-part-no class="part-no">{{ partNo(selectedKey) }}</span>
+          <b class="truncate">{{ partName(selectedKey) }}</b>
+        </div>
+        <p
+          v-else
+          data-comment-target-none
+          class="mb-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-[11.5px] text-muted-foreground"
+        >宛先のパーツが未選択です。紙面でパーツを選んでください</p>
+        <textarea
+          v-model="draft"
+          data-add-content
+          class="comment-area"
+          rows="3"
+          :disabled="!canAdd"
+          :placeholder="addPlaceholder"
+          @keydown.ctrl.enter="submitAdd"
+        />
+        <div class="mt-1.5 flex items-center">
+          <span class="text-[10.5px] text-muted-foreground">Ctrl + Enter で追加</span>
+          <span class="flex-1" />
+          <Button size="sm" data-add-submit :disabled="!canAdd || draft.trim() === ''" @click="submitAdd">追加</Button>
+        </div>
+      </template>
     </div>
 
     <!-- 検索・絞り込み -->
@@ -191,6 +232,7 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
         </select>
       </div>
       <div v-if="!compact" class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+        <b data-comment-scope class="min-w-0 truncate text-[11.5px]">{{ scopeText }}</b>
         <label class="ml-auto flex cursor-pointer items-center gap-1">
           <input v-model="filter.onlySelected" type="checkbox" data-filter-selected /> 選択パーツのみ
         </label>
@@ -206,115 +248,131 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
         表示するコメントがありません。
       </p>
       <ul v-else>
-        <li
-          v-for="t in visible"
-          :key="entryKey(t.parent)"
-          data-comment-row
-          :data-path-key="t.parent.pathKey"
-          class="border-b px-3 py-2"
-          :class="[
-            isDeletedPart(t.parent.pathKey)
-              ? 'cursor-default text-muted-foreground'
-              : 'cursor-pointer hover:bg-muted/40',
-            t.parent.pathKey === selectedKey ? 'bg-primary-soft/40' : '',
-          ]"
-          :aria-disabled="isDeletedPart(t.parent.pathKey) || undefined"
-          :title="isDeletedPart(t.parent.pathKey) ? DELETED_PART_TITLE : undefined"
-          @click="onRowClick(t.parent.pathKey)"
-        >
-          <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
-            <Badge :variant="t.parent.status === 'open' ? 'warning' : 'secondary'" class="h-[16px] py-0 text-[9.5px]">
-              {{ STATUS_LABEL[t.parent.status] }}
-            </Badge>
-            <span class="truncate">{{ partLabel(t.parent.pathKey) }}</span>
-            <span class="flex-1" />
-            <span>{{ formatCommentAt(t.lastAt) }}</span>
-            <button
-              type="button"
-              data-expand
-              class="rounded p-0.5 hover:bg-muted"
-              :aria-label="expandedId === entryKey(t.parent) ? '閉じる' : '開く'"
-              @click.stop="toggle(t)"
+        <li v-for="g in groups" :key="g.key" :data-comment-group="g.key">
+          <!-- パーツの見出し。押すとそのパーツを選ぶ(削除済みパーツは移動先が無いので押せない)。 -->
+          <button
+            type="button"
+            data-comment-group-head
+            class="flex w-full min-w-0 items-center gap-1.5 border-b bg-muted/40 px-3 py-1.5 text-left text-[11.5px] font-bold"
+            :class="isDeletedPart(g.key) ? 'cursor-default text-muted-foreground' : 'hover:bg-muted'"
+            :disabled="isDeletedPart(g.key)"
+            :title="isDeletedPart(g.key) ? DELETED_PART_TITLE : undefined"
+            @click="onRowClick(g.key)"
+          >
+            <span v-if="partNo(g.key) !== undefined" data-part-no class="part-no">{{ partNo(g.key) }}</span>
+            <span class="truncate">{{ partName(g.key) }}</span>
+          </button>
+          <ul>
+            <li
+              v-for="t in g.threads"
+              :key="entryKey(t.parent)"
+              data-comment-row
+              :data-path-key="t.parent.pathKey"
+              class="border-b px-3 py-2"
+              :class="[
+                isDeletedPart(t.parent.pathKey)
+                  ? 'cursor-default text-muted-foreground'
+                  : 'cursor-pointer hover:bg-muted/40',
+                t.parent.pathKey === selectedKey ? 'bg-primary-soft/40' : '',
+              ]"
+              :aria-disabled="isDeletedPart(t.parent.pathKey) || undefined"
+              :title="isDeletedPart(t.parent.pathKey) ? DELETED_PART_TITLE : undefined"
+              @click="onRowClick(t.parent.pathKey)"
             >
-              <ChevronDown v-if="expandedId === entryKey(t.parent)" class="h-3.5 w-3.5" />
-              <ChevronRight v-else class="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div class="mt-0.5 flex items-baseline gap-1.5 text-[12px]">
-            <span class="shrink-0 font-bold">{{ t.parent.createdBy }}</span>
-            <span :class="expandedId === entryKey(t.parent) ? 'whitespace-pre-wrap break-words' : 'truncate'" class="min-w-0">
-              {{ t.parent.content }}
-            </span>
-          </div>
-          <div v-if="t.replies.length" class="mt-0.5 text-[10.5px] text-muted-foreground">
-            <span>返信 {{ t.replies.length }}</span>
-          </div>
-
-          <!-- 展開: 返信一覧・返信入力・解決/編集/削除 -->
-          <div v-if="expandedId === entryKey(t.parent)" class="mt-2 space-y-2" @click.stop>
-            <div class="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                data-resolve
-                @click="emit('set-status', t.parent, t.parent.status === 'open' ? 'resolved' : 'open')"
-              >
-                <Check v-if="t.parent.status === 'open'" class="h-3.5 w-3.5" />
-                <RotateCcw v-else class="h-3.5 w-3.5" />
-                {{ t.parent.status === 'open' ? '解決にする' : '未対応に戻す' }}
-              </Button>
-              <span class="flex-1" />
-              <Button variant="ghost" size="iconSm" aria-label="このコメントを編集" @click="startEdit(t.parent)">
-                <Pencil class="h-3 w-3" />
-              </Button>
-              <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="このコメントを削除" @click="requestRemove(t.parent)">
-                <Trash2 class="h-3 w-3" />
-              </Button>
-            </div>
-            <template v-if="editingId === entryKey(t.parent)">
-              <textarea v-model="editDraft" class="comment-area" rows="3" aria-label="コメント本文の編集" />
-              <div class="flex gap-1.5">
-                <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
-                <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
-              </div>
-            </template>
-
-            <div v-for="r in t.replies" :key="entryKey(r)" class="ml-3 border-l-2 pl-2">
-              <div class="flex items-center gap-1 text-[10.5px] text-muted-foreground">
-                <span class="font-bold text-foreground">{{ r.createdBy }}</span>
-                <span>{{ formatCommentAt(r.createdAt) }}</span>
+              <div class="flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                <Badge :variant="t.parent.status === 'open' ? 'warning' : 'secondary'" class="h-[16px] py-0 text-[9.5px]">
+                  {{ STATUS_LABEL[t.parent.status] }}
+                </Badge>
                 <span class="flex-1" />
-                <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
-                  <Pencil class="h-3 w-3" />
-                </Button>
-                <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="この返信を削除" @click="requestRemove(r)">
-                  <Trash2 class="h-3 w-3" />
-                </Button>
+                <span>{{ formatCommentAt(t.lastAt) }}</span>
+                <button
+                  type="button"
+                  data-expand
+                  class="rounded p-0.5 hover:bg-muted"
+                  :aria-label="expandedId === entryKey(t.parent) ? '閉じる' : '開く'"
+                  @click.stop="toggle(t)"
+                >
+                  <ChevronDown v-if="expandedId === entryKey(t.parent)" class="h-3.5 w-3.5" />
+                  <ChevronRight v-else class="h-3.5 w-3.5" />
+                </button>
               </div>
-              <template v-if="editingId === entryKey(r)">
-                <textarea v-model="editDraft" class="comment-area" rows="2" aria-label="返信本文の編集" />
-                <div class="mt-1 flex gap-1.5">
-                  <Button size="sm" @click="commitEdit(r)">保存</Button>
-                  <Button size="sm" variant="outline" @click="editingId = null">取消</Button>
-                </div>
-              </template>
-              <p v-else class="whitespace-pre-wrap break-words text-[12px]">
-                {{ r.content }}<span v-if="r.updatedAt" class="ml-1 text-[10px] text-muted-foreground">(編集済み)</span>
-              </p>
-            </div>
+              <div class="mt-0.5 flex items-baseline gap-1.5 text-[12px]">
+                <span class="shrink-0 font-bold">{{ t.parent.createdBy }}</span>
+                <span :class="expandedId === entryKey(t.parent) ? 'whitespace-pre-wrap break-words' : 'truncate'" class="min-w-0">
+                  {{ t.parent.content }}
+                </span>
+              </div>
+              <div v-if="t.replies.length" class="mt-0.5 text-[10.5px] text-muted-foreground">
+                <span>返信 {{ t.replies.length }}</span>
+              </div>
 
-            <textarea
-              v-model="replyDraft"
-              data-reply-content
-              class="comment-area"
-              rows="2"
-              placeholder="返信を書く…"
-              @keydown.ctrl.enter="submitReply(t)"
-            />
-            <div class="flex justify-end">
-              <Button size="sm" data-reply-submit :disabled="replyDraft.trim() === ''" @click="submitReply(t)">返信</Button>
-            </div>
-          </div>
+              <!-- 展開: 返信一覧・返信入力・解決/編集/削除 -->
+              <div v-if="expandedId === entryKey(t.parent)" class="mt-2 space-y-2" @click.stop>
+                <div class="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-resolve
+                    @click="toggleStatus(t.parent)"
+                  >
+                    <Check v-if="t.parent.status === 'open'" class="h-3.5 w-3.5" />
+                    <RotateCcw v-else class="h-3.5 w-3.5" />
+                    {{ t.parent.status === 'open' ? '解決にする' : '未対応に戻す' }}
+                  </Button>
+                  <span class="flex-1" />
+                  <Button variant="ghost" size="iconSm" aria-label="このコメントを編集" @click="startEdit(t.parent)">
+                    <Pencil class="h-3 w-3" />
+                  </Button>
+                  <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="このコメントを削除" @click="requestRemove(t.parent)">
+                    <Trash2 class="h-3 w-3" />
+                  </Button>
+                </div>
+                <template v-if="editingKey === entryKey(t.parent)">
+                  <textarea v-model="editDraft" class="comment-area" rows="3" aria-label="コメント本文の編集" />
+                  <div class="flex gap-1.5">
+                    <Button size="sm" @click="commitEdit(t.parent)">保存</Button>
+                    <Button size="sm" variant="outline" @click="cancelEdit">取消</Button>
+                  </div>
+                </template>
+
+                <div v-for="r in t.replies" :key="entryKey(r)" class="ml-3 border-l-2 pl-2">
+                  <div class="flex items-center gap-1 text-[10.5px] text-muted-foreground">
+                    <span class="font-bold text-foreground">{{ r.createdBy }}</span>
+                    <span>{{ formatCommentAt(r.createdAt) }}</span>
+                    <span class="flex-1" />
+                    <Button variant="ghost" size="iconSm" aria-label="この返信を編集" @click="startEdit(r)">
+                      <Pencil class="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="iconSm" class="text-destructive" aria-label="この返信を削除" @click="requestRemove(r)">
+                      <Trash2 class="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <template v-if="editingKey === entryKey(r)">
+                    <textarea v-model="editDraft" class="comment-area" rows="2" aria-label="返信本文の編集" />
+                    <div class="mt-1 flex gap-1.5">
+                      <Button size="sm" @click="commitEdit(r)">保存</Button>
+                      <Button size="sm" variant="outline" @click="cancelEdit">取消</Button>
+                    </div>
+                  </template>
+                  <p v-else class="whitespace-pre-wrap break-words text-[12px]">
+                    {{ r.content }}<span v-if="r.updatedAt" class="ml-1 text-[10px] text-muted-foreground">(編集済み)</span>
+                  </p>
+                </div>
+
+                <textarea
+                  v-model="replyDraft"
+                  data-reply-content
+                  class="comment-area"
+                  rows="2"
+                  placeholder="返信を書く…"
+                  @keydown.ctrl.enter="submitReply(t)"
+                />
+                <div class="flex justify-end">
+                  <Button size="sm" data-reply-submit :disabled="replyDraft.trim() === ''" @click="submitReply(t)">返信</Button>
+                </div>
+              </div>
+            </li>
+          </ul>
         </li>
       </ul>
     </div>
@@ -332,6 +390,28 @@ async function requestRemove(e: PartNoteEntry): Promise<void> {
   padding: 6px 8px;
   font-size: 12px;
   line-height: 1.5;
+}
+/* 編集画面の宛先枠(モック 案3 の `.target`)。未選択の点線の枠と対にする。 */
+.target-box {
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  background: var(--primary-soft);
+  padding: 6px 9px;
+}
+/* 番号の丸札。紙面の番号札と同じ番号だが、判定の色は持たない(コメントは判定と独立)。 */
+.part-no {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
 .comment-area:disabled {
   opacity: 0.5;

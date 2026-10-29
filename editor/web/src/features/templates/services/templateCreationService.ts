@@ -6,7 +6,9 @@ import {
   type CreatableInfo,
   err,
   type FundOption,
+  type GenerateImported,
   type GenerateRequest,
+  type GenerateSkipped,
   isOk,
   map,
   type Result,
@@ -19,7 +21,7 @@ import { draftOwner } from '@/lib/draftOwner';
 import { useEditorSessionStore } from '@/stores/editorSession';
 
 /** テンプレ作成に必要な属性が不足しているときに表示するメッセージ。 */
-export const SELECT_ALL_MSG = '委託会社・ファンド・版種を選択してください';
+export const SELECT_ALL_MSG = '委託会社とファンドを選択してください';
 
 interface TemplateCreationService {
   /** 作成タブの委託会社(Rep1)。 */
@@ -30,8 +32,15 @@ interface TemplateCreationService {
   getCreatableInfo(
     q: Parameters<TemplateRepository['getCreatableInfo']>[0],
   ): Promise<Result<CreatableInfo>>;
-  /** 属性を検証してから生成する。成功時は新規テンプレの meta を返す。 */
-  create(req: GenerateRequest): Promise<Result<TemplateMeta>>;
+  /**
+   * 属性を検証してから生成する。成功時は、取り込んだ版が 1 つならその meta(両版なら null)と、
+   * 取り込んだ版・作成済みか申請中のため飛ばした版を返す。
+   */
+  create(
+    req: GenerateRequest,
+  ): Promise<
+    Result<{ meta: TemplateMeta | null; imported: GenerateImported[]; skipped: GenerateSkipped[] }>
+  >;
 }
 
 /**
@@ -50,12 +59,21 @@ export function createTemplateCreationService(
 ): TemplateCreationService {
   return {
     async create(req) {
-      if (!req.companyCode || !req.fundCode || !req.editionType) {
+      if (!req.companyCode || !req.fundCode) {
         return err(validation(SELECT_ALL_MSG));
       }
       const res = await repo.generate(req);
-      if (isOk(res)) forgetEditState(res.value.template.meta.id);
-      return map(res, (r) => r.template.meta);
+      if (isOk(res)) {
+        // 1 回の作成は作る版をまとめて置き換えるので、取り込んだ全 id の前の編集状態を捨てる
+        // (同じタブで別の版を開いたとき古い Undo が戻らないように)。
+        const ids = new Set(res.value.imported.map((i) => i.templateId));
+        for (const id of ids) forgetEditState(id);
+      }
+      return map(res, (r) => ({
+        meta: r.template?.meta ?? null,
+        imported: r.imported,
+        skipped: r.skipped,
+      }));
     },
     listCompanies: () => repo.listCompanies(),
     listFunds: (rep1CompanyCode) => repo.listFunds(rep1CompanyCode),

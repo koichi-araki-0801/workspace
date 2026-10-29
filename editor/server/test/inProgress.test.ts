@@ -26,19 +26,29 @@ describe('findInProgressIds', () => {
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   it('下書きと pending を、大文字小文字を区別せずにファイルの綴りのまま返す', async () => {
-    put('pending', 'am01_510037_交付版.html');
-    put('drafts', 'Am01_510037_交付版.html');
-    put('drafts', 'Am01_510037_交付版.css');
-    put('pending', 'AM01_510037_全体版.html'); // 版種違いは数えない
+    put('pending', 'xx01_950037_交付版.html');
+    put('drafts', 'Xx01_950037_交付版.html');
+    put('drafts', 'Xx01_950037_交付版.css');
+    put('pending', 'XX01_950037_全体版.html'); // 版種違いは数えない
     const { findInProgressIds } = await import('../src/files/inProgress.js');
-    expect(await findInProgressIds('AM01_510037_交付版')).toEqual({
-      pending: ['am01_510037_交付版'],
-      drafts: ['Am01_510037_交付版'],
+    expect(await findInProgressIds('XX01_950037_交付版')).toEqual({
+      pending: ['xx01_950037_交付版'],
+      drafts: ['Xx01_950037_交付版'],
     });
   });
 
   it('どちらにも無ければ空、置き場が無くても落ちない', async () => {
     const { findInProgressIds } = await import('../src/files/inProgress.js');
-    expect(await findInProgressIds('AM01_510037_交付版')).toEqual({ pending: [], drafts: [] });
+    expect(await findInProgressIds('XX01_950037_交付版')).toEqual({ pending: [], drafts: [] });
+  });
+
+  it('inProgressLookup は一覧を 1 度取り、id ごとに findInProgressIds と同じ結果を返す', async () => {
+    put('pending', 'xx01_950037_交付版.html');
+    put('drafts', 'XX01_950037_全体版.html');
+    const { findInProgressIds, inProgressLookup } = await import('../src/files/inProgress.js');
+    const lookup = await inProgressLookup();
+    for (const id of ['XX01_950037_交付版', 'XX01_950037_全体版', 'XX01_950003_交付版']) {
+      expect(lookup(id)).toEqual(await findInProgressIds(id));
+    }
   });
 });

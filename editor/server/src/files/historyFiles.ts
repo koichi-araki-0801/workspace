@@ -17,6 +17,7 @@ import path from 'node:path';
 import { validation } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { withFileLock } from './fileLock.js';
 
 /** ファイル監査ログに記録する履歴の種別。 */
 type HistoryKind = 'pdf' | 'create' | 'part';
@@ -72,15 +73,20 @@ async function rotateIfNeeded(kind: HistoryKind): Promise<void> {
 /**
  * 1 イベントを追記する(ディレクトリは必要に応じて作成)。
  * 1 行が `MAX_HISTORY_RECORD_BYTES` を超えるレコードは**書かずに拒否**する(理由は定数の説明)。
+ *
+ * サイズ確認 → ローテーション → 追記は種別ごとに直列化する。上限ちょうどで 2 本が並走すると
+ * 両方が繰り上げを始め、後の 1 本が繰り上げ直後の `<kind>.1.jsonl` を消してしまう。
  */
 export async function appendHistory(kind: HistoryKind, entry: unknown): Promise<void> {
   const line = `${JSON.stringify(entry)}\n`;
   if (Buffer.byteLength(line, 'utf8') > MAX_HISTORY_RECORD_BYTES) {
     throw validation('履歴に記録する値が大きすぎます');
   }
-  await fs.mkdir(historyDir(), { recursive: true });
-  await rotateIfNeeded(kind);
-  await fs.appendFile(fileFor(kind), line, 'utf8');
+  await withFileLock(fileFor(kind), async () => {
+    await fs.mkdir(historyDir(), { recursive: true });
+    await rotateIfNeeded(kind);
+    await fs.appendFile(fileFor(kind), line, 'utf8');
+  });
 }
 
 /**

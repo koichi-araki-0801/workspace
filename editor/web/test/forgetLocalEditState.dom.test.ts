@@ -10,7 +10,7 @@ import { draftOwner } from '@/lib/draftOwner';
 import { draftOwnerKey, undoStacksKey } from '@/lib/storageKeys';
 import { useEditorSessionStore } from '@/stores/editorSession';
 
-const ID = 'AM01_510037_交付版';
+const ID = 'XX01_950037_交付版';
 
 beforeEach(() => {
   localStorage.clear();
@@ -23,8 +23,8 @@ describe('forgetLocalEditState', () => {
     const store = useEditorSessionStore();
     store.ensure(ID).undoPast.push({ html: '<p>前の生成物</p>', css: '' });
     store.persist(ID);
-    store.ensure('AM01_510003_交付版').undoPast.push({ html: '<p>別</p>', css: '' });
-    store.persist('AM01_510003_交付版');
+    store.ensure('XX01_950003_交付版').undoPast.push({ html: '<p>別</p>', css: '' });
+    store.persist('XX01_950003_交付版');
     draftOwner.claim(ID);
 
     forgetLocalEditState(ID);
@@ -32,7 +32,7 @@ describe('forgetLocalEditState', () => {
     expect(store.sessions[ID]).toBeUndefined();
     const undo = JSON.parse(localStorage.getItem(undoStacksKey()) ?? '{}');
     expect(undo).not.toHaveProperty(ID);
-    expect(undo).toHaveProperty('AM01_510003_交付版');
+    expect(undo).toHaveProperty('XX01_950003_交付版');
     expect(JSON.parse(localStorage.getItem(draftOwnerKey()) ?? '{}')).not.toHaveProperty(ID);
   });
 });

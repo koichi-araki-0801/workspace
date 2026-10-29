@@ -5,7 +5,7 @@
 // 側の責務)。引出線の屈曲点・ラベルの押し出し点・bbox 計算など数学的な操作のみ。
 // =============================================================================
 
-import type { PieLayoutConfig, LayoutItem, LayoutItemReady, Placement } from '../types.js';
+import type { PieLayoutConfig, LayoutItem, Placement } from '../types.js';
 import { GLYPH_ADVANCE_400 } from '../glyph_advance/weight_400.js';
 import { GLYPH_ADVANCE_700 } from '../glyph_advance/weight_700.js';
 
@@ -163,11 +163,6 @@ export function angleInBand(angle: number, center: number, halfWidth: number): b
   return Math.abs(delta) <= halfWidth;
 }
 
-/** 12 時方向(90°)から angle までの最小角度差(絶対値・度数)。 */
-export function topAngleOffset(angle: number): number {
-  return Math.abs(((angle - 90 + 180) % 360) - 180);
-}
-
 /**
  * 引出線長(scaledRadialExitLen)を基準に「最低値 + 比率」で長さやマージンを返す。
  */
@@ -289,18 +284,6 @@ export function polarToCartesian(radius: number, angleRad: number): Point {
   };
 }
 
-/**
- * ラベルリング半径(描画用)。
- */
-function labelRingRadius(cfg: PieLayoutConfig, ringOffset = 0): number {
-  return (
-    Math.max(
-      cfg.renderLabelRadius,
-      cfg.pieRadius + cfg.flipPieClearance + cfg.renderRadialExitLen,
-    ) + Math.max(0, ringOffset)
-  );
-}
-
 /** pie 円周の指定 x における y(>=0)。 */
 export function pieYAtX(x: number, cfg: PieLayoutConfig): number {
   const r2 = cfg.pieRadius * cfg.pieRadius;
@@ -348,78 +331,6 @@ export function horizontalLowerLeftDropAmount(cfg: PieLayoutConfig): number {
   return cfg.scaledMinGap + Math.max(0.014, cfg.scaledRadialExitLen * 0.16);
 }
 
-/**
- * 任意の (x, y) を「ラベルリング(描画用半径)」の上へ射影する。
- */
-export function projectLabelPoint(x: number, y: number, cfg: PieLayoutConfig): Point {
-  const targetRadius = labelRingRadius(cfg);
-  const sourceRadius = Math.hypot(x, y);
-  if (sourceRadius <= 1e-6) {
-    return { x: targetRadius, y: 0 };
-  }
-  const scale = targetRadius / sourceRadius;
-  return { x: x * scale, y: y * scale };
-}
-
-/**
- * 左側用: targetY を保ちつつリング上の左側 x を返す。
- */
-export function projectLeftRingPoint(
-  targetY: number,
-  cfg: PieLayoutConfig,
-  ringOffset = 0,
-  minX: number | null = null,
-): Point {
-  let targetRadius = labelRingRadius(cfg, ringOffset);
-  const clampedY = Math.max(-targetRadius + 1e-4, Math.min(targetRadius - 1e-4, targetY));
-  if (minX !== null) {
-    const minRequiredRadius = Math.hypot(Math.min(0, minX), clampedY);
-    if (minRequiredRadius > targetRadius) {
-      targetRadius = minRequiredRadius;
-    }
-  }
-  return {
-    x: -Math.sqrt(Math.max(0, targetRadius * targetRadius - clampedY * clampedY)),
-    y: clampedY,
-  };
-}
-
-function upperLeftDenseMaxY(anchorY: number, cfg: PieLayoutConfig): number {
-  return anchorY + radialFraction(cfg, 0.1, 1.0);
-}
-
-function upperLeftRingOffset(item: LayoutItem, angle: number, cfg: PieLayoutConfig): number {
-  const angleProgress = upperLeftAngleProgress(angle);
-  const { count, outerRank } = getUpperLeftRanks(item);
-  let offset = radialFraction(cfg, 0.01, 0.1);
-  offset += radialFraction(cfg, 0.02, 0.28) * angleProgress;
-  if (count >= 3) offset += radialFraction(cfg, 0.015, 0.1) * outerRank;
-  if (item.upperLeftSmallDense) offset += radialFraction(cfg, 0.012, 0.08) * outerRank;
-  if (item.upperLeftLongDense) offset += radialFraction(cfg, 0.01, 0.08);
-  return offset;
-}
-
-/** トップバンドのラベル Y を、anchor から最低限上に持ち上げる。 */
-export function topBandY(
-  anchorY: number,
-  displayY: number,
-  angle: number,
-  cfg: PieLayoutConfig,
-  isUpperLeft: boolean,
-): number {
-  const angleOffset = topAngleOffset(angle);
-  const extraLift = Math.min(0.18, Math.max(0, 18 - angleOffset) * 0.01);
-  if (isUpperLeft) {
-    return Math.max(displayY, anchorY + cfg.scaledRadialExitLen + extraLift);
-  }
-  return anchorY + cfg.scaledRadialExitLen + extraLift;
-}
-
-/** 右上 flip 時のラベル X を、最低でも anchor から右へ離す */
-export function flipTopRightX(anchorX: number, displayX: number, cfg: PieLayoutConfig): number {
-  return Math.max(displayX, anchorX + radialFraction(cfg, 0.28, 3.0));
-}
-
 function upperLeftFirstLen(angle: number, cfg: PieLayoutConfig): number {
   const angleProgress = upperLeftAngleProgress(angle);
   return radialFraction(cfg, 0.09, 0.95 + 1.1 * angleProgress);
@@ -428,14 +339,6 @@ function upperLeftFirstLen(angle: number, cfg: PieLayoutConfig): number {
 /** 左上ラベルの水平区間長(× 0.95)。 */
 export function upperLeftHorizontalLen(angle: number, cfg: PieLayoutConfig): number {
   return upperLeftFirstLen(angle, cfg) * 0.95;
-}
-
-function upperLeftTextPadding(item: LayoutItem, cfg: PieLayoutConfig): number {
-  let pad = radialFraction(cfg, 0.03, 0.35);
-  if ((item.upperLeftCount ?? 1) >= 3) {
-    pad = radialFraction(cfg, pad, 0.48);
-  }
-  return pad;
 }
 
 /**
@@ -459,37 +362,6 @@ export function upperLeftBendPoint(
   }
   firstLen += radialFraction(cfg, 0.012, 0.14) * outerRank;
   return { x: anchorX - firstLen, y: anchorY };
-}
-
-/**
- * 一般ラベルの引出線屈曲点。
- */
-export function leaderBendPoint(
-  anchorX: number,
-  anchorY: number,
-  finalX: number,
-  finalY: number,
-  bendDir: number,
-  midAngle: number,
-  cfg: PieLayoutConfig,
-  labelBox?: BBox,
-): Point {
-  const horizontalSpan = Math.abs(finalX - anchorX);
-  const verticalSpan = Math.abs(finalY - anchorY);
-  const angleRad = degToRad(normalizeAngle(midAngle));
-  let tangentLikeAngle =
-    (Math.atan2(Math.abs(Math.cos(angleRad)), Math.max(Math.abs(Math.sin(angleRad)), 1e-6)) * 180) /
-    Math.PI;
-  if (bendDir > 0) tangentLikeAngle *= 0.82;
-  const targetAngle = Math.max(28, Math.min(68, tangentLikeAngle));
-  const targetTan = Math.tan(degToRad(targetAngle));
-  const angleBasedLength = verticalSpan / Math.max(targetTan, 1e-6);
-  const bendLength = Math.max(
-    radialFraction(cfg, 0.1, 1.15),
-    Math.min(horizontalSpan * 0.55, angleBasedLength),
-  );
-  const bend: Point = { x: anchorX + bendDir * bendLength, y: anchorY };
-  return labelBox ? clampBendOutsideBox(bend, anchorX, finalX, labelBox) : bend;
 }
 
 /**
@@ -585,13 +457,6 @@ export function leaderAttachTargetY(
   return box.top - perLineHeight / 2; // 上から → 上行中央
 }
 
-/** 名前長と行数からラベル外側に必要な余白を増やす */
-export function labelOutwardClearance(item: LayoutItem, base: number): number {
-  let extra = Math.max(0, item.name.length - 6) * 0.012;
-  if ((item.textLines ?? 2) >= 3) extra += 0.04;
-  return base + extra;
-}
-
 interface LabelLines {
   isCompact: boolean;
   lines: string[];
@@ -638,21 +503,7 @@ export function estimateTextExtent(item: LayoutItem, cfg: PieLayoutConfig): Exte
 }
 
 /**
- * スライス内部にラベル bbox が収まるか判定し、収まる場合は配置中心 (cx, cy) を返す。
- */
-export function fitsInsideSlice(
-  midAngleRad: number,
-  spanRad: number,
-  item: LayoutItem,
-  lineCount: number,
-  cfg: PieLayoutConfig,
-): InsideFit {
-  const { width, height } = estimateVerifyTextExtent(item, cfg, lineCount);
-  return fitsInsideSliceExtent(midAngleRad, spanRad, width, height, cfg);
-}
-
-/**
- * fitsInsideSlice の本体。bbox 幅/高さ (論理単位) を明示指定する版。
+ * bbox 幅/高さ (論理単位) を明示指定して、ラベルがスライス内に収まるかを判定する。
  * カスケードが各 form (行数 × 長体率) の実寸で内側判定するために使う。
  *
  * `horizontalCenter=true` (dominant スライス用) のときは配置中心の水平成分を 0 (= キャンバス水平中央)
@@ -1002,12 +853,12 @@ export function pieClearanceWithinViewBox(
  * ラベル箱の Y 範囲 (boxTop/boxBottom)・幅・anchor から、pie クリアランスを満たす textX の
  * 上下限 (pieMinTextX = 右側ラベルの下限 / pieMaxTextX = 左側ラベルの上限) を計算する。
  *
- * post_layout の clampPlacement が後段で y が動いた後に円クリアランス X 限界を動的再計算するための
- * ヘルパ。label_placement の clampAndBuildPlacement にある draft 構築時の静的計算 (同式をインライン
- * 展開) と対になる。静的計算は draft 時点の y で固定されるため、ラベルが大きい |y| へ動くと円が太く
- * なり静的限界では円内へ食い込む。それを本関数の動的再計算が補正する。
+ * `layout/placement.ts` の `finalizePlacement` が draft 時点の y で静的に計算し、post_layout の
+ * clampPlacement が後段で y が動いた後に動的に再計算する。静的限界は draft 時点の y で固定される
+ * ため、ラベルが大きい |y| へ動くと円が太くなり静的限界では円内へ食い込む。それを動的再計算が補正する。
  * 箱の最近接 Y 縁が円の完全に外 (|closestY| >= pieRadius) のときは円との X 干渉が無いので null を
- * 返す (静的計算は同ケースで insidePieR=0 の名残制約を作るが、動的側は X 制約不要として正しく外す)。
+ * 返す。`force` を立てると同ケースでも insidePieR=0 の名残制約 (±クリアランス) を返す
+ * (静的側の `capParityRejected` 用)。
  *
  * closestY は箱の Y 範囲のうち円中心 (y=0) に最も近い値: 箱が y=0 を跨げば 0、そうでなければ
  * 絶対値の小さい側の縁。その Y での円半幅 insidePieR = sqrt(r² − closestY²) にクリアランスと
@@ -1019,11 +870,12 @@ export function pieClampXLimits(
   width: number,
   anchor: string,
   cfg: PieLayoutConfig,
+  force = false,
 ): { pieMinTextX: number; pieMaxTextX: number } | null {
   let closestY: number;
   if (boxBottom <= 0 && boxTop >= 0) closestY = 0;
   else closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
-  if (Math.abs(closestY) >= cfg.pieRadius) return null;
+  if (!force && Math.abs(closestY) >= cfg.pieRadius) return null;
   const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
   // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (幅広ラベルの見切れ退行防止)。
   const pieClearanceLogical = pieClearanceWithinViewBox(
@@ -1141,88 +993,52 @@ export function nudgeTextAwayFromSegment(
   return { x: nextX, y: nextY };
 }
 
-/**
- * 左上 + トップバンド用のラベル端点を求める。
- */
-export function topBandUpperLeftTarget(
-  item: LayoutItemReady,
-  anchorX: number,
-  topY: number,
-  angle: number,
-  cfg: PieLayoutConfig,
-  measured: Extent,
-): Point {
-  const angleProgress = upperLeftAngleProgress(angle);
-  const renderY = item.upperLeftRenderY ?? 0;
-  let endpointY = renderY > 0 ? renderY : topY;
-  const anchorClearanceY =
-    Math.sin(degToRad(angle)) * cfg.pieRadius + cfg.scaledRadialExitLen * 0.42;
-  endpointY = Math.max(endpointY, anchorClearanceY);
-  if (item.textLines >= 3) {
-    endpointY += Math.max(cfg.scaledMinGap * 0.12, measured.height * 0.08);
-  }
+/** 角度 (rad) を [−π, π] へ巻き戻す。範囲内の値 (±π を含む) はそのまま返す。 */
+export function wrapPi(a: number): number {
+  let r = a;
+  while (r > Math.PI) r -= 2 * Math.PI;
+  while (r < -Math.PI) r += 2 * Math.PI;
+  return r;
+}
 
-  const firstLen = upperLeftFirstLen(angle, cfg);
-  let textPush = upperLeftTextPadding(item, cfg);
-  if (item.upperLeftLongDense || item.isLong) {
-    textPush += 0.03;
-  }
-  const minHorizontalX = Math.min(
-    anchorX - radialFraction(cfg, 0.06, 0.54),
-    anchorX - Math.max(firstLen, textPush * 0.72),
-    -textPush,
+/** 箱 (原点が円の中心) の最近接点から原点までの距離。原点を含む箱は 0。 */
+export function boxDistToOrigin(b: {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}): number {
+  const nx = Math.max(b.left, Math.min(b.right, 0));
+  const ny = Math.max(b.bottom, Math.min(b.top, 0));
+  return Math.hypot(nx, ny);
+}
+
+/** `item.midAngle` の sin 降順 (上にあるものが先) に配列を並べ替える。引数の配列を書き換えて返す。 */
+export function sortByAngleDesc<T extends { item: { midAngle?: number } }>(xs: T[]): T[] {
+  return xs.sort(
+    (a, b) => Math.sin(degToRad(b.item.midAngle ?? 0)) - Math.sin(degToRad(a.item.midAngle ?? 0)),
   );
-
-  let ringOffset = upperLeftRingOffset(item, angle, cfg);
-  ringOffset += radialFraction(cfg, 0.015, 0.14) * (1 - angleProgress);
-  if (item.upperLeftSmallDense) {
-    ringOffset += radialFraction(cfg, 0.015, 0.12);
-  }
-  if (item.upperLeftLongDense || item.isLong) {
-    ringOffset += radialFraction(cfg, 0.02, 0.18);
-  }
-
-  return projectLeftRingPoint(endpointY, cfg, ringOffset, minHorizontalX);
 }
 
 /**
- * 通常の左上ラベル用の端点を求める。
+ * ラベルを高さ `y` の円縁 (左は `-x`、右は `+x`) を起点に pie クリアランス nudge し、`p.x` / `p.y` を
+ * 更新する。呼び出し側が必要なら続けて `clampPlacement` を掛ける。
  */
-export function upperLeftTarget(
-  item: LayoutItemReady,
-  anchorY: number,
-  displayY: number,
-  angle: number,
+export function hugRimAt(
+  p: Placement,
+  y: number,
+  side: 'left' | 'right',
   cfg: PieLayoutConfig,
-  padY: number,
-  measured: Extent,
-): Point {
-  const angleProgress = upperLeftAngleProgress(angle);
-  const { outerRank } = getUpperLeftRanks(item);
-
-  let endpointY: number;
-  const hasRenderY = (item.upperLeftRenderY ?? 0) > 0;
-  if (hasRenderY) {
-    endpointY = item.upperLeftRenderY;
-  } else {
-    endpointY = Math.max(displayY, anchorY + Math.min(padY, measured.height * 0.16));
-  }
-
-  if (item.upperLeftSmallDense && !hasRenderY) {
-    endpointY = Math.min(endpointY, upperLeftDenseMaxY(anchorY, cfg));
-  }
-  endpointY = Math.max(endpointY, anchorY + Math.min(padY, measured.height * 0.12));
-
-  let ringOffset = upperLeftRingOffset(item, angle, cfg);
-  ringOffset += radialFraction(cfg, 0.01, 0.1) * outerRank;
-  if (item.upperLeftLongDense && angle < 135) {
-    ringOffset += radialFraction(cfg, 0.02, 0.22) * (1 - angleProgress);
-  }
-  if (item.upperLeftSmallDense) {
-    ringOffset = Math.max(0.0, ringOffset - radialFraction(cfg, 0.01, 0.08));
-  }
-  if (angle >= 160 && item.isLong) {
-    ringOffset += radialFraction(cfg, 0.07, 0.55);
-  }
-  return projectLeftRingPoint(endpointY, cfg, ringOffset);
+): void {
+  const rim = pieYAtX(y, cfg);
+  const nudged = nudgeTextAwayFromPie(
+    side === 'left' ? -rim : rim,
+    y,
+    p.anchor,
+    p.baseline,
+    placementExtent(p, cfg),
+    cfg,
+  );
+  p.x = nudged.x;
+  p.y = nudged.y;
 }

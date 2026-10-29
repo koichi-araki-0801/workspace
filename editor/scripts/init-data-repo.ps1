@@ -30,7 +30,7 @@
   環境変数 DATA_ROOT(このプロセス → ユーザー環境変数の順)、appconfig(環境変数 APP_CONFIG、
   無ければ editor\appconfig.json)の paths.dataRoot(editor のフォルダの中を指す値は使わない)を
   使い、どれも無ければワークスペースの 1 つ上の editor-data(例: C:\Users\<user>\editor-data)。
-  2 本のパッチ(editor\patches\2026-10-*)と同じ順で、相対パスは editor/ 基準になる。決めた元は
+  相対パスは editor/ 基準になる。決めた元は
   dataRoot: で始まる行に出る。
   ユーザー環境変数まで見るのは、setx 直後の同じウィンドウでは $env: に反映されず、
   サーバ(新しいウィンドウから起動)と違う場所へ作ってしまうため。
@@ -79,7 +79,7 @@ function Get-CfgDataRoot {
   $cfg = Get-Content -Raw -Encoding UTF8 -LiteralPath $cfgPath | ConvertFrom-Json
   if (-not ($cfg -and $cfg.paths -and $cfg.paths.PSObject.Properties['dataRoot'] -and $cfg.paths.dataRoot)) { return $null }
   $v = [string]$cfg.paths.dataRoot
-  # editor のフォルダの中を指す値は旧構成の名残で、フォント移設パッチも無視して外す。
+  # editor のフォルダの中を指す値は旧構成の名残なので使わない(data リポジトリは editor の外に置く)。
   try { $full = [IO.Path]::GetFullPath((Resolve-EditorPath $v)).TrimEnd('\') + '\' }
   catch { throw "appconfig の paths.dataRoot の値 '$v' はパスとして読めません($($_.Exception.Message))。直してから再実行してください。" }
   if ($full.StartsWith($editorDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {

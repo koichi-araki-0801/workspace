@@ -5,7 +5,6 @@
 import { describe, expect, it } from 'vitest';
 import { createApp, defineComponent, h } from 'vue';
 import {
-  localRepositories,
   REPOS_KEY,
   restRepositories,
   useAuthRepo,
@@ -48,9 +47,6 @@ describe('use*Repo', () => {
     expect(inSetup(useNoteRepo, true)).toBe(restRepositories.notes);
     expect(inSetup(useReviewRepo, true)).toBe(restRepositories.reviews);
     expect(inSetup(useUserRepo, true)).toBe(restRepositories.users);
-  });
-  it('local と rest は同じキー集合を持つ(差し替えで画面側が無改修で済む前提)', () => {
-    expect(Object.keys(restRepositories).sort()).toEqual(Object.keys(localRepositories).sort());
   });
   it('provide されていなければ main.ts を指す例外で落ちる(黙って undefined を返さない)', () => {
     expect(() => inSetup(useAuthRepo, false)).toThrow(/provide/);

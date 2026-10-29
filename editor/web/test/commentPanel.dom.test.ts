@@ -3,13 +3,14 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import { resolveConfirm } from '@/components/ui/confirm';
 import CommentPanel from '@/features/editor/comments/CommentPanel.vue';
+import { DELETED_GROUP_KEY } from '@/features/editor/comments/commentFilter';
 
 const COVER = '.page#1/cover#1';
 const SUMMARY = '.page#1/.summary#1';
 
 function entry(p: Partial<PartNoteEntry> & { id: string }): PartNoteEntry {
   return {
-    templateId: 'AM01_510037_20240710_交付版',
+    templateId: 'XX01_950037_20240710_交付版',
     pathKey: COVER,
     content: '',
     createdAt: '2026-09-01T00:00:00.000Z',
@@ -56,13 +57,16 @@ function mountPanel(extra: Record<string, unknown> = {}) {
 }
 
 describe('CommentPanel', () => {
-  it('既定は未対応の親投稿だけを行として出し、返信数とパーツ名を添える', () => {
+  it('既定は未対応の親投稿だけを行として出し、行に返信数・見出しにパーツ名を出す', () => {
     const w = mountPanel();
     const rows = w.findAll('[data-comment-row]');
     expect(rows).toHaveLength(1);
     expect(rows[0].text()).toContain('表紙の日付');
-    expect(rows[0].text()).toContain('ページ1・パーツ1');
     expect(rows[0].text()).toContain('返信 1');
+    // パーツ名は行でなく、行を束ねるパーツの見出しに出す。
+    expect(w.find(`[data-comment-group="${COVER}"] [data-comment-group-head]`).text()).toContain(
+      'ページ1・パーツ1',
+    );
   });
 
   it('状態の絞り込みを「すべて」にすると解決済みも出る', async () => {
@@ -138,7 +142,9 @@ describe('CommentPanel', () => {
     const w = mountPanel({ entries: [...entries, deleted] });
     const row = w.findAll('[data-comment-row]').find((r) => r.text().includes('消えたパーツ'));
     expect(row).toBeTruthy();
-    expect(row?.text()).toContain('削除済みパーツ');
+    expect(
+      w.find(`[data-comment-group="${DELETED_GROUP_KEY}"] [data-comment-group-head]`).text(),
+    ).toContain('削除済みパーツ');
     expect(row?.classes()).toContain('cursor-default');
     expect(row?.classes()).toContain('text-muted-foreground');
   });
@@ -271,5 +277,144 @@ describe('CommentPanel', () => {
     await w.find('[data-comment-row] [data-expand]').trigger('click');
     await w.find('button[aria-label="このコメントを編集"]').trigger('click');
     expect(w.find('textarea[aria-label="コメント本文の編集"]').exists()).toBe(true);
+  });
+
+  // 削除済みパーツ 2 つ(キーが別)。どちらも既定の作成日時(最古)。
+  const deletedEntries = [
+    entry({ id: 'd', pathKey: 'gone-key', content: '消えた' }),
+    entry({ id: 'e', pathKey: 'gone-key-2', content: 'これも消えた' }),
+  ];
+
+  it('更新順(既定)なら、最新のスレッドを持つ見出しが先頭', async () => {
+    const w = mountPanel({ entries: [...deletedEntries, ...entries] });
+    await w.find('[data-filter-status]').setValue('all');
+    const groups = w.findAll('[data-comment-group]');
+    expect(groups.map((g) => g.attributes('data-comment-group'))).toEqual([
+      SUMMARY,
+      COVER,
+      DELETED_GROUP_KEY,
+    ]);
+    expect(groups[0].findAll('[data-comment-row]')).toHaveLength(1);
+    expect(groups[0].text()).toContain('要約の数値');
+  });
+
+  it('パーツ順なら見出しは partLabels の順で、削除済みパーツは 1 つの見出しにまとめて末尾', async () => {
+    const w = mountPanel({ entries: [...deletedEntries, ...entries] });
+    await w.find('[data-filter-status]').setValue('all');
+    await w.find('[data-filter-sort]').setValue('part');
+    const groups = w.findAll('[data-comment-group]');
+    expect(groups.map((g) => g.attributes('data-comment-group'))).toEqual([
+      COVER,
+      SUMMARY,
+      DELETED_GROUP_KEY,
+    ]);
+    const deleted = groups[2];
+    expect(deleted.findAll('[data-comment-group-head]')).toHaveLength(1);
+    expect(deleted.find('[data-comment-group-head]').text()).toBe('削除済みパーツ');
+    expect(deleted.findAll('[data-comment-row]').map((r) => r.attributes('data-path-key'))).toEqual(
+      ['gone-key', 'gone-key-2'],
+    );
+  });
+
+  it('partNumbers があれば見出しと宛先枠に番号を出す', async () => {
+    const w = mountPanel({
+      partNumbers: new Map([[COVER, 3]]),
+      partNames: new Map([[COVER, '表紙']]),
+      collapseInputUntilTarget: true,
+    });
+    const head = w.find(`[data-comment-group="${COVER}"] [data-comment-group-head]`);
+    expect(head.find('[data-part-no]').text()).toBe('3');
+    expect(head.text()).toContain('表紙');
+    const target = w.find('[data-comment-target]');
+    expect(target.text()).toContain('宛先');
+    expect(target.find('[data-part-no]').text()).toBe('3');
+    expect(target.text()).toContain('表紙');
+    expect(w.find('textarea[data-add-content]').attributes('placeholder')).toBe(
+      '「表紙」へのコメントを書く…',
+    );
+    // 番号の無いパーツの見出しは partLabels の名前だけ。
+    await w.find('[data-filter-status]').setValue('all');
+    const summary = w.find(`[data-comment-group="${SUMMARY}"] [data-comment-group-head]`);
+    expect(summary.find('[data-part-no]').exists()).toBe(false);
+    expect(summary.text()).toContain('ページ1・パーツ2');
+  });
+
+  it('collapseInputUntilTarget で宛先が無い間は入力欄を出さない', async () => {
+    const w = mountPanel({ selectedKey: null, canAdd: false, collapseInputUntilTarget: true });
+    expect(w.find('textarea[data-add-content]').exists()).toBe(false);
+    expect(w.find('[data-add-submit]').exists()).toBe(false);
+    expect(w.text()).toContain('左の紙面でパーツを押すと、そのパーツへコメントを書けます。');
+    await w.setProps({ selectedKey: COVER, canAdd: true });
+    expect(w.find('textarea[data-add-content]').exists()).toBe(true);
+    expect(w.text()).not.toContain('左の紙面でパーツを押すと');
+  });
+
+  it('addBlockedText があれば入力欄の代わりに出す', () => {
+    const text = '追加したパーツは確定版にまだ無いため、コメントを書けません。';
+    const w = mountPanel({
+      selectedKey: null,
+      canAdd: false,
+      collapseInputUntilTarget: true,
+      addBlockedText: text,
+    });
+    expect(w.find('textarea[data-add-content]').exists()).toBe(false);
+    expect(w.find('[data-add-blocked]').text()).toBe(text);
+    expect(w.text()).not.toContain('左の紙面でパーツを押すと');
+  });
+
+  it('見出しを押すと focus を emit する', async () => {
+    const w = mountPanel({ selectedKey: null });
+    await w.find(`[data-comment-group="${COVER}"] [data-comment-group-head]`).trigger('click');
+    expect(w.emitted('focus')?.[0]).toEqual([COVER]);
+  });
+
+  it('削除済みパーツの見出しは押せない', async () => {
+    const deleted = entry({ id: 'd', pathKey: 'gone-key', content: '消えた' });
+    const w = mountPanel({ entries: [deleted] });
+    const head = w.find(`[data-comment-group="${DELETED_GROUP_KEY}"] [data-comment-group-head]`);
+    expect(head.attributes('disabled')).toBeDefined();
+    await head.trigger('click');
+    expect(w.emitted('focus')).toBeUndefined();
+  });
+
+  it('編集画面: 未選択は点線の宛先枠と「パーツを選ぶと書けます」', () => {
+    const w = mountPanel({ selectedKey: null, canAdd: false });
+    const none = w.find('[data-comment-target-none]');
+    expect(none.text()).toBe('宛先のパーツが未選択です。紙面でパーツを選んでください');
+    expect(none.classes()).toContain('border-dashed');
+    expect(w.find('[data-comment-target]').exists()).toBe(false);
+    const area = w.find('textarea[data-add-content]');
+    expect(area.attributes('placeholder')).toBe('パーツを選ぶと書けます');
+    expect(area.attributes('disabled')).toBeDefined();
+    expect(w.find('[data-comment-scope]').text()).toBe('全パーツのコメント');
+    // 「選択パーツのみ」は今のまま既定オフ。
+    expect((w.find('[data-filter-selected]').element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('編集画面: 選択中は宛先枠(番号 + 名前)と、名前入りの入力欄の文言', () => {
+    const w = mountPanel({
+      partNumbers: new Map([[COVER, 2]]),
+      partNames: new Map([[COVER, '表紙']]),
+    });
+    const target = w.find('[data-comment-target]');
+    expect(target.text()).toContain('宛先');
+    expect(target.find('[data-part-no]').text()).toBe('2');
+    expect(target.text()).toContain('表紙');
+    expect(target.classes()).toContain('target-box');
+    expect(w.find('[data-comment-target-none]').exists()).toBe(false);
+    expect(w.find('textarea[data-add-content]').attributes('placeholder')).toBe(
+      '「表紙」へのコメントを書く…',
+    );
+  });
+
+  it('編集画面: 「選択パーツのみ」を入れると見出しの文が「「<名前>」のコメント」になる', async () => {
+    const w = mountPanel({ partNames: new Map([[COVER, '表紙']]) });
+    await w.find('[data-filter-selected]').setValue(true);
+    expect(w.find('[data-comment-scope]').text()).toBe('「表紙」のコメント');
+  });
+
+  it('承認タブ(compact)には見出しの文を出さない', () => {
+    const w = mountPanel({ compact: true, collapseInputUntilTarget: true });
+    expect(w.find('[data-comment-scope]').exists()).toBe(false);
   });
 });

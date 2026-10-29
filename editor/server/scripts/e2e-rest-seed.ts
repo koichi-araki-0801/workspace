@@ -13,7 +13,7 @@ import { E2E_REST_DATA_ROOT } from './e2e-rest-paths.js';
 
 /**
  * dataRoot をファイルで seed する。一覧・1 件取得・申請はファイル走査(台帳ではない。
- * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、値入り HTML と per-fund CSS を
+ * `templateRepo.ts` / `reviewRepo.ts` を見よ)なので、値入り HTML とテンプレ単位の CSS(`<会社>_<ファンド>_<版種>.css`)を
  * 置くだけで一覧・編集・申請・承認が成立する。`reviews` / `notes` / `drafts` / `pending`
  * ディレクトリは各リポジトリの書込側が `mkdir(..., { recursive: true })` するため
  * 事前作成は不要。git リポジトリ化(`ensureRepo`)も承認時に自動で行われるため不要。
@@ -28,18 +28,25 @@ export async function seedDataRoot(repoRoot: string): Promise<void> {
   const filledDir = path.join(E2E_REST_DATA_ROOT, 'filled');
   await fs.mkdir(templatesDir, { recursive: true });
   // templates/ は空で始める。作成済みとコピー元は 3 つ区切り(会社_ファンド_版種)のファイルだけを
-  // 数え、fixtures の templates/(4 つ区切り。local では値入り HTML として使う)はここでは意味を持たない。
+  // 数え、fixtures の templates/(4 つ区切り)はここでは意味を持たない。
   await fs.mkdir(cssDir, { recursive: true });
   await fs.mkdir(filledDir, { recursive: true });
 
-  const fixturesCssDir = path.join(repoRoot, 'editor/web/src/api/fixtures/css');
-  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の round-trip 形式 fixture
-  // (`{%` を含まない)をそのまま使う。
-  const fixturesFilledDir = path.join(repoRoot, 'editor/web/src/api/fixtures/filled');
+  const fixturesCssDir = path.join(repoRoot, 'editor/fixtures/css');
+  // 編集タブの一覧は filled/ が源。値入り HTML の seed は web 同梱の fixture(往復用の印も
+  // Jinja も含まない値入り HTML)をそのまま使う。
+  const fixturesFilledDir = path.join(repoRoot, 'editor/fixtures/filled');
   for (const name of await fs.readdir(fixturesCssDir)) {
     await fs.copyFile(path.join(fixturesCssDir, name), path.join(cssDir, name));
   }
   for (const name of await fs.readdir(fixturesFilledDir)) {
     await fs.copyFile(path.join(fixturesFilledDir, name), path.join(filledDir, name));
+  }
+  // 編集タブで Jinja のパーツを挿入するときの値(`json/<ID>.json`)。テスト用の fixture を置く。
+  const jsonDir = path.join(E2E_REST_DATA_ROOT, 'json');
+  const fixturesJsonDir = path.join(repoRoot, 'editor/fixtures/json');
+  await fs.mkdir(jsonDir, { recursive: true });
+  for (const name of await fs.readdir(fixturesJsonDir)) {
+    await fs.copyFile(path.join(fixturesJsonDir, name), path.join(jsonDir, name));
   }
 }

@@ -5,7 +5,7 @@ import { useComments } from '@/features/editor/useComments';
 
 const COVER = '.page#1/cover#1';
 const SUMMARY = '.page#1/.summary#1';
-const TPL = 'AM01_510037_20240710_交付版';
+const TPL = 'XX01_950037_20240710_交付版';
 
 /** インメモリの fake NoteRepository(`store` を直接覗いて永続化を検証する)。 */
 function makeRepo(opts?: { listNotes?: () => Promise<PartNoteEntry[]> }) {
@@ -120,9 +120,9 @@ describe('useComments', () => {
       spy,
     );
     await note.add('交付版のメモ');
-    const pairEntry = { ...note.entries.value[0], templateId: 'AM01_510037_20240710_全体版' };
+    const pairEntry = { ...note.entries.value[0], templateId: 'XX01_950037_20240710_全体版' };
     await note.update(pairEntry, '書き換え');
-    expect(seen).toEqual(['AM01_510037_20240710_全体版']);
+    expect(seen).toEqual(['XX01_950037_20240710_全体版']);
   });
 
   it('reload はリポジトリのエラーを飲み込む(スレッドは空のまま)', async () => {
@@ -142,14 +142,14 @@ describe('useComments', () => {
     expect(note.notedKeys.value.size).toBe(0);
   });
 
-  it('第 3 引数の pathKey を渡すと currentKey() を無視してその宛先へ投稿する(承認タブは区画ごとに宛先を持つため)', async () => {
+  it('第 2 引数の pathKey を渡すと currentKey() を無視してその宛先へ投稿する(承認タブは区画ごとに宛先を持つため)', async () => {
     const { repo, store } = makeRepo();
     const note = useComments(
       () => TPL,
       () => COVER,
       repo,
     );
-    await note.add('本文', {}, SUMMARY);
+    await note.add('本文', SUMMARY);
     expect(store).toHaveLength(1);
     expect(store[0].pathKey).toBe(SUMMARY);
   });

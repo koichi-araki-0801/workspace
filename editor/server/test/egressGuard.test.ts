@@ -40,21 +40,32 @@ interface FakeBuild {
  * 立てるのと同じ形)。予約はポートを押さえっぱなしにしないので、ここで bind できる。
  */
 async function startFakeBuild(body: string): Promise<FakeBuild> {
-  const reservation = await reserveBuildOrigin();
-  const origin = http.createServer((_req, res) => {
-    res.statusCode = 200;
-    res.end(body);
-  });
-  await new Promise<void>((resolve, reject) => {
-    origin.once('error', reject);
-    origin.listen(reservation.port, '127.0.0.1', () => resolve());
-  });
-  return {
-    reservation,
-    proxyUrl: new URL(reservation.proxyServer),
-    originPort: (origin.address() as AddressInfo).port,
-    origin,
-  };
+  // 予約は空きを確かめた番地を返すだけで、bind までの間に並列の別のテストファイルが同じ
+  // ephemeral の番地を取ることがある(CI の Linux で EADDRINUSE になった)。その時だけ枠を
+  // 返して取り直す。
+  for (let attempt = 1; ; attempt++) {
+    const reservation = await reserveBuildOrigin();
+    const origin = http.createServer((_req, res) => {
+      res.statusCode = 200;
+      res.end(body);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        origin.once('error', reject);
+        origin.listen(reservation.port, '127.0.0.1', () => resolve());
+      });
+    } catch (e) {
+      reservation.release();
+      if (attempt < 5 && (e as NodeJS.ErrnoException).code === 'EADDRINUSE') continue;
+      throw e;
+    }
+    return {
+      reservation,
+      proxyUrl: new URL(reservation.proxyServer),
+      originPort: (origin.address() as AddressInfo).port,
+      origin,
+    };
+  }
 }
 
 async function stopFakeBuild(build: FakeBuild): Promise<void> {
@@ -695,5 +706,130 @@ describe('egressGuard — 中継の端(事象の順序を明示して駆動す�
     // 枠を返していれば次の予約はそのまま通る(返さないとその番地を避け続けて枯渇する)。
     const ok = await reserveBuildOrigin();
     ok.release();
+  });
+});
+
+// ── CONNECT を拒否した素のソケットの error ──
+// Node の http.Server は 'connect' を emit する前に、ソケットから自分の error リスナー
+// (`socketOnError`)を外す。拒否の 502 を書いている間に相手が RST すると、そのソケットの
+// 'error' を受ける者がいなくなり `uncaughtException` になる(`serve.ts` は `exit(1)` する)。
+// 組版中の Edge は bing.com 等へ CONNECT を十数件送る(ビルド 18 回中 1 回落ちた件はこの経路と推定)。
+// 本物の RST が 502 の書き込みより先に届くかは OS 次第なので、主テストは中継が受け取った
+// ソケットへ ECONNRESET を直接発生させ、決定的に確かめる。
+describe('egressGuard — CONNECT を拒否したソケットの error でプロセスが落ちない', () => {
+  const econnreset = (): Error =>
+    Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' });
+
+  /** 中継へ CONNECT を送り、中継が拒否の処理を終えた後の素のソケットを受け取る。 */
+  async function connectAndGrab(
+    server: http.Server,
+    proxy: URL,
+  ): Promise<{ serverSocket: net.Socket; client: net.Socket }> {
+    // 中継自身の 'connect' リスナーより後に足すので、拒否の処理が済んでから呼ばれる。
+    const grabbed = new Promise<net.Socket>((resolve) => {
+      server.once('connect', (_req, socket) => resolve(socket as net.Socket));
+    });
+    const client = net.connect(Number(proxy.port), proxy.hostname, () => {
+      client.write('CONNECT evil.example:443 HTTP/1.1\r\nHost: evil.example:443\r\n\r\n');
+    });
+    client.on('error', () => {});
+    const serverSocket = await grabbed;
+    await new Promise((resolve) => setImmediate(resolve));
+    return { serverSocket, client };
+  }
+
+  it('ビルドごとの中継: CONNECT 後に ECONNRESET が来ても投げず、中継は動き続ける', async () => {
+    const relay = await reserveWithRelayServer();
+    const proxy = new URL(relay.reservation.proxyServer);
+    try {
+      const { serverSocket, client } = await connectAndGrab(relay.server, proxy);
+      expect(() => serverSocket.emit('error', econnreset())).not.toThrow();
+      client.destroy();
+      const res = await viaProxy('http://127.0.0.1:1/x', proxy);
+      expect(res.status).toBe(502);
+    } finally {
+      relay.reservation.release();
+    }
+  });
+
+  it('共有中継(本体プロセス): CONNECT 後に ECONNRESET が来ても投げず、中継は動き続ける', async () => {
+    // 共有中継は起動済みだとキャッシュが返り `http.createServer` を通らないので、畳んでから掴む。
+    await stopFakeBuild(build);
+    await stopEgressGuard();
+    const createServer = http.createServer;
+    const created: http.Server[] = [];
+    const spy = vi.spyOn(http, 'createServer').mockImplementation(((...args: unknown[]) => {
+      const s = (createServer as (...a: unknown[]) => http.Server)(...args);
+      created.push(s);
+      return s;
+    }) as unknown as typeof http.createServer);
+    let shared: URL;
+    try {
+      shared = new URL(await startEgressGuard());
+    } finally {
+      spy.mockRestore();
+    }
+    try {
+      const { serverSocket, client } = await connectAndGrab(created[0], shared);
+      expect(() => serverSocket.emit('error', econnreset())).not.toThrow();
+      client.destroy();
+      const res = await viaProxy('http://127.0.0.1:1/x', shared);
+      expect(res.status).toBe(502);
+    } finally {
+      build = await startFakeBuild('LOOPBACK-OK');
+      proxyUrl = build.proxyUrl;
+      originPort = build.originPort;
+    }
+  });
+
+  // 'upgrade' リスナーを持たない中継では、Node が Upgrade 要求を通常の要求として扱い
+  // (`socketOnError` が残る)、`handleRequest` が 502 を返す。'upgrade' にリスナーを足さない
+  // 判断の前提なので固定する。Node の版でこの扱いが変わったらここが落ちる。
+  it('Upgrade 要求は通常の要求として 502 になる(素のソケットへ渡らない)', async () => {
+    const line = await new Promise<string>((resolve, reject) => {
+      const s = net.connect(Number(proxyUrl.port), proxyUrl.hostname, () => {
+        s.write('GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n');
+      });
+      s.setEncoding('utf8');
+      s.on('data', (chunk: string) => {
+        resolve(chunk.split('\r\n')[0]);
+        s.destroy();
+      });
+      s.on('error', reject);
+    });
+    expect(line).toBe('HTTP/1.1 502 Bad Gateway');
+  });
+
+  // 以下は補助。本物の RST の到着順は OS 次第なので、緑でも安全の証明にはならない。upgrade と
+  // clientError にリスナーを足さない根拠は `startRelay` のコメント(Node の http サーバの実装)。
+  it.each([
+    ['CONNECT', 'CONNECT evil.example:443 HTTP/1.1\r\nHost: evil.example:443\r\n\r\n'],
+    ['Upgrade', 'GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n'],
+    ['不正な HTTP', '\u0000\u0001garbage\r\n\r\n'],
+  ])('%s を送って即 RST しても未処理の error が出ない', async (_label, payload) => {
+    const uncaught: unknown[] = [];
+    const onUncaught = (e: unknown): void => {
+      uncaught.push(e);
+    };
+    process.on('uncaughtException', onUncaught);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const s = net.connect(Number(proxyUrl.port), proxyUrl.hostname, () => {
+          s.write(payload, () => {
+            s.resetAndDestroy();
+            resolve();
+          });
+        });
+        s.on('error', () => {});
+        s.on('close', () => resolve());
+        setTimeout(() => reject(new Error('timeout')), 5000);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(uncaught).toEqual([]);
+      const res = await viaProxy('http://127.0.0.1:1/x');
+      expect(res.status).toBe(502);
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
   });
 });

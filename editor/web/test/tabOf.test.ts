@@ -2,7 +2,7 @@
 // tabOf.test.ts — ルート → 上部ナビのタブ名の写像
 // =============================================================================
 import { describe, expect, it } from 'vitest';
-import { tabOf } from '@/features/layout/tabOf';
+import { routeOrigin, tabOf } from '@/features/layout/tabOf';
 
 describe('tabOf', () => {
   it('タブ画面そのものは自分の名前に写す', () => {
@@ -33,5 +33,14 @@ describe('tabOf', () => {
     expect(tabOf({ name: 'login', query: {} })).toBeNull();
     expect(tabOf({ name: undefined, query: {} })).toBeNull();
     expect(tabOf({ name: Symbol('x'), query: {} })).toBeNull();
+  });
+});
+
+describe('routeOrigin', () => {
+  it('created=1 だけが作成経路、それ以外(query なし・別の値・配列)は編集経路', () => {
+    expect(routeOrigin({ created: '1' })).toBe('create');
+    expect(routeOrigin({})).toBe('edit');
+    expect(routeOrigin({ created: '0' })).toBe('edit');
+    expect(routeOrigin({ created: ['1'] })).toBe('edit');
   });
 });

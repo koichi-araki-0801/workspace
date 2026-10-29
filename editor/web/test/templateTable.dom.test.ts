@@ -9,14 +9,14 @@ import { describe, expect, it } from 'vitest';
 import TemplateTable from '@/features/templates/components/TemplateTable.vue';
 
 const row: TemplateMeta = {
-  id: 'AM01_510037_20240710_交付版',
+  id: 'XX01_950037_20240710_交付版',
   attributes: {
-    companyCode: 'AM01',
-    fundCode: '510037',
+    companyCode: 'XX01',
+    fundCode: '950037',
     baseDate: '20240710',
     editionType: '交付版',
   },
-  fileName: 'AM01_510037_20240710_交付版.html',
+  fileName: 'XX01_950037_20240710_交付版.html',
   status: 'draft',
   updatedAt: null,
   updatedBy: null,
@@ -26,7 +26,7 @@ function mountTable(actionDisabled: boolean) {
   return mount(TemplateTable, {
     props: { rows: [row], action: 'create', actionDisabled },
     // ファンド名の解決は repository 注入が要る。ここの関心はボタンの活性なので差し替える。
-    global: { stubs: { FundCodeName: true } },
+    global: { stubs: { FundCodeName: true, CompanyCodeLabel: true } },
   });
 }
 
@@ -51,18 +51,21 @@ describe('TemplateTable の action ボタン', () => {
 describe('TemplateTable の基準日の列(回帰網)', () => {
   it('基準日を持たないテンプレートの行は基準日の欄が空になる', () => {
     const skeleton: TemplateMeta = {
-      id: 'AM01_510037_交付版',
-      attributes: { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' },
-      fileName: 'AM01_510037_交付版.html',
+      id: 'XX01_950037_交付版',
+      attributes: { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' },
+      fileName: 'XX01_950037_交付版.html',
       status: 'draft',
       updatedAt: null,
       updatedBy: null,
     };
     const w = mount(TemplateTable, {
       props: { rows: [skeleton], action: 'edit' },
-      global: { stubs: { FundCodeName: true } },
+      global: { stubs: { FundCodeName: true, CompanyCodeLabel: true } },
     });
-    expect(w.findAll('thead th').map((th) => th.text())).toContain('基準日');
+    const heads = w.findAll('thead th').map((th) => th.text());
+    expect(heads).toContain('基準日');
+    expect(heads).toContain('委託会社');
+    expect(heads).not.toContain('委託会社コード');
     expect(w.text()).not.toContain('undefined');
   });
 });

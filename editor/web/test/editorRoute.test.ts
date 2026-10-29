@@ -8,9 +8,9 @@ import { editorRoute, opensAsCreate } from '@/features/templates/editorRoute';
 
 describe('editorRoute', () => {
   it('編集経路は query を持たない(完全一致で主張する)', () => {
-    expect(editorRoute('AM01_510037_20240710_交付版', { created: false })).toEqual({
+    expect(editorRoute('XX01_950037_20240710_交付版', { created: false })).toEqual({
       name: 'editor',
-      params: { id: 'AM01_510037_20240710_交付版' },
+      params: { id: 'XX01_950037_20240710_交付版' },
     });
   });
 

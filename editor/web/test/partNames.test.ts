@@ -3,11 +3,7 @@
 // =============================================================================
 import { err, notFound, ok, type PartRepository } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  businessLabel,
-  loadPartNameMap,
-  partIdFromBlockKey,
-} from '@/features/reviews/services/partNames';
+import { businessLabel, loadPartNameMap, partIdFromBlockKey, partNameOf } from '@/lib/partNames';
 
 describe('partIdFromBlockKey', () => {
   it('data-part-id 由来のキーから id を取り出す', () => {
@@ -17,6 +13,15 @@ describe('partIdFromBlockKey', () => {
     expect(partIdFromBlockKey('.section#2')).toBeNull();
     expect(partIdFromBlockKey('table#1')).toBeNull();
     expect(partIdFromBlockKey('div#3')).toBeNull();
+  });
+});
+
+describe('partNameOf', () => {
+  const names = new Map([['note-fund-status', '当ファンドの状況']]);
+  it('突合できたら業務名、id でないキー・表に無い id は undefined', () => {
+    expect(partNameOf('note-fund-status#1', names)).toBe('当ファンドの状況');
+    expect(partNameOf('.section#1', names)).toBeUndefined();
+    expect(partNameOf('unknown-id#1', names)).toBeUndefined();
   });
 });
 

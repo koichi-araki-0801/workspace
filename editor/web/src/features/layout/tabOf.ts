@@ -1,6 +1,7 @@
 // =============================================================================
 // tabOf.ts — ルートから点灯すべき上部ナビのタブ名への写像
 // =============================================================================
+import type { ReviewOrigin } from '@editor/shared';
 import type { LocationQuery, RouteRecordName } from 'vue-router';
 
 /** 上部ナビのタブ名(`MainLayout.vue` の `tabs` と同じ集合)。 */
@@ -21,6 +22,11 @@ export interface TabRouteLike {
   query: LocationQuery;
 }
 
+/** 経路の系統。作成経路(`?created=1`)なら `create`、でなければ `edit`(2 系統の判定はここだけ)。 */
+export function routeOrigin(query: LocationQuery): ReviewOrigin {
+  return query.created === '1' ? 'create' : 'edit';
+}
+
 /**
  * ルートを上部ナビのタブへ写す。編集・プレビュー画面は作成経路(`?created=1`)なら
  * 「テンプレート作成」、でなければ「編集」に属する。経路判定の根拠は 2 系統の原則どおり
@@ -33,7 +39,7 @@ export interface TabRouteLike {
 export function tabOf(route: TabRouteLike): TabName | null {
   const name = typeof route.name === 'string' ? route.name : null;
   if (name === 'editor' || name === 'preview') {
-    return route.query.created === '1' ? 'create' : 'edit';
+    return routeOrigin(route.query);
   }
   return name !== null && TAB_NAMES.has(name) ? (name as TabName) : null;
 }

@@ -3,20 +3,20 @@ import { EDITION_SYNC_PAIRS, pairedTemplateId, templatePairKey } from '../src/in
 
 describe('pairedTemplateId', () => {
   it('交付版 の ID から 全体版 の ID を導く', () => {
-    expect(pairedTemplateId('AM01_510037_20240710_交付版')).toBe('AM01_510037_20240710_全体版');
+    expect(pairedTemplateId('XX01_950037_20240710_交付版')).toBe('XX01_950037_20240710_全体版');
   });
 
   it('全体版 の ID から 交付版 の ID を導く(相互対応)', () => {
-    expect(pairedTemplateId('AM01_510037_20240710_全体版')).toBe('AM01_510037_20240710_交付版');
+    expect(pairedTemplateId('XX01_950037_20240710_全体版')).toBe('XX01_950037_20240710_交付版');
   });
 
   it('ペア対象外の版種(旧 kr 等)は null', () => {
-    expect(pairedTemplateId('AM01_510037_20240710_kr')).toBeNull();
-    expect(pairedTemplateId('AM01_510037_20240710_確報')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_20240710_kr')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_20240710_確報')).toBeNull();
   });
 
   it('ファイル名規約外の ID は null', () => {
-    expect(pairedTemplateId('AM01_510037_20240710')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_20240710')).toBeNull();
     expect(pairedTemplateId('')).toBeNull();
   });
 
@@ -25,17 +25,17 @@ describe('pairedTemplateId', () => {
     // (GET /templates/:templateId/notes 経由)。プレーンなオブジェクトリテラルだと
     // `constructor`/`toString` 等が Object.prototype から継承されて解決してしまい、
     // 本来ペア対象外の版種にペアが付いてしまう。
-    expect(pairedTemplateId('AM01_510037_20240710_constructor')).toBeNull();
-    expect(pairedTemplateId('AM01_510037_20240710_toString')).toBeNull();
-    expect(pairedTemplateId('AM01_510037_20240710_hasOwnProperty')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_20240710_constructor')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_20240710_toString')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_20240710_hasOwnProperty')).toBeNull();
   });
 });
 
 describe('pairedTemplateId(テンプレート)', () => {
   it('テンプレート(3 つ区切り)は 3 つ区切りのペアを返す', () => {
-    expect(pairedTemplateId('AM01_510037_交付版')).toBe('AM01_510037_全体版');
-    expect(pairedTemplateId('AM01_510037_全体版')).toBe('AM01_510037_交付版');
-    expect(pairedTemplateId('AM01_510037_kr')).toBeNull();
+    expect(pairedTemplateId('XX01_950037_交付版')).toBe('XX01_950037_全体版');
+    expect(pairedTemplateId('XX01_950037_全体版')).toBe('XX01_950037_交付版');
+    expect(pairedTemplateId('XX01_950037_kr')).toBeNull();
   });
 });
 
@@ -49,14 +49,14 @@ describe('EDITION_SYNC_PAIRS', () => {
 
 describe('templatePairKey', () => {
   it('版種を除いた 3 属性を結合し、ペアの双方で同一キーになる', () => {
-    const a = { companyCode: 'AM01', fundCode: '510037', baseDate: '20240710' };
-    expect(templatePairKey({ ...a, editionType: '交付版' })).toBe('AM01_510037_20240710');
-    expect(templatePairKey({ ...a, editionType: '全体版' })).toBe('AM01_510037_20240710');
+    const a = { companyCode: 'XX01', fundCode: '950037', baseDate: '20240710' };
+    expect(templatePairKey({ ...a, editionType: '交付版' })).toBe('XX01_950037_20240710');
+    expect(templatePairKey({ ...a, editionType: '全体版' })).toBe('XX01_950037_20240710');
   });
 
   it('基準日の無いテンプレートは会社_ファンド(値入り HTML のキーとは別になる)', () => {
-    const t = { companyCode: 'AM01', fundCode: '510037' };
-    expect(templatePairKey({ ...t, editionType: '交付版' })).toBe('AM01_510037');
-    expect(templatePairKey({ ...t, editionType: '全体版' })).toBe('AM01_510037');
+    const t = { companyCode: 'XX01', fundCode: '950037' };
+    expect(templatePairKey({ ...t, editionType: '交付版' })).toBe('XX01_950037');
+    expect(templatePairKey({ ...t, editionType: '全体版' })).toBe('XX01_950037');
   });
 });

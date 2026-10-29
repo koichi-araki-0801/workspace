@@ -69,6 +69,24 @@ describe('TemplateEditorService.loadForEdit', () => {
     }
   });
 
+  it('パーツの全件取得には版種を渡さない', async () => {
+    const { templates, parts } = repos({ draft: null });
+    const svc = createTemplateEditorService(templates, parts);
+    await svc.loadForEdit('t1');
+    expect(parts.listParts).toHaveBeenCalledWith({});
+  });
+
+  it('値の差込に使ったサンプルを返す(作成タブの canvas で Jinja を含む <style> を描画する)', async () => {
+    const { templates, parts } = repos({ draft: null });
+    (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>
+      ok({ sample: { x: 'v' }, warnings: [] }),
+    );
+    const svc = createTemplateEditorService(templates, parts);
+    const res = await svc.loadForEdit('t1');
+    expect(templates.getSampleData).toHaveBeenCalledWith('t1');
+    expect(isOk(res) && res.value.sample.x).toBe('v');
+  });
+
   it('prefers the autosaved draft over the file', async () => {
     const draft: TemplateDraft = {
       templateId: 't1',
@@ -96,17 +114,19 @@ describe('TemplateEditorService.loadForEdit', () => {
     if (isErr(res)) expect(res.error.kind).toBe('not_found');
   });
 
-  it('uses the sample fund name for the title when available', async () => {
+  it('タイトルの既定はファイル名(サンプルデータのファンド名は使わない。名前は上部バーが Rep1 から引く)', async () => {
     const templates = {
       getTemplate: vi.fn(async () => ok(tpl)),
       getDraft: vi.fn(async () => ok(null)),
-      getSampleData: vi.fn(async () => ok({ fund: { name: 'グローバル株式ファンド' } })),
+      getSampleData: vi.fn(async () =>
+        ok({ sample: { fund: { name: 'グローバル株式ファンド' } }, warnings: [] }),
+      ),
     } as unknown as TemplateRepository;
     const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.fundName).toBe('グローバル株式ファンド');
+    if (isOk(res)) expect(res.value.fundName).toBe('t1');
   });
 
   it('falls back to the file name when the sample fetch fails', async () => {
@@ -190,6 +210,90 @@ describe('TemplateEditorService.loadForEdit — 下書きの所属セッショ�
     const owner = ownerOf(true);
     await createTemplateEditorService(templates, parts, owner).saveDraft('t1', '<p>x</p>', '');
     expect(owner.claim).not.toHaveBeenCalled();
+  });
+});
+
+describe('TemplateEditorService.loadForEdit — 旧形式の下書き', () => {
+  const draftOf = (html: string): TemplateDraft => ({
+    templateId: 't1',
+    html,
+    css: '.from-draft{}',
+    savedAt: '',
+    savedBy: '',
+  });
+  const filledTpl = (filled: string, draft: TemplateDraft) => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok({ ...tpl, filled })),
+      getDraft: vi.fn(async () => ok(draft)),
+      discardDraft: vi.fn(async () => ok(undefined)),
+    } as unknown as TemplateRepository & { discardDraft: ReturnType<typeof vi.fn> };
+    const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
+    return { templates, parts };
+  };
+
+  it('作成経路: 旧形式の属性を持つ下書きは破棄して確定版から開く', async () => {
+    const draft = draftOf('<p data-jinja-block="eyUgaWYgYSAlfXslIGVuZGlmICV9">x</p>');
+    const { templates, parts } = repos({ draft });
+    const owner = ownerOf(true);
+    const res = await createTemplateEditorService(templates, parts, owner).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe(getBodyInner(toFilled(tpl.html, {})));
+      expect(res.value.css).toBe('.from-file{}');
+      expect(res.value.hasDraft).toBe(false);
+      expect(res.value.discardedLegacyDraft).toBe(true);
+      expect(res.value.discardedStaleDraft).toBe(false);
+    }
+    expect(templates.discardDraft).toHaveBeenCalledTimes(1);
+    expect(owner.release).toHaveBeenCalledWith('t1');
+  });
+
+  it('編集経路: チップを持つ下書きは破棄して確定版から開く', async () => {
+    const filled = '<html><body><p>確定版の本文</p></body></html>';
+    const { templates, parts } = filledTpl(
+      filled,
+      draftOf('<p><span data-jinja="e3sgeCB9fQ==">1</span></p>'),
+    );
+    const res = await createTemplateEditorService(templates, parts, ownerOf(true)).loadForEdit(
+      't1',
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe(res.value.confirmedBody);
+      expect(res.value.editableBody).toBe('<p>確定版の本文</p>');
+      expect(res.value.hasDraft).toBe(false);
+      expect(res.value.discardedLegacyDraft).toBe(true);
+    }
+    expect(templates.discardDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('破棄に失敗しても下書きを採用せず確定版から開く', async () => {
+    const { templates, parts } = repos({ draft: draftOf('<tr data-jinja-loop-clone=""></tr>') });
+    templates.discardDraft.mockResolvedValueOnce(err(network('down')));
+    const owner = ownerOf(true);
+    const res = await createTemplateEditorService(templates, parts, owner).loadForEdit('t1');
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).not.toContain('data-jinja-loop-clone');
+      expect(res.value.hasDraft).toBe(false);
+      expect(res.value.discardedLegacyDraft).toBe(true);
+    }
+    expect(owner.release).not.toHaveBeenCalled();
+  });
+
+  it('作成経路: 新形式の印だけの下書きは破棄しない', async () => {
+    const html = '<p><!--jinja-rt:t:eyMgbSAjfQ==-->x<span data-jinja="e3sgeCB9fQ==">1</span></p>';
+    const { templates, parts } = repos({ draft: draftOf(html) });
+    const res = await createTemplateEditorService(templates, parts, ownerOf(true)).loadForEdit(
+      't1',
+    );
+    expect(isOk(res)).toBe(true);
+    if (isOk(res)) {
+      expect(res.value.editableBody).toBe(html);
+      expect(res.value.hasDraft).toBe(true);
+      expect(res.value.discardedLegacyDraft).toBe(false);
+    }
+    expect(templates.discardDraft).not.toHaveBeenCalled();
   });
 });
 
@@ -340,7 +444,13 @@ describe('TemplateEditorService.saveDraft / listPartHistory', () => {
 
   it('delegates getSyncStatus to the template repository', async () => {
     const getSyncStatus = vi.fn(async () =>
-      ok({ pairTemplateId: null, pairExists: false, conflicts: [] }),
+      ok({
+        pairTemplateId: null,
+        pairExists: false,
+        conflicts: [],
+        valueChecks: [],
+        cssConflicts: [],
+      }),
     );
     const templates = { getSyncStatus } as unknown as TemplateRepository;
     const parts = {} as unknown as PartRepository;
@@ -384,6 +494,83 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     if (isOk(res)) expect(res.value.fundName).toBe('t1'); // sample が空なのでファイル名フォールバック
   });
 
+  describe('共通サンプルの合成の警告', () => {
+    const withWarnings = () => {
+      const { templates, parts } = repos({ draft: null });
+      (templates as unknown as { getSampleData: unknown }).getSampleData = vi.fn(async () =>
+        ok({ sample: {}, warnings: ['キー holdings が重複しています'] }),
+      );
+      (templates as unknown as { getTemplateValues: unknown }).getTemplateValues = vi.fn(async () =>
+        ok({ found: true, values: {} }),
+      );
+      return createTemplateEditorService(templates, parts);
+    };
+
+    it('作成経路(3 区切りの ID)では EditorLoad.sampleWarnings に入れる', async () => {
+      const res = await withWarnings().loadForEdit('XX01_950037_交付版');
+      expect(isOk(res) && res.value.sampleWarnings).toEqual(['キー holdings が重複しています']);
+    });
+
+    it('編集経路(4 区切りの ID)では空にする', async () => {
+      const res = await withWarnings().loadForEdit('XX01_950037_20240710_交付版');
+      expect(isOk(res) && res.value.sampleWarnings).toEqual([]);
+    });
+
+    it('サンプルの取得に失敗したら空', async () => {
+      const res = await createTemplateEditorService(
+        repos({ draft: null }).templates,
+        repos({ draft: null }).parts,
+      ).loadForEdit('XX01_950037_交付版');
+      expect(isOk(res) && res.value.sampleWarnings).toEqual([]);
+    });
+  });
+
+  describe('値ファイル', () => {
+    const FILLED_ID = 'XX01_950037_20240710_交付版';
+    const withValues = (getTemplateValues: unknown) => {
+      const { templates, parts } = repos({ draft: null });
+      (templates as unknown as { getTemplateValues: unknown }).getTemplateValues =
+        getTemplateValues;
+      return { templates, parts };
+    };
+
+    it('4 区切りの ID では値ファイルを取得して EditorLoad.values に入れる', async () => {
+      const getTemplateValues = vi.fn(async () =>
+        ok({ found: true, values: { fund: { code: '950037' } } }),
+      );
+      const { templates, parts } = withValues(getTemplateValues);
+      const res = await createTemplateEditorService(templates, parts).loadForEdit(FILLED_ID);
+      expect(getTemplateValues).toHaveBeenCalledWith(FILLED_ID);
+      expect(isOk(res) && res.value.values).toEqual({ fund: { code: '950037' } });
+      expect(isOk(res) && res.value.valuesFound).toBe(true);
+    });
+
+    it('値ファイルの取得に失敗しても読み込みは止めず values = {} と valuesFound = false', async () => {
+      for (const getTemplateValues of [
+        vi.fn(async () => err(network('x'))),
+        vi.fn(async () => {
+          throw new Error('boom');
+        }),
+      ]) {
+        const { templates, parts } = withValues(getTemplateValues);
+        const res = await createTemplateEditorService(templates, parts).loadForEdit(FILLED_ID);
+        expect(isOk(res) && res.value.values).toEqual({});
+        expect(isOk(res) && res.value.valuesFound).toBe(false);
+      }
+    });
+
+    it('作成経路(3 区切りの ID)では値ファイルを取得しない', async () => {
+      const getTemplateValues = vi.fn(async () => ok({ found: true, values: {} }));
+      const { templates, parts } = withValues(getTemplateValues);
+      const res = await createTemplateEditorService(templates, parts).loadForEdit(
+        'XX01_950037_交付版',
+      );
+      expect(getTemplateValues).not.toHaveBeenCalled();
+      expect(isOk(res) && res.value.values).toBeNull();
+      expect(isOk(res) && res.value.valuesFound).toBe(false);
+    });
+  });
+
   it('discardDraft が失敗したら下書きの所属は解放しない', async () => {
     const templates = {
       discardDraft: vi.fn(async () => err(network('x'))),
@@ -398,7 +585,7 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     const recordPartChange = vi.fn(async () => ok(undefined));
     const parts = { recordPartChange } as unknown as PartRepository;
     const templates = {} as unknown as TemplateRepository;
-    await createTemplateEditorService(templates, parts).recordPartChange('t1', 'k#1', 'c');
-    expect(recordPartChange).toHaveBeenCalledWith('t1', 'k#1', 'c');
+    await createTemplateEditorService(templates, parts).recordPartChange('t1', 'k#1', 'c', 'e1');
+    expect(recordPartChange).toHaveBeenCalledWith('t1', 'k#1', 'c', 'e1');
   });
 });

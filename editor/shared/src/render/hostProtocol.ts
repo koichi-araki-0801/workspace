@@ -48,10 +48,14 @@ export const RENDER_MSG_READY = 'editor:render-ready';
 /** 親 → 子: 描画要求(`RenderHostRequest`)。 */
 export const RENDER_MSG_REQ = 'editor:render-req';
 
-/** 子 → 親: 描画成功(`RenderHostResponse`)。 */
+/** 子 → 親: 描画成功(`{ id, html }`)。`html` は nunjucks 適用後の HTML(サニタイズは親が行う)。 */
 export const RENDER_MSG_RES = 'editor:render-res';
 
-/** 子 → 親: 描画失敗(`RenderHostErrorResponse`)。例外は親へ投げっぱなしにせずこれで返す。 */
+/**
+ * 子 → 親: 描画失敗(`{ id, error }`)。例外は親へ投げっぱなしにせずこれで返す。`error` は
+ * nunjucks の例外メッセージ(利用者に見せる文言)。`id` が `RENDER_BOOT_ERROR_ID` のときだけは
+ * 要求に紐づかないブート段の致命失敗(nunjucks バンドルが読めなかった等)を表す。
+ */
 export const RENDER_MSG_ERROR = 'editor:render-error';
 
 /**
@@ -69,22 +73,5 @@ export interface RenderHostRequest {
   data: unknown;
 }
 
-/** 子 → 親の成功応答。`html` は nunjucks 適用後の HTML(サニタイズは親が行う)。 */
-export interface RenderHostResponse {
-  id: number;
-  html: string;
-}
-
-/**
- * 子 → 親の失敗応答。`error` は nunjucks の例外メッセージ(利用者に見せる文言)。
- *
- * `id` が `0` のときだけは要求に紐づかない**ブート段の致命失敗**(nunjucks バンドルが
- * 読めなかった等)を表す。親の採番は 1 起点なので `0` と衝突しない。
- */
-export interface RenderHostErrorResponse {
-  id: number;
-  error: string;
-}
-
-/** ブート段の致命失敗を表す予約 `id`(要求に紐づかないことの目印)。 */
+/** ブート段の致命失敗を表す予約 `id`(要求に紐づかないことの目印)。親の採番は 1 起点なので衝突しない。 */
 export const RENDER_BOOT_ERROR_ID = 0;

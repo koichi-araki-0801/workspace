@@ -9,6 +9,7 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPOS_KEY } from '@/api/repositories';
 import Combobox from '@/components/ui/Combobox.vue';
+import Select from '@/components/ui/Select.vue';
 import CreateFundSelect, {
   type CreateFundSelection,
 } from '@/features/templates/components/CreateFundSelect.vue';
@@ -28,10 +29,10 @@ vi.mock('vue-router', () => ({
 vi.mock('@/components/ui/toast', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 
 const COMPANIES: CompanyOption[] = [
-  { companyCode: 'AM01', companyName: '会社 1', rep1CompanyCode: 'R-AM01' },
-  { companyCode: 'AM02', companyName: '会社 2', rep1CompanyCode: 'R-AM02' },
+  { companyCode: 'XX01', companyName: '会社 1', rep1CompanyCode: 'R-XX01' },
+  { companyCode: 'XX02', companyName: '会社 2', rep1CompanyCode: 'R-XX02' },
 ];
-const FUNDS: FundOption[] = [{ fundCode: '510037', fundName: 'ファンド' }];
+const FUNDS: FundOption[] = [{ fundCode: '950037', fundName: 'ファンド' }];
 
 beforeEach(() => {
   for (const k of Object.keys(routeQuery)) delete routeQuery[k];
@@ -60,46 +61,135 @@ async function chooseCompany(w: ReturnType<typeof mount>, value: string) {
 }
 
 describe('CreateFundSelect', () => {
+  it('委託会社の候補は「略称（Rep1 のコード）」で、正式名は出さない', async () => {
+    const { w } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    const company = w.findAllComponents(Combobox)[0];
+    expect(company.props('options')).toEqual([
+      { label: 'XX01（R-XX01）', value: 'XX01' },
+      { label: 'XX02（R-XX02）', value: 'XX02' },
+    ]);
+    expect(w.text()).not.toContain('会社 1');
+  });
+
   it('会社を変えたら、ファンドの取得を待たずにファンドと版種を消した選択を伝える', async () => {
-    Object.assign(routeQuery, { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' });
-    let releaseAm02: (v: unknown) => void = () => {};
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' });
+    let releaseXx02: (v: unknown) => void = () => {};
     const { w, last } = mountWith((rep1) =>
-      rep1 === 'R-AM02'
+      rep1 === 'R-XX02'
         ? new Promise((resolve) => {
-            releaseAm02 = resolve;
+            releaseXx02 = resolve;
           })
         : Promise.resolve(ok(FUNDS)),
     );
     await flushPromises();
     expect(last()).toMatchObject({
-      companyCode: 'AM01',
-      fundCode: '510037',
+      companyCode: 'XX01',
+      fundCode: '950037',
       editionType: '交付版',
     });
 
-    await chooseCompany(w, 'AM02');
-    expect(last()).toMatchObject({ companyCode: 'AM02', rep1CompanyCode: 'R-AM02' });
+    await chooseCompany(w, 'XX02');
+    expect(last()).toMatchObject({ companyCode: 'XX02', rep1CompanyCode: 'R-XX02' });
     expect(last().fundCode).toBeUndefined();
     expect(last().editionType).toBeUndefined();
-    releaseAm02(ok([]));
+    releaseXx02(ok([]));
     await flushPromises();
   });
 
   it('ファンドの取得に失敗しても、ファンドと版種を消した選択を伝える', async () => {
-    Object.assign(routeQuery, { companyCode: 'AM01', fundCode: '510037', editionType: '交付版' });
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' });
     const { w, last } = mountWith((rep1) =>
-      Promise.resolve(rep1 === 'R-AM02' ? err(unexpected('DB 不達')) : ok(FUNDS)),
+      Promise.resolve(rep1 === 'R-XX02' ? err(unexpected('DB 不達')) : ok(FUNDS)),
     );
     await flushPromises();
-    await chooseCompany(w, 'AM02');
-    expect(last().companyCode).toBe('AM02');
+    await chooseCompany(w, 'XX02');
+    expect(last().companyCode).toBe('XX02');
     expect(last().fundCode).toBeUndefined();
   });
 
   it('URL の会社コードの大文字小文字は候補の綴り(略称)へそろえ、Rep1 のコードを付ける', async () => {
-    Object.assign(routeQuery, { companyCode: 'am01', fundCode: '510037', editionType: '交付版' });
+    Object.assign(routeQuery, { companyCode: 'xx01', fundCode: '950037', editionType: '交付版' });
     const { last } = mountWith(async () => ok(FUNDS));
     await flushPromises();
-    expect(last()).toMatchObject({ companyCode: 'AM01', rep1CompanyCode: 'R-AM01' });
+    expect(last()).toMatchObject({ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' });
+  });
+
+  it('取得中に候補に無い会社へ変えたら、前の会社のファンドが後から届いても候補へ載せない', async () => {
+    let releaseXx02: (v: unknown) => void = () => {};
+    const { w } = mountWith(
+      () =>
+        new Promise((resolve) => {
+          releaseXx02 = resolve;
+        }),
+    );
+    await flushPromises();
+    await chooseCompany(w, 'XX02');
+    await chooseCompany(w, 'ZZ99');
+    releaseXx02(ok(FUNDS));
+    await flushPromises();
+    expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
+    expect(w.find('.animate-spin').exists()).toBe(false);
+  });
+
+  it('取得中にクリアしたら、前の会社のファンドが後から届いても候補へ載せない', async () => {
+    let releaseXx02: (v: unknown) => void = () => {};
+    const { w } = mountWith(
+      () =>
+        new Promise((resolve) => {
+          releaseXx02 = resolve;
+        }),
+    );
+    await flushPromises();
+    await chooseCompany(w, 'XX02');
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('クリア'))
+      ?.trigger('click');
+    releaseXx02(ok(FUNDS));
+    await flushPromises();
+    expect(w.findAllComponents(Combobox)[1].props('options')).toEqual([]);
+    expect(w.find('.animate-spin').exists()).toBe(false);
+  });
+});
+
+describe('CreateFundSelect の版種(任意)', () => {
+  it('版種のラベルは「版種（任意）」で必須の印が無く、未選択は「選ばない（両版を作る）」と出る', async () => {
+    const { w } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    expect(w.text()).toContain('版種（任意）');
+    expect(w.findComponent(Select).props('placeholder')).toBe('選ばない（両版を作る）');
+    const label = w.findAll('label').find((l) => l.text().includes('版種'));
+    expect(label?.text()).not.toContain('*');
+  });
+
+  it('「選ばない（両版を作る）」を選ぶと、editionType を外した選択を伝え、表示は未選択に戻る', async () => {
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037' });
+    const { w, last } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    const select = w.findComponent(Select);
+    select.vm.$emit('update:modelValue', '交付版');
+    await flushPromises();
+    expect(last().editionType).toBe('交付版');
+    select.vm.$emit('update:modelValue', 'both');
+    await flushPromises();
+    expect(last().editionType).toBeUndefined();
+    expect(w.findComponent(Select).props('modelValue')).toBe('both');
+  });
+
+  it('URL の版種を復元すると、その版が選ばれた表示になる', async () => {
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: '全体版' });
+    const { w, last } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    expect(w.findComponent(Select).props('modelValue')).toBe('全体版');
+    expect(last().editionType).toBe('全体版');
+  });
+
+  it('URL の版種が作れる版でなければ捨て、未選択として伝える', async () => {
+    Object.assign(routeQuery, { companyCode: 'XX01', fundCode: '950037', editionType: 'foo' });
+    const { w, last } = mountWith(async () => ok(FUNDS));
+    await flushPromises();
+    expect(w.findComponent(Select).props('modelValue')).toBe('both');
+    expect(last().editionType).toBeUndefined();
   });
 });

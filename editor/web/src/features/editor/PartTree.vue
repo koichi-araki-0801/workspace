@@ -7,7 +7,16 @@ import { Lock, PanelLeftClose, Wand2 } from '@lucide/vue';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import SelectableRow from '@/components/ui/SelectableRow.vue';
-import PartCatalog from './PartCatalog.vue';
+import PartCatalog, { type CompanyFilter } from './PartCatalog.vue';
+
+defineProps<{
+  /** 今のページに挿入できないときの理由(`PartCatalog` へ渡す)。 */
+  insertBlockedReason?: string | null;
+  /** 編集中テンプレートの版種(`PartCatalog` へ渡す)。 */
+  editionType?: string | null;
+  /** 編集中テンプレートの委託会社(`PartCatalog` へ渡す)。 */
+  companyFilter: CompanyFilter;
+}>();
 
 const allowAdd = defineModel<boolean>('allowAdd', { default: false });
 const allowEdit = defineModel<boolean>('allowEdit', { default: false });
@@ -58,7 +67,13 @@ const emit = defineEmits<{ select: [PartCatalogItem]; insert: [PartCatalogItem];
 
     <!-- 追加 ON: 既存の cascading catalog -->
     <div v-else class="flex-1 overflow-hidden">
-      <PartCatalog @select="emit('select', $event)" @insert="emit('insert', $event)" />
+      <PartCatalog
+        :insert-blocked-reason="insertBlockedReason"
+        :edition-type="editionType"
+        :company-filter="companyFilter"
+        @select="emit('select', $event)"
+        @insert="emit('insert', $event)"
+      />
     </div>
   </nav>
 </template>

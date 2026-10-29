@@ -3,6 +3,7 @@
 // =============================================================================
 import type { AddressInfo } from 'node:net';
 import { config } from '../config.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import { sharedInlineConfig } from './options.js';
 import { PreviewManager, type PreviewServerHandle, type PreviewSpec } from './previewManager.js';
 
@@ -38,7 +39,7 @@ async function captureStdio<T>(fn: () => Promise<T>): Promise<{ result: T; outpu
 
 // プレビュー起動を直列化し、`captureStdio` のグローバルな stdout/stderr ラップが
 // 同時起動で破壊されないようにする。
-let startChain: Promise<unknown> = Promise.resolve();
+const startQueue = createSerialQueue();
 
 /**
  * `@vivliostyle/cli` の `preview()` を裏付けとする実プレビュー起動関数。cli を import するのは
@@ -78,6 +79,8 @@ const vivliostylePreviewStarter = (
         //   ② アップロード config の `vite.server.proxy`(上流 Vite を踏み台にした SSRF)や
         //      `cors` / `allowedHosts` の上書きをまとめて無効化する。
         // 主防御は `previewProxy.allowForwardPath` であって、ここではない。
+        // ⚠ この後ろで `...shared` を展開している。`sharedInlineConfig` に `vite` を足すと、ここの
+        // `vite` が丸ごと上書きされて `fs.allow` と `hmr` が消える。足すならここでマージすること。
         vite: { server: { hmr: false, fs: { strict: true, allow: [spec.workDir] } } },
         ...shared,
         logLevel: 'info', // 捕捉対象の "Preview URL" を cli に出力させるため
@@ -95,9 +98,7 @@ const vivliostylePreviewStarter = (
     };
   };
 
-  const result = startChain.then(run, run);
-  startChain = result.catch(() => undefined);
-  return result;
+  return startQueue(run);
 };
 
 /** プロセス全体のプレビューセッション管理(実 cli starter を配線済み)。 */

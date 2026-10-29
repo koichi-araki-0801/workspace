@@ -10,7 +10,7 @@
 // `security: []` 指定(`document.ts`)と対応する。
 // `要パスワード変更` の強制もここで行う。SPA のルータガードだけに任せていた頃は、API を
 // 直接叩けば初期パスワードのままフル権限で操作できた(承認まで通った)。
-import { apiPaths, forbidden, type User, unauthorized } from '@editor/shared';
+import { apiPaths, forbidden, isAdmin, isApprover, type User, unauthorized } from '@editor/shared';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { sessionIdFrom } from '../auth/session.js';
 import { config } from '../config.js';
@@ -61,15 +61,14 @@ function isPasswordChangeAllowed(request: FastifyRequest): boolean {
 /**
  * ロールの許可集合。**許可リストで書く**(`viewer` を名指しで拒む denylist にしない) —
  * 将来ロールが増えたときに既定で通ってしまう形を避けるため。未知のロール文字列は
- * どの集合にも属さないので自動的に 403 になる。
+ * どの集合にも属さないので自動的に 403 になる。精査者・管理者の判定は shared の
+ * `isApprover` / `isAdmin`(同じ許可リスト形)を使う。
  */
 const EDITOR_ROLES: readonly string[] = ['editor', 'approver', 'admin'];
-const APPROVER_ROLES: readonly string[] = ['approver', 'admin'];
-const ADMIN_ROLES: readonly string[] = ['admin'];
 
 export async function requireAuth(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  // ローカルモード(DB/セッション無し)ではデータ系ルートを開放する。web は
-  // localStorage を使い呼び出さないため。PDF/generate はそのまま動く。
+  // 無認証モード(`AUTH_REQUIRED=false`。セッション無し)ではデータ系ルートを開放する。
+  // ログインなしで REST を使う server 単体の設定のため。PDF/generate はそのまま動く。
   // ⚠ この素通しは**データ系ルートに限る**意図的な設計である。資格情報を書き換える
   // ルート(パスワード変更)はこの区分に属さないので、`requireIdentifiedUser` を重ねて
   // 設定値に依存しない施錠を掛けること。
@@ -86,14 +85,14 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
 }
 
 /**
- * `config.requireAuth` を**参照しない**唯一のガード。ローカルモードでも 401 にする。
+ * `config.requireAuth` を**参照しない**唯一のガード。無認証モードでも 401 にする。
  *
  * 資格情報を書き換えるルート(パスワード変更)の本人確認を
  * `if (request.user && request.user.username !== body.username)` の形で書いてはならない。
- * `requireAuth` はローカルモードで `request.user` を埋めないまま素通りするため、
+ * `requireAuth` は無認証モードで `request.user` を埋めないまま素通りするため、
  * `AUTH_REQUIRED` が false の配備ではこの条件式ごと消え、未認証で任意アカウントの
  * パスワードを書き換えられる。**ガードの発火条件を設定値に従属させない**のがここの仕様で、
- * ローカルモードにサーバ側アカウントは存在しないのだから 401 が正しい応答である。
+ * 無認証モードにサーバ側アカウントは存在しないのだから 401 が正しい応答である。
  */
 export async function requireIdentifiedUser(
   request: FastifyRequest,
@@ -102,12 +101,24 @@ export async function requireIdentifiedUser(
   if (!request.user) throw unauthorized('ログインが必要です');
 }
 
-/** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
-export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  if (!config.requireAuth) return;
-  if (!request.user) throw unauthorized('ログインが必要です');
-  if (!ADMIN_ROLES.includes(request.user.role)) throw forbidden('管理者権限が必要です');
+/**
+ * ロール強制のガードを作る。`requireAuth` の後に実行する前提。
+ * `routes/routeGuards.ts` の `levelOf` は `preHandlers.includes()` でガード関数の参照同一性を
+ * 見るので、呼び出しはモジュール直下で 1 回だけにして、ルートごとに作り直さない。
+ */
+function makeRoleGuard(
+  allowed: (user: Pick<User, 'role'>) => boolean,
+  message: string,
+): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
+  return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
+    if (!config.requireAuth) return;
+    if (!request.user) throw unauthorized('ログインが必要です');
+    if (!allowed(request.user)) throw forbidden(message);
+  };
 }
+
+/** `requireAuth` の後に実行する前提。admin ロールを強制する。 */
+export const requireAdmin = makeRoleGuard(isAdmin, '管理者権限が必要です');
 
 /**
  * `requireAuth` の後に実行する前提。編集者以上(`editor` / `approver` / `admin`)を強制する。
@@ -117,22 +128,14 @@ export async function requireAdmin(request: FastifyRequest, _reply: FastifyReply
  * 必ずこのガードを通すこと。適用の網羅は `routes/routeGuards.ts` の `ROUTE_POLICY` が
  * 正典で、表に無いルートはサーバ起動時に落ちる(付け忘れが本番まで届かない)。
  */
-export async function requireEditor(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
-  if (!config.requireAuth) return;
-  if (!request.user) throw unauthorized('ログインが必要です');
-  if (!EDITOR_ROLES.includes(request.user.role)) throw forbidden('編集者権限が必要です');
-}
+export const requireEditor = makeRoleGuard(
+  (u) => EDITOR_ROLES.includes(u.role),
+  '編集者権限が必要です',
+);
 
 /**
  * `requireAuth` の後に実行する前提。精査者(承認者)ロールを強制する(`approver` または
- * `admin`)。確定保存の承認・却下、および緊急の直接確定保存(`PUT /templates/:id`)を
- * 施錠し、編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
+ * `admin`)。確定保存の承認・却下(`reviews.routes.ts`)を施錠し、
+ * 編集者(editor)が実ファイルへ書けないようにする(承認ワークフローの要)。
  */
-export async function requireApprover(
-  request: FastifyRequest,
-  _reply: FastifyReply,
-): Promise<void> {
-  if (!config.requireAuth) return;
-  if (!request.user) throw unauthorized('ログインが必要です');
-  if (!APPROVER_ROLES.includes(request.user.role)) throw forbidden('精査者(承認者)権限が必要です');
-}
+export const requireApprover = makeRoleGuard(isApprover, '精査者(承認者)権限が必要です');

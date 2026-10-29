@@ -1,5 +1,7 @@
 {
-  "//": "exe へ同梱する依存の固定値。scripts/build-exe.mjs のアサート B と test/build_pins.test.ts が実解決値と突き合わせる。ここが動く = 埋込フォントのサブセット結果(= SVG バイト)が変わりうるので、更新時は必ず npm run batch -> npm run batch:diff と test/render_hash.test.ts を確認する。",
-  "subsetFont": "2.6.0",
-  "hbSubsetWasmSha256": "3a5d246b0e4c0017084775e9f2c7fce96e45d09b1a354fd9e2e440c88fb9890d"
+  "//": "exe へ同梱する依存の固定値。scripts/build-exe.mjs のアサート B と test/build_pins.test.ts が実解決値と突き合わせる。subsetFont / hbSubsetWasmSha256 が動く = 埋込フォントのサブセット結果(= SVG バイト)が変わりうるので、更新時は必ず pnpm run batch -> pnpm run batch:diff と test/render_hash.test.ts を確認する。msnodesqlv8 / sqlserverv8NodeSha256 は exe に埋め込む DB ドライバ(npm tarball 同梱の N-API prebuild `prebuilds/win32-x64/msnodesqlv8.node`)の固定値で、msnodesqlv8 を上げたら作り直す。",
+  "subsetFont": "2.9.0",
+  "hbSubsetWasmSha256": "62415fe6bad92ef16f3e5d2dbed6c66a4adec7f5a59c6d27084811c92cce1ba5",
+  "msnodesqlv8": "6.0.0",
+  "sqlserverv8NodeSha256": "ae1279c2cbe2102b89a06865be3a5c5ea253838e510558beee3114b3c5893331"
 }

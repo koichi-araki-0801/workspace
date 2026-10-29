@@ -12,10 +12,14 @@
 // 列のみで、ファンド個別のオーバーライドは持たない(ペア同期の `同期既定` と同じ設計判断)。
 // ※ パーツ単位の作業メモ(notes = `notesFile.ts`)とは別物。
 
-import { type NoteMasterReflectSummary, parseAnyTemplateFileName } from '@editor/shared';
+import {
+  containsJinja,
+  type NoteMasterReflectSummary,
+  parseAnyTemplateFileName,
+} from '@editor/shared';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-import { readFilledHtml, readTemplateHtml } from '../files/templateFiles.js';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
 import { logger } from '../logger.js';
 import type { ConfirmedTarget } from '../repositories/confirmedWrite.js';
 import type { PartRepo } from '../repositories/partRepo.js';
@@ -57,11 +61,17 @@ export function createNoteMasterService({
 
       try {
         const [html, catalog] = await Promise.all([
-          (target === 'filled' ? readFilledHtml : readTemplateHtml)(`${templateId}.html`),
+          readConfirmedHtml(target, `${templateId}.html`),
           parts.listParts({}),
         ]);
+        // 値入り HTML の承認では、`内容HTML` が Jinja を含むパーツを外す。編集タブで挿入した
+        // そのパーツは承認したファンド・基準日の値で描かれており、マスタへ載せると次回作成の
+        // テンプレへその値が固定文として入る(手で直したかどうかに関係なく外す)。
         const reflectIds = new Set(
-          catalog.filter((c) => c.masterReflectDefault === '反映').map((c) => c.id),
+          catalog
+            .filter((c) => c.masterReflectDefault === '反映')
+            .filter((c) => target !== 'filled' || !containsJinja(c.content))
+            .map((c) => c.id),
         );
         const updated: string[] = [];
         // 同一 partId が複数出現する場合は文書内の先頭出現(`#1`)を正とする(マスタは

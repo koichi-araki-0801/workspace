@@ -4,24 +4,42 @@
 // 申請(submit)は誰でも(認証済み)積めるが実ファイルは更新しない。承認(approve)/却下
 // (reject)は `requireApprover` で施錠し、approve だけが実ファイル + git へ反映する
 // (`reviewRepo.ts`)。承認/却下は監査イベント(`review.approve` / `review.reject`)を記録する。
-import { apiPaths } from '@editor/shared';
+import { apiPaths, MAX_LISTED_PART_KEYS } from '@editor/shared';
+import {
+  ReviewDecisionBody,
+  ReviewListQuery,
+  ReviewRejectBody,
+  SubmitReviewBody,
+  UpdateReviewPartDecisionsRequest,
+} from '@editor/shared/schemas';
+
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { auditedRethrow } from '../logger.js';
 import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
-import {
-  ReviewDecisionBody,
-  ReviewListQuery,
-  ReviewRejectBody,
-  SubmitReviewBody,
-} from '../openapi/schemas.js';
 import type { ReviewActor } from '../repositories/reviewRepo.js';
+import { actorOf } from './routeHelpers.js';
 
-/** 操作主体を request.user から導く。local モード(user 未設定)は全件可視の system 扱い。 */
+/** 操作主体を request.user から導く。無認証モード(user 未設定)は全件可視の system 扱い。 */
 function actor(req: FastifyRequest): ReviewActor {
-  return { username: req.user?.username ?? 'system', role: req.user?.role ?? 'admin' };
+  return { username: actorOf(req), role: req.user?.role ?? 'admin' };
+}
+
+/**
+ * 判定の一括変更の監査ログに載せるキー。一括変更は `MAX_TOP_LEVEL_BLOCKS` 件まで受けるので、
+ * 全キーを 1 行に載せず、件数と先頭 `MAX_LISTED_PART_KEYS` 件(文言に並べるキーと同じ上限)
+ * だけにする。
+ */
+export function partKeysAudit(decisions: readonly { partKey: string }[]): {
+  partKeyCount: number;
+  partKeys: string[];
+} {
+  return {
+    partKeyCount: decisions.length,
+    partKeys: decisions.slice(0, MAX_LISTED_PART_KEYS).map((d) => d.partKey),
+  };
 }
 
 // `:reqId` を持つルートで共有する params 型(RouteGeneric に渡してキャストを消す)。
@@ -67,6 +85,34 @@ export const reviewsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'reviews'> }> 
   app.get<ReqIdParams>(apiPaths.reviewRequestById, { preHandler: requireAuth }, async (request) => {
     return reviews.getReview(request.params.reqId, actor(request));
   });
+  // パーツ判定のまとめた変更(精査者限定)。最終確定前の判定(承認・却下・取り消し)の保存だけを
+  // 行い、許されない遷移が 1 件でもあれば 409(`REVIEW_PART_DECISION_TRANSITION`)で全部戻す。
+  app.post<
+    ReqIdParams & {
+      Body: z.infer<typeof UpdateReviewPartDecisionsRequest>;
+    }
+  >(
+    apiPaths.reviewRequestPartDecisions,
+    {
+      preHandler: [requireAuth, requireApprover, validate(UpdateReviewPartDecisionsRequest)],
+    },
+    async (request) => {
+      const reqId = request.params.reqId;
+      const body = request.body;
+      const keys = partKeysAudit(body.decisions);
+
+      return auditedRethrow(
+        request,
+        'review.part-decisions',
+        () => reviews.updatePartDecisions(reqId, body, actor(request)),
+        {
+          success: () => ({ resource: { reqId, ...keys } }),
+          failure: () => ({ resource: { reqId, ...keys } }),
+          failureMessage: 'part decisions update failed',
+        },
+      );
+    },
+  );
 
   // 承認 → 実ファイル反映 + git commit(精査者限定)。
   app.post<ReqIdParams & { Body: z.infer<typeof ReviewDecisionBody> }>(

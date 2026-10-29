@@ -24,7 +24,7 @@
 import { config } from '../config.js';
 
 /** 認証失敗応答の下限時間(ms)。KDF 60〜65ms + DB 往復の p99 を十分上回る値を既定にする。 */
-export const FAILED_AUTH_FLOOR_MS = config.auth.failedAuthFloorMs;
+const FAILED_AUTH_FLOOR_MS = config.auth.failedAuthFloorMs;
 
 /** 単調増加の経過時間測定。壁時計だと NTP 補正でフロアが飛ぶ。 */
 export function startedNow(): number {
@@ -32,15 +32,12 @@ export function startedNow(): number {
 }
 
 /**
- * 失敗応答を返す直前に呼び、開始からの経過が `floorMs` に満たない分だけ待つ。
+ * 失敗応答を返す直前に呼び、開始からの経過が `FAILED_AUTH_FLOOR_MS` に満たない分だけ待つ。
  * 呼び忘れた経路が 1 つでもあるとそこが時間オラクルとして残るので、失敗系の分岐は
  * 例外の種類(未知 ID / 無効 / パスワード誤り / DB 障害)を問わず全部通すこと。
  */
-export async function applyFailureFloor(
-  startedAt: number,
-  floorMs: number = FAILED_AUTH_FLOOR_MS,
-): Promise<void> {
-  const remaining = floorMs - (performance.now() - startedAt);
+export async function applyFailureFloor(startedAt: number): Promise<void> {
+  const remaining = FAILED_AUTH_FLOOR_MS - (performance.now() - startedAt);
   if (remaining <= 0) return;
   await new Promise((resolve) => setTimeout(resolve, remaining));
 }

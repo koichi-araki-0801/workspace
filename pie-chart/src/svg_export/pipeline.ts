@@ -16,23 +16,16 @@ import { assertItemCount, assertTotalValue } from '../limits.js';
 import { normalizeInputItems } from '../input/load.js';
 import { layoutLabels } from '../layout/diagnostics.js';
 import {
-  normalizeAngle,
-  angleInBand,
-  estimateTextExtent,
-  estimateVerifyTextExtent,
   nudgeTextAwayFromPie,
-  pieClearanceWithinViewBox,
-  pieYAtX,
   placementBox,
   placementExtent,
   leaderCrossesBox,
   radialFraction,
-  degToRad,
-  upperLeftBendPoint,
   labelCongestionOffsetDeg,
   isOtherCategory,
   boxOverlapAmount,
   pxToLogical,
+  boxDistToOrigin,
 } from '../layout/geometry.js';
 import {
   leaderPath,
@@ -43,8 +36,6 @@ import {
   buildOutsideLeaderDraft,
   buildLowerLeftDropLeaderDraft,
   finalizePlacement,
-  TOP_BAND_HALF_WIDTH_DEG,
-  BOTTOM_BAND_HALF_WIDTH_DEG,
   topBandSonohokaZone,
 } from '../layout/placement.js';
 import type { InsideOption } from '../layout/placement.js';
@@ -78,57 +69,37 @@ import {
 } from './post_layout.js';
 import { buildFontFaceDefs } from './font.js';
 import {
-  ALWAYS_DRAW_OUTSIDE_LEADERS,
   computeDrawnLeader,
   qualifiesTopCenterAttach,
   qualifiesSideEdgeCenterAttach,
-  isRedundantUpperLeftSmallLeader,
   isRedundantDominantRimLeader,
-  resolveLeaderCrossings,
   distPointToSegment,
   pathsCross,
-  realLeaderPaths,
-  countLeaderCrossings,
   countLeaderThroughLabels,
   leaderThroughPairs,
   leaderCrossingPairs,
   countBundledRimStubs,
-  boxOverlapMax,
   boxPieIntrusionMax,
   boxViewOverflowOf,
-  boxViewOverflowMax,
-  projectBoxesToPixels,
-  oobLeaderCount,
   countAngularDiscordantPairs,
-  LEADER_MAX_ANGULAR_DIFF_RAD,
 } from './leader_geometry.js';
 import type { Pt, Coord } from './leader_geometry.js';
 // 採点・計測ゲート・emit 修復列は emit_repair.ts へ集約 (循環 import だが関数宣言のみ参照で安全)。
 import {
-  VIEW_OVERFLOW_CAP_PX,
   applyEmitRepairPasses,
-  applyOutsideLeaderAngularOrder,
-  captureEmitDefectVec,
   countDefects,
   countVerifyIssues,
   countVerifyIssuesDetailed,
-  emitDefectsWorsened,
   enforceFinalPieClearance,
   finalizeForScoring,
   gateNotWorseExceptClips,
   hasNewPair,
-  logicalYAtViewBoxYPx,
   measureDefectGate,
-  measureRepairVec,
   overlapsOf,
   placementPixelRect,
   repairResidualLeaderDefects,
-  seamRestore,
-  seamSnapshot,
-  tryMoveWithGuard,
-  trySeamMutation,
 } from './emit_repair.js';
-import type { DefectCounts, SeamSnap } from './emit_repair.js';
+import type { DefectCounts } from './emit_repair.js';
 // モード特化パス (左列 / top-band / 右上逃がし) は mode_passes.ts へ集約。
 import {
   applyLeftStackGapClose,
@@ -139,10 +110,6 @@ import {
   spreadLeftStackByAngle,
   stackTopRightLiftedLabels,
 } from './mode_passes.js';
-
-export { distPointToSegment, pathsCross } from './leader_geometry.js';
-const TOP_BAND_RIGHT_ANGLE_MIN_DEG = 90 - TOP_BAND_HALF_WIDTH_DEG;
-const TOP_BAND_RIGHT_ANGLE_MAX_DEG = 90;
 
 // =============================================================================
 // 統一カスケード (①〜⑨) — leader は最終手段、ラベルは円の近くに
@@ -172,8 +139,7 @@ function buildPlacementForRank(
   if (CASCADE_INSIDE_RANKS.has(rank)) {
     const opt = insideOpts[rank];
     if (opt) {
-      return finalizePlacement(item, cfg, buildInsideDraft(opt.form, opt.fit), opt.form)
-        .textPlacement;
+      return finalizePlacement(item, cfg, buildInsideDraft(opt.fit), opt.form).textPlacement;
     }
   }
   const form = outsideFormForRank(item, cfg, rank);
@@ -219,9 +185,7 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
   const [ymin, ymax] = cfg.canvasYlim;
   if (box.left < xmin - vboxTol || box.right > xmax + vboxTol) return true;
   if (box.bottom < ymin - vboxTol || box.top > ymax + vboxTol) return true;
-  const nearX = Math.max(box.left, Math.min(box.right, 0));
-  const nearY = Math.max(box.bottom, Math.min(box.top, 0));
-  if (Math.hypot(nearX, nearY) < cfg.pieRadius - vboxTol) return true;
+  if (boxDistToOrigin(box) < cfg.pieRadius - vboxTol) return true;
   for (const q of others) {
     if (q === placement) continue;
     const b = placementBox(q, cfg);
@@ -673,14 +637,14 @@ export function applyLowerLeftDropFallback(
     if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
     const item = p.item as LayoutItemReady;
     // 下left ドロップ placement を構築。forceHorizontalLowerLeftDrop を一時的に立てて
-    // clampAndBuildPlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
+    // finalizePlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
     const prevDrop = item.forceHorizontalLowerLeftDrop;
     item.forceHorizontalLowerLeftDrop = true;
     const form = outsideFormForRank(item, cfg, 2); // 2 行原寸起点
     const dropP = finalizePlacement(
       item,
       cfg,
-      buildLowerLeftDropLeaderDraft(item, cfg, form),
+      buildLowerLeftDropLeaderDraft(cfg),
       form,
     ).textPlacement;
     item.forceHorizontalLowerLeftDrop = prevDrop;
@@ -731,7 +695,7 @@ function cascadeWithSonohokaPick(
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
   if (labels.some((it) => it.loneTopSliverLeader)) return right;
   // 右上(第一優先)は hard 不具合 (交差 / 円内貫通) を左上より悪化させないことが前提で採用する。判定は
-  // 実描画 (ALWAYS_DRAW) + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
+  // 実描画 + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
   // 逃がし) が解消する見かけ上の交差で右上を誤却下しない。右逃がしが本当に悪い構成
   // (例 currency_many_small_10: 極小その他が隣接 leader と交差) は crossings/pie で弾ける。
   //
@@ -765,7 +729,7 @@ function capParityScore(
 
 /**
  * pie キャップ外の箱に対する静的 pie クランプの「名残制約」除去 (`layout/placement.ts` の
- * `clampAndBuildPlacement`) を、チャート単位で採否する do-no-harm。
+ * `finalizePlacement`) を、チャート単位で採否する do-no-harm。
  *
  * 名残制約は動的側 `pieClampXLimits` (`layout/geometry.ts`) が持たない静的側だけの非対称で、円と X 方向で
  * 干渉しない箱まで横へ押し出す (例 `currency_low_diff_10` の「その他」が 66px 左寄せされ、真上垂直の
@@ -1350,7 +1314,7 @@ export async function renderPdfStylePieToSvg(
     for (const entry of prepared) {
       if (entry.skipLeader) continue;
       if (!qualifiesTopCenterAttach(entry.placement, cfg)) continue;
-      const tc = computeDrawnLeader(entry.placement, cfg, false, true);
+      const tc = computeDrawnLeader(entry.placement, cfg, true);
       if (tc.skipLeader) continue;
       const tcPix = toPixPts(tc.pathPoints);
       const sidePix = toPixPts(entry.pathPoints);
@@ -1382,7 +1346,7 @@ export async function renderPdfStylePieToSvg(
     // セグメントが rim をなぞり得る (例 イギリスポンド) ため topCenterApplied も対象に含める。
     for (const entry of prepared) {
       if (entry.skipLeader) continue;
-      const gl = computeDrawnLeader(entry.placement, cfg, false, entry.topCenterApplied, true);
+      const gl = computeDrawnLeader(entry.placement, cfg, entry.topCenterApplied, true);
       if (gl.skipLeader) continue;
       const before = toPixPts(entry.pathPoints);
       const after = toPixPts(gl.pathPoints);
@@ -1424,7 +1388,7 @@ export async function renderPdfStylePieToSvg(
       const diagonalTarget = p.leaderBendFollowsEndpointX || p.declipBottomLeader === true;
       if (!diagonalTarget || p.forceTopRight || p.insideSlice) continue;
       if (entry.pathPoints.length !== 3) continue; // 既に 2 点 (縮退直線) やテント再構成は対象外
-      const dg = computeDrawnLeader(p, cfg, false, entry.topCenterApplied, false, true);
+      const dg = computeDrawnLeader(p, cfg, entry.topCenterApplied, false, true);
       if (dg.skipLeader || dg.pathPoints.length !== 2) continue;
       const before = toPixPts(entry.pathPoints);
       const after = toPixPts(dg.pathPoints);
@@ -1460,7 +1424,7 @@ export async function renderPdfStylePieToSvg(
       const p = entry.placement;
       if (!qualifiesSideEdgeCenterAttach(p, cfg)) continue;
       const before = toPixPts(entry.pathPoints);
-      const se = computeDrawnLeader(p, cfg, false, entry.topCenterApplied, false, false, true);
+      const se = computeDrawnLeader(p, cfg, entry.topCenterApplied, false, false, true);
       if (se.skipLeader) continue;
       const after = toPixPts(se.pathPoints);
       if (leaderCrossesBox(after, entry.pixelBox)) continue; // 付け替えで自 box を貫く形は維持
@@ -1479,9 +1443,8 @@ export async function renderPdfStylePieToSvg(
       }
     }
 
-    // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く (ALWAYS_DRAW でも常時実行) ──
-    // `buildOutsideRimDraft` 由来の rim ラベルは draft では `skipLeader=true` を意図しているが、
-    // `ALWAYS_DRAW_OUTSIDE_LEADERS` 下では `computeDrawnLeader` が一律 leader を描く。そのうち 1 強
+    // ── Pass 1.5: 1 強スライスの冗長な rim leader を省く ──
+    // `computeDrawnLeader` は円外ラベルへ一律 leader を描く。そのうち 1 強
     // (≥50%) スライスの自スライス外縁に隣接する冗長な短い leader (例 アメリカ・ドル58%) は線のみ削る。
     // 採点より後段なのでレイアウト選択にも他 leader の交差解決にも影響しない (ラベル位置は不変)。
     // ラベルを貫く leader は削除せず `computeDrawnLeader` の declip 分岐が近端 (pie 側縦縁) へ接続して回避する。
@@ -1489,60 +1452,6 @@ export async function renderPdfStylePieToSvg(
       if (entry.skipLeader) continue;
       if (isRedundantDominantRimLeader(entry.placement, entry.pathPoints, cfg)) {
         entry.skipLeader = true;
-      }
-    }
-
-    // 常時描画方針 (ALWAYS_DRAW_OUTSIDE_LEADERS) のとき、以下の leader 省略 (Pass 2/2.5/2.6) は
-    // 全てバイパスする。inside のみ leaderless、円外は描いた leader をそのまま残す。
-    if (!ALWAYS_DRAW_OUTSIDE_LEADERS) {
-      // ── Pass 2: leader が他ラベルの text bbox を貫く場合はその leader を省略 ──
-      // 判定は detectPathPoints (端点を bbox 縁へ寄せる前の到達域) で行う。これにより
-      // 「描画される leader の集合」が短縮前と一致し、隠れていた leader が現れて新たな
-      // 交差を生むことを防ぐ。
-      for (let i = 0; i < prepared.length; i += 1) {
-        const entry = prepared[i];
-        if (entry.skipLeader) continue;
-        const pixelPts = entry.detectPathPoints.map((p: { x: number; y: number }) => ({
-          x: xScale(p.x),
-          y: yScale(p.y),
-        }));
-        for (let j = 0; j < prepared.length; j += 1) {
-          if (j === i) continue;
-          if (leaderCrossesBox(pixelPts, prepared[j].pixelBox)) {
-            entry.skipLeader = true;
-            break;
-          }
-        }
-      }
-
-      // ── Pass 2.5: leader 同士が交差する場合は長い方を省略 (verify の "leader crossing" と同条件) ──
-      // 描画される pathPoints を pixel 空間へ変換して判定。chartConflicts と同ロジック (採点と一致)。
-      {
-        const lskip = prepared.map((e) => e.skipLeader);
-        const pixPaths = prepared.map((e, idx) =>
-          lskip[idx]
-            ? null
-            : e.pathPoints.map((p: { x: number; y: number }) => ({
-                x: xScale(p.x),
-                y: yScale(p.y),
-              })),
-        );
-        resolveLeaderCrossings(
-          pixPaths,
-          prepared.map((e) => e.placement.item.name),
-          lskip,
-        );
-        for (let i = 0; i < prepared.length; i += 1) prepared[i].skipLeader = lskip[i];
-      }
-
-      // ── Pass 2.6: 上左・小スライスの短い leader を省く (線のみ削除) ──
-      // 採点 (computeDrawnLeader/chartConflicts) より後段なのでレイアウト選択にも他 leader の
-      // 交差解決にも影響しない = ラベル位置は不変、対象の leader 線だけが消える。
-      for (const entry of prepared) {
-        if (entry.skipLeader) continue;
-        if (isRedundantUpperLeftSmallLeader(entry.placement, entry.pathPoints, cfg)) {
-          entry.skipLeader = true;
-        }
       }
     }
 

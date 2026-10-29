@@ -8,6 +8,7 @@
 
 import type { ComponentDefinition } from 'grapesjs';
 import {
+  collapse,
   type DiffOp,
   diffTokens,
   type LcsBudget,
@@ -30,11 +31,6 @@ export type RedlineOp =
       def?: ComponentDefinition;
       text?: string;
     };
-
-/** 空白の違いだけを差分にしない（`htmlBlockDiff.collapse` と同じ正規化）。 */
-function collapse(s: string | undefined): string {
-  return (s ?? '').replace(/\s+/g, ' ').trim();
-}
 
 function diffText(b: RedlineNode, l: RedlineNode, budget: LcsBudget, out: RedlineOp[]): void {
   if (collapse(b.text) === collapse(l.text)) return;

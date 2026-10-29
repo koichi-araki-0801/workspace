@@ -41,8 +41,8 @@ describe('allowForwardPath — 転送してよいパスを数える', () => {
   it.each([
     // Vite の内部エンドポイント。これらは列挙して拒否したのではなく、許可リストに
     // 載らないので落ちる(`/@fs` は TLS 秘密鍵まで読める最重要経路だった)。
-    '/@fs/C:/Users/caads/workspace/editor/server/tls/editor.pfx',
-    '/@fs/C:/Users/caads/workspace/editor/server/tls/editor.pfx.pass',
+    '/@fs/C:/work/repo/editor/server/tls/editor.pfx',
+    '/@fs/C:/work/repo/editor/server/tls/editor.pfx.pass',
     '/@id/x',
     '/@vite/client',
     '/@vivliostyle:viewer:client',

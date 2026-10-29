@@ -3,7 +3,7 @@
 Jinja2 で作成された HTML/CSS テンプレート（ファンド報告書系）を、非エンジニアが GUI で
 安全に編集し、サンプルデータ差込でプレビュー＆PDF 出力できる社内 Web アプリ。
 
-- **編集**: GrapesJS（レイアウト/CSS 中心）。`{{ }}` / `{% %}` / `{# #}` は壊さず温存（mask/restore）。ページ境界（`.page`）をオーバーレイ表示。
+- **編集**: GrapesJS（レイアウト/CSS 中心）。`{{ }}` / `{% %}` / `{# #}` は壊さず温存（mask/restore）。本文の直下の要素（ブロック）をパーツとして扱い、改ページの区切り（`div.pagebreak`）でページへ分けて表示。
 - **プレビュー**: ブラウザ内 Nunjucks で生 Jinja2 + サンプルデータを描画 → vivliostyle でページ組み表示。
 - **PDF**: サーバ側 `@vivliostyle/cli` で生成。
 - **作成**: 既存 Python 生成器を Fastify から child_process で呼び出し。
@@ -25,9 +25,9 @@ editor/server/   Fastify + TS（PDF 生成 / ファイル索引 / Python 生成�
 
 テンプレ実体（`.html`）とファンド毎 CSS はリポジトリの外の data リポジトリ（既定 `../../editor-data`、環境変数 `DATA_ROOT`）に置く。初期化は `editor/scripts/init-data-repo.bat`。
 
-> データソースは `VITE_API_MODE` で切り替える。既定は `rest`（SQL Server + 認証）。`local`
-> （fixtures + localStorage、DB なし・ログインなし）は開発用の opt-in。`web/src/api/repositories.ts`
-> の 1 オブジェクトを差し替えるだけで画面/サービス/ストアは無改修。
+> web のデータの取り出し口は REST（SQL Server + 認証）の 1 系統だけ。開発用だった local モード
+> （fixtures + localStorage）は撤去した。`web/src/api/repositories.ts` が REST リポジトリの DI 合成
+> ルートで、画面/サービス/ストアは Repository 契約だけに依存する（テストは偽物を provide する）。
 
 ## 起動
 
@@ -39,18 +39,24 @@ pnpm dev         # shared をビルド後、Fastify(:24680) と Vite(:24681) を
 ```
 
 Windows では `editor/start.bat` をダブルクリックでも起動できます（初回は `pnpm install` を自動実行）。
-引数は順不同で、ビルドモード（`dev`／`prod`・既定 prod）とデータモード（`rest`／`local`・既定 rest）を指定:
+引数は順不同で、ビルドモード（`dev`／`prod`・既定 prod）と `lan` を指定（旧 `rest`／`db` は無視、
+旧 `local` は警告を出して REST で起動）:
 
 | コマンド | 内容 |
 |---|---|
 | `start.bat` | 本番（build → server 単体 :24680）/ REST（SQL Server バックエンド・認証必須） |
 | `start.bat dev` | 開発（Fastify :24680 + Vite :24681）/ REST |
-| `start.bat local` | 本番 / ローカルデータ（fixtures + localStorage。DB なし・ログインなし。開発用） |
-| `start.bat dev local` | 開発 / ローカルデータ |
 | `start.bat lan` | 本番 / REST + **社内 LAN 公開**（下記「LAN 公開」節） |
 
-ブラウザで http://localhost:24681 → REST では DB のユーザーで、`local` ではデモログイン
-`admin / admin`（または `editor / editor`）。
+ブラウザで http://localhost:24681 → DB のユーザーでログインする。
+
+server の無認証モード（`AUTH_REQUIRED=false`。ログインなし）は server 単体の設定として残っているが、
+`start.bat` からは起動できない。使うときは環境変数を手で設定して起動する（loopback 以外で待ち受けると
+`config.ts` が起動を拒否する。手順の正典はデプロイ運用手順書「5. 起動」）:
+
+```powershell
+$env:AUTH_REQUIRED='false'; $env:AUDIT_DB='false'; pnpm dev
+```
 
 > 開発に参加する方は **[CONTRIBUTING.md](./CONTRIBUTING.md)** を最初に読んでください（セットアップ・コマンド・ディレクトリ地図・規約）。
 
@@ -104,13 +110,14 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 起動するサーバ（sproc は `server/test/fakes/sprocFake.ts` の in-memory フェイク、dataRoot は
 `<repo>/.tmp/e2e-rest-dataroot`（リポジトリルート直下。`editor/` の下ではない）を毎回作り直し）
 を相手に走る。SQL Server は不要。
-`filled/` には `web/src/api/fixtures/filled/*.html` を seed する。worker 数は 1（ログイン試行の
+`filled/` には `editor/fixtures/filled/*.html`、`json/` には `editor/fixtures/json/*.json`
+（編集タブでパーツを挿入するときの値）を seed する。worker 数は 1（ログイン試行の
 集中回避）。
 
 Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常終了時は
 `.tmp/vite-e2e/exit-*.txt` に終了コードと直前の出力が残る。`E2E_VITE_PROCDUMP=<procdump.exe>` を
 設定するとクラッシュダンプも採る（ダンプ採取は procdump、読解は WinDbg。手順は
-`docs/superpowers/specs/2026-09-12-vite-crash-findings.md`）。
+`docs/トラブルシュート.md` の「e2e の途中で Vite が終了コード `3221226505` で落ちる」）。
 
 実 SQL Server（LocalDB）を相手にした検証は別枠の手動確認であり、`ci` や GitHub Actions では
 実行されない。
@@ -130,7 +137,7 @@ Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常�
 起動とアクセス:
 
 ```
-editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
+editor\start.bat lan          # 本番 + REST + LAN 公開（HTTPS）
 ```
 
 他端末のブラウザから `https://<サーバPCのIP>:24680/` を開く（起動バナーに URL が表示される）。
@@ -141,7 +148,7 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 
 - 証明書未生成のまま `lan` で起動すると **平文 HTTP にフォールバック**し、`COOKIE_SECURE=false`
   を自動設定してログインを通す（社内 LAN 限定の暫定運用。HTTPS 推奨）。
-- `lan` は REST を含意し、`local lan` は起動しない（認証なしの公開を作らない）。
+- `start.bat` は常に `AUTH_REQUIRED=true` を設定するので、`lan` で認証なしの公開はできない。
 - 社内 CA 発行の証明書を使う場合は PFX を `server\tls\editor.pfx` に置く
   （パスフレーズは `editor.pfx.pass` か env `HTTPS_PFX_PASSPHRASE`）。
 
@@ -150,9 +157,9 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | 役割 | パス |
 |---|---|
 | Jinja2 タグ保護（核心） | `web/src/lib/jinjaMask.ts` |
-| Nunjucks プレビュー描画 | `web/src/lib/nunjucksRender.ts` |
+| プレビュー文書の組み立て(描画は `renderHostClient.renderJinjaIsolated` と `server/src/render/renderHost.ts`) | `web/src/lib/nunjucksRender.ts` |
 | GrapesJS 連携 | `web/src/features/editor/useGrapes.ts`, `jinjaComponents.ts` |
-| データ抽象化（差し替え点） | `web/src/api/repositories.ts`, `web/src/api/local/*Repo.ts`, `web/src/api/rest/*` |
+| データアクセス（DI 合成ルート） | `web/src/api/repositories.ts`, `web/src/api/rest/*` |
 | ページ境界オーバーレイ | `web/src/features/editor/pageView.ts` |
 | セッション失効（再起動検知） | `web/src/lib/appEpoch.ts`, `web/src/stores/auth.ts`, `web/src/router/index.ts`（`authGuard`） |
 | PDF / preview（vivliostyle CLI） | `server/src/vivliostyle/*`（`build.ts` / `previewManager.ts`） |
@@ -175,19 +182,22 @@ editor\start.bat rest lan     # 本番 + REST + LAN 公開（HTTPS）
 | `TEMPLATES_DIR` | `<DATA_ROOT>/templates` | テンプレ .html 置き場（作成タブ経由の Jinja スケルトン） |
 | `FILLED_DIR` | `<DATA_ROOT>/filled` | 値入り HTML 置き場（編集タブが読み書きする本文） |
 | `CSS_DIR` | `<DATA_ROOT>/css` | ファンド毎 CSS 置き場 |
+| `JSON_DIR` | `<DATA_ROOT>/json` | 編集タブの値ファイル置き場（`<会社_ファンド_基準日_版種>.json`。別ツールが置き、editor は読むだけ） |
 | `DRAFTS_DIR` | `<DATA_ROOT>/drafts` | オートセーブ下書きの作業コピー |
 | `WEB_DIR` | `web/dist` | 本番配信する build 済み SPA |
 | `PYTHON_BIN` | `python`（PATH から探す。引数なし） | 生成器を起動する Python。3.13 でなければ起動ログに警告が出る |
 | `PY_GENERATE_SCRIPT` | `server/scripts/fake_generate_template.py` | 生成器のスクリプト（既定はテスト用の偽物。本番は既存の生成器を指す） |
 | `PY_GENERATE_SCRIPT_SHA256` | なし | 生成器のスクリプトの SHA256。設定すると生成のたびに照合する |
 | `GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` | 2 / 8 | 生成の同時実行と待ち行列の上限 |
+| `PY_TIMEOUT_MS` | 300000（5 分。上限 600000） | 生成器 1 回のタイムアウト（ms） |
+| `GENERATE_MAX_OUTPUT_FILES` | 50 | 1 回の作成で取り込む出力ファイルの上限（appconfig の `python.maxOutputFiles`） |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
-REST モード（`start.bat rest`）で効く認証/DB 系:
+認証/DB 系（`start.bat` は `AUTH_REQUIRED=true` と `AUDIT_DB=true` を設定する）:
 
 | 変数 | 既定 | 用途 |
 |---|---|---|
-| `AUTH_REQUIRED` | `true` | 認証強制（`start.bat local` が `false` にする） |
+| `AUTH_REQUIRED` | `true` | 認証強制（`false` で無認証モード。手で設定したときだけ） |
 | `AUDIT_DB` | `false` | 監査ログを DB にも書く |
 | `AUTH_SESSION_TTL_HOURS` | 12 | セッション有効期限（時間） |
 | `DB_SERVER` | `localhost` | SQL Server ホスト |
@@ -208,4 +218,4 @@ REST モード（`start.bat rest`）で効く認証/DB 系:
   if/else や入れ子はチップ表示にフォールバック（テーブル内の入れ子ループは要注意）。
 - Nunjucks は Jinja2 の近似（プレビュー用途）。`items()`/`is` など一部構文は非互換。
 - GrapesJS は編集領域の HTML を正規化する（空白/属性順）。Jinja タグ自体は保持。
-- 再起動セッション失効（`appEpoch`）はローカルモード用。REST モードでは DB セッション失効が権威。
+- 再起動の検知（`appEpoch`）は再ログイン画面の再起動バナー用。セッションの失効は DB セッション失効が権威。

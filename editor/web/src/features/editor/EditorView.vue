@@ -5,26 +5,30 @@
 // 役割: `useTemplateEditor.ts` / `useGeomHandles.ts` を束ね、canvas 上に選択 overlay
 // (ページ境界 guide / ドラッグハンドル / move grip)を描く presentational なルート。
 import { GripVertical, PanelLeft, PanelRight, StickyNote, TriangleAlert } from '@lucide/vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, useTemplateRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import PageRail from '@/components/PageRail.vue';
 import { fractionToPage } from '@/components/pageNav';
 import Button from '@/components/ui/Button.vue';
 import { Tooltip } from '@/components/ui/overlays';
 import { toastSuccess } from '@/components/ui/toast';
+import { tabOf } from '@/features/layout/tabOf';
+import { pairSyncConflictText } from '@/lib/pairSyncText';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import CommentPanel from './comments/CommentPanel.vue';
 import EditorTopBar from './EditorTopBar.vue';
-import { FUND_IMAGE_WARNING_MESSAGE } from './fundImages';
 import Inspector from './Inspector.vue';
+import { INSERT_BLOCKED_MESSAGE } from './insertTarget';
 import NoteBubble from './NoteBubble.vue';
 import PartTree from './PartTree.vue';
 import ShortcutHelpDialog from './ShortcutHelpDialog.vue';
+import { syncUi } from './syncUi';
+import { useCompanyFilter } from './useCompanyFilter';
 import { useEditorShortcuts } from './useEditorShortcuts';
 import { useGeomHandles } from './useGeomHandles';
-import { ZOOM_STEP } from './useGrapes';
 import { useTemplateEditor } from './useTemplateEditor';
+import { ZOOM_STEP } from './useZoomFit';
 
 const props = defineProps<{ id: string }>();
 const router = useRouter();
@@ -39,11 +43,20 @@ const {
   template,
   fundName,
   syncStatus,
-  fundImageWarning,
+  assetWarnings,
   displayHistory,
   partLabels,
+  historyGroups,
+  selectedNo,
+  selectedName,
+  selectedKey,
+  selectedRejected,
+  partNames,
+  changeNumbers,
+  changeMarksAvailable,
   selectedPart,
   selectedGeom,
+  selectedPartBreak,
   noteEntries,
   canNote,
   addNote,
@@ -69,6 +82,8 @@ const {
   redo,
   beginUndo,
   applyGeom,
+  applyGeomEdit,
+  setPartBreak,
   recordGeomDiff,
   resetGeom,
   moveSelected,
@@ -85,22 +100,25 @@ const { startHandle, dragLabel } = useGeomHandles({
   beginUndo,
   applyGeom,
   recordGeomDiff,
+  isTextEditing: () => g.editing.value,
+  finishTextEdit: g.finishTextEdit,
 });
 
-const rect = computed(() => g.selectedRect.value);
+// テンプレートでは ref が自動で展開されるので、`g.selectedRect` をそのまま `rect` として読む。
+const rect = g.selectedRect;
 
 const sessionStore = useEditorSessionStore();
+
+// ── パーツ一覧を絞る委託会社(テンプレート ID 先頭の略称から解決) ──
+const companyFilter = useCompanyFilter(toRef(props, 'id'));
 
 // ── 右ペインの表示(プロパティ / コメント)。編集セッションの ui 状態を継ぐ
 // (プレビュー往復で保持、倍率・表示系と同じく永続ミラー経由でリロードでも復元)。 ──
 const paneTab = ref<'props' | 'comments'>(ui.paneTab);
-watch(paneTab, (v) => {
-  ui.paneTab = v;
-  sessionStore.persistUi(props.id);
-});
+syncUi(sessionStore, props.id, paneTab, 'paneTab');
 // バッジは未対応の**親投稿**の件数(仕様 §4.3)。パーツ数(`openNoteKeys.size`)ではない
 // — 1 パーツに複数スレッドがあれば両者は食い違う。
-const openCommentCount = computed(() => openNoteCount.value);
+const pairSyncBanner = computed(() => pairSyncConflictText(syncStatus.value));
 
 // ── メモ吹き出し(選択パーツのスレッド) ──
 const noteBubbleEl = useTemplateRef<InstanceType<typeof NoteBubble>>('noteBubbleEl');
@@ -184,12 +202,21 @@ onBeforeUnmount(() => {
 // 以後の zoom/layout 再計算は `useGrapes.ts` の `lastBubbleSize` キャッシュがこの実寸のまま追従させる。
 watch(noteEntries, refreshBubbleAnchorEstimate, { immediate: true });
 
+// ── 変更の目印(確定版から変わったパーツの左上の丸数字)。既定 ON、紙面の左下の切替で出し入れ
+// する(上部バーには置かない — 1 行に収まらなくなる)。ui 状態を継ぐ(paneTab と同じ理由)。 ──
+const changeMarksEnabled = ref(ui.changeMarksEnabled);
+syncUi(sessionStore, props.id, changeMarksEnabled, 'changeMarksEnabled');
+
+/** 丸数字の押下: そのパーツを選び、右ペインをプロパティ(修正履歴のある面)へ切り替える。 */
+function openHistoryFor(key: string): void {
+  selectPartByKey(key);
+  paneTab.value = 'props';
+  rightCollapsed.value = false;
+}
+
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。ui 状態を継ぐ(paneTab と同じ理由)。
 const showPageGuides = ref(ui.showPageGuides);
-watch(showPageGuides, (v) => {
-  ui.showPageGuides = v;
-  sessionStore.persistUi(props.id);
-});
+syncUi(sessionStore, props.id, showPageGuides, 'showPageGuides');
 
 // `PageRail` 用の現在ページ(1 起点)。1 ページ表示は表示中 index、全ページ連続表示は
 // 実スクロール位置(`scrollFraction`)から逆算する(目盛りのハイライトをスクロールに追従)。
@@ -225,6 +252,11 @@ async function goPreview() {
   router.push({ name: 'preview', params: { id: props.id }, query: created });
 }
 
+/** 上部バーの「一覧へ戻る」。経路(編集 / 作成)のタブの一覧へ送る(履歴は辿らない)。 */
+function goList() {
+  router.push({ name: tabOf(route) ?? 'edit' });
+}
+
 // ── 承認待ちバッジ(上部バー) ──
 // このテンプレの承認待ち申請。複数ある場合は最新(取得順の先頭)へ飛ばす。
 const pendingReviews = usePendingReviewsStore();
@@ -249,11 +281,7 @@ onMounted(() => {
   const el = canvasEl.value;
   if (!el) return;
   canvasResizeObserver = new ResizeObserver(() => {
-    requestAnimationFrame(() => {
-      g.refreshRect();
-      g.refreshPageGuides();
-      g.updateScrollMode();
-    });
+    g.remeasureNextFrame(g.updateScrollMode);
   });
   canvasResizeObserver.observe(el);
 });
@@ -355,37 +383,36 @@ const statusText = computed(() => {
       @help="helpOpen = true"
       @save="manualSave"
       @preview="goPreview"
+      @back="goList"
       @open-review="goReview"
     />
 
     <ShortcutHelpDialog v-model:open="helpOpen" />
 
-    <!-- 交付版⇄全体版 ペア同期の未解決競合バナー。競合中のパーツは自動同期が止まって
-         いる(両版の内容を一致させると次回承認時に解消される)。放置による二重メンテ回帰を
+    <!-- 交付版⇄全体版 ペア同期の未解決競合バナー(本文のパーツと書式の規則)。競合中は自動同期が
+         止まっている(両版の内容を一致させると次回承認時に解消される)。放置による二重メンテ回帰を
          防ぐため、解消まで開くたびに表示する(閉じるボタンは意図的に置かない)。 -->
     <div
-      v-if="syncStatus && syncStatus.conflicts.length > 0"
+      v-if="pairSyncBanner"
       class="flex items-center gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
       role="alert"
     >
       <TriangleAlert class="h-4 w-4 shrink-0" />
-      <span>
-        ペア（{{ syncStatus.pairTemplateId }}）と {{ syncStatus.conflicts.length }} 件のパーツが
-        競合しています（自動同期停止中）:
-        {{ syncStatus.conflicts.map((c) => `${c.partKey}〔${c.kind}〕`).join('、') }}
-      </span>
+      <span>{{ pairSyncBanner }}</span>
     </div>
 
-    <!-- 値入り本文に {{ fund.code }} 入りの画像参照が残っている。PDF にもプレビューにも出ないので、
-         外部ツール側で確定パスへ直すまで開くたびに出す(閉じるボタンは置かない)。文言は
-         テンプレート構文の字面を含むため定数で補間する。 -->
+    <!-- 資産の警告(CSS ファイルの不在・配信されない画像参照・{{ fund.code }} の残る画像参照)。
+         開くことは止めず、外部ツール側で直すまで開くたびに出す(閉じるボタンは置かない)。文言は
+         テンプレート構文の字面を含みうるため、テンプレートへ直書きせず補間で出す。 -->
     <div
-      v-if="fundImageWarning"
-      class="flex items-center gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
+      v-if="assetWarnings.length > 0"
+      class="flex items-start gap-2 border-b bg-warning/15 px-4 py-1.5 text-[12.5px] text-warning-foreground"
       role="alert"
     >
-      <TriangleAlert class="h-4 w-4 shrink-0" />
-      <span>{{ FUND_IMAGE_WARNING_MESSAGE }}</span>
+      <TriangleAlert class="mt-0.5 h-4 w-4 shrink-0" />
+      <ul class="space-y-0.5">
+        <li v-for="m in assetWarnings" :key="m">{{ m }}</li>
+      </ul>
     </div>
 
     <!-- 高ズームで両袖(固定幅)+ 中央が実効ビューポート幅を超える極端な場合は、クリップ
@@ -396,6 +423,9 @@ const statusText = computed(() => {
         v-if="!leftCollapsed"
         v-model:allow-add="allowAdd"
         v-model:allow-edit="allowEdit"
+        :insert-blocked-reason="g.canInsertPart.value ? null : INSERT_BLOCKED_MESSAGE"
+        :edition-type="template?.meta.attributes.editionType"
+        :company-filter="companyFilter"
         @select="onPartSelect"
         @insert="onPartInsert"
         @collapse="leftCollapsed = true"
@@ -420,9 +450,11 @@ const statusText = computed(() => {
         <!-- 選択ブロック上の幅/余白ドラッグハンドル(layout 編集は右ペインの
              `Inspector.vue` にもある。ここに浮動ツールバーは置かない) -->
         <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden">
-          <!-- ページ境界 guide: 実際の page break(`.page` / `page-break-*`)の位置のみ。
+          <!-- ページ境界 guide: 区切り(根の直下の `div.pagebreak` と inline の改ページ)で分けた
+               ページの境目に 1 本ずつ(`usePageGuides.ts`)。番号は区切り単位で、紙のページではない。
                1 ページ表示中は現在ページの末尾しか視野に無く、ページ番号は上部バーの
-               ページャに集約されるため guide 線は出さない(全ページ表示時のみ)。 -->
+               ページャに集約されるため guide 線は出さない(全ページ表示時のみ)。要素の無い白紙の
+               ページの前後の線は 1 本にまとめ、ラベルで白紙と知らせる。 -->
           <template v-if="showPageGuides && !g.singlePageMode.value">
             <div
               v-for="gd in g.pageGuides.value"
@@ -430,7 +462,7 @@ const statusText = computed(() => {
               class="pg-line"
               :style="{ left: `${gd.left}px`, top: `${gd.top}px`, width: `${gd.width}px` }"
             >
-              <span class="pg-label">ここまで {{ gd.page }}ページ目</span>
+              <span class="pg-label">ここまで {{ gd.page }}ページ目（区切り単位{{ gd.blank ? `。${gd.page}ページ目は白紙` : '' }}）</span>
             </div>
           </template>
 
@@ -452,6 +484,25 @@ const statusText = computed(() => {
             <StickyNote class="h-3 w-3" />
           </button>
 
+          <!-- 変更の目印(確定版から変わったパーツの左上の丸数字)。番号は承認タブと同じ数え方
+               (`useChangeNumbers.ts`)。メモ目印(右上・琥珀)とは位置と色で分ける。overlay にだけ
+               描き、canvas の DOM・保存内容には載せない。 -->
+          <template v-if="changeMarksAvailable && changeMarksEnabled">
+            <button
+              v-for="m in g.changeMarkers.value"
+              :key="m.key"
+              type="button"
+              data-change-marker
+              class="chg-mark"
+              :title="`変更 ${m.no}（押すと修正履歴を開く）`"
+              :aria-label="`変更 ${m.no}（押すと修正履歴を開く）`"
+              :style="{ left: `${m.left}px`, top: `${m.top}px` }"
+              @click="openHistoryFor(m.key)"
+            >
+              {{ m.no }}
+            </button>
+          </template>
+
           <!-- メモ吹き出し(選択パーツのスレッド)。表計算ソフトのセルコメントと同じく常に
                ページへ重ねて出す。大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
           <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && bubbleOpen">
@@ -469,7 +520,9 @@ const statusText = computed(() => {
 
           <!-- 編集の affordance(ドラッグハンドル)は編集許可時のみ -->
           <template v-if="rect && selectedGeom && allowEdit">
-            <!-- drag grip: 選択ブロックを兄弟内で並べ替える -->
+            <!-- drag grip: 選択ブロックを兄弟内で並べ替える。マウスのドラッグ専用のつまみで、
+                 キーボードでは右ペインの「上へ移動」「下へ移動」で同じ並べ替えができる -->
+            <!-- biome-ignore lint/a11y/noStaticElementInteractions: ドラッグ専用(代替あり) -->
             <div
               v-if="g.canDragSelected.value"
               class="pg-move pointer-events-auto"
@@ -491,25 +544,25 @@ const statusText = computed(() => {
               class="ret-handle ret-handle-x pointer-events-auto"
               title="幅をドラッグ"
               :style="{ left: `${rect.left + rect.width}px`, top: `${rect.top + rect.height / 2}px`, cursor: 'ew-resize' }"
-              @mousedown="startHandle('width', $event)"
+              @pointerdown="startHandle('width', $event)"
             />
             <div
               class="ret-handle ret-handle-x pointer-events-auto"
               title="幅をドラッグ"
               :style="{ left: `${rect.left}px`, top: `${rect.top + rect.height / 2}px`, cursor: 'ew-resize' }"
-              @mousedown="startHandle('width-left', $event)"
+              @pointerdown="startHandle('width-left', $event)"
             />
             <div
               class="ret-handle ret-handle-y pointer-events-auto"
               title="上の余白をドラッグ"
               :style="{ left: `${rect.left + rect.width / 2}px`, top: `${rect.top}px`, cursor: 'ns-resize' }"
-              @mousedown="startHandle('mt', $event)"
+              @pointerdown="startHandle('mt', $event)"
             />
             <div
               class="ret-handle ret-handle-y pointer-events-auto"
               title="下の余白をドラッグ"
               :style="{ left: `${rect.left + rect.width / 2}px`, top: `${rect.top + rect.height}px`, cursor: 'ns-resize' }"
-              @mousedown="startHandle('mb', $event)"
+              @pointerdown="startHandle('mb', $event)"
             />
 
             <!-- ハンドルのドラッグ中に出すライブ値の bubble -->
@@ -522,6 +575,27 @@ const statusText = computed(() => {
             </div>
 
           </template>
+        </div>
+
+        <!-- 紙面の左下: 変更の目印の出し入れと凡例。作成経路(確定版が無い)では出さない。 -->
+        <div v-if="changeMarksAvailable" class="chg-dock">
+          <button
+            type="button"
+            class="chg-toggle"
+            :aria-pressed="changeMarksEnabled"
+            @click="changeMarksEnabled = !changeMarksEnabled"
+          >
+            <span
+              class="chg-swatch"
+              :class="changeMarksEnabled ? '' : 'chg-swatch-off'"
+              aria-hidden="true"
+              >1</span
+            >変更の目印
+          </button>
+          <span v-if="changeMarksEnabled" class="chg-legend" aria-hidden="true">
+            <span><i class="chg-legend-sw chg-legend-change"></i>確定版から変更</span>
+            <span><i class="chg-legend-sw chg-legend-note"></i>コメント</span>
+          </span>
         </div>
 
         <!-- 右端の縦ページ目盛り(スクラバ)。400 ページ規模で現在位置の把握と任意ページへの
@@ -552,19 +626,27 @@ const statusText = computed(() => {
         :selected="g.selected.value"
         :part="selectedPart"
         :geom="selectedGeom"
+        :part-break="selectedPartBreak"
         :history="displayHistory"
         :part-labels="partLabels"
+        :history-groups="historyGroups"
+        :selected-no="selectedNo"
+        :selected-name="selectedName"
+        :selected-key="selectedKey"
+        :selected-rejected="selectedRejected"
         :pane-tab="paneTab"
-        :comment-count="openCommentCount"
+        :comment-count="openNoteCount"
         :edit-mode="allowEdit"
         :can-up="g.canMoveUp.value"
         :can-down="g.canMoveDown.value"
-        @apply="applyGeom"
+        @apply="applyGeomEdit"
+        @pagebreak="setPartBreak($event.edge, $event.on)"
         @move="moveSelected($event)"
         @reset="resetGeom"
         @del="deletePart"
         @pane-tab="paneTab = $event"
         @collapse="rightCollapsed = true"
+        @select-part="selectPartByKey"
       >
         <template #comments>
           <CommentPanel
@@ -572,6 +654,8 @@ const statusText = computed(() => {
             :selected-key="currentNoteKey"
             :can-add="canNote"
             :part-labels="partLabels"
+            :part-numbers="changeNumbers.byKey"
+            :part-names="partNames"
             @add="(content) => addNote(content)"
             @reply="replyNote"
             @set-status="setNoteStatus"
@@ -603,7 +687,7 @@ const statusText = computed(() => {
 }
 
 /* page-boundary guides drawn over the A4 sheet (sit below the selection frame).
-   real page break (from .page / break-* / page-break-*): confident solid line */
+   one line per boundary between the pages split by the breaks (`usePageGuides.ts`) */
 .pg-line {
   position: absolute;
   height: 0;
@@ -659,6 +743,104 @@ const statusText = computed(() => {
   background: #9aa0a6;
 }
 
+/* change mark: numbered blue circle at a part's top-left corner (the note marker sits at the
+   top-right in amber). fixed px size like the note marker; fixed colors because it always sits on
+   the white A4 sheet (same reason as `.note-marker`). the color is `--change-mark` (`index.css`),
+   shared with the inspector's `.no-pill` and the legend. */
+.chg-mark {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0 4px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  appearance: none;
+  transform: translate(-2px, -2px);
+  border-radius: 11px;
+  color: #fff;
+  background: var(--change-mark);
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 24;
+}
+
+/* bottom-left dock: toggle for the change marks and their legend (off the sheet, theme colors) */
+.chg-dock {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.chg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chg-toggle[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+}
+.chg-swatch {
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  font-size: 10px;
+  color: #fff;
+  background: var(--change-mark);
+}
+.chg-swatch-off {
+  background: #9aa0a6;
+}
+.chg-legend {
+  display: inline-flex;
+  gap: 10px;
+}
+.chg-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chg-legend-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+.chg-legend-change {
+  border-radius: 50%;
+  background: var(--change-mark);
+}
+.chg-legend-note {
+  border-radius: 3px;
+  background: var(--warning);
+}
+
 /* drag grip on the selected block — large, obvious grab target for reorder */
 .pg-move {
   position: absolute;
@@ -698,6 +880,8 @@ const statusText = computed(() => {
   transform: translate(-50%, -50%);
   z-index: 25;
   user-select: none;
+  /* タッチ・ペンで押したまま動かすと、ブラウザがパンを始めて pointercancel で drag を切る。 */
+  touch-action: none;
 }
 .ret-handle::before {
   content: '';

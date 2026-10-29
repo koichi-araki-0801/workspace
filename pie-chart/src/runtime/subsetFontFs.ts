@@ -2,7 +2,7 @@
 // runtime/subsetFontFs.ts — `subset-font` へだけ差し込む fs 薄ラッパ
 // -----------------------------------------------------------------------------
 // `subset-font/index.js` は `require('fs').promises.readFile(require.resolve(
-// 'harfbuzzjs/hb-subset.wasm'))` の 1 経路でのみ外部ファイルを読む。SEA では
+// 'harfbuzzjs/dist/harfbuzz-subset.wasm'))` の 1 経路でのみ外部ファイルを読む。SEA では
 // `require.resolve` が `HB_WASM_SENTINEL` を返す(`runtime/seaRuntime.ts`)ので、ここで
 // sentinel を SEA アセットへ振り替えれば **wasm をディスクへ出さずに** in-memory で
 // 完結する(`%TEMP%` へ展開する案は、書き出し〜読み込みの間に差し替え窓ができるため不採用)。

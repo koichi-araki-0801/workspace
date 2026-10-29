@@ -3,7 +3,7 @@
 // =============================================================================
 // `msnodesqlv8` + Windows 統合認証(Integrated auth)で接続する。
 // `msnodesqlv8` はネイティブな optional 依存。`createRequire` で遅延ロードする
-// ことで、ネイティブバインディングが無い環境でも `local` モードと `tsc` が動く。
+// ことで、ネイティブバインディングが無い環境でも無認証モード(DB なし)と `tsc` が動く。
 // 実際に require されるのは最初のクエリ実行時(REST モード)だけ。
 import { createRequire } from 'node:module';
 import { config } from '../config.js';

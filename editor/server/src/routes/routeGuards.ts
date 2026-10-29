@@ -26,7 +26,7 @@ import {
 } from '../middleware/auth.js';
 
 /** 必要ロール。`auth` = ログイン済みなら誰でも(= viewer も可)。 */
-export type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
+type GuardLevel = 'public' | 'auth' | 'editor' | 'approver' | 'admin';
 
 /** `/api` prefix 付きの完全パスへ合成する。register の prefix と一致させるための唯一の場所。 */
 const api = (p: string): string => `/api${p}`;
@@ -45,7 +45,7 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   // logout / me は cookie の読み取り後に動く(未ログインでも 204 / null を返す)。
   [`POST ${api(apiPaths.authLogout)}`]: 'public',
   [`GET ${api(apiPaths.authMe)}`]: 'public',
-  // init-password は `requireIdentifiedUser` も重ねる(ローカルモードでも 401)。表の
+  // init-password は `requireIdentifiedUser` も重ねる(無認証モードでも 401)。表の
   // レベルは「requireAuth 系ガードのうち最上位はどれか」を表すので `auth` になる。
   [`POST ${api(apiPaths.authInitPassword)}`]: 'auth',
 
@@ -58,7 +58,8 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`GET ${api(apiPaths.templateById)}`]: 'auth',
   [`GET ${api(apiPaths.templateDraft)}`]: 'auth',
   [`GET ${api(apiPaths.templateSyncStatus)}`]: 'auth',
-  [`GET ${api(apiPaths.fundSampleData)}`]: 'auth',
+  [`GET ${api(apiPaths.templateSampleData)}`]: 'auth',
+  [`GET ${api(apiPaths.templateValues)}`]: 'auth',
   // 下書きは他人のものも触れる(所有者検査は別の根で入る)。viewer には開かない。
   [`PUT ${api(apiPaths.templateDraft)}`]: 'editor',
   [`DELETE ${api(apiPaths.templateDraft)}`]: 'editor',
@@ -104,13 +105,16 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`GET ${api(RENDER_HOST_BASE)}/index.html`]: 'auth',
   [`GET ${api(RENDER_HOST_BASE)}/*`]: 'auth',
 
-  // ファンド別画像(imagesDir 直下)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
+  // 画像(imagesDir 直下と会社フォルダ 1 段)。閲覧そのものなので viewer にも開く(CSS と同じ権限)。
   [`GET ${api(apiPaths.fundAssetImage)}`]: 'auth',
+  [`GET ${api(apiPaths.fundAssetImageInDir)}`]: 'auth',
+  [`POST ${api(apiPaths.fundAssetInspect)}`]: 'auth',
 
   // reviews
   [`POST ${api(apiPaths.reviewRequests)}`]: 'editor',
   [`GET ${api(apiPaths.reviewRequests)}`]: 'auth',
   [`GET ${api(apiPaths.reviewRequestById)}`]: 'auth',
+  [`POST ${api(apiPaths.reviewRequestPartDecisions)}`]: 'approver',
   [`POST ${api(apiPaths.reviewRequestApprove)}`]: 'approver',
   [`POST ${api(apiPaths.reviewRequestReject)}`]: 'approver',
 
@@ -135,23 +139,18 @@ export const VIEWER_ALLOWED_MUTATIONS: Readonly<Record<string, string>> = {
   [`POST ${api(apiPaths.historyPdf)}`]: 'PDF 出力を viewer に許す以上、その記録も許す',
   [`POST ${api(apiPaths.build)}`]: '閲覧業務としての PDF 出力(サーバ状態を残さない)',
   [`POST ${api(apiPaths.buildMerge)}`]: '同上(複数文書の通しページ番号付き PDF)',
-};
-
-/** 各レベルで preHandler 配列に**参照一致**で含まれていなければならないガード。 */
-const REQUIRED_GUARD: Readonly<Record<Exclude<GuardLevel, 'public' | 'auth'>, unknown>> = {
-  editor: requireEditor,
-  approver: requireApprover,
-  admin: requireAdmin,
+  [`POST ${api(apiPaths.fundAssetInspect)}`]:
+    '画像が配信されるかの確認(読むだけでサーバ状態を変えない。画像の閲覧と同じ権限)',
 };
 
 /**
- * ローカルモード(`AUTH_REQUIRED=false`)でも施錠されねばならないルート。
+ * 無認証モード(`AUTH_REQUIRED=false`)でも施錠されねばならないルート。
  *
  * role ガード(`requireAdmin` 等)は `config.requireAuth` を見て素通りするため、`AUTH_REQUIRED=false`
- * を明示した local 配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
- * `requireIdentifiedUser` を重ねて 401 にしなければならない(local にサーバ側アカウントは
+ * を明示した無認証配備では検査ごと消える。資格情報・ユーザー台帳を操作する面は、フラグを見ない
+ * `requireIdentifiedUser` を重ねて 401 にしなければならない(無認証モードにサーバ側アカウントは
  * 無いので 401 が正しい応答)。ここに載せたルートに `requireIdentifiedUser` が無ければ
- * **サーバ起動時に落ちる** — 「表にはガードがあるが local では効かない」形を届かせない。
+ * **サーバ起動時に落ちる** — 「表にはガードがあるが無認証モードでは効かない」形を届かせない。
  */
 const LOCAL_MODE_ENFORCED: ReadonlySet<string> = new Set([
   `POST ${api(apiPaths.authInitPassword)}`,
@@ -221,13 +220,9 @@ export function assertRoutePolicy(routeOptions: RouteOptions): void {
           `'${actual}' です — preHandler と表のどちらかが誤っています`,
       );
     }
-    const guard = declared === 'public' || declared === 'auth' ? null : REQUIRED_GUARD[declared];
-    if (guard && !preHandlers.includes(guard)) {
-      throw new Error(`[routeGuards] ${key} に '${declared}' のガードが付いていません`);
-    }
     if (LOCAL_MODE_ENFORCED.has(key) && !preHandlers.includes(requireIdentifiedUser)) {
       throw new Error(
-        `[routeGuards] ${key} は local モード(AUTH_REQUIRED 未設定)でも施錠が必要です — ` +
+        `[routeGuards] ${key} は無認証モード(AUTH_REQUIRED=false)でも施錠が必要です — ` +
           'requireIdentifiedUser を preHandler に重ねてください(role ガードだけでは素通りします)',
       );
     }

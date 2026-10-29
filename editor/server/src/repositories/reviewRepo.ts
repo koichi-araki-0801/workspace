@@ -2,53 +2,75 @@
 // reviewRepo.ts — 確定保存の精査者承認ワークフロー(サーバ REST 実装)
 // =============================================================================
 // 確定保存を「申請(submit)→ 承認(approve)/却下(reject)」の 2 段に割る。申請は実ファイルを
-// 一切更新せず `<dataRoot>/reviews/` に積み(`reviewFiles.ts`)、承認時に限り `applyConfirmedSave`
-// (`templateRepo.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
+// 一切更新せず `<dataRoot>/reviews/` に積み(`reviewFiles.ts`)、承認時に限り `applyConfirmedWrite`
+// (`confirmedWrite.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
 // ルートは `requireApprover` で施錠する(`reviews.routes.ts`)。各関数は失敗時に `AppError`
 // を throw し、HTTP 変換は中央 `errorHandler` に委ねる(`templateRepo.ts` と同方針)。
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   type ApproveReviewResult,
   anyTemplateFileName,
+  buildCreateReviewedHtml,
+  buildEditReviewedHtml,
+  buildHtmlDiff,
   conflict,
+  duplicateReviewMessage,
+  extractReviewParts,
   forbidden,
+  type HtmlDiff,
+  isApprover,
+  MAX_REVIEW_PART_SCAN_CHARS,
   notFound,
   parseAnyTemplateFileName,
   parseSkeletonFileName,
   parseTemplateFileName,
+  partKeysText,
+  REVIEW_ALREADY_DECIDED,
+  REVIEW_PART_DECISION_TRANSITION,
   type ReviewDecisionRequest,
+  type ReviewOrigin,
+  type ReviewPartDecision,
   type ReviewRequest,
   type ReviewRequestMeta,
   type ReviewStatus,
+  type StoredReviewRequest,
   type SubmitReviewRequest,
   toReviewMeta,
+  toReviewResponse,
+  type UpdateReviewPartDecisionsRequest,
+  type User,
   unexpected,
   validation,
 } from '@editor/shared';
+import { readConfirmedHtml } from '../files/confirmedHtml.js';
+import { createSerialQueue } from '../files/fileLock.js';
 import {
   countPendingReviews,
+  findDuplicatePendingReview,
   listReviewMetas,
   MAX_PENDING_REVIEWS,
   readReview,
+  reviewContentHash,
   updateReviewMeta,
   writeReview,
 } from '../files/reviewFiles.js';
-import {
-  filledExists,
-  readFilledHtml,
-  readFundCss,
-  readTemplateHtml,
-} from '../files/templateFiles.js';
+import { filledExists, readTemplateCss } from '../files/templateFiles.js';
+import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
-import type { PairSyncService } from '../sync/pairSyncService.js';
-import { baselineTemplateHtml, type ConfirmedTarget } from './confirmedWrite.js';
-import { applyConfirmedSave } from './templateRepo.js';
+import type { PairCssSource, PairSyncService } from '../sync/pairSyncService.js';
+import { linkedomParser } from '../util/linkedomParser.js';
+import {
+  applyConfirmedWrite,
+  baselineTemplateHtml,
+  type ConfirmedTarget,
+} from './confirmedWrite.js';
+import { assertNoEditingMarkers } from './editingMarkerGate.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
 export interface ReviewActor {
   username: string;
-  role: string;
+  role: User['role'];
 }
 
 // ── 承認/却下の直列化(`gitRepo.ts` の `withGitLock` と同型) ──
@@ -57,20 +79,178 @@ export interface ReviewActor {
 // 低頻度のため、reqId 別の粒度は持たずモジュール全体の単一 Promise チェーンで直列化する。
 // ロックがモジュール直下に在るのは意図的で、`createReviewRepo` を複数回呼んでも触る確定領域は
 // プロセスに 1 つだからである(インスタンス別に持つと直列化が効かなくなる)。
-let reviewLock: Promise<unknown> = Promise.resolve();
-function withReviewLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = reviewLock.then(fn, fn);
-  // チェーンは握りつぶして次へ繋ぐ(個々の結果は run が保持)。
-  reviewLock = run.then(
-    () => undefined,
-    () => undefined,
+const withReviewLock = createSerialQueue();
+
+// ── 申請の直列化 ──
+// 重複の検査と書き込みの間に同じ内容の申請が割り込むと、二重クリック・再送が両方とも通る。
+// 件数上限の検査から `writeReview` までをこの鎖で直列化する。承認の鎖(`withReviewLock`)と
+// 分けるのは、承認が git コミットを含んで遅く、申請をその後ろで待たせないため。
+const withSubmitLock = createSerialQueue();
+
+/**
+ * 承認時のペアへの CSS 転写の入力。承認の直前の CSS を読めないとき、申請に baseline が無いとき
+ * (公開 API からの申請など)は null にして警告を残す。
+ */
+async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSource | null> {
+  let before: string;
+  try {
+    before = await readTemplateCss(review.templateId);
+  } catch (e) {
+    logger.warn(
+      { err: e, templateId: review.templateId },
+      '承認前の CSS を読めないため、ペアへの CSS の転写を飛ばします',
+    );
+    return null;
+  }
+  if (review.cssBaseline === undefined) {
+    logger.warn(
+      { templateId: review.templateId, reqId: review.id },
+      '申請に CSS の baseline が無いため、ペアへの CSS の転写を飛ばします',
+    );
+    return null;
+  }
+  return { before, baseline: review.cssBaseline };
+}
+
+/** `decidablePartKeys` の結果を覚えておく申請の数。承認タブで同時に開く申請は数件。 */
+const DECIDABLE_KEYS_CACHE_SIZE = 32;
+const decidableKeysCache = new Map<string, ReadonlySet<string> | null>();
+/**
+ * 編集経路の申請の差分(`buildHtmlDiff(baseHtml, html)`)を覚えておく申請の数。差分は本文の断片を
+ * 持ち、大きい帳票では本文の数倍の大きさになるので、キーの集合より少なく持つ。判定の保存の照合と
+ * 最終確定が同じ差分を使い、同じ計算を 2 回しない。
+ */
+const REVIEW_DIFF_CACHE_SIZE = 4;
+const reviewDiffCache = new Map<string, HtmlDiff>();
+
+/**
+ * 決着した申請の差分とキーを捨てる。決着後は判定も最終確定もしないので、覚えておく理由が無い
+ * (差分は上限に近い帳票で百 MB 級になりうる)。
+ */
+function forgetReview(reqId: string): void {
+  reviewDiffCache.delete(reqId);
+  decidableKeysCache.delete(reqId);
+}
+
+/** (テスト用)いま覚えている申請の id。 */
+export function cachedReviewIds(): { diffs: string[]; keys: string[] } {
+  return { diffs: [...reviewDiffCache.keys()], keys: [...decidableKeysCache.keys()] };
+}
+
+/** 古い順に捨てて、`size` 件までに収める。 */
+function remember<V>(cache: Map<string, V>, size: number, key: string, value: V): V {
+  if (!cache.has(key) && cache.size >= size) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(key, value);
+  return value;
+}
+
+/**
+ * 編集経路の申請の差分(比較元のある申請だけ)。同期計算で、その間サーバ全体の要求が止まる。通常の
+ * 規模(340 パーツ)で約 0.2 秒、打ち切られない上限に近い帳票(約 305 万字・1,400 ページ・3,500
+ * ブロック)で約 1.6 秒、打ち切られる大きさで約 2.3 秒(2026-10-29 に測定)。worker へは逃がさない
+ * (計算は最終確定でブランチ前からしており、通常の規模では止まる時間が短い)。申請の本文は申請の
+ * あと変わらないので、申請 id ごとに覚える。
+ */
+function reviewDiffOf(review: StoredReviewRequest & { baseHtml: string }): HtmlDiff {
+  return (
+    reviewDiffCache.get(review.id) ??
+    remember(
+      reviewDiffCache,
+      REVIEW_DIFF_CACHE_SIZE,
+      review.id,
+      buildHtmlDiff(review.baseHtml, review.html, linkedomParser),
+    )
   );
-  return run;
+}
+
+/**
+ * 申請で判定できるパーツのキー。最終確定(`confirmedHtmlOf`)が照合するのと同じ集合で、編集経路は
+ * 申請時点の比較元と申請の本文の差分(linkedom)の変更パーツ、作成経路は Jinja 原文のパーツ。
+ * 照合できない申請(比較元の無い古い編集経路・差分の打ち切り・走査の上限超え)は null。
+ *
+ * 申請の本文は申請のあと変わらないので、申請 id ごとに覚えておく(差分の重さは `reviewDiffOf`。
+ * 判定のたびに取り直すと承認の押下が重くなるため)。
+ */
+function decidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
+  if (decidableKeysCache.has(review.id)) return decidableKeysCache.get(review.id) ?? null;
+  return remember(
+    decidableKeysCache,
+    DECIDABLE_KEYS_CACHE_SIZE,
+    review.id,
+    computeDecidablePartKeys(review),
+  );
+}
+
+function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
+  if (review.origin === 'create') {
+    // 走査の上限を超える原文だけは照合しない(最終確定の走査も同じ上限で止まる)。原文のパーツを
+    // 読めないほかの失敗(パーツの境界・Jinja の識別子)は、照合を飛ばさずにその 400 を返す。投げた
+    // ものは覚えないので、毎回同じ答えになる。
+    if (review.html.length > MAX_REVIEW_PART_SCAN_CHARS) return null;
+    return new Set(extractReviewParts(review.html).map((part) => part.partKey));
+  }
+  if (review.baseHtml === undefined) return null;
+  const diff = reviewDiffOf({ ...review, baseHtml: review.baseHtml });
+  if (diff.truncated) return null;
+  return new Set(
+    diff.pages.flatMap((page) =>
+      page.blocks.filter((block) => block.status !== 'same').map((block) => block.partKey),
+    ),
+  );
+}
+
+/**
+ * 作成経路の申請を受けてよいか。判定の保存と最終確定は Jinja 原文のパーツ(`extractReviewParts`)
+ * で照合し、最終確定は値入り HTML と原文のパーツの構造が同じことを要る(shared の
+ * `buildCreateReviewedHtml`)。原文のパーツを読めない申請(パーツ識別子の Jinja・閉じていない
+ * 境界)、値入り HTML の無い申請、原文と値入りでパーツの構造が合わない申請は、承認・却下や最終確定が
+ * 必ず 400 になり決着できないので、受付で同じ検査をして止める(すでに保存された申請は今のまま、
+ * 判定の保存・最終確定で 400)。文言は最終確定と同じ。
+ */
+function assertCreateReviewable(html: string, filledHtml: string | undefined): void {
+  const sourceKeys = extractReviewParts(html).map((part) => part.partKey);
+  if (filledHtml === undefined) throw validation('作成タブの最終確定には値入りHTMLが必要です');
+  // 画面は描画したプレビューを値入り HTML として送る。空なのは描画の前・描画の失敗で、構造の
+  // 不一致と言うと利用者が直すところを探せないので分けて返す。
+  if (filledHtml.trim() === '') throw validation('プレビューの描画が終わってから申請してください');
+  const filledKeys = extractReviewParts(filledHtml).map((part) => part.partKey);
+  if (
+    sourceKeys.length !== filledKeys.length ||
+    sourceKeys.some((key, i) => key !== filledKeys[i])
+  ) {
+    throw validation('Jinja原文と値入りHTMLのパーツ構造が一致しません');
+  }
 }
 
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
-export function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
+function targetOfOrigin(origin: ReviewOrigin): ConfirmedTarget {
   return origin === 'edit' ? 'filled' : 'template';
+}
+/**
+ * 申請全体の承認で確定するHTML。作成経路は値入りHTMLで保存したパーツ判定をJinja原文へ
+ * 適用し、承認済みパーツだけを残す。編集経路は承認画面と同じ差分(linkedom で読む)で判定を
+ * 検査し、却下したパーツだけを申請時点の現行版へ戻す(shared の `editReviewedHtml.ts` の
+ * `buildEditReviewedHtml`。`currentHtml` は確定の直前の値入り HTML)。
+ */
+function confirmedHtmlOf(review: StoredReviewRequest, currentHtml: string): string {
+  if (review.origin === 'edit') {
+    // 判定の保存の照合で計算した差分があれば使う(同期計算を 2 回しない。重さは `reviewDiffOf`)。
+    const { baseHtml } = review;
+    const diff =
+      baseHtml === undefined || review.baseCss === undefined
+        ? undefined
+        : reviewDiffOf({ ...review, baseHtml });
+    return buildEditReviewedHtml(review, linkedomParser, currentHtml, diff);
+  }
+
+  if (review.filledHtml === undefined) {
+    throw validation('作成タブの最終確定には値入りHTMLが必要です');
+  }
+
+  return buildCreateReviewedHtml(review.html, review.filledHtml, review.partDecisions ?? []);
 }
 
 /**
@@ -79,48 +259,54 @@ export function targetOfOrigin(origin: 'edit' | 'create'): ConfirmedTarget {
  * 残らない、という不変則が壊れる)。申請と承認の双方で見るのは、申請後に `filled/` が消えても
  * 承認側で止めるため。
  */
-async function assertFilledPresentForEdit(origin: 'edit' | 'create', templateId: string) {
+async function assertFilledPresentForEdit(origin: ReviewOrigin, templateId: string) {
   if (origin !== 'edit') return;
   if (!(await filledExists(`${templateId}.html`)))
     throw validation(`編集タブの申請には値入り HTML(filled/)が必要です: ${templateId}`);
 }
 
 /** 申請時点の現行版(現在のディスク本体)のコンテンツキー。承認時の並行性警告に使う。 */
-async function currentBaseHash(
-  templateId: string,
-  fundCode: string,
-  target: ConfirmedTarget,
-): Promise<string> {
+async function currentBaseHash(templateId: string, target: ConfirmedTarget): Promise<string> {
   const attrs = parseAnyTemplateFileName(`${templateId}.html`);
   const fileName = attrs ? anyTemplateFileName(attrs) : `${templateId}.html`;
   const [html, css] = await Promise.all([
-    target === 'filled' ? readFilledHtml(fileName) : readTemplateHtml(fileName),
-    readFundCss(fundCode),
+    readConfirmedHtml(target, fileName),
+    readTemplateCss(templateId),
   ]);
-  return createHash('sha1').update(html).update('\x00').update(css).digest('hex');
-}
-
-/** approver|admin は全件、それ以外(editor)は自分の申請のみ閲覧できる。 */
-function canSeeAll(actor: ReviewActor): boolean {
-  return actor.role === 'approver' || actor.role === 'admin';
+  return reviewContentHash(html, css);
 }
 
 /**
- * 承認・却下が受け付ける現在状態の検査。決着(approved/rejected)済みを 409 で拒む。
+ * 判定・最終確定・申請ごと却下が受け付ける現在状態の検査。決着(approved/rejected)済みを 409
+ * で拒む。`code` は 3 つの操作で共通にし、画面は文言ではなく `code` で「読み直す」へ分岐する。
  */
 function assertUndecided(review: ReviewRequest): void {
   if (review.status === 'approved' || review.status === 'rejected')
-    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`);
+    throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`, {
+      code: REVIEW_ALREADY_DECIDED,
+    });
 }
 
 /**
- * 承認確定のメタ更新。実ファイル反映(`applyConfirmedSave`)の後段で失敗すると「反映済みなのに
+ * パーツ判定 1 件の遷移が許されるか。許すのは未判定 → 承認・却下と、承認・却下 → 未判定
+ * (取り消し)だけ。承認 ↔ 却下の直接の付け替えと同じ判定の再送は、画面が古い(別の人が先に
+ * 判定した)ことの表れなので受けない。保存済みの `pending` は未判定と同じに扱う。
+ */
+function transitionAllowed(
+  from: ReviewPartDecision['status'],
+  to: ReviewPartDecision['status'],
+): boolean {
+  return from === 'pending' ? to !== 'pending' : to === 'pending';
+}
+
+/**
+ * 承認確定のメタ更新。実ファイル反映(`applyConfirmedWrite`)の後段で失敗すると「反映済みなのに
  * pending」が残り、再承認で二重反映されるため、一時失敗(ウイルス対策・インデクサ由来の
  * EPERM/EBUSY 等)は短い backoff で再試行し、それでも駄目なら手動復旧の手順を載せた明示エラー
  * にする。順序を逆(メタ先行)にするとクラッシュ時に「approved なのに未反映」というサイレント
  * 欠落になるため現行順(反映→メタ)を維持する。なお「現行版 hash が申請内容の hash と一致すれば
- * 既反映としてスキップ」する冪等検知は、`applyConfirmedSave` の CSS がファンド CSS へのマージ
- * で `review.css` と結果が一致せず判定不成立のため不採用。
+ * 既反映としてスキップ」する冪等検知は、別の基準日の承認が同じテンプレの CSS を書き換えうるため
+ * 判定が成り立たず不採用。
  */
 async function finalizeApprovedMeta(
   reqId: string,
@@ -150,6 +336,12 @@ export interface ReviewRepo {
   submitReview(req: SubmitReviewRequest, actor: ReviewActor): Promise<ReviewRequestMeta>;
   listReviews(filter: { status?: ReviewStatus }, actor: ReviewActor): Promise<ReviewRequestMeta[]>;
   getReview(reqId: string, actor: ReviewActor): Promise<ReviewRequest>;
+  /** パーツ判定をまとめて変更し、入力の順に更新後の判定を返す。 */
+  updatePartDecisions(
+    reqId: string,
+    input: UpdateReviewPartDecisionsRequest,
+    actor: ReviewActor,
+  ): Promise<ReviewPartDecision[]>;
   approveReview(
     reqId: string,
     decision: ReviewDecisionRequest,
@@ -186,15 +378,12 @@ export function createReviewRepo({
           `編集タブの申請は値入り HTML(会社_ファンド_基準日_版種)の id だけを受けます: ${req.templateId}`,
         );
       }
-      // 帰属検査は承認側(`applyConfirmedWrite`)と同条件で入口にも置く。CSS はファンド単位の
-      // 共有ファイルなので不一致を通すと「承認できない申請」がキューに積まれるだけで、
-      // 申請時に取る現行版ハッシュ(`baseHash`)も別ファンドの CSS を混ぜた値になる。
-      if (attrs.fundCode !== req.fundCode) {
-        throw validation(
-          `ファンドコードがテンプレート id と一致しません: ${req.fundCode} (id=${req.templateId})`,
-        );
-      }
       await assertFilledPresentForEdit(req.origin, req.templateId);
+      // 承認側(`applyConfirmedWrite`)でも止まるが、入口で弾かないと精査者のキューに
+      // 「承認できない申請」が積まれる。プレビュー文書(`filledHtml`)も同じ本文から作るので見る。
+      assertNoEditingMarkers(req.html, req.templateId);
+      if (req.filledHtml !== undefined) assertNoEditingMarkers(req.filledHtml, req.templateId);
+      if (req.origin === 'create') assertCreateReviewable(req.html, req.filledHtml);
       // 実行コード面は生成時に確定し、以後どの経路でも変えられない。最後の関所は承認側の
       // `applyConfirmedWrite` だが、申請の入口でも同じ照合を掛ける — 通してしまうと精査者の
       // キューに「承認できない申請」が積まれ、承認者は実行結果しか見ないため差分にも気付けない。
@@ -205,34 +394,60 @@ export function createReviewRepo({
         templateId: req.templateId,
         where: 'review-submit',
       });
-      // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
-      // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
-      // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
-      if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
-        throw validation(
-          `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
-            '精査者が既存の申請を処理してから、あらためて申請してください。',
-        );
-      const review: ReviewRequest = {
-        id: randomUUID(),
-        templateId: req.templateId,
-        attributes: attrs,
-        fundCode: req.fundCode,
-        origin: req.origin,
-        status: 'pending',
-        submittedBy: actor.username,
-        submittedAt: new Date().toISOString(),
-        reviewedBy: null,
-        reviewedAt: null,
-        comment: null,
-        baseHash: await currentBaseHash(req.templateId, req.fundCode, target),
-        ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
-        html: req.html,
-        css: req.css,
-        ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
-      };
-      await writeReview(review);
-      return toReviewMeta(review);
+      const baseSnapshot =
+        req.origin === 'create'
+          ? { baseHtml: '', baseCss: req.css }
+          : {
+              baseHtml: await readConfirmedHtml(target, anyTemplateFileName(attrs)),
+              baseCss: await readTemplateCss(req.templateId),
+            };
+
+      return withSubmitLock(async () => {
+        // 同じ内容の承認待ちが既にあれば作らない(二重クリック・再送)。印の検査などの後ろに置くので、
+        // 入口で拒まれる申請は重複かどうかを見る前に止まる。件数上限より前に置くのは、上限ちょうどで
+        // 二重クリックしたとき 2 回目を「上限」ではなく「重複」として返すため — 1 回目は通っており、
+        // 利用者が取るべき行動は「待つ」ではなく「何もしない」である。
+        const duplicate = await findDuplicatePendingReview({
+          templateId: req.templateId,
+          origin: req.origin,
+          submittedBy: actor.username,
+          contentHash: reviewContentHash(req.html, req.css),
+        });
+        if (duplicate)
+          throw conflict(duplicateReviewMessage(duplicate.submittedAt), {
+            code: 'REVIEW_DUPLICATE',
+          });
+        // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
+        // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
+        // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
+        if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
+          throw validation(
+            `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
+              '精査者が既存の申請を処理してから、あらためて申請してください。',
+          );
+        const review: StoredReviewRequest = {
+          id: randomUUID(),
+          templateId: req.templateId,
+          attributes: attrs,
+          origin: req.origin,
+          status: 'pending',
+          submittedBy: actor.username,
+          submittedAt: new Date().toISOString(),
+          reviewedBy: null,
+          reviewedAt: null,
+          comment: null,
+          baseHash: await currentBaseHash(req.templateId, target),
+          ...baseSnapshot,
+
+          ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
+          html: req.html,
+          css: req.css,
+          ...(req.filledHtml !== undefined ? { filledHtml: req.filledHtml } : {}),
+          ...(req.cssBaseline !== undefined ? { cssBaseline: req.cssBaseline } : {}),
+        };
+        await writeReview(review);
+        return toReviewMeta(review);
+      });
     },
 
     /** 申請一覧。状態で絞り込み、ロールで可視範囲を絞る。新しい順。 */
@@ -240,7 +455,7 @@ export function createReviewRepo({
       const all = await listReviewMetas();
       return all
         .filter((m) => (filter.status ? m.status === filter.status : true))
-        .filter((m) => canSeeAll(actor) || m.submittedBy === actor.username)
+        .filter((m) => isApprover(actor) || m.submittedBy === actor.username)
         .sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
     },
 
@@ -252,9 +467,129 @@ export function createReviewRepo({
     async getReview(reqId, actor) {
       const review = await readReview(reqId);
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      if (!canSeeAll(actor) && review.submittedBy !== actor.username)
+      if (!isApprover(actor) && review.submittedBy !== actor.username)
         throw forbidden('この申請を閲覧する権限がありません');
-      return review;
+      return toReviewResponse(review);
+    },
+
+    /**
+     * review 内のパーツ判定をまとめて変更する。権限・職務分掌・決着済みを今どおり確かめ、
+     * **全件の遷移を先に検査してから** 全件を当てた `partDecisions` を 1 回で書く。1 件でも
+     * 許されない遷移があれば何も書かない(途中まで当たった状態を残さない)。
+     */
+    async updatePartDecisions(reqId, input, actor) {
+      return withReviewLock(async () => {
+        const review = await readReview(reqId);
+        if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+
+        if (!isApprover(actor)) {
+          throw forbidden('パーツ判定には精査者権限が必要です');
+        }
+
+        if (review.submittedBy === actor.username && actor.role !== 'admin') {
+          throw forbidden('自分の申請は判定できません(職務分掌)');
+        }
+
+        assertUndecided(review);
+
+        // 同じキーが 2 回あると、遷移の検査は両方を「今の判定から」と読んで通し、保存は後の
+        // ものだけが残る(返り値には両方が載る)。契約(`UpdateReviewPartDecisionsRequest`)でも
+        // 拒むが、契約を通らない内部の呼び手にも同じ関所を掛ける。
+        const seen = new Set<string>();
+        for (const d of input.decisions) {
+          if (seen.has(d.partKey)) {
+            throw validation(`同じパーツの判定が 1 回の保存に複数あります: ${d.partKey}`);
+          }
+          seen.add(d.partKey);
+        }
+
+        // 差分に無いキーの承認・却下は最終確定で必ず止まる(本文に無い判定)。保存の段で拒み、
+        // 申請のファイルに要らないキーを積ませない。取り消し(pending)は遷移の検査が今の判定の
+        // あるキーだけに許すので、ここでは見ない。
+        // 照合する判定が無い(取り消しだけの)保存では、差分を計算しない。
+        const toCheck = input.decisions.filter((d) => d.status !== 'pending');
+        const decidable = toCheck.length > 0 ? decidablePartKeys(review) : null;
+        if (decidable !== null) {
+          const unknown = toCheck.filter((d) => !decidable.has(d.partKey)).map((d) => d.partKey);
+          if (unknown.length > 0) {
+            throw validation(
+              `申請の差分に無いパーツの判定があります: ${partKeysText(unknown)}。` +
+                '画面を読み直してください。',
+            );
+          }
+        }
+
+        const partDecisions = review.partDecisions ?? [];
+        const currentOf = new Map(partDecisions.map((d) => [d.partKey, d]));
+        const refused = input.decisions
+          .filter(
+            (d) => !transitionAllowed(currentOf.get(d.partKey)?.status ?? 'pending', d.status),
+          )
+          .map((d) => d.partKey);
+        if (refused.length > 0) {
+          throw conflict(
+            `許されていない判定の変更があります: ${partKeysText(refused)}。` +
+              '画面を読み直してください。',
+            { code: REVIEW_PART_DECISION_TRANSITION },
+          );
+        }
+
+        const decidedAt = new Date().toISOString();
+        const next = input.decisions.map((d): ReviewPartDecision => {
+          const current = currentOf.get(d.partKey);
+          const comment = d.status === 'rejected' ? d.comment : null;
+          const history: ReviewPartDecision['history'] = [
+            ...(current?.history ?? []),
+            {
+              from: current?.status ?? 'pending',
+              to: d.status,
+              changedBy: actor.username,
+              changedAt: decidedAt,
+              comment,
+            },
+          ];
+          if (d.status === 'pending') {
+            return {
+              partKey: d.partKey,
+              status: 'pending',
+              decidedBy: null,
+              decidedAt: null,
+              comment: null,
+              history,
+            };
+          }
+          if (d.status === 'approved') {
+            return {
+              partKey: d.partKey,
+              status: 'approved',
+              decidedBy: actor.username,
+              decidedAt,
+              // 承認は判定メモを受けない(設計正典の承認タブ。契約 `ReviewPartDecisionChange` の
+              // approved に `comment` が無い)ので、新しく保存する承認メモは常に null。
+              comment: null,
+              history,
+            };
+          }
+          return {
+            partKey: d.partKey,
+            status: 'rejected',
+            decidedBy: actor.username,
+            decidedAt,
+            comment: d.comment,
+            history,
+          };
+        });
+
+        // 既存の判定は位置を保って差し替え、新しいキーは入力の順で末尾へ足す。
+        const nextOf = new Map(next.map((d) => [d.partKey, d]));
+        const merged = [
+          ...partDecisions.map((d) => nextOf.get(d.partKey) ?? d),
+          ...next.filter((d) => !currentOf.has(d.partKey)),
+        ];
+        await updateReviewMeta(reqId, { partDecisions: merged });
+
+        return next;
+      });
     },
 
     /**
@@ -275,18 +610,29 @@ export function createReviewRepo({
         const target = targetOfOrigin(review.origin);
         const staleWarning =
           review.baseHash !== null &&
-          review.baseHash !== (await currentBaseHash(review.templateId, review.fundCode, target));
+          review.baseHash !== (await currentBaseHash(review.templateId, target));
 
         // git コミットに申請者・承認者の双方を残す(承認者を author、申請者を Co-Authored-By)。
         const commitMessage =
           `確定保存(承認): ${review.templateId} 申請=${review.submittedBy} 承認=${actor.username}\n\n` +
           `Co-Authored-By: ${review.submittedBy} <${review.submittedBy}@editor.local>`;
-        const meta = await applyConfirmedSave({
+        // ペア同期の CSS 転写の入力。承認の直前の CSS は反映の後では next と同じになって取れない。
+        // baseline(確定版の CSS を編集画面が読み込んだ直後の形)は申請に載ったものを使う。どちらかが
+        // 欠けても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
+        const cssSource = await pairCssSourceOf(review);
+        const confirmedHtml = confirmedHtmlOf(
+          review,
+          review.origin === 'edit'
+            ? await readConfirmedHtml(target, anyTemplateFileName(review.attributes))
+            : '',
+        );
+
+        const meta = await applyConfirmedWrite({
+          kind: 'review-approve',
           templateId: review.templateId,
           target,
-          html: review.html,
+          html: confirmedHtml,
           css: review.css,
-          fundCode: review.fundCode,
           commitMessage,
           author: actor.username,
         });
@@ -296,9 +642,15 @@ export function createReviewRepo({
           reviewedAt: new Date().toISOString(),
           comment: decision.comment ?? null,
         });
-        // 承認の完結後に交付版⇄全体版のパーツ自動同期を掛ける(ベストエフォート。失敗しても
+        forgetReview(reqId);
+        // 承認の完結後に交付版⇄全体版のパーツと CSS の自動同期を掛ける(ベストエフォート。失敗しても
         // 承認は成立済みで、結果/理由は summary として UI へ返す)。ペア対象外なら null。
-        const sync = await pairSync.syncPairAfterConfirm(review.templateId, actor.username, target);
+        const sync = await pairSync.syncPairAfterConfirm(
+          review.templateId,
+          actor.username,
+          target,
+          { css: cssSource },
+        );
         // 続けて `次回反映既定`=`反映` パーツの注記マスタ書き戻し(同じくベストエフォート)。
         // 契機は承認のみ = ペア同期で機械転写された側の版種はここでは書き戻さない
         // (その版種自身の承認時に昇格する)。
@@ -317,12 +669,14 @@ export function createReviewRepo({
         const review = await readReview(reqId);
         if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
         assertUndecided(review);
-        return updateReviewMeta(reqId, {
+        const meta = await updateReviewMeta(reqId, {
           status: 'rejected',
           reviewedBy: actor.username,
           reviewedAt: new Date().toISOString(),
           comment: decision.comment ?? null,
         });
+        forgetReview(reqId);
+        return meta;
       });
     },
   };

@@ -43,9 +43,9 @@ d('gitRepo', () => {
   });
 
   it('commitAll commits changes with the login id as author and logForFile lists them', async () => {
-    const rel = 'templates/AM01_999999_20250101_交付版.html';
+    const rel = 'templates/XX01_999999_20250101_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>{{ fund.name }}</p>', 'utf8');
-    const hash = await git.commitAll('確定保存: AM01_999999_20250101_交付版 by tester', {
+    const hash = await git.commitAll('確定保存: XX01_999999_20250101_交付版 by tester', {
       name: 'tester',
     });
     expect(hash).toMatch(/^[0-9a-f]{40}$/);
@@ -71,7 +71,7 @@ d('gitRepo', () => {
     const saved = process.env.GIT_AUTHOR_NAME;
     process.env.GIT_AUTHOR_NAME = 'leaked-author';
     try {
-      const rel = 'templates/AM01_999999_20250102_交付版.html';
+      const rel = 'templates/XX01_999999_20250102_交付版.html';
       fs.writeFileSync(path.join(tmp, rel), '<p>{{ fund.code }}</p>', 'utf8');
       await git.commitAll('確定保存: env leak 回帰', { name: 'tester' });
       const log = await git.logForFile(rel);
@@ -119,7 +119,7 @@ d('gitRepo', () => {
   // 全コミットぶんの子プロセス(各 maxBuffer 64MB)が同一 tick で spawn される。
   // 承認のたびコミットが増えるので、この経路は時間とともに悪化する。
   it('logAllWithFiles は変更ファイルを同じ log から返す(コミット毎の git show が不要)', async () => {
-    const rel = 'templates/AM01_999999_20250104_交付版.html';
+    const rel = 'templates/XX01_999999_20250104_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>1 パス取得</p>', 'utf8');
     await git.commitAll('確定保存: 1 パス取得', { name: 'tester' });
 
@@ -146,7 +146,7 @@ d('gitRepo', () => {
   it('commitAll は notes/ を巻き込まない(.gitignore にも載る)', async () => {
     fs.mkdirSync(path.join(tmp, 'notes'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'notes', 'x.json'), '{"leak":true}', 'utf8');
-    const rel = 'templates/AM01_999999_20250105_交付版.html';
+    const rel = 'templates/XX01_999999_20250105_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>notes 除外</p>', 'utf8');
 
     const hash = await git.commitAll('確定保存: notes 除外', { name: 'tester' });
@@ -163,8 +163,8 @@ d('gitRepo', () => {
 
   it('commitAll は images/ を巻き込まない', async () => {
     fs.mkdirSync(path.join(tmp, 'images'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'images', '510037_logo.svg'), '<svg/>', 'utf8');
-    const rel = 'templates/AM01_999999_20250107_交付版.html';
+    fs.writeFileSync(path.join(tmp, 'images', '950037_logo.svg'), '<svg/>', 'utf8');
+    const rel = 'templates/XX01_999999_20250107_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>images 除外</p>', 'utf8');
 
     const hash = await git.commitAll('確定保存: images 除外', { name: 'tester' });
@@ -176,7 +176,7 @@ d('gitRepo', () => {
   it('commitAll は許可リスト外のディレクトリを追跡下へ入れない', async () => {
     fs.mkdirSync(path.join(tmp, 'scratch'), { recursive: true });
     fs.writeFileSync(path.join(tmp, 'scratch', 'a.txt'), 'x', 'utf8');
-    const rel = 'templates/AM01_999999_20250106_交付版.html';
+    const rel = 'templates/XX01_999999_20250106_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>許可リスト</p>', 'utf8');
 
     const hash = await git.commitAll('確定保存: 許可リスト', { name: 'tester' });
@@ -244,7 +244,7 @@ d('gitRepo', () => {
   });
 
   it('author.name が空でも system として commit できる(email は system@editor.local)', async () => {
-    const rel = 'templates/AM01_999999_20250109_交付版.html';
+    const rel = 'templates/XX01_999999_20250109_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>system identity</p>', 'utf8');
     await git.commitAll('確定保存: system identity', { name: '' });
     const log = await git.logForFile(rel);
@@ -252,7 +252,7 @@ d('gitRepo', () => {
   });
 
   it('index.lock が居る間は待ち、外れれば commit が通る(共有違反リトライ)', async () => {
-    const rel = 'templates/AM01_999999_20250110_交付版.html';
+    const rel = 'templates/XX01_999999_20250110_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>lock retry</p>', 'utf8');
     const lockFile = path.join(tmp, '.git', 'index.lock');
     fs.writeFileSync(lockFile, '');
@@ -310,11 +310,11 @@ d('gitRepo', () => {
   });
 
   it('showFile はコミット時点に無いパスを空文字で返す(git の定型文で「不在」と判定)', async () => {
-    const relOld = 'templates/AM01_999999_20250111_交付版.html';
+    const relOld = 'templates/XX01_999999_20250111_交付版.html';
     fs.writeFileSync(path.join(tmp, relOld), '<p>old</p>', 'utf8');
     const oldHash = await git.commitAll('確定保存: 旧コミット', { name: 'tester' });
 
-    const relNew = 'templates/AM01_999999_20250112_交付版.html';
+    const relNew = 'templates/XX01_999999_20250112_交付版.html';
     fs.writeFileSync(path.join(tmp, relNew), '<p>new</p>', 'utf8');
     await git.commitAll('確定保存: 新コミット', { name: 'tester' });
 
@@ -323,7 +323,7 @@ d('gitRepo', () => {
   });
 
   it('showFile still resolves a valid hash:path after the option guard', async () => {
-    const rel = 'templates/AM01_999999_20250103_交付版.html';
+    const rel = 'templates/XX01_999999_20250103_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>guard 正常系</p>', 'utf8');
     const hash = await git.commitAll('確定保存: guard 正常系', { name: 'tester' });
     expect(await git.showFile(hash, rel)).toContain('guard 正常系');
@@ -378,7 +378,7 @@ describe('gitRepo argument guards', () => {
 
   it('keeps normal repo-relative paths (including Japanese names) valid', async () => {
     // 検証はリポジトリ未初期化でも先に効くため、正常な pathspec は空配列で返る。
-    await expect(git.logForFile('templates/AM01_510037_20240710_交付版.html')).resolves.toEqual(
+    await expect(git.logForFile('templates/XX01_950037_20240710_交付版.html')).resolves.toEqual(
       expect.any(Array),
     );
     await expect(git.logAllWithFiles('templates')).resolves.toEqual(expect.any(Array));

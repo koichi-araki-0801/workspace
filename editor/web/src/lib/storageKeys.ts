@@ -1,49 +1,17 @@
 // =============================================================================
-// storageKeys.ts — localStorage キー定数(モード非依存)
+// storageKeys.ts — localStorage キー定数
 // =============================================================================
-// `api/local/store.ts` から切り出した。local 専用でないコード(例: `stores/editorSession.ts`
-// の Undo/Redo 永続化)が localStorage キーだけを必要とするのに `api/local/**`(fixtures +
-// `users.json` の平文パスワードを含む local グラフ一式)を import する足がかりを作らないため
-// — rest ビルドでも local グラフが引き込まれる経路になっていた。
-
-export const K = {
-  drafts: 'editor:drafts',
-  htmlOverride: 'editor:html',
-  // 編集タブの承認が上書きする値入り HTML(server の filled/ と同じ契約)。
-  filledOverride: 'editor:filled',
-  cssOverride: 'editor:css',
-  editHist: 'editor:hist:edit',
-  pdfHist: 'editor:hist:pdf',
-  createHist: 'editor:hist:create',
-  partHist: 'editor:hist:part',
-  snapshots: 'editor:snapshots',
-  instances: 'editor:instances',
-  session: 'editor:session',
-  sessionEpoch: 'editor:session:epoch',
-  userOverride: 'editor:users',
-  passwords: 'editor:pw',
-  // パーツ単位コメント(追記型スレッド)。`Record<templateId, Record<pathKey, PartNoteEntry[]>>`。
-  // 読み書きとも版インスタンス(templateId)に閉じ、ペアや他版とは共有しない。版(構造)に
-  // 依存する working-state なので `WORKING_KEYS` に含め、スキーマ bump で破棄する。
-  // `:v2` はスレッド化での形式変更(旧 `editor:notes` は 1 パーツ 1 件だった)。
-  notes: 'editor:notes:v2',
-  // 確定保存の承認待ち申請(オフラインデモ用ミラー)。`Record<reqId, ReviewRequest>`。
-  // 版(構造)依存の working-state なので bump で破棄してよい。
-  reviews: 'editor:reviews',
-} as const;
 
 // ── Undo/Redo 永続ミラーのキー ──
-// 値は `Record<templateId, {past, future}>`。クライアント編集の関心事で揮発性が高く、
-// `WORKING_KEYS` に含めて bump で破棄してよい。キーにはユーザーを含める — 共有端末では
-// 前の利用者の Undo スタックが次の利用者の画面へ復元されうるため。rest はログイン ID、
-// local は単一利用者前提の固定スコープを使う。
+// 値は `Record<templateId, {past, future}>`。クライアント編集の関心事で揮発性が高い。
+// キーにはユーザーを含める — 共有端末では前の利用者の Undo スタックが次の利用者の画面へ
+// 復元されうるため。スコープはログイン ID。
 
 const UNDO_STACKS_PREFIX = 'editor:session:undo:v2';
 // 下書きの所属セッション。値は `Record<templateId, sessionToken>`(`lib/draftOwner.ts`)。
 // 編集セッションはブラウザタブの寿命で、別タブが残した下書きは次回オープン時に破棄する。
 // Undo ミラーと同じ理由でユーザー別に分ける。
 const DRAFT_OWNER_PREFIX = 'editor:draft:owner';
-const LOCAL_UNDO_SCOPE = 'local';
 const ANONYMOUS_UNDO_SCOPE = 'anonymous';
 
 let undoLoginId: string | null = null;
@@ -56,11 +24,9 @@ export function setUndoUserScope(loginId: string | null): void {
   undoLoginId = loginId;
 }
 
-/** 現在のユーザーのスコープ。local は単一利用者前提の固定値、それ以外(既定 rest)はログイン ID。 */
+/** 現在のユーザーのスコープ。ログイン前は匿名の固定値。 */
 function userScope(): string {
-  return import.meta.env.VITE_API_MODE === 'local'
-    ? LOCAL_UNDO_SCOPE
-    : (undoLoginId ?? ANONYMOUS_UNDO_SCOPE);
+  return undoLoginId ?? ANONYMOUS_UNDO_SCOPE;
 }
 
 /** 現在のユーザー向け Undo ミラーキー。 */
@@ -83,4 +49,13 @@ const UI_STATE_PREFIX = 'editor:session:ui';
 /** 編集画面 UI 状態(倍率・表示系)永続ミラーのキー(ユーザー別。`stores/editorSession.ts`)。 */
 export function editorUiKey(): string {
   return `${UI_STATE_PREFIX}:${userScope()}`;
+}
+
+const CSS_BASELINE_PREFIX = 'editor:session:css-baseline:v1';
+/**
+ * 確定版の CSS を編集画面が読み込んだ直後の形(申請の `cssBaseline`)の sessionStorage キー
+ * (ユーザー別・テンプレ別。`stores/editorSession.ts`)。
+ */
+export function cssBaselineKey(templateId: string): string {
+  return `${CSS_BASELINE_PREFIX}:${userScope()}:${templateId}`;
 }

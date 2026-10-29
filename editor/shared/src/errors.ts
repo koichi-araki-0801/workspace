@@ -19,6 +19,14 @@ export const APP_ERROR_KINDS = [
 
 export type AppErrorKind = (typeof APP_ERROR_KINDS)[number];
 
+/**
+ * 承認申請が決着済み(承認・却下済み)のため、判定・最終確定・申請ごと却下を受け付けない 409 の
+ * `code`。画面は文言でなくこれで「読み直す」へ分岐する。
+ */
+export const REVIEW_ALREADY_DECIDED = 'REVIEW_ALREADY_DECIDED';
+/** パーツ判定の遷移が許されない(ほかの人が先に判定した)409 の `code`。 */
+export const REVIEW_PART_DECISION_TRANSITION = 'REVIEW_PART_DECISION_TRANSITION';
+
 /** `v` が既知の `AppErrorKind` か。外部由来(REST 応答等)の文字列を信用する前に通す。 */
 export function isAppErrorKind(v: unknown): v is AppErrorKind {
   return typeof v === 'string' && (APP_ERROR_KINDS as readonly string[]).includes(v);
@@ -74,7 +82,8 @@ export function isAppError(value: unknown): value is AppError {
 /**
  * throw/catch した任意の値を `AppError` に包む。既に `AppError` ならそのまま返す。
  * 未知の throw には汎用の安全なメッセージを与え、元の値は `cause` に保持する
- * — リポジトリの throw→Result の継ぎ目で使う。
+ * — リポジトリの throw→Result の継ぎ目で使う。`fallbackKind` はテストから直接検証するために
+ * 公開している引数。
  */
 export function toAppError(cause: unknown, fallbackKind: AppErrorKind = 'unexpected'): AppError {
   if (isAppError(cause)) return cause;

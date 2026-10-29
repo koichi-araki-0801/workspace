@@ -2,8 +2,8 @@ import { apiPaths, toOpenApiPath } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { buildOpenApiDocument } from '../src/openapi/document.js';
 
-// OpenAPI document に意図的に未記載のパス(設計ギャップ)。現状は無し。将来パスを先に
-// 共有定数へ足して document を後追いにする場合のみ、ここへ一時的に列挙する。
+// OpenAPI document に意図的に未記載のパス(設計ギャップ)。将来パスを先に共有定数へ足して
+// document を後追いにする場合のみ、ここへ一時的に列挙する。
 const KNOWN_OPENAPI_GAPS: readonly string[] = [];
 
 describe('openapi document', () => {
@@ -24,7 +24,7 @@ describe('openapi document', () => {
       apiPaths.templateById,
       apiPaths.templateDraft,
       apiPaths.generate,
-      apiPaths.fundSampleData,
+      apiPaths.templateSampleData,
       apiPaths.parts,
       apiPaths.partHistory,
       apiPaths.historyEdit,
@@ -46,8 +46,14 @@ describe('openapi document', () => {
       .filter((template) => !KNOWN_OPENAPI_GAPS.includes(template))
       .filter((template) => !documented.has(toOpenApiPath(template)));
     expect(missing, `paths missing from OpenAPI document: ${missing.join(', ')}`).toEqual([]);
-    // ギャップが解消(document に追記)されたら allowlist からも外すよう促す。
+    // ギャップが解消(document に追記)されたら allowlist からも外すよう促す。正典から消えた
+    // パス(旧パス)が残っても、上の検査は素通りするので、正典にあることも確かめる。
+    const canonical: readonly string[] = Object.values(apiPaths);
     for (const gap of KNOWN_OPENAPI_GAPS) {
+      expect(
+        canonical,
+        `gap ${gap} is not in apiPaths; remove it from KNOWN_OPENAPI_GAPS`,
+      ).toContain(gap);
       expect(
         documented.has(toOpenApiPath(gap)),
         `gap ${gap} is now documented; remove it from KNOWN_OPENAPI_GAPS`,
@@ -100,6 +106,32 @@ describe('openapi document', () => {
     expect(reset.responses['200'].content['application/json'].schema.$ref).toBe(
       '#/components/schemas/PasswordResetResult',
     );
+  });
+
+  it('documents 403 on vivliostyle routes guarded by requireEditor, and 413 on zip preview', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const paths = doc.paths as any;
+    expect(paths['/build/project'].post.responses['403']).toBeTruthy();
+    expect(paths['/preview'].post.responses['403']).toBeTruthy();
+    expect(paths['/preview'].post.responses['413']).toBeTruthy();
+    expect(paths[toOpenApiPath(apiPaths.previewById)].delete.responses['403']).toBeTruthy();
+  });
+
+  it('describes external <script src> as inlined on /build and /build/merge', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const paths = doc.paths as any;
+    for (const p of ['/build', '/build/merge']) {
+      const description: string = paths[p].post.description;
+      expect(description).not.toContain('404 になり');
+      expect(description).toContain('インライン展開');
+    }
+  });
+
+  it('documents the self-change 403 and the last-admin 409 on user update', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const update = (doc.paths?.[toOpenApiPath(apiPaths.userById)] as any)?.patch;
+    expect(update.responses['403'].description).toContain('USER_SELF_CHANGE');
+    expect(update.responses['409'].description).toContain('LAST_ADMIN');
   });
 
   it('resolves every $ref to a defined component schema', () => {

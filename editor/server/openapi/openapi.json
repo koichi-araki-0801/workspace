@@ -474,7 +474,7 @@
         "tags": [
           "templates"
         ],
-        "summary": "作成タブの作成可否(作成済み・シリーズのコピー元候補)",
+        "summary": "作成タブの作成可否(版ごとの状態・シリーズのコピー元候補)",
         "operationId": "getCreatableInfo",
         "parameters": [
           {
@@ -511,13 +511,12 @@
             "schema": {
               "type": "string",
               "minLength": 1
-            },
-            "required": true
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "作成済みとシリーズのコピー元候補",
+            "description": "版ごとの状態(版種を省けば両版)とシリーズのコピー元候補",
             "content": {
               "application/json": {
                 "schema": {
@@ -780,7 +779,7 @@
         ],
         "summary": "新規テンプレートを生成(Python ジェネレータ)",
         "operationId": "generate",
-        "description": "生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。直後は `GET /templates/{id}` が `status: \"draft\"` で返り、`GET /templates` の一覧には現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認(`POST /review-requests` → `.../approve`)だけが行う。会社コード・ファンドコード・版種は 1 トークンとして安全な文字列に限る(`/` `` `_` `..` 制御文字・前後空白・末尾ドットは 400)。",
+        "description": "1 回の作成で、選んだファンドの作る版を取り込む。版種を選べばその版、選ばなければ作成済み・承認待ちの作成申請のどちらも無い版をすべて作り、飛ばした版は `skipped` で返す。組入先(生成器が一緒に書き出すマザーファンド等)は取り込まない。取り込んだ版が 1 つなら `template` で返し、両版なら返さない(`imported` に両版)。生成物は**未確定(pending)領域**に置かれ、確定テンプレのディレクトリには書かれない。直後は `GET /templates/{id}` が `status: \"draft\"` で返り、`GET /templates` の一覧には現れない(一覧は承認済みの確定テンプレのみ)。確定への昇格は承認(`POST /review-requests` → `.../approve`)だけが行う。会社コード・ファンドコード・版種は 1 トークンとして安全な文字列に限る(`/` `` `_` `..` 制御文字・前後空白・末尾ドットは 400)。",
         "requestBody": {
           "content": {
             "application/json": {
@@ -822,7 +821,7 @@
             }
           },
           "409": {
-            "description": "同じ属性の確定テンプレートが既にある (kind=conflict)",
+            "description": "選んだ版(版種を選ばなければ両版とも)が作成済みか申請中、または作る版が同意の無い作業中 (kind=conflict)",
             "content": {
               "application/json": {
                 "schema": {
@@ -844,17 +843,17 @@
         }
       }
     },
-    "/funds/{fundCode}/sample-data": {
+    "/templates/{id}/sample-data": {
       "get": {
         "tags": [
           "templates"
         ],
-        "summary": "プレビュー用サンプルデータ(fundCode ごと)",
+        "summary": "プレビュー用サンプルデータ(共通サンプルに Rep1 の実名を被せたもの)",
         "operationId": "getSampleData",
         "parameters": [
           {
             "in": "path",
-            "name": "fundCode",
+            "name": "id",
             "schema": {
               "type": "string"
             },
@@ -863,11 +862,21 @@
         ],
         "responses": {
           "200": {
-            "description": "サンプルデータ",
+            "description": "サンプルデータと合成の警告",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SampleData"
+                  "$ref": "#/components/schemas/SampleDataResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
                 }
               }
             }
@@ -881,9 +890,51 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/templates/{id}/values": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "編集タブの値ファイル(dataRoot/json/<ID>.json。4 区切りの ID だけ)",
+        "description": "ファイルが無いときは 404 ではなく found: false と空の values を返す。",
+        "operationId": "getTemplateValues",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "値ファイルの中身",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateValues"
+                }
+              }
+            }
           },
-          "404": {
-            "description": "対象が存在しない (kind=not_found)",
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
             "content": {
               "application/json": {
                 "schema": {
@@ -907,29 +958,53 @@
             "in": "query",
             "name": "category",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "majorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "middleClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "minorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
+              "type": "string",
+              "maxLength": 32
+            },
+            "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
+          },
+          {
+            "in": "query",
+            "name": "companyCode",
+            "schema": {
+              "description": "委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)",
+              "type": "string",
+              "maxLength": 32
+            },
+            "description": "委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)"
           }
         ],
         "responses": {
@@ -968,29 +1043,53 @@
             "in": "query",
             "name": "category",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "majorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "middleClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
           },
           {
             "in": "query",
             "name": "minorClass",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 64
             }
+          },
+          {
+            "in": "query",
+            "name": "editionType",
+            "schema": {
+              "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ",
+              "type": "string",
+              "maxLength": 32
+            },
+            "description": "テンプレートの版種。指定時は対象版種が空か一致するパーツだけ"
+          },
+          {
+            "in": "query",
+            "name": "companyCode",
+            "schema": {
+              "description": "委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)",
+              "type": "string",
+              "maxLength": 32
+            },
+            "description": "委託会社コード。指定時は一致するパーツだけ(全社共通の扱いは無い)"
           }
         ],
         "responses": {
@@ -1697,6 +1796,99 @@
         }
       }
     },
+    "/review-requests/{reqId}/part-decisions": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "パーツ判定のまとめた変更(承認・却下・取り消し。精査者限定・自分の申請は不可。許されない遷移が 1 件でもあれば 409 で何も保存しない)",
+        "operationId": "updateReviewPartDecisions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reqId",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReviewPartDecisionsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新後のパーツ判定(入力の順・変更履歴つき)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewPartDecision"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "権限不足 (admin 限定など)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "競合 (kind=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/history/edit": {
       "get": {
         "tags": [
@@ -1959,9 +2151,9 @@
         "tags": [
           "vivliostyle"
         ],
-        "summary": "ファンド別画像(images/)を 1 つ返す",
+        "summary": "画像(images/ 直下)を 1 つ返す",
         "operationId": "getFundAssetImage",
-        "description": "`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。ファイル名は `<fund>_<画像名>.<拡張子>` の約束だが、名前の規則は検査しない。サブフォルダ・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、SVG には `Content-Security-Policy: sandbox` を付ける。",
+        "description": "`imagesDir` 直下の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。名前の規則は検査しない。会社フォルダ 1 段の画像は `/fund-assets/images/{dir}/{file}` で取る。`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名(`CON` など)・許可外の拡張子は 404。末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答は `Cache-Control: no-store` と `X-Content-Type-Options: nosniff` を持ち、SVG には `Content-Security-Policy: sandbox` を付ける。",
         "parameters": [
           {
             "in": "path",
@@ -2015,6 +2207,126 @@
         }
       }
     },
+    "/fund-assets/images/{dir}/{file}": {
+      "get": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "画像(images/ の会社フォルダ 1 段)を 1 つ返す",
+        "operationId": "getFundAssetImageInDir",
+        "description": "`imagesDir/<dir>/<file>` の画像(`.svg` `.png` `.jpg` `.jpeg`)を返す。フォルダは 1 段まで(2 段以上は経路が無く 404)。フォルダ名は大小文字を区別せずに実フォルダを探す(`xxam` で `XXAM` を引く)。ファイル名は区別する。フォルダ名とテンプレの会社コードの照合はしない(テンプレ ID を持たない経路のため)。`/`(`%2F` を含む)・`..`・`\\`・Windows の予約名・リンクのフォルダ・許可外の拡張子は 404。末尾が `.` や空白の名前と `:` を含む名前(Windows で別の実体へ読み替わる形)も 404。SVG は許可リスト型の検査を通り、違反なら 404(本文なし)。応答ヘッダは `/fund-assets/images/{file}` と同じ。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dir",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "画像",
+            "content": {
+              "image/svg+xml": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              },
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "画像バイナリ"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が無い / 配信対象外 / SVG 検査の違反(本文なし)"
+          }
+        }
+      }
+    },
+    "/fund-assets/inspect": {
+      "post": {
+        "tags": [
+          "vivliostyle"
+        ],
+        "summary": "画像が配信されるかを確かめる(中身は返さない)",
+        "operationId": "inspectFundAssets",
+        "description": "参照ごとに、`/fund-assets/images/...` の配信ルートと同じ判定(経路の検査 → 実体 → 読み込み → SVG の検査)を行い、`ok` / `missing` / `svg_rejected` を返す。`svg_rejected` には SVG の検査の違反の文言を `violations` に載せる。`missing` は存在しない・経路が不正(`..`・区切り・予約名など)・許可外の拡張子を区別しない。1 回 50 件まで(超えると 400)。ファイルの中身は返さない。",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FundAssetInspectRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "参照ごとの判定(要求と同じ順)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FundAssetInspectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/build": {
       "post": {
         "tags": [
@@ -2022,7 +2334,7 @@
         ],
         "summary": "インライン HTML+CSS から PDF を生成",
         "operationId": "buildInline",
-        "description": "\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。リクエストの `css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "description": "\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。リクエストの `css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。`<script src=\"../js/x.js\">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**してから組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2085,7 +2397,7 @@
         ],
         "summary": "vivliostyle プロジェクト(zip)から PDF を生成",
         "operationId": "buildProject",
-        "description": "リクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n任意クエリ: `entry`, `size`, `singleDoc`。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "description": "リクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**拒否する PostCSS 設定**(大小文字を無視し、どの階層のファイル名・フォルダ名でも): `.postcssrc` と `.postcssrc.` で始まる名前(`.postcssrc.json` を含む)・`postcss.config.` で始まる名前・`.config/` 直下の `postcssrc` で始まる名前。組版は PostCSS の設定を読まない。サーバは展開先に空の設定を置き、探索をそこで止める。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n任意クエリ: `entry`, `size`, `singleDoc`(`singleDoc` は zip に config が無いときだけ効き、config があるときは無視する)。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。展開した CSS ファイルは置かれた位置を基準に相対参照を解決する。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。実行されるのは HTML に直接書いたインライン `<script>` だけである。zip へ `.js` は同梱できず、`<script src>` は相対 URL の解決基準がずれて 404 になる(サーバはインライン展開しない)。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
         "requestBody": {
           "content": {
             "application/zip": {
@@ -2130,6 +2442,16 @@
               }
             }
           },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
           "413": {
             "description": "プロジェクトが大きすぎる (kind=validation)",
             "content": {
@@ -2160,7 +2482,7 @@
         ],
         "summary": "複数のレンダリング済み文書を 1 つの PDF へ結合",
         "operationId": "buildMerge",
-        "description": "`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — テンプレは per-fund CSS・共通フォント・テンプレ JS を `css/…` `css/fonts/…` `js/…` の相対パスで参照し、サーバが配信ルートへ同梱する。リクエストの `css` は `css/<fund>.css` の位置に置かれた CSS として解釈する(相対 `url()` は `css/` 基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`)。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。ただし実行されるのは **body 末尾のインライン `<script>` だけ**である(実測)。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<script src=\"js/x.js\">` は相対 URL の解決基準がずれて 404 になり、`<head>` で `DOMContentLoaded` に登録した処理も発火しない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
+        "description": "`documents` の配列順に連結し、全体で通しページ番号を振った 1 つの PDF を返す。\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。リクエストの `css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。`<script src=\"../js/x.js\">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**してから組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)はこの中継を通らない — そこは残余リスクとして残る。\n\n",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2263,7 +2585,7 @@
         ],
         "summary": "ライブプレビューを起動 (inline JSON または project zip)",
         "operationId": "startPreview",
-        "description": "inline は `application/json` (BuildInlineRequest)、project は `application/zip`。返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。\n\nzip 経路の受入条件は `POST /build/project` と**同一**である(同じ展開・検証を通る):\n\nリクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n",
+        "description": "inline は `application/json` (BuildInlineRequest)、project は `application/zip`。返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。\n\nzip 経路の受入条件と任意クエリ(`entry` `size` `singleDoc`)は `POST /build/project` と**同一**である(同じ展開・検証を通る):\n\nリクエストボディに project zip を `application/zip` で送信する。**受理は許可リスト方式**で、1 エントリでも条件を外れた時点で zip 全体が 400 になる(該当エントリだけ無視する挙動ではない)。\n\n**展開して残せる拡張子**(小文字化した basename の末尾一致): `.html` `.htm` `.xhtml` `.xht` `.md` `.markdown` `.css` `.css.map` `.png` `.jpg` `.jpeg` `.svg` `.gif` `.webp` `.apng` `.ttf` `.otf` `.woff` `.woff2` `.json`。これ以外(`.js` `.mjs` `.cjs` `.ts` を含む)は 400。設定を `vivliostyle.config.js` 等で送っても「無視される」のではなく**拒否される**。\n\n**黙って捨てる OS ノイズ**(400 にはしない): `__MACOSX/**`・`.DS_Store`・`Thumbs.db`・`desktop.ini`・`._` で始まる名前。\n\n**拒否する npm 成果物**: `node_modules/` を含むパス・`package.json`・`package-lock.json`・`.npmrc`。\n\n**拒否する PostCSS 設定**(大小文字を無視し、どの階層のファイル名・フォルダ名でも): `.postcssrc` と `.postcssrc.` で始まる名前(`.postcssrc.json` を含む)・`postcss.config.` で始まる名前・`.config/` 直下の `postcssrc` で始まる名前。組版は PostCSS の設定を読まない。サーバは展開先に空の設定を置き、探索をそこで止める。\n\n**config は `vivliostyle.config.json` ちょうど 1 件**(名前は大小文字を無視して照合)。2 件以上あれば 400。無ければ単一エントリを既定として使う。内容は**厳密な JSON** のみで、コメント・末尾カンマ(JSONC)や配列(複数タスク)は 400。\n\n**受理するトップレベルキー**: `entry` `entryContext` `theme` `cover` `toc` `title` `author` `language` `readingProgression` `size` `copyAsset`。これ以外はキー名を挙げて 400 になる(`output` `workspaceDir` `vfm` `image` `timeout` `viewer` `server` `static` `pdfPostprocess` など vivliostyle CLI の正規フィールドも含む)。`base` は専用メッセージで 400 — 文書の配信先はサーバが固定する。\n\n**`theme` の制約**: 展開ルート内に実在する `.css` ファイルへの相対パスのみ。拡張子の判定は**大小文字を区別**する(`.CSS` は不可)。npm パッケージ指定子・`{specifier, import}` 形は不可。`entry` 要素ごとの `theme` にも同じ制約が掛かる。\n\n**400 応答**はすべて `kind=validation` で、`message` は日本語 1 文。拡張子違反は「取り込めるのは <許可拡張子一覧> だけです」、キー違反は「vivliostyle.config.json に指定できないキーがあります: <キー名>」のように**違反した対象を名指しする**(どのファイル・どのキーで落ちたかが応答から判る)。展開時の資源上限(ファイル数・展開後サイズ・圧縮比・目録サイズ)超過も 400 で、上限値を message に含める。413 になるのは**リクエスト本文そのもの**がサーバの `bodyLimit` を超えた場合だけ(fastify が返す)。\n\n",
         "responses": {
           "201": {
             "description": "起動したセッション",
@@ -2287,6 +2609,26 @@
           },
           "401": {
             "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "プロジェクト zip が大きすぎる (zip 経路のみ。kind=validation)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2382,6 +2724,16 @@
           },
           "401": {
             "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2636,7 +2988,7 @@
             }
           },
           "403": {
-            "description": "権限不足 (admin 限定など)",
+            "description": "権限不足 (admin 限定)、または自分自身のロール変更・無効化 (code=USER_SELF_CHANGE)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2647,6 +2999,16 @@
           },
           "404": {
             "description": "対象が存在しない (kind=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "有効な admin が 0 人になる変更 (code=LAST_ADMIN)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2778,7 +3140,7 @@
       },
       "TemplateId": {
         "type": "string",
-        "example": "AM01_510037_20240710_交付版",
+        "example": "XX01_950037_20240710_交付版",
         "description": "ファイル名規約(拡張子なし)。値入り HTML は `<会社コード>_<ファンドコード>_<基準日>_<版種>`、テンプレートは `<会社コード>_<ファンドコード>_<版種>`。パス区切り・`..`・制御文字・末尾のドット/空白を含まない単一のファイル名セグメントに限る(判定は `isValidAnyTemplateId`)。"
       },
       "GenerateRequest": {
@@ -2786,13 +3148,21 @@
         "properties": {
           "companyCode": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "会社(Rep1 の委託会社略称)"
+          },
+          "rep1CompanyCode": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "description": "Rep1 の委託会社コード。サーバは companyCode と同じ会社の組であることを Rep1 で確かめてから生成器へ渡す"
           },
           "fundCode": {
             "type": "string",
             "minLength": 1
           },
           "editionType": {
+            "description": "作る版(交付版・全体版のどちらか)。省略すると、作成済み・申請中でない版をすべて作る",
             "type": "string",
             "minLength": 1
           },
@@ -2805,14 +3175,14 @@
             "type": "boolean"
           },
           "replaceExisting": {
-            "description": "同じ id の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409",
+            "description": "作る版の下書き・pending/ を捨てて作り直すことへの同意。無いまま作業中のものがあれば 409。作らない版には効かない",
             "type": "boolean"
           }
         },
         "required": [
           "companyCode",
-          "fundCode",
-          "editionType"
+          "rep1CompanyCode",
+          "fundCode"
         ]
       },
       "RecordPartChangeRequest": {
@@ -2821,10 +3191,16 @@
           "partKey": {
             "type": "string",
             "minLength": 1,
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "change": {
             "type": "string"
+          },
+          "id": {
+            "description": "履歴 1 件の id(web が採番。重複表示の除去に使う)",
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           }
         },
         "required": [
@@ -2839,7 +3215,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 512,
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "content": {
             "type": "string",
@@ -2910,13 +3286,14 @@
             "type": "string",
             "maxLength": 1048576
           },
-          "fundCode": {
-            "type": "string",
-            "minLength": 1
-          },
           "filledHtml": {
             "type": "string",
             "maxLength": 4194304
+          },
+          "cssBaseline": {
+            "description": "確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす",
+            "type": "string",
+            "maxLength": 1048576
           },
           "origin": {
             "description": "申請元の経路(2 系統)。route.query.created === '1' なら 'create'",
@@ -2931,7 +3308,6 @@
           "templateId",
           "html",
           "css",
-          "fundCode",
           "origin"
         ]
       },
@@ -2980,12 +3356,98 @@
           "comment": {
             "type": "string",
             "minLength": 1,
-            "description": "却下理由(必須)"
+            "maxLength": 2000,
+            "description": "却下理由(必須。UTF-16 で 2,000 単位まで)"
           }
         },
         "required": [
           "comment"
         ]
+      },
+      "UpdateReviewPartDecisionsRequest": {
+        "type": "object",
+        "properties": {
+          "decisions": {
+            "minItems": 1,
+            "maxItems": 5000,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewPartDecisionChange"
+            }
+          }
+        },
+        "required": [
+          "decisions"
+        ]
+      },
+      "ReviewPartDecisionChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
+              },
+              "status": {
+                "type": "string",
+                "const": "approved"
+              }
+            },
+            "required": [
+              "partKey",
+              "status"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
+              },
+              "status": {
+                "type": "string",
+                "const": "rejected"
+              },
+              "comment": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2000,
+                "description": "パーツの却下理由"
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "comment"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
+              },
+              "status": {
+                "type": "string",
+                "const": "pending"
+              }
+            },
+            "required": [
+              "partKey",
+              "status"
+            ]
+          }
+        ],
+        "type": "object"
       },
       "RecordPdfExportRequest": {
         "type": "object",
@@ -2996,6 +3458,47 @@
         },
         "required": [
           "templateId"
+        ]
+      },
+      "FundAssetInspectRequest": {
+        "type": "object",
+        "properties": {
+          "refs": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundAssetRef"
+            }
+          }
+        },
+        "required": [
+          "refs"
+        ]
+      },
+      "FundAssetRef": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会社フォルダ(直下なら null)"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "ファイル名"
+          }
+        },
+        "required": [
+          "dir",
+          "file"
         ]
       },
       "BuildInlineRequest": {
@@ -3018,7 +3521,7 @@
             "type": "string"
           },
           "singleDoc": {
-            "description": "単一ドキュメント扱い",
+            "description": "受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)",
             "type": "boolean"
           }
         },
@@ -3074,7 +3577,8 @@
             "$ref": "#/components/schemas/Username"
           },
           "displayName": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 128
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
@@ -3116,7 +3620,8 @@
             "$ref": "#/components/schemas/Username"
           },
           "displayName": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 128
           },
           "role": {
             "$ref": "#/components/schemas/UserRole"
@@ -3273,30 +3778,22 @@
           },
           "fileName": {
             "type": "string",
-            "example": "AM01_510037_20240710_kr.html"
+            "example": "XX01_950037_20240710_kr.html"
           },
           "status": {
             "$ref": "#/components/schemas/TemplateStatus"
           },
           "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "最終確定保存の ISO タイムスタンプ"
+            "description": "最終確定保存の ISO タイムスタンプ",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updatedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           }
         },
@@ -3315,15 +3812,15 @@
         "properties": {
           "companyCode": {
             "type": "string",
-            "description": "委託会社コード"
+            "description": "委託会社(ファイル名の会社コード = Rep1 の委託会社略称)"
           },
           "fundCode": {
             "type": "string",
             "description": "ファンドコード"
           },
           "baseDate": {
-            "description": "基準日 (yyyymmdd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない",
-            "example": "20240710",
+            "description": "基準日(yyyymmdd または yyyy-mm-dd)。値入り HTML(filled/)だけが持ち、テンプレート(templates/)は持たない",
+            "example": "2024-05-17",
             "type": "string"
           },
           "editionType": {
@@ -3387,17 +3884,12 @@
       "CreatableInfo": {
         "type": "object",
         "properties": {
-          "created": {
-            "type": "boolean",
-            "description": "選んだ会社・ファンド・版種のテンプレートが templates/ にあるか(会社_ファンド_版種.html。大文字小文字は区別しない)"
-          },
-          "templateId": {
-            "description": "作成済みのときのテンプレートの id(templates/ のファイルの綴りのまま)。作成タブの「既存のテンプレートを開く」で開く",
-            "type": "string"
-          },
-          "inProgressId": {
-            "description": "作成済みでなく、同じ id の下書きか pending/ があるときの id。作成タブの「作成中のテンプレートを開く」で開く。作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける",
-            "type": "string"
+          "editions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreatableEditionStatus"
+            },
+            "description": "版ごとの状態。版種を指定すればその版の 1 件、指定しなければ交付版・全体版の順に 2 件"
           },
           "seriesFunds": {
             "type": "array",
@@ -3408,8 +3900,36 @@
           }
         },
         "required": [
-          "created",
+          "editions",
           "seriesFunds"
+        ],
+        "additionalProperties": false
+      },
+      "CreatableEditionStatus": {
+        "type": "object",
+        "properties": {
+          "editionType": {
+            "type": "string",
+            "description": "版種(交付版・全体版)"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "none",
+              "created",
+              "pendingReview",
+              "inProgress"
+            ],
+            "description": "none = 無い / created = templates/ に作成済み(会社_ファンド_版種.html。大文字小文字は区別しない) / pendingReview = 承認待ちの作成申請がある / inProgress = 同じ id の下書きか pending/ がある(作業中。作り直すときは確認のうえ GenerateRequest.replaceExisting を付ける)。作成済みの版の下書きは作業中に数えない"
+          },
+          "templateId": {
+            "description": "created ならテンプレートの id(templates/ のファイルの綴りのまま)、inProgress なら pending を優先し無ければ下書きの id。作成タブの「既存の…を開く」「作成中の…を開く」で開く。none と pendingReview では持たない",
+            "type": "string"
+          }
+        },
+        "required": [
+          "editionType",
+          "state"
         ],
         "additionalProperties": false
       },
@@ -3424,7 +3944,7 @@
           },
           "hasTemplate": {
             "type": "boolean",
-            "description": "コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)があるか"
+            "description": "コピー元のテンプレート(templates/<会社>_<ファンド>_<版種>.html。基準日なし)が交付版・全体版の両方にあるか(生成は両版をコピーするので、片方だけでは選べない)"
           }
         },
         "required": [
@@ -3446,11 +3966,15 @@
           },
           "css": {
             "type": "string",
-            "description": "fundCode ごとの共有 CSS"
+            "description": "テンプレ単位の CSS(css/<会社>_<ファンド>_<版種>.css。基準日違いの文書で共有)"
           },
           "filled": {
             "type": "string",
             "description": "エディタキャンバス用に事前描画した filled HTML(Jinja 値を差し込みつつ元ソースを保持)。静的な fill が無ければ空で、エディタは都度描画にフォールバックする"
+          },
+          "cssMissing": {
+            "description": "確定版の CSS ファイル(css/<会社>_<ファンド>_<版種>.css)が見つからないとき true。あれば付けない。生成直後(pending)は pending の CSS ファイルが無いとき true",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3465,15 +3989,11 @@
         "type": "object",
         "properties": {
           "pairTemplateId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "ペアのテンプレート ID。版種がペア対象外なら null"
+            "description": "ペアのテンプレート ID。版種がペア対象外なら null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "pairExists": {
             "type": "boolean",
@@ -3492,10 +4012,16 @@
                   "enum": [
                     "初期差分",
                     "両側変更",
-                    "ペア側先行"
+                    "ペア側先行",
+                    "ペア側削除",
+                    "ペア側削除・ソース変更"
                   ]
                 },
                 "detectedAt": {
+                  "type": "string"
+                },
+                "deletedIn": {
+                  "description": "ペア側削除系の競合で、パーツを消した側の版種(交付版 / 全体版)",
                   "type": "string"
                 }
               },
@@ -3507,12 +4033,73 @@
               "additionalProperties": false
             },
             "description": "未解決競合(自動同期停止中)のパーツ一覧"
+          },
+          "valueChecks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "reasons": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "値を確かめてほしい理由(利用者向けの文)"
+                },
+                "detectedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "partKey",
+                "reasons",
+                "detectedAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "ペアから写したパーツのうち、この版で値を確かめてほしいもの(写し元の値のまま写した・値が欠けて空欄で写した)。そのパーツが次に描き直されるか、この版で直して承認されると消える"
+          },
+          "cssConflicts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ruleKey": {
+                  "type": "string"
+                },
+                "detectedAt": {
+                  "type": "string"
+                },
+                "kind": {
+                  "description": "規則を相手側の規則と照合できず転写を止めたときの種類",
+                  "type": "string",
+                  "enum": [
+                    "照合不可"
+                  ]
+                },
+                "sourceEdition": {
+                  "description": "変更を持っていた側(転写元)の版種",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ruleKey",
+                "detectedAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "未解決の CSS 規則の競合(ペア側が版種固有に直してある、または照合できず転写を止めた規則)"
           }
         },
         "required": [
           "pairTemplateId",
           "pairExists",
-          "conflicts"
+          "conflicts",
+          "valueChecks",
+          "cssConflicts"
         ],
         "additionalProperties": false
       },
@@ -3549,10 +4136,86 @@
         "properties": {
           "template": {
             "$ref": "#/components/schemas/Template"
+          },
+          "imported": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GenerateImported"
+            },
+            "description": "取り込んだ版(交付版・全体版の順)"
+          },
+          "skipped": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GenerateSkipped"
+            },
+            "description": "作成済みか申請中のため作らなかった版"
           }
         },
         "required": [
-          "template"
+          "imported",
+          "skipped"
+        ],
+        "additionalProperties": false
+      },
+      "GenerateImported": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string"
+          },
+          "editionType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateId",
+          "editionType"
+        ],
+        "additionalProperties": false
+      },
+      "GenerateSkipped": {
+        "type": "object",
+        "properties": {
+          "templateId": {
+            "type": "string"
+          },
+          "editionType": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "created",
+              "pendingReview"
+            ],
+            "description": "created: 作成済み(templates/ にある) / pendingReview: 承認待ちの作成申請がある"
+          }
+        },
+        "required": [
+          "templateId",
+          "editionType",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "SampleDataResult": {
+        "type": "object",
+        "properties": {
+          "sample": {
+            "$ref": "#/components/schemas/SampleData"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "共通サンプルの合成で見つかった問題(キーの重複・壊れた行)。無ければ空"
+          }
+        },
+        "required": [
+          "sample",
+          "warnings"
         ],
         "additionalProperties": false
       },
@@ -3563,6 +4226,24 @@
         },
         "additionalProperties": {},
         "description": "プレビュー用サンプルデータ(任意の JSON)"
+      },
+      "TemplateValues": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "値ファイル(json)があったか。無ければ false"
+          },
+          "values": {
+            "description": "値ファイルの中身。found が false なら空",
+            "$ref": "#/components/schemas/SampleData"
+          }
+        },
+        "required": [
+          "found",
+          "values"
+        ],
+        "additionalProperties": false
       },
       "PartClassificationOptions": {
         "type": "object",
@@ -3623,23 +4304,15 @@
             "description": "使用上の注意"
           },
           "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "updatedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "content": {
@@ -3666,6 +4339,20 @@
               {
                 "type": "null"
               }
+            ]
+          },
+          "targetEdition": {
+            "description": "対象の版種。null/欠落 = 両版共通。一覧の絞り込み表示だけに使い、同期は syncDefault で決める",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "companyCode": {
+            "description": "対象の委託会社コード(Rep1 と同じ値)。null/欠落 = 未設定。一覧の絞り込みだけに使い、全社共通の意味は持たない",
+            "type": [
+              "string",
+              "null"
             ]
           }
         },
@@ -3736,7 +4423,7 @@
           },
           "partKey": {
             "type": "string",
-            "description": "版を跨いで安定なパーツ構造パスキー(pageAnchor/partAnchor)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
+            "description": "版を跨いで安定なパーツ構造キー(文書全体でのアンカー#通し番号)。GrapesJS のコンポーネントid は再採番され不安定なため構造キーで紐づける"
           },
           "user": {
             "type": "string"
@@ -3771,7 +4458,7 @@
           },
           "pathKey": {
             "type": "string",
-            "description": "パーツ構造パスキー(pageAnchor/partAnchor)"
+            "description": "パーツ構造キー(文書全体でのアンカー#通し番号)"
           },
           "content": {
             "type": "string",
@@ -3784,24 +4471,16 @@
             "type": "string"
           },
           "updatedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "本文が編集された場合のみ"
+            "description": "本文が編集された場合のみ",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "updatedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "status": {
@@ -3809,15 +4488,11 @@
             "$ref": "#/components/schemas/NoteStatus"
           },
           "replyTo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "親投稿の ID。null なら親(スレッドの起点)"
+            "description": "親投稿の ID。null なら親(スレッドの起点)",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -3846,9 +4521,6 @@
           "attributes": {
             "$ref": "#/components/schemas/TemplateAttributes"
           },
-          "fundCode": {
-            "type": "string"
-          },
           "origin": {
             "$ref": "#/components/schemas/ReviewOrigin"
           },
@@ -3862,47 +4534,31 @@
             "type": "string"
           },
           "reviewedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "承認/却下したユーザ。pending は null"
+            "description": "承認/却下したユーザ。pending は null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reviewedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "comment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "却下理由 / 承認メモ。無ければ null"
+            "description": "却下理由 / 承認メモ。無ければ null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "baseHash": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "申請時点の現行版コンテンツキー"
+            "description": "申請時点の現行版コンテンツキー",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "changedSummary": {
             "anyOf": [
@@ -3913,13 +4569,19 @@
                 "type": "null"
               }
             ]
+          },
+          "partDecisions": {
+            "description": "パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewPartDecision"
+            }
           }
         },
         "required": [
           "id",
           "templateId",
           "attributes",
-          "fundCode",
           "origin",
           "status",
           "submittedBy",
@@ -3930,6 +4592,181 @@
           "baseHash"
         ],
         "additionalProperties": false
+      },
+      "ReviewPartDecision": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "review内で一意なパーツ識別子"
+              },
+              "status": {
+                "type": "string",
+                "const": "pending"
+              },
+              "decidedBy": {
+                "type": "null"
+              },
+              "decidedAt": {
+                "type": "null"
+              },
+              "comment": {
+                "type": "null"
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReviewPartDecisionHistoryEntry"
+                }
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "decidedBy",
+              "decidedAt",
+              "comment",
+              "history"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "review内で一意なパーツ識別子"
+              },
+              "status": {
+                "type": "string",
+                "const": "approved"
+              },
+              "decidedBy": {
+                "type": "string",
+                "minLength": 1,
+                "description": "最後に判定したユーザ"
+              },
+              "decidedAt": {
+                "type": "string",
+                "description": "最後に判定したISOタイムスタンプ"
+              },
+              "comment": {
+                "description": "承認メモ。いまの API は承認のメモを受けないので新しい判定では null(旧 API で保存したものは残る)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReviewPartDecisionHistoryEntry"
+                }
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "decidedBy",
+              "decidedAt",
+              "comment",
+              "history"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "partKey": {
+                "type": "string",
+                "minLength": 1,
+                "description": "review内で一意なパーツ識別子"
+              },
+              "status": {
+                "type": "string",
+                "const": "rejected"
+              },
+              "decidedBy": {
+                "type": "string",
+                "minLength": 1,
+                "description": "最後に判定したユーザ"
+              },
+              "decidedAt": {
+                "type": "string",
+                "description": "最後に判定したISOタイムスタンプ"
+              },
+              "comment": {
+                "type": "string",
+                "minLength": 1,
+                "description": "現在の却下理由"
+              },
+              "history": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ReviewPartDecisionHistoryEntry"
+                }
+              }
+            },
+            "required": [
+              "partKey",
+              "status",
+              "decidedBy",
+              "decidedAt",
+              "comment",
+              "history"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "type": "object"
+      },
+      "ReviewPartDecisionHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "変更前の判定状態",
+            "$ref": "#/components/schemas/ReviewPartDecisionStatus"
+          },
+          "to": {
+            "description": "変更後の判定状態",
+            "$ref": "#/components/schemas/ReviewPartDecisionStatus"
+          },
+          "changedBy": {
+            "type": "string",
+            "description": "判定を変更したユーザ"
+          },
+          "changedAt": {
+            "type": "string",
+            "description": "判定を変更したISOタイムスタンプ"
+          },
+          "comment": {
+            "description": "判定時のメモまたは却下理由。無ければnull",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "changedBy",
+          "changedAt",
+          "comment"
+        ],
+        "additionalProperties": false
+      },
+      "ReviewPartDecisionStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ]
       },
       "ReviewRequest": {
         "type": "object",
@@ -3943,9 +4780,6 @@
           "attributes": {
             "$ref": "#/components/schemas/TemplateAttributes"
           },
-          "fundCode": {
-            "type": "string"
-          },
           "origin": {
             "$ref": "#/components/schemas/ReviewOrigin"
           },
@@ -3959,47 +4793,31 @@
             "type": "string"
           },
           "reviewedBy": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "承認/却下したユーザ。pending は null"
+            "description": "承認/却下したユーザ。pending は null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reviewedAt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
+            "type": [
+              "string",
+              "null"
             ]
           },
           "comment": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "却下理由 / 承認メモ。無ければ null"
+            "description": "却下理由 / 承認メモ。無ければ null",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "baseHash": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "申請時点の現行版コンテンツキー"
+            "description": "申請時点の現行版コンテンツキー",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "changedSummary": {
             "anyOf": [
@@ -4011,6 +4829,13 @@
               }
             ]
           },
+          "partDecisions": {
+            "description": "パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReviewPartDecision"
+            }
+          },
           "html": {
             "type": "string",
             "description": "確定保存しようとしている生 Jinja2 HTML"
@@ -4021,13 +4846,20 @@
           "filledHtml": {
             "description": "値差込済みの成果物(任意)",
             "type": "string"
+          },
+          "baseHtml": {
+            "description": "申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする",
+            "type": "string"
+          },
+          "baseCss": {
+            "description": "申請時点の比較元CSS。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする",
+            "type": "string"
           }
         },
         "required": [
           "id",
           "templateId",
           "attributes",
-          "fundCode",
           "origin",
           "status",
           "submittedBy",
@@ -4049,7 +4881,7 @@
           },
           "staleWarning": {
             "type": "boolean",
-            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意)"
+            "description": "申請時点の現行版と承認時点の現行版が食い違ったか(上書き注意。CSS は基準日をまたいで共有されるため、他の基準日の承認による変更も含む)"
           },
           "sync": {
             "description": "ペア自動同期の結果。ペア不在・版種が対象外なら null/欠落",
@@ -4114,22 +4946,73 @@
             },
             "description": "転写しなかったパーツと理由(競合・初期差分・未判断など)"
           },
-          "error": {
+          "valueWarnings": {
+            "default": [],
+            "description": "写したが値を確かめてほしいパーツと理由(写し元の値のまま写した・写し先の値が欠けた)",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partKey": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "partKey",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "css": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "object",
+                "properties": {
+                  "applied": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ペアの CSS へ写した規則のキー"
+                  },
+                  "conflicts": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "ペア側が承認前と違うため写さなかった規則のキー"
+                  }
+                },
+                "required": [
+                  "applied",
+                  "conflicts"
+                ],
+                "additionalProperties": false
               },
               {
                 "type": "null"
               }
             ],
-            "description": "同期処理自体の失敗理由。正常時は null"
+            "description": "CSS の転写結果。承認で CSS が変わらなかったときは null"
+          },
+          "error": {
+            "description": "同期処理自体の失敗理由。正常時は null",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "pairTemplateId",
           "applied",
           "skipped",
+          "valueWarnings",
+          "css",
           "error"
         ],
         "additionalProperties": false
@@ -4145,15 +5028,11 @@
             "description": "注記マスタへ書き戻したパーツ ID"
           },
           "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "書き戻し自体の失敗理由。正常時は null"
+            "description": "書き戻し自体の失敗理由。正常時は null",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -4243,6 +5122,10 @@
           "sourceFundCode": {
             "description": "シリーズから作成したときのコピー元ファンドコード",
             "type": "string"
+          },
+          "requestedFundCode": {
+            "description": "組入先として取り込んだときの、作成画面で選んだファンドのコード",
+            "type": "string"
           }
         },
         "required": [
@@ -4315,6 +5198,64 @@
           "css",
           "fundCode",
           "timestamp"
+        ],
+        "additionalProperties": false
+      },
+      "FundAssetInspectResponse": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FundAssetInspectResult"
+            }
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "additionalProperties": false
+      },
+      "FundAssetInspectResult": {
+        "type": "object",
+        "properties": {
+          "dir": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "会社フォルダ(直下なら null)"
+          },
+          "file": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "ファイル名"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "missing",
+              "svg_rejected"
+            ]
+          },
+          "violations": {
+            "description": "`svg_rejected` のときだけ。SVG の検査の違反の文言",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "dir",
+          "file",
+          "status"
         ],
         "additionalProperties": false
       },

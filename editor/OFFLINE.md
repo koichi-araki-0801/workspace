@@ -46,8 +46,8 @@
 
 - **ソース** … `git clone`（リポジトリは Public）。
 - **重量物**（`.pnpm-store/`・`pnpm.tgz`・`ms-playwright/`・`python-wheelhouse/`・`git-tools/`・
-  docs の mermaid JS（`docs\_build\vendor\mermaid*.js`）・`native-prebuilds/`、約 1.1GB） …
-  **GitHub Releases**（タグ `offline-bundle-v1`、アセット `offline-deps-bundle.tar.gz`）。容量が大きく
+  docs の mermaid JS（`docs\_build\vendor\mermaid*.js`）、約 1.1GB） …
+  **GitHub Releases**（タグ `offline-bundle-5780b761`、アセット `offline-deps-bundle.tar.gz`）。容量が大きく
   毎回 git 履歴へ積めないため git 管理外とし、内容（`pnpm-lock.yaml`／`packageManager`／各
   `requirements.txt`／各 `manifest.txt`）変更時のみ更新する。同じ場所の `bundle.key` は、そのバンドルが
   どのソースから作られたかを示す content-key で、`setup-offline.ps1` がこれと手元のソースを
@@ -93,7 +93,7 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
 | `port` | 24680 | API/SPA のポート |
 | `paths.dataRoot` | `../../editor-data` | テンプレ・CSS などの data リポジトリ（各置き場の既定の基準） |
 | `paths.tmpDir` / `paths.logDir` / `paths.webDist` | `.tmp` / `logs` / `web/dist` | 一時/ログ/SPA |
-| `python.bin` / `python.args` / `python.script` / `python.scriptSha256` / `python.timeoutMs` | `python` / なし / `server/scripts/fake_generate_template.py` / なし / 30000 | テンプレート生成器（`python` は PATH から探す。本番は `python.script` で既存の生成器を指す） |
+| `python.bin` / `python.args` / `python.script` / `python.scriptSha256` / `python.timeoutMs` | `python` / なし / `server/scripts/fake_generate_template.py` / なし / 300000 | テンプレート生成器（`python` は PATH から探す。本番は `python.script` で既存の生成器を指す） |
 | `pdf.executableBrowser` | 空=Edge 自動検出 | PDF 用ブラウザの実行ファイル |
 | `logging.level` / `logging.pretty` | `info` / `false` | ログ（監査ログ `logs/audit.log`） |
 

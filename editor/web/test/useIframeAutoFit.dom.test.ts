@@ -99,19 +99,16 @@ describe('useIframeAutoFit', () => {
     expect(iframe.style.height).toBe('');
   });
 
-  it.each([
-    ['x' as unknown],
-    [Number.NaN],
-    [Number.POSITIVE_INFINITY],
-    [0],
-    [-10],
-  ])('height が %s なら反映しない', (bad) => {
-    const { api } = mountHost();
-    const { iframe, contentWindow, event } = fakeFrame();
-    api.fitFrame(event);
-    postHeight(contentWindow, { type: FRAME_HEIGHT_MESSAGE, height: bad });
-    expect(iframe.style.height).toBe('');
-  });
+  it.each([['x' as unknown], [Number.NaN], [Number.POSITIVE_INFINITY], [0], [-10]])(
+    'height が %s なら反映しない',
+    (bad) => {
+      const { api } = mountHost();
+      const { iframe, contentWindow, event } = fakeFrame();
+      api.fitFrame(event);
+      postHeight(contentWindow, { type: FRAME_HEIGHT_MESSAGE, height: bad });
+      expect(iframe.style.height).toBe('');
+    },
+  );
 
   it('巨大な高さは上限で頭打ちにする(親のレイアウトを潰させない)', () => {
     const { api } = mountHost();

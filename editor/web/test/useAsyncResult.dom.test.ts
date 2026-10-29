@@ -1,4 +1,4 @@
-import { err, isErr, isOk, ok, unauthorized } from '@editor/shared';
+import { conflict, err, isErr, isOk, ok, unauthorized } from '@editor/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 
@@ -51,5 +51,22 @@ describe('useAsyncResult', () => {
     resolveB(ok(2));
     await pB;
     expect(loading.value).toBe(false);
+  });
+
+  it('quietCodes の code ではトーストを出さず、ログと Err は残す', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const toastSpy = vi.spyOn(await import('@/components/ui/toast'), 'toastError');
+    const { run } = useAsyncResult();
+    const quiet = await run(async () => err(conflict('先に処理済み', { code: 'X_DONE' })), {
+      quietCodes: ['X_DONE'],
+    });
+    expect(isErr(quiet)).toBe(true);
+    expect(errSpy).toHaveBeenCalled();
+    expect(toastSpy).not.toHaveBeenCalled();
+
+    // 指定外の code・code 無しは今までどおり出す。
+    await run(async () => err(conflict('ほか', { code: 'Y' })), { quietCodes: ['X_DONE'] });
+    await run(async () => err(conflict('code 無し')), { quietCodes: ['X_DONE'] });
+    expect(toastSpy.mock.calls.map((c) => c[0])).toEqual(['ほか', 'code 無し']);
   });
 });

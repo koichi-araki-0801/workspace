@@ -3,14 +3,16 @@ import { describe, expect, it } from 'vitest';
 import {
   authorsOf,
   DEFAULT_COMMENT_FILTER,
+  DELETED_GROUP_KEY,
   filterThreads,
   formatCommentAt,
+  groupThreadsByPart,
   openKeysOf,
   openThreadCount,
   threadsOf,
 } from '@/features/editor/comments/commentFilter';
 
-const TPL = 'AM01_510037_20240710_交付版';
+const TPL = 'XX01_950037_20240710_交付版';
 const COVER = '.page#1/cover#1';
 const SUMMARY = '.page#1/.summary#1';
 
@@ -171,5 +173,48 @@ describe('openThreadCount', () => {
 describe('formatCommentAt', () => {
   it('ISO 日時を月/日 時:分へ整形する', () => {
     expect(formatCommentAt('2026-09-01T09:05:00.000Z')).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+  });
+});
+
+describe('groupThreadsByPart', () => {
+  const DELETED = '.page#9/gone#1';
+  const OTHER_DELETED = '.page#8/gone#1';
+  const threads = threadsOf([
+    entry({ id: 'd', pathKey: DELETED, createdAt: '2026-09-01T00:00:01.000Z' }),
+    entry({ id: 's1', pathKey: SUMMARY, createdAt: '2026-09-01T00:00:02.000Z' }),
+    entry({ id: 'c1', pathKey: COVER, createdAt: '2026-09-01T00:00:03.000Z' }),
+    entry({ id: 's2', pathKey: SUMMARY, createdAt: '2026-09-01T00:00:04.000Z' }),
+    entry({ id: 'o', pathKey: OTHER_DELETED, createdAt: '2026-09-01T00:00:05.000Z' }),
+  ]);
+  const group = (sort: 'updated' | 'part') =>
+    groupThreadsByPart(
+      filterThreads(threads, { ...DEFAULT_COMMENT_FILTER, sort }, ctx),
+      ctx.partOrder,
+    );
+
+  it('更新順なら最新のスレッドを持つ見出しが先頭(見出しは最初に現れた順)', () => {
+    const groups = group('updated');
+    expect(groups.map((g) => g.key)).toEqual([DELETED_GROUP_KEY, SUMMARY, COVER]);
+    expect(groups[1].threads.map((t) => t.parent.id)).toEqual(['s2', 's1']);
+  });
+
+  it('パーツ順なら partLabels(partOrder)の順で、削除済みパーツの見出しは末尾', () => {
+    const groups = group('part');
+    expect(groups.map((g) => g.key)).toEqual([COVER, SUMMARY, DELETED_GROUP_KEY]);
+    expect(groups[1].threads.map((t) => t.parent.id)).toEqual(['s1', 's2']);
+  });
+
+  it('削除済みパーツは複数のキーでも 1 つの見出しにまとめる', () => {
+    const deleted = group('part').find((g) => g.key === DELETED_GROUP_KEY);
+    expect(deleted?.threads.map((t) => t.parent.pathKey)).toEqual([DELETED, OTHER_DELETED]);
+  });
+
+  it('スレッドの無いパーツの見出しは作らない', () => {
+    const groups = groupThreadsByPart(
+      threadsOf([entry({ id: 's', pathKey: SUMMARY })]),
+      ctx.partOrder,
+    );
+    expect(groups.map((g) => g.key)).toEqual([SUMMARY]);
+    expect(groupThreadsByPart([], ctx.partOrder)).toEqual([]);
   });
 });

@@ -24,8 +24,6 @@ function makePlacement(over: Partial<Placement> = {}): Placement {
     leaderBendFollowsEndpointX: false,
     origTextX: 0,
     origTextY: 0,
-    upperLeftHairpinCheck: false,
-    skipLeader: false,
     insideSlice: false,
     nameScaleX: 0.7,
     ...over,

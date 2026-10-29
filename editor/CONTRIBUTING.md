@@ -16,13 +16,13 @@ pnpm install       # 依存をインストール（husky フックも自動で�
 pnpm dev           # shared ビルド後、Fastify(:24680) と Vite(:24681) を並行起動
 ```
 
-`pnpm dev` は既定で REST モード（SQL Server + ログイン必須）で起動する。DB を用意せず開発するときは
-`editor/start.bat dev local` で起動するか、`VITE_API_MODE=local` を指定する（fixtures + localStorage、
-DB・ログインなし）。
+web のデータの取り出し口は REST（SQL Server + ログイン必須）の 1 系統だけで、開発にも実 SQL Server か
+LocalDB を使う。DB なしで動く開発用の local モード（fixtures + localStorage）は撤去した。server 単体の
+無認証モード（`AUTH_REQUIRED=false`。ログインなし）は残っており、使うときは環境変数を手で設定して
+起動する（手順は `docs/editor/src/デプロイ運用手順書.md` の 5.1 節）。
 
-Windows は `editor/start.bat`（ダブルクリック=本番 REST / `dev` / `local` 等）でも起動できます。
-ブラウザで http://localhost:24681 → REST では DB のユーザーで、`local` ではデモログイン
-`admin / admin`（または `editor / editor`）。
+Windows は `editor/start.bat`（ダブルクリック=本番 / `dev` / `lan` 等）でも起動できます。
+ブラウザで http://localhost:24681 → DB のユーザーでログインする。
 
 ## 2. コマンド早見表（ルートから）
 
@@ -60,15 +60,14 @@ web/src/
   features/<画面>/     ← 画面単位のまとまり。services/ composables/ viewmodels/ components/
   components/ui/       ← 汎用 UI 部品（shadcn-vue 由来）
   lib/                 ← 画面に依存しないロジック（jinjaMask, useAsyncResult, useCascadingSelect 等）
-  api/repositories.ts  ← Repository コンテナ＋DI。★`VITE_API_MODE` で rest（既定）/ local を切替える唯一の点
-  api/local/           ← 開発用のローカル実装（`VITE_API_MODE=local` で選ぶ。fixtures + localStorage）。集約ごとに *Repo.ts
-  api/rest/            ← REST 実装（既定。SQL Server バックエンド・同契約・/api を叩く）。集約ごとに *Repo.ts
+  api/repositories.ts  ← REST リポジトリの DI 合成ルート（main.ts が provide。テストは偽物を provide）
+  api/rest/            ← REST 実装（SQL Server バックエンド・/api を叩く）。集約ごとに *Repo.ts
   stores/              ← Pinia ストア（横断状態。例: auth.ts）
   router/              ← ルーティング定義 + 認証 navigation guard（authGuard）
 server/src/
   routes/              ← API エンドポイント（*.routes.ts）。app.ts に登録
   auth/                ← セッション/Cookie・初回パスワード初期化
-  db/                  ← SQL Server アクセス（sproc ゲートウェイ。`rest` 用）
+  db/                  ← SQL Server アクセス（sproc ゲートウェイ）
   vivliostyle/ generate/ ← PDF/preview（vivliostyle CLI）・Python 生成器アダプタ
 data/                  ← テンプレ(.html)・CSS（サーバが参照。整形対象外・git 管理外）
 ```
@@ -79,7 +78,7 @@ data/                  ← テンプレ(.html)・CSS（サーバが参照。整�
 
 - 新しい画面を足す → `web/src/features/<名前>/<名前>View.vue` を作り、`web/src/router/index.ts` にルート追加。
 - 新しいデータ型を足す → `shared/src/index.ts`（DTO）または `shared/src/domain/`（値オブジェクト・純粋関数）に追加。
-- 新しい API を足す → 該当 `shared/src/repositories/*Repository.ts` にメソッド（`Promise<Result<…>>`）を追加 → `web/src/api/local/*Repo.ts` と `web/src/api/rest/*Repo.ts` の両実装を更新 → 必要なら Service を足し、画面は `useXxxService()` 経由で呼ぶ。
+- 新しい API を足す → 該当 `shared/src/repositories/*Repository.ts` にメソッド（`Promise<Result<…>>`）を追加 → `web/src/api/rest/*Repo.ts` を更新（テストの偽物 `web/test/helpers/fakeRepositories.ts` も必要なら足す）→ 必要なら Service を足し、画面は `useXxxService()` 経由で呼ぶ。
 - サーバの新エンドポイント → `server/src/routes/` に追加し、`server/src/app.ts` に登録。
 
 ## 5. コーディング規約
@@ -112,7 +111,7 @@ data/                  ← テンプレ(.html)・CSS（サーバが参照。整�
 | ゾーン | 場所 | 理由 |
 |---|---|---|
 | 🟢 まず触ってよい | `shared/src/domain/`・`shared/src/schemas.ts`・`shared/src/index.ts` | 値オブジェクト・Zod スキーマ。宣言的でテスト完備 |
-| 🟢 | `web/src/api/local/*Repo.ts` | fixtures + localStorage。契約が明快でテスト済み |
+| 🟢 | `web/src/api/rest/*Repo.ts` | `/api` への薄い委譲。契約が明快 |
 | 🟢 | `web/src/components/ui/`・`features/admin/`・`features/templates/` | CRUD 的でパターンが素直 |
 | 🟢 | `web/src/lib/format.ts`・`lib/labels.ts` | 小さな純粋関数 |
 | 🔴 レビュー必須 | `web/src/features/editor/useGrapes.ts` | GrapesJS 内部挙動（iframe 膨張ループ回避・zoom 座標系）に依存 |

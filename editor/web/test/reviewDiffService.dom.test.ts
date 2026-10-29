@@ -27,14 +27,13 @@ vi.mock('@/features/compare/htmlBlockDiff', async (orig) => {
 function review(origin: 'edit' | 'create'): ReviewRequest {
   return {
     id: 'req-1',
-    templateId: 'AM01_111111_20250101_交付版',
+    templateId: 'XX01_111111_20250101_交付版',
     attributes: {
-      companyCode: 'AM01',
+      companyCode: 'XX01',
       fundCode: '111111',
       baseDate: '20250101',
       editionType: '交付版',
     },
-    fundCode: '111111',
     origin,
     status: 'pending',
     submittedBy: 'editor1',
@@ -50,29 +49,46 @@ function review(origin: 'edit' | 'create'): ReviewRequest {
 
 /** 1 パーツ = 1 block の最小 diff ページを組む。 */
 function diffPage(blocks: Array<{ status: string }>) {
+  const rows = blocks.map((block, index) => {
+    const key = `page-local-${index}`;
+    const partKey = `part-${index}#1`;
+    const beforeHtml = block.status === 'added' ? '' : `<before-${index}>`;
+    const afterHtml = block.status === 'removed' ? '' : `<after-${index}>`;
+
+    return {
+      key,
+      partKey,
+      label: `ページ1・パーツ${index + 1}`,
+      status: block.status,
+      beforeHtml,
+      afterHtml,
+      rawBeforeHtml: beforeHtml,
+      rawAfterHtml: afterHtml,
+      coarse: false,
+    };
+  });
+
   return {
     pages: [
       {
         index: 0,
-        changed: true,
-        changedBlockCount: blocks.length,
+        changed: rows.some((row) => row.status !== 'same'),
+        changedBlockCount: rows.filter((row) => row.status !== 'same').length,
         beforeHtml: '',
         afterHtml: '',
-        blocks: blocks.map((b, i) => ({
-          key: `k${i}`,
-          label: `ページ1・パーツ${i + 1}`,
-          status: b.status,
-          beforeHtml: `<before-${i}>`,
-          afterHtml: `<after-${i}>`,
-        })),
+        beforeKeys: rows.filter((row) => row.status !== 'added').map((row) => row.key),
+        afterKeys: rows.filter((row) => row.status !== 'removed').map((row) => row.key),
+        blocks: rows,
+        coarse: false,
       },
     ],
-    changedPageCount: 1,
+    changedPageCount: rows.some((row) => row.status !== 'same') ? 1 : 0,
     beforePageCount: 1,
     afterPageCount: 1,
+    coarse: false,
+    truncated: false,
   };
 }
-
 function makeService(over: {
   getReview?: unknown;
   renderTemplateBody?: unknown;
@@ -101,6 +117,26 @@ beforeEach(() => {
 });
 
 describe('reviewDiffService.buildDiff', () => {
+  it('申請時点の比較元(baseHtml と baseCss)があれば、それを before にする(サーバの確定と同じ入力)', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }]));
+    const { service } = makeService({
+      getReview: ok({ ...review('edit'), baseHtml: '<base>', baseCss: '.base{}' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok && res.value.cssBefore).toBe('.base{}');
+    expect(buildHtmlDiff).toHaveBeenCalledWith('<base>', '<after>', '.base{}', '.after{}');
+  });
+
+  it('比較元の片方しか無い申請は、現行版を before にする', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }]));
+    const { service } = makeService({
+      getReview: ok({ ...review('edit'), baseHtml: '<base>' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok && res.value.cssBefore).toBe('.before{}');
+    expect(buildHtmlDiff).toHaveBeenCalledWith('<before>', '<after>', '.before{}', '.after{}');
+  });
+
   it('edit 経路: 現行版(baseline)と diff し、パーツ行と集計を組み立てる', async () => {
     buildHtmlDiff.mockResolvedValue(
       diffPage([{ status: 'changed' }, { status: 'added' }, { status: 'same' }]),
@@ -112,27 +148,80 @@ describe('reviewDiffService.buildDiff', () => {
     if (!res.ok) return;
     // edit なので現行版レンダリングが呼ばれ、before に反映される。
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
-      'baseline:AM01_111111_20250101_交付版',
+      'baseline:XX01_111111_20250101_交付版',
     );
-    expect(res.value.rows).toHaveLength(3);
+    expect(res.value.changes.map((c) => [c.no, c.partKey])).toEqual([
+      [1, 'part-0#1'],
+      [2, 'part-1#1'],
+    ]);
+
     expect(res.value.summary).toEqual({ total: 3, changed: 1, added: 1, removed: 0 });
     expect(res.value.cssBefore).toBe('.before{}');
     expect(res.value.cssAfter).toBe('.after{}');
     // buildHtmlDiff は (beforeHtml, afterHtml, cssBefore, cssAfter) の順で呼ぶ。
     expect(buildHtmlDiff).toHaveBeenCalledWith('<before>', '<after>', '.before{}', '.after{}');
   });
+  it('changes は numberChangedParts の順で、業務名があれば name に使う', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }, { status: 'added' }]));
+    const { service, parts } = makeService({});
+    (parts.listParts as ReturnType<typeof vi.fn>).mockResolvedValue(
+      ok([{ id: 'part-1', name: '費用の表' }]),
+    );
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.changes.map((c) => c.no)).toEqual([1, 2]);
+    expect(res.value.changes[0].name).toBe('ページ1・パーツ1');
+    expect(res.value.changes[1].name).toBe('費用の表');
+  });
 
-  it('create 経路: 現行版を引かず before は空(全 added になる土俵)', async () => {
-    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }]));
-    const { service, compare } = makeService({ getReview: ok(review('create')) });
+  it('diff を返す', async () => {
+    const d = diffPage([{ status: 'changed' }]);
+    buildHtmlDiff.mockResolvedValue(d);
+    const { service } = makeService({});
+    const res = await service.buildDiff('req-1');
+    expect(res.ok && res.value.diff).toBe(d);
+  });
+
+  it('create 経路: 保存済みの値入り本文を使い、before は空で全パーツを added にする', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }, { status: 'added' }]));
+
+    const createReview: ReviewRequest = {
+      ...review('create'),
+      filledHtml:
+        '<!doctype html><html><head>' +
+        '<style data-preview-css="">.x{}</style>' +
+        '</head><body>' +
+        '<section data-part-id="cover">値入り表紙</section>' +
+        '<section data-part-id="cost">値入り費用</section>' +
+        '</body></html>',
+    };
+
+    const { service, compare } = makeService({
+      getReview: ok(createReview),
+    });
     const res = await service.buildDiff('req-1');
 
     expect(res.ok).toBe(true);
     if (!res.ok) return;
+
+    expect(compare.renderTemplateBody as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
-    // before は空、cssBefore は after の css に倒す。
-    expect(buildHtmlDiff).toHaveBeenCalledWith('', '<after>', '.after{}', '.after{}');
-    expect(res.value.summary).toEqual({ total: 1, changed: 0, added: 1, removed: 0 });
+
+    expect(buildHtmlDiff).toHaveBeenCalledWith(
+      '',
+      '<section data-part-id="cover">値入り表紙</section>' +
+        '<section data-part-id="cost">値入り費用</section>',
+      '.x{}',
+      '.x{}',
+    );
+
+    expect(res.value.summary).toEqual({
+      total: 2,
+      changed: 0,
+      added: 2,
+      removed: 0,
+    });
   });
 
   it('現行版が取得できなくても before 空で画面は出す(edit・baseline err)', async () => {
@@ -208,26 +297,35 @@ describe('reviewDiffService.buildDiff', () => {
           changedBlockCount: 1,
           beforeHtml: '',
           afterHtml: '',
+          beforeKeys: ['k0'],
+          afterKeys: ['k0'],
           blocks: [
             {
               key: 'k0',
+              partKey: 'k0',
               label: 'ページ1・パーツ1',
               status: 'changed',
               beforeHtml: '<p>手数料は<span>10</span>%</p>',
               afterHtml: '<p>手数料は<span style="display:none">90</span>%</p>',
+              rawBeforeHtml: '<p>手数料は<span>10</span>%</p>',
+              rawAfterHtml: '<p>手数料は<span style="display:none">90</span>%</p>',
+              coarse: false,
             },
           ],
+          coarse: false,
         },
       ],
       changedPageCount: 1,
       beforePageCount: 1,
       afterPageCount: 1,
+      coarse: false,
+      truncated: false,
     });
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const ops = res.value.rows[0].textOps;
+    const ops = res.value.changes[0].textOps;
     const insText = ops
       .filter((o) => o.type === 'ins')
       .map((o) => o.text)
@@ -245,13 +343,22 @@ describe('reviewDiffService.buildDiff', () => {
     // 2 ブロックを組む。予算を共有していれば 2 ブロック目は粗い差分(coarse=del+ins の 2 op)へ
     // 落ちる。ブロックごとに予算を切っていれば両方語句単位になり、この主張は破れる。
     const words = (seed: string) => Array.from({ length: 70 }, (_, i) => `${seed}${i}`).join(' ');
-    const mkBlock = (i: number) => ({
-      key: `k${i}`,
-      label: `ページ1・パーツ${i + 1}`,
-      status: 'changed',
-      beforeHtml: `<p>${words(`a${i}`)}</p>`,
-      afterHtml: `<p>${words(`b${i}`)}</p>`,
-    });
+    const mkBlock = (i: number) => {
+      const beforeHtml = `<p>${words(`a${i}`)}</p>`;
+      const afterHtml = `<p>${words(`b${i}`)}</p>`;
+
+      return {
+        key: `k${i}`,
+        partKey: `k${i}`,
+        label: `ページ1・パーツ${i + 1}`,
+        status: 'changed',
+        beforeHtml,
+        afterHtml,
+        rawBeforeHtml: beforeHtml,
+        rawAfterHtml: afterHtml,
+        coarse: false,
+      };
+    };
     buildHtmlDiff.mockResolvedValue({
       pages: [
         {
@@ -260,12 +367,17 @@ describe('reviewDiffService.buildDiff', () => {
           changedBlockCount: 2,
           beforeHtml: '',
           afterHtml: '',
+          beforeKeys: ['k0', 'k1'],
+          afterKeys: ['k0', 'k1'],
           blocks: [mkBlock(0), mkBlock(1)],
+          coarse: false,
         },
       ],
       changedPageCount: 1,
       beforePageCount: 1,
       afterPageCount: 1,
+      coarse: false,
+      truncated: false,
     });
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
@@ -273,17 +385,17 @@ describe('reviewDiffService.buildDiff', () => {
     if (!res.ok) return;
     const isCoarse = (ops: { type: string }[]) =>
       ops.length === 2 && ops.every((o) => o.type !== 'same');
-    expect(isCoarse(res.value.rows[0].textOps)).toBe(false); // 1 つ目は語句単位
-    expect(isCoarse(res.value.rows[1].textOps)).toBe(true); // 予算を使い切り 2 つ目は粗い差分
+    expect(isCoarse(res.value.changes[0].textOps)).toBe(false); // 1 つ目は語句単位
+    expect(isCoarse(res.value.changes[1].textOps)).toBe(true); // 予算を使い切り 2 つ目は粗い差分
   });
 
-  it('same パーツは textOps を作らない(空)', async () => {
+  it('same パーツは changes に載らない', async () => {
     buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'same' }]));
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.value.rows[0].textOps).toEqual([]);
+    expect(res.value.changes).toEqual([]);
   });
 
   it('getReview のエラーはそのまま伝播する', async () => {
@@ -309,20 +421,29 @@ describe('reviewDiffService.buildDiff', () => {
           changedBlockCount: 1,
           beforeHtml: '',
           afterHtml: '',
+          beforeKeys: [],
+          afterKeys: ['k0'],
           blocks: [
             {
               key: 'k0',
+              partKey: 'k0',
               label: 'ページ1・パーツ1',
               status: 'added',
               beforeHtml: '', // htmlToText('') は空文字を返し、例外にならない
               afterHtml: '<p style="display:none">隠し文言</p>',
+              rawBeforeHtml: '',
+              rawAfterHtml: '<p style="display:none">隠し文言</p>',
+              coarse: false,
             },
           ],
+          coarse: false,
         },
       ],
       changedPageCount: 1,
       beforePageCount: 0,
       afterPageCount: 1,
+      coarse: false,
+      truncated: false,
     });
     // fund CSS が空、本文の <style> も空なら collectPaneStyleText は何も足さない。
     const { service } = makeService({
@@ -331,7 +452,7 @@ describe('reviewDiffService.buildDiff', () => {
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const ins = res.value.rows[0].textOps
+    const ins = res.value.changes[0].textOps
       .filter((o) => o.type === 'ins')
       .map((o) => o.text)
       .join('');

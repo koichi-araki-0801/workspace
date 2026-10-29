@@ -10,13 +10,12 @@ import fs from 'node:fs';
 import { buildApp } from './app.js';
 import { config } from './config.js';
 import type { SprocClient } from './db/sproc.js';
-import { warnLegacyLayoutAtStartup } from './files/legacyLayoutCheck.js';
 import { checkGeneratorAtStartup } from './generate/generatorCheck.js';
 import { logger } from './logger.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
 import { previewManager } from './vivliostyle/previewServer.js';
 
-export interface StartServerOptions {
+interface StartServerOptions {
   /** DB 実行面。既定は本番のプール接続で、rest e2e は in-memory フェイクを渡す。 */
   sproc?: SprocClient;
 }
@@ -59,7 +58,7 @@ function warnOnNetworkPlacement(): void {
 
 // ── 起動時のセッション失効と期限切れの掃除 ──
 // 起動時に全セッションを失効させ、再起動をまたいだ旧セッションでの再ログイン不要化を断つ。
-// 認証なし(local)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
+// 認証なし(無認証モード)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
 // は「再起動後もログイン状態が残る」形へ戻る退行なので error で目立たせる。
 async function invalidateSessionsOnBoot(app: ReturnType<typeof buildApp>): Promise<void> {
   if (!config.requireAuth) return;
@@ -100,9 +99,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
   // 生成器の Python と指紋の設定を確かめる。待たない(最大 10 秒の確認で listen を遅らせない)。
   // 結果は警告ログだけで起動は止めない — 生成を使わない運用まで止まるため。
   checkGeneratorAtStartup().catch(() => {});
-  // 旧構成の残り(assets・CSS の ../fonts/ 参照)を知らせる。待たない・止めない — 片付けは
-  // フォント移設パッチの役目で、起動を止めるとパッチを流す前の確認まで止まるため。
-  warnLegacyLayoutAtStartup().catch(() => {});
   await invalidateSessionsOnBoot(app);
 
   // listen。host は既定 127.0.0.1(同一マシン限定)で、社内 LAN へ公開するときだけ

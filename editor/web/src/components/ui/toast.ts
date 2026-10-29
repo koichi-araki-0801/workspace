@@ -8,7 +8,7 @@ import { reactive } from 'vue';
 export type ToastVariant = 'default' | 'success' | 'error';
 
 /** トースト内に置く操作ボタン(「元に戻す」等)。押下でハンドラ実行後に自動 dismiss する。 */
-export interface ToastAction {
+interface ToastAction {
   label: string;
   onClick: () => void;
 }

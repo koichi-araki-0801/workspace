@@ -9,9 +9,9 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { login, openEditor } from './helpers';
 
-// 長いファンド名(SMT JPX日経中小型株インデックス・オープン)を持つ seed。ファンド名は
+// 長いファンド名(ダミーＡＭ 日本中小型株式インデックス・オープン)を持つ seed。ファンド名は
 // ヘッダ左ゾーンの幅を決めるので、短い名前の seed では余裕の不足を検出できない。
-const LONG_NAME_ID = 'AM01_510124_20251020_交付版';
+const LONG_NAME_ID = 'XX01_950124_20251020_交付版';
 
 // 通常系で最も長い保存状態の文言(`EditorView.vue` の `statusText`)。実際にこれを出すには
 // 本文を編集して自動保存を待つ必要があり、GrapesJS の RTE 操作を挟むと測定が不安定に
@@ -50,13 +50,16 @@ async function openLongNameEditor(page: Page) {
   await openEditor(page, LONG_NAME_ID);
 }
 
-test('1440px: 長いファンド名でもヘッダが 1 行に収まる', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await openLongNameEditor(page);
-  // この幅では保存状態の文言は出ない(アイコンのみ)。出すと必ず溢れる。
-  await expect(page.locator(`${TOP_BAR} [role="status"] span`).last()).toBeHidden();
-  expect(await headerRows(page, TOP_BAR)).toBe(1);
-});
+// 対応する画面幅の下限は 1400px(本文の最大幅を 1400px 未満へ狭めない、と対で決めた下限)。
+for (const width of [1400, 1440]) {
+  test(`${width}px: 長いファンド名でもヘッダが 1 行に収まる`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await openLongNameEditor(page);
+    // この幅では保存状態の文言は出ない(アイコンのみ)。出すと必ず溢れる。
+    await expect(page.locator(`${TOP_BAR} [role="status"] span`).last()).toBeHidden();
+    expect(await headerRows(page, TOP_BAR)).toBe(1);
+  });
+}
 
 test('1600px: 保存状態の文言が出る幅でもヘッダが 1 行に収まる', async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 900 });

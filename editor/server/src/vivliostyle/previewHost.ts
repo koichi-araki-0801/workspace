@@ -34,17 +34,32 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  FONT_MIME,
+  HL_DEL,
+  HL_INS,
   PREVIEW_HOST_BASE,
+  PREVIEW_MARK_COLORS,
+  PREVIEW_MAX_PART_KEYS,
   PREVIEW_MSG_CMD,
   PREVIEW_MSG_DOC,
   PREVIEW_MSG_ERROR,
+  PREVIEW_MSG_MARKS,
+  PREVIEW_MSG_PART_CLICK,
+  PREVIEW_MSG_PART_PAGES,
   PREVIEW_MSG_READY,
   PREVIEW_MSG_STATE,
-  resolveServedAssetPath,
+  PREVIEW_ZOOM_MIN,
+  REVIEW_GHOST_ATTR,
+  REVIEW_GHOST_TEXT,
+  REVIEW_KEEP_ATTR,
+  REVIEW_KEEP_TEXT,
+  REVIEW_NO_ATTR,
+  resolveServedRoutePath,
 } from '@editor/shared';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
+import { bundleSafeToInline } from '../util/inlineBundle.js';
 import { isFundImagePath, resolveServedAssetSource } from './docAssets.js';
 
 /**
@@ -105,44 +120,19 @@ const VIEWER_BUNDLE_SOURCE = path.resolve(
   'node_modules/@vivliostyle/core/lib/vivliostyle.js',
 );
 
-/** 資産の拡張子 → Content-Type。許可リスト外の拡張子はそもそも解決器が弾く。 */
+/**
+ * 資産の拡張子 → Content-Type。許可リスト外の拡張子はそもそも解決器が弾く。フォントは web が
+ * data URI にするときと同じ shared の表を使う。
+ */
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
+  ...FONT_MIME,
 };
 
 /** 読み込んだバンドルのキャッシュ(765KB を毎回読まない)。 */
 let bundleCache: string | null = null;
-
-/**
- * バンドルをホストページの inline `<script>` に**そのまま**埋めてよいか。
- *
- * 書き換えはしない(fail closed の判定のみ)。`</script` の `\/` 置換はテンプレ JS
- * (`inlineDocScripts.ts`)では安全側だが、minified バンドルには `a</b/…`(比較 + 正規表現
- * リテラル)のような、置換すると構文が壊れる形が原理上ありうる。危険な字面を含む版が
- * 来たら inline を諦めて従来の `<script src>` 配信へ倒す(v2.43.1 は inline 可を確認済み)。
- *
- *  - `</script` — raw text の終端。1 つでもあれば要素がそこで閉じる。
- *  - `<!--` の後、対応する `-->` より前に `<script` — script data の二重エスケープ状態に
- *    入り、こちらが付ける終了タグが終了タグとして扱われなくなる。
- *
- * テストから直接検証するために export する。呼び出しは本モジュール内のみ。
- */
-export function bundleSafeToInline(bundle: string): boolean {
-  const lower = bundle.toLowerCase();
-  if (lower.includes('</script')) return false;
-  for (let at = lower.indexOf('<!--'); at !== -1; at = lower.indexOf('<!--', at + 4)) {
-    const close = lower.indexOf('-->', at + 4);
-    const open = lower.indexOf('<script', at + 4);
-    if (open !== -1 && (close === -1 || open < close)) return false;
-  }
-  return true;
-}
 
 /**
  * ビューアバンドルを classic script として読める形にして返す。
@@ -161,38 +151,115 @@ async function viewerBundle(): Promise<string> {
 
 /**
  * iframe 内で動くブートスクリプト。**固定文字列**(利用者入力を 1 バイトも埋めない)で、
- * 埋め込むのは shared のメッセージ種別定数だけ。
+ * 埋め込むのは shared の定数(メッセージ種別・目印の属性名と文言・色)だけ。
  *
- * 責務は 4 つ:
+ * 責務は 5 つ:
  *  1. 親から受けた文書文字列を**子の中で** blob 化して `loadDocument` する。親が作った
  *     blob URL は opaque オリジンから読めない(実測: `URL scheme "blob" is not supported`)
  *     ので、blob 化は必ず子側で行う。
  *  2. `nav` / `readystatechange` を購読して状態を親へ返す。
- *  3. ページ送り・ズーム・変更箇所ジャンプ(`gotoAnchor`)命令を受ける。
+ *  3. ページ送り・ズーム・変更箇所ジャンプ(`gotoAnchor`)・パーツへの移動(`gotoPart`)
+ *     命令を受ける。
  *  4. **フィット計算を子で完結させる**。iframe は親のコンテナを 100% で埋めるので、
  *     `window.innerWidth/Height` がそのままコンテナ寸法になる。往復通信が要らないぶん
  *     リサイズ追随が親子の往復に律速されない。
+ *  5. 承認タブの紙面(`review: true` で送られた文書)にだけ、番号札・判定の枠・空き枠・
+ *     却下の札・文字の差分の色を描き(`decorate`)、パーツの押下と番号 → 物理ページを返す。
+ *
+ * ── 紙面の目印の描き方(5) ──
+ * Vivliostyle は文書の `style` 属性を描画済みの要素へ写さず、カスケードを解いた結果を
+ * 描画済みの要素の inline style に書く。描画済みの要素は live で、`display`・`position` を
+ * 書くと組み直さずにその場で組版が動く。だから書く値を要素で分ける。
+ *  - ホストが作る札(番号札・却下の札)と空き枠 `[data-review-ghost]` には `display`・
+ *    `visibility`・`opacity`・`position`・`z-index`・`clip-path` を `!important` で書き、申請者
+ *    CSS に消されないようにする。空き枠の点線は `outline`(高さを変えない)。
+ *  - 申請者の要素の断片には判定の色の `outline` と選択中の `box-shadow`、`.cmp-ins` /
+ *    `.cmp-del` には `color` と `background-color` だけを書く(どれも組版を動かさない)。
+ * Vivliostyle は display:none の要素を描画済みの DOM に**出さない**(実測)ので、空き枠の箱は
+ * 利用者スタイルシート(`userStyleSheet`。利用者の重要宣言は著者の `!important` に勝つ。実測)
+ * で残し、その文言はホストの札として page container の子に重ねる(祖先の opacity・clip-path は
+ * 子で打ち消せないため)。申請者の要素を display:none で消す CSS は紙面の目印も消せるが、判定の正典は親画面の
+ * 右欄の文字の差分で、こちらは申請者 CSS が届かない。札は表示中のページだけに描く(表示して
+ * いないページの断片は `getBoundingClientRect` が 0 になり、座標を取れない)。
  */
-const BOOT_SCRIPT = `(function(){
+/**
+ * ブートスクリプトの中の `marks` の形の検査(`parseMarks`)と、それが使う番号の規則、文書の番号の
+ * 検査(`parseDocSeq`)。子は shared を import できないので同じ規則を手で書く。shared の
+ * `parsePreviewMarks`・`parsePreviewDocSeq` と同じ入力に同じ答えを返すことを、テストがこの文字列を
+ * 評価して確かめる(そのために export する)。
+ */
+export const BOOT_MARKS_PARSER = `
+  var MAX_MARK_KEYS=${JSON.stringify(PREVIEW_MAX_PART_KEYS)};
+  // 番号は正規形だけ通す(shared の isPreviewPartNo と同じ規則)。
+  var PART_NO_RE=/^[1-9][0-9]{0,4}$/;
+  function isPlain(v){return !!v&&typeof v==='object'&&!Array.isArray(v);}
+  function parseMarks(v){
+    if(!isPlain(v)||!isPlain(v.states)||typeof v.visible!=='boolean')return null;
+    if(v.selected!==null&&!(typeof v.selected==='string'&&PART_NO_RE.test(v.selected)))return null;
+    var keys=Object.keys(v.states);
+    if(keys.length>MAX_MARK_KEYS)return null;
+    var states=Object.create(null);
+    for(var i=0;i<keys.length;i++){
+      var s=v.states[keys[i]];
+      if(!PART_NO_RE.test(keys[i])||(s!=='pending'&&s!=='approved'&&s!=='rejected'))return null;
+      states[keys[i]]=s;
+    }
+    return {states:states,selected:v.selected,visible:v.visible};
+  }
+  function parseDocSeq(v){return typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?v:null;}`;
+
+/** 空き枠の種類(`data-review-ghost` の値)→ 札に描く文言。文言は文書側と同じ定数。 */
+const GHOST_TEXT_BY_KIND: Readonly<Record<string, string>> = {
+  added: REVIEW_GHOST_TEXT.added,
+  removed: REVIEW_GHOST_TEXT.removed,
+  'rejected-added': REVIEW_GHOST_TEXT.rejectedAdded,
+};
+
+export const BOOT_SCRIPT = `(function(){
+  // テンプレ JS が window.parent を差し替えても、発信元の検査と送信先が変わらないよう、
+  // 文書を読む前のブート時に捕まえておく。
+  var PARENT=window.parent;
   var MSG_DOC=${JSON.stringify(PREVIEW_MSG_DOC)};
   var MSG_CMD=${JSON.stringify(PREVIEW_MSG_CMD)};
   var MSG_READY=${JSON.stringify(PREVIEW_MSG_READY)};
   var MSG_STATE=${JSON.stringify(PREVIEW_MSG_STATE)};
   var MSG_ERROR=${JSON.stringify(PREVIEW_MSG_ERROR)};
+  var MSG_MARKS=${JSON.stringify(PREVIEW_MSG_MARKS)};
+  var MSG_PART_CLICK=${JSON.stringify(PREVIEW_MSG_PART_CLICK)};
+  var MSG_PART_PAGES=${JSON.stringify(PREVIEW_MSG_PART_PAGES)};
+  var COLORS=${JSON.stringify(PREVIEW_MARK_COLORS)};
+  var NO_ATTR=${JSON.stringify(REVIEW_NO_ATTR)}, GHOST_ATTR=${JSON.stringify(REVIEW_GHOST_ATTR)};
+  var KEEP_ATTR=${JSON.stringify(REVIEW_KEEP_ATTR)}, KEEP_TEXT=${JSON.stringify(REVIEW_KEEP_TEXT)};
+  var INS_CLASS=${JSON.stringify(HL_INS)}, DEL_CLASS=${JSON.stringify(HL_DEL)};
+  var GHOST_TEXT=${JSON.stringify(GHOST_TEXT_BY_KIND)};
+  // 札(ホストが作る要素)の印。値は 'no'(番号札)・'keep'(却下の札)・'ghost'(空き枠の文言)、
+  // FOR_ATTR に番号。印は見分けのためだけで、外すときもクリックでも、自分が作った札の
+  // 配列・Map だけを見る(申請者の要素が同じ属性を持っていても触らない)。
+  var BADGE_ATTR='data-review-badge', FOR_ATTR='data-review-for';
+  var PC_SEL='[data-vivliostyle-page-container]';
+  ${BOOT_MARKS_PARSER}
+  // 空き枠を display:none の CSS から残す利用者スタイルシート(承認タブの紙面だけに当てる)。
+  var GHOST_USER_CSS='['+GHOST_ATTR+']{display:block !important;visibility:visible !important;opacity:1 !important}';
   // ズームの範囲/刻み/フィット余白は編集画面(useGrapes.ts)に合わせる。
-  var ZOOM_MIN=0.4, ZOOM_MAX=1.4, ZOOM_STEP=0.1, FIT_MARGIN=32;
+  var ZOOM_MIN=${JSON.stringify(PREVIEW_ZOOM_MIN)}, ZOOM_MAX=1.4, ZOOM_STEP=0.1, FIT_MARGIN=32;
   var V=window.Vivliostyle, viewer=null, blobUrl=null, errTimer=null;
   var currentPage=1, pageCount=0, atFirst=true, atLast=false, zoom=1, userZoomed=false, ready=false;
+  // 目印の状態。どれも文書単位で、load() の先頭で捨てる。saved は申請者の要素へ書く前の値で、
+  // 要素をキーにした WeakMap(集め直しても捨てない。文書から外れた要素の分は GC が回収する)。
+  var reviewDoc=false, marks=null, parts=null, saved=new WeakMap(), badges=[], badgeNo=new Map();
+  // いま組んでいる文書の番号(親が PREVIEW_MSG_DOC の seq で振る)。文書についての通知に載せ、親は
+  // 最後に送った番号と違う通知を捨てる。番号の無い・形の違う文書は 0 として返す。
+  var docSeq=0;
   // 親のオリジンは opaque な子からは指定できないため '*' 固定。運ぶのはページ番号と倍率の
   // 数値だけで、親が既に持っていない情報は 1 つも含まない。
   function post(type,extra){
     var m={type:type};
     if(extra)for(var k in extra)m[k]=extra[k];
-    parent.postMessage(m,'*');
+    PARENT.postMessage(m,'*');
   }
   function sendState(){
     post(MSG_STATE,{state:{currentPage:currentPage,pageCount:pageCount,atFirst:atFirst,
-      atLast:atLast,zoom:zoom,ready:ready}});
+      atLast:atLast,zoom:zoom,ready:ready},seq:docSeq});
   }
   function clampZoom(z){return Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,Math.round(z*100)/100));}
   // ready(= readyState COMPLETE)前に setOptions({zoom}) を呼ばない。core のコマンドループは
@@ -219,13 +286,208 @@ const BOOT_SCRIPT = `(function(){
     viewer.setOptions({zoom:zoom,fitToScreen:false});
     sendState();
   }
-  function load(html){
+  // ── 紙面の目印 ──
+  // 申請者の要素へ書く前の値を覚えておき、表示を切ったときに元へ戻す(Vivliostyle が
+  // カスケードを解いて書いた値を消さない)。
+  function paint(el,prop,val){
+    var rec=saved.get(el);
+    if(!rec){rec=Object.create(null);saved.set(el,rec);}
+    if(!(prop in rec))rec[prop]=[el.style.getPropertyValue(prop),el.style.getPropertyPriority(prop)];
+    el.style.setProperty(prop,val,'important');
+  }
+  function unpaint(el,prop){
+    var rec=saved.get(el);
+    if(!rec||!(prop in rec))return;
+    var o=rec[prop];delete rec[prop];
+    if(o[0])el.style.setProperty(prop,o[0],o[1]);else el.style.removeProperty(prop);
+  }
+  // ホストが作る要素と空き枠へ、消されないための値と見た目をまとめて書く。
+  function paintAll(el,props,keep){
+    for(var k in props){if(keep)paint(el,k,props[k]);else el.style.setProperty(k,props[k],'important');}
+  }
+  var SHOWN={display:'block',visibility:'visible',opacity:'1','clip-path':'none'};
+  function stateOf(no){return (marks&&marks.states[no])||'pending';}
+  function marksVisible(){return !marks||marks.visible;}
+  // 描画済みの DOM から目印の対象を集める。番号は最初の断片とそのページ、却下の札は
+  // 元の要素(data-adapt-eloff。割れた要素の断片で共通)ごとの最後の断片に付ける。
+  function collect(){
+    var vp=document.getElementById('vp');
+    var pcs=vp.querySelectorAll(PC_SEL), pcIndex=new Map();
+    for(var i=0;i<pcs.length;i++)pcIndex.set(pcs[i],i);
+    var p={pcs:pcs,first:Object.create(null),firstPage:Object.create(null),
+      keepLast:Object.create(null),frags:[],ghosts:[],diffs:[],noOf:new Map()};
+    // 書く前の値の記録(saved)は捨てない。組み直しで一部のページだけ入れ替わったとき、残った
+    // 断片の記録まで捨てると、次に塗る値を「書く前の値」と取り違え、表示を切っても色が残る。
+    var els=vp.querySelectorAll('['+NO_ATTR+'],['+GHOST_ATTR+'],['+KEEP_ATTR+'],.'+INS_CLASS+',.'+DEL_CLASS);
+    for(var j=0;j<els.length;j++){
+      var el=els[j], pc=el.closest(PC_SEL);
+      if(!pc||!pcIndex.has(pc))continue;
+      if(el.classList.contains(INS_CLASS)||el.classList.contains(DEL_CLASS))p.diffs.push(el);
+      if(el.hasAttribute(GHOST_ATTR))p.ghosts.push(el);
+      else if(el.hasAttribute(NO_ATTR))p.frags.push(el);
+      var no=el.getAttribute(NO_ATTR);
+      if(no!==null&&PART_NO_RE.test(no)){
+        p.noOf.set(el,no);
+        if(!(no in p.first)){p.first[no]=el;p.firstPage[no]=pcIndex.get(pc);}
+      }
+      if(el.hasAttribute(KEEP_ATTR)&&!el.hasAttribute(GHOST_ATTR)){
+        p.keepLast[el.getAttribute('data-adapt-eloff')||('i'+j)]=el;
+      }
+    }
+    parts=p;
+    var pages={};
+    for(var n in p.firstPage)pages[n]=p.firstPage[n];
+    post(MSG_PART_PAGES,{pages:pages,seq:docSeq});
+  }
+  // 札の座標系: 札を page container の (0,0) に置いて測り、倍率は幅 100px の物差しで取る。
+  // ズームは祖先の transform なので、こうすれば倍率の出どころに依らず断片の左上へ置ける。
+  function frameOf(pc){
+    var probe=document.createElement('span');
+    paintAll(probe,{position:'absolute',left:'0',top:'0',width:'100px',height:'0',display:'block'});
+    pc.appendChild(probe);
+    var r=probe.getBoundingClientRect();
+    pc.removeChild(probe);
+    return {x:r.left,y:r.top,s:r.width>0?r.width/100:1};
+  }
+  function makeBadge(pc,kind,no,text,css){
+    var b=document.createElement('span');
+    b.setAttribute(BADGE_ATTR,kind);
+    if(no!==null)b.setAttribute(FOR_ATTR,no);
+    b.textContent=text;
+    paintAll(b,SHOWN);
+    paintAll(b,css);
+    // 押して移れるのは番号のある札だけ(クリックは badgeNo で番号を返す)。番号の無い札は押しても
+    // 何も起きないので、押せる見た目にしない。
+    paintAll(b,{position:'absolute','z-index':'2147483647',cursor:no!==null?'pointer':'default',
+      'box-sizing':'border-box','white-space':'nowrap',margin:'0',float:'none',transform:'none',
+      filter:'none'});
+    pc.appendChild(b);
+    badges.push(b);
+    if(no!==null)badgeNo.set(b,no);
+    return b;
+  }
+  function clearBadges(){
+    for(var i=0;i<badges.length;i++){if(badges[i].parentNode)badges[i].parentNode.removeChild(badges[i]);}
+    badges=[];badgeNo=new Map();
+  }
+  // 目印の対象を集め直す必要があるか。まだ集めていない、集めたときに page container が 1 枚も
+  // 無かったのに今はある、集めた page container のどれかが文書から外れた(組み直しで入れ替わった)、
+  // のどれか。集めたあとに page container が増えただけ(外れたものが無い)は見ないので、そうして
+  // 増えたページの断片には、次に集め直すまで目印が付かない。
+  function stale(){
+    if(!parts)return true;
+    if(parts.pcs.length===0)return document.getElementById('vp').querySelector(PC_SEL)!==null;
+    for(var i=0;i<parts.pcs.length;i++){if(!parts.pcs[i].isConnected)return true;}
+    return false;
+  }
+  function placeBadges(){
+    clearBadges();
+    if(!parts)return;
+    var vis=marksVisible();
+    for(var k=0;k<parts.pcs.length;k++){
+      var pc=parts.pcs[k];
+      // 表示中のページだけ(display:none のページは矩形が 0 で座標を取れない)。
+      if(pc.getClientRects().length===0)continue;
+      var f=null;
+      // 空き枠の文言は札として page container の子に重ねる。文書側の箱(場所を取る要素)は
+      // 申請者の要素の子孫で、祖先の opacity・clip-path は子で打ち消せないため。
+      for(var g=0;g<parts.ghosts.length;g++){
+        var gh=parts.ghosts[g], text=GHOST_TEXT[gh.getAttribute(GHOST_ATTR)];
+        if(typeof text!=='string'||gh.closest(PC_SEL)!==pc)continue;
+        f=f||frameOf(pc);
+        var gr=gh.getBoundingClientRect();
+        if(!(gr.width>0)||!(gr.height>0))continue;
+        var gb=makeBadge(pc,'ghost',parts.noOf.get(gh)||null,text,{font:'11px/1 sans-serif',
+          'background-color':'#f6f7f9',color:'#8a909a','outline-style':'dashed',
+          'outline-width':'1.5px','outline-color':'#b6bcc6','outline-offset':'-2px',
+          'text-align':'center',overflow:'hidden'});
+        gb.style.setProperty('left',((gr.left-f.x)/f.s)+'px','important');
+        gb.style.setProperty('top',((gr.top-f.y)/f.s)+'px','important');
+        gb.style.setProperty('width',(gr.width/f.s)+'px','important');
+        gb.style.setProperty('height',(gr.height/f.s)+'px','important');
+        gb.style.setProperty('line-height',(gr.height/f.s)+'px','important');
+        gb.style.setProperty('z-index','2147483646','important');
+      }
+      if(!vis)continue;
+      for(var no in parts.first){
+        if(parts.firstPage[no]!==k)continue;
+        f=f||frameOf(pc);
+        var r=parts.first[no].getBoundingClientRect();
+        var b=makeBadge(pc,'no',no,no,{'min-width':'20px',height:'20px',padding:'0 3px',
+          'border-radius':'10px','background-color':COLORS[stateOf(no)],color:'#fff',
+          border:'1.5px solid #fff','box-shadow':'0 1px 3px rgba(0,0,0,.3)',
+          font:'700 12px/17px sans-serif','text-align':'center'});
+        b.style.setProperty('left',((r.left-f.x)/f.s-2)+'px','important');
+        b.style.setProperty('top',((r.top-f.y)/f.s-2)+'px','important');
+      }
+      for(var key in parts.keepLast){
+        var el=parts.keepLast[key];
+        if(el.closest(PC_SEL)!==pc)continue;
+        f=f||frameOf(pc);
+        var kr=el.getBoundingClientRect();
+        var kb=makeBadge(pc,'keep',el.getAttribute(NO_ATTR),KEEP_TEXT,{font:'10px/1 sans-serif',
+          'background-color':'#fff3d6',color:'#7a5a10',border:'1px solid #e6c97a',
+          'border-radius':'4px',padding:'2px 5px'});
+        kb.style.setProperty('left',((kr.right-f.x)/f.s-4-kb.offsetWidth)+'px','important');
+        kb.style.setProperty('top',((kr.bottom-f.y)/f.s+9-kb.offsetHeight)+'px','important');
+      }
+    }
+  }
+  // 判定の枠・選択・差分の色・空き枠。幾何に依らないので全ページへまとめて書く。
+  function paintMarks(){
+    var vis=marksVisible(), i, el;
+    for(i=0;i<parts.ghosts.length;i++){
+      paintAll(parts.ghosts[i],SHOWN,true);
+      paintAll(parts.ghosts[i],{position:'relative','z-index':'1','outline-style':'dashed',
+        'outline-width':'1.5px','outline-color':'#b6bcc6','outline-offset':'-2px',color:'#8a909a',
+        'background-color':'#f6f7f9','text-align':'center'},true);
+    }
+    for(i=0;i<parts.frags.length;i++){
+      el=parts.frags[i];
+      var no=el.getAttribute(NO_ATTR);
+      if(vis&&no!==null&&PART_NO_RE.test(no)){
+        paint(el,'outline-style','solid');paint(el,'outline-width','1.5px');
+        paint(el,'outline-color',COLORS[stateOf(no)]);paint(el,'outline-offset','2px');
+        if(marks&&marks.selected===no)paint(el,'box-shadow','0 0 0 4px rgba(59,130,196,.35)');
+        else unpaint(el,'box-shadow');
+      }else{
+        unpaint(el,'outline-style');unpaint(el,'outline-width');unpaint(el,'outline-color');
+        unpaint(el,'outline-offset');unpaint(el,'box-shadow');
+      }
+    }
+    for(i=0;i<parts.diffs.length;i++){
+      el=parts.diffs[i];
+      var ins=el.classList.contains(INS_CLASS);
+      if(vis){
+        paint(el,'color',ins?'#15803d':'#b91c1c');
+        paint(el,'background-color',ins?'rgba(22,163,74,.18)':'rgba(220,38,38,.14)');
+      }else{unpaint(el,'color');unpaint(el,'background-color');}
+    }
+  }
+  // 冪等: 自分の札を全部外してから描く。組み直し(ズーム等)で断片が入れ替わっていたら
+  // 集め直す。断片への書き込み(paintMarks)は COMPLETE・marks の受信・集め直しのときだけで、
+  // ページ送り(nav)では表示中のページの札だけを置き直す(nav 1 回を番号の数に比例する軽さに)。
+  function decorate(full){
+    if(!reviewDoc||!ready)return;
+    try{
+      var fresh=stale();
+      if(fresh)collect();
+      if(full||fresh)paintMarks();
+      placeBadges();
+    }catch(e){/* 目印は補助。失敗してもプレビューは操作不能へ倒さない */}
+  }
+  function load(html,review,seq){
+    // 番号は最初に変える。読み込みのどこで失敗しても、そのエラーをこの文書の番号で送る。
+    var s=parseDocSeq(seq);docSeq=s===null?0:s;
+    // 前の文書の viewer と猶予のタイマーも、失敗しうる処理より前に手放す。core の CoreViewer は
+    // cleanup を持たず、前の viewer のリスナーは外れない(バンドルで確認)ので、各リスナーの先頭で
+    // 「いまの viewer か」を見て捨てる。
+    viewer=null;
+    if(errTimer){clearTimeout(errTimer);errTimer=null;}
     try{
       if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null;}
-      if(errTimer){clearTimeout(errTimer);errTimer=null;}
-      if(viewer&&viewer.cleanup)viewer.cleanup();
-      viewer=null;
       currentPage=1;pageCount=0;atFirst=true;atLast=false;zoom=1;userZoomed=false;ready=false;
+      reviewDoc=review===true;marks=null;parts=null;saved=new WeakMap();badges=[];badgeNo=new Map();
       var vp=document.getElementById('vp');
       vp.innerHTML='';
       if(!html){sendState();return;}
@@ -238,33 +500,46 @@ const BOOT_SCRIPT = `(function(){
       // しうる形をしており(bundle 原文の静的確認。resize() は readyState を復元せずに早期
       // return する)、そもそも帳票のページ寸法は @page が決めるため viewport 再レイアウトは
       // 不要。リサイズ追随は自前の zoom フィット(下の resize リスナ → applyFit)で行う。
-      viewer=new V.CoreViewer({viewportElement:vp},
+      // 描画先は文書ごとに作り直す。前の viewer は外した要素へ描き続けても、表示中の紙面に
+      // 混ざらない(core の CoreViewer は止める手段を持たない)。
+      var root=document.createElement('div');
+      root.className='vp-doc';
+      vp.appendChild(root);
+      var v=new V.CoreViewer({viewportElement:root},
         {autoResize:false,renderAllPages:true,pageViewMode:V.PageViewMode.SINGLE_PAGE,fitToScreen:false});
-      viewer.addListener('nav',function(p){
+      viewer=v;
+      var mySeq=docSeq;
+      v.addListener('nav',function(p){
+        if(v!==viewer)return;
         if(typeof p.epageCount==='number'&&p.epageCount>0)pageCount=Math.max(1,Math.round(p.epageCount));
         if(typeof p.epage==='number')currentPage=Math.max(1,Math.round(p.epage)+1);
         if(typeof p.first==='boolean')atFirst=p.first;
         if(typeof p.last==='boolean')atLast=p.last;
-        applyFit();sendState();
+        applyFit();decorate(false);sendState();
       });
-      viewer.addListener('readystatechange',function(){
-        if(viewer&&viewer.readyState===V.ReadyState.COMPLETE){ready=true;applyFit();sendState();}
+      v.addListener('readystatechange',function(){
+        if(v!==viewer)return;
+        if(v.readyState===V.ReadyState.COMPLETE){ready=true;applyFit();decorate(true);sendState();}
       });
       // 文書ロードの失敗を親へ伝える。core は致命的なロード失敗(例: 内蔵リソースの取得
       // 不能)を 'error' イベントで通知し、readyState は loading のまま**永久に止まる** —
       // 通知しないと「組版済みなのに全ページ hidden + ローダー 30 秒」の黙った劣化になる。
       // ただし 'error' はログ経由の警告(画像 404 等、組版は続行できるもの)でも飛ぶため、
       // 即フォールバックにせず「猶予後も COMPLETE に達していない」場合だけ致命と判定する。
-      viewer.addListener('error',function(e){
-        if(ready||errTimer)return;
+      v.addListener('error',function(e){
+        if(v!==viewer||ready||errTimer)return;
         var msg=String((e&&e.content&&e.content.messages&&e.content.messages[0])||'vivliostyle load error');
-        errTimer=setTimeout(function(){errTimer=null;if(!ready)post(MSG_ERROR,{message:msg});},3000);
+        errTimer=setTimeout(function(){
+          errTimer=null;
+          if(v===viewer&&!ready)post(MSG_ERROR,{message:msg,seq:mySeq});
+        },3000);
       });
-      viewer.loadDocument({url:blobUrl});
+      if(reviewDoc)v.loadDocument({url:blobUrl},{userStyleSheet:[{text:GHOST_USER_CSS}]});
+      else v.loadDocument({url:blobUrl});
       sendState();
-    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e)});}
+    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e),seq:docSeq});}
   }
-  function command(cmd,page,anchor){
+  function command(cmd,page,anchor,part){
     if(!viewer)return;
     try{
       if(cmd==='prevPage'){if(!atFirst&&currentPage>1)viewer.navigateToPage(V.Navigation.PREVIOUS);}
@@ -278,6 +553,14 @@ const BOOT_SCRIPT = `(function(){
       else if(cmd==='zoomIn')setZoom(zoom+ZOOM_STEP);
       else if(cmd==='zoomOut')setZoom(zoom-ZOOM_STEP);
       else if(cmd==='fit'){userZoomed=false;applyFit();}
+      else if(cmd==='gotoPart'){
+        // 番号の最初の断片の page container が並びの何番目かで移る(id は当てにしない。
+        // 著者の id は gotoAnchor の形に合うとは限らない)。
+        if(!reviewDoc||!ready||typeof part!=='string'||!PART_NO_RE.test(part))return;
+        if(!parts)decorate(true);
+        var idx=parts?parts.firstPage[part]:undefined;
+        if(typeof idx==='number')viewer.navigateToPage(V.Navigation.EPAGE,idx);
+      }
       else if(cmd==='gotoAnchor'){
         // 精査画面の変更箇所ジャンプ。id は文書内の要素 id(review-anchor-<n>)で、
         // navigateToInternalUrl は core の通常のページ内リンク(<a href="#id">)移動と
@@ -298,17 +581,34 @@ const BOOT_SCRIPT = `(function(){
           }
         }catch(e){/* 移動失敗は無視(操作不能へ倒さない) */}
       }
-    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e)});}
+    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e),seq:docSeq});}
   }
   // 親からのメッセージだけを受ける。子から見た parent は 1 つしかないので、これで
   // 発信元は一意に決まる(逆向きの検証は親が event.source の同一性で行う)。
   window.addEventListener('message',function(e){
-    if(e.source!==parent)return;
+    if(e.source!==PARENT)return;
     var d=e.data;
     if(!d||typeof d.type!=='string')return;
-    if(d.type===MSG_DOC)load(typeof d.html==='string'?d.html:'');
-    else if(d.type===MSG_CMD)command(d.cmd,d.page,d.anchor);
+    if(d.type===MSG_DOC)load(typeof d.html==='string'?d.html:'',d.review,d.seq);
+    else if(d.type===MSG_CMD)command(d.cmd,d.page,d.anchor,d.part);
+    else if(d.type===MSG_MARKS){
+      // 文書は組み直さずに描き替える。形の違う値は捨てる(前の marks のまま)。
+      var m=parseMarks(d.marks);
+      if(m&&reviewDoc){marks=m;decorate(true);}
+    }
   });
+  // 紙面のパーツ(または札)が押されたら番号を返す。親は自分の番号の集合で照合する
+  // (テンプレ JS がこのメッセージを偽れるため、ここの値を判定の根拠にしない)。
+  document.getElementById('vp').addEventListener('click',function(e){
+    if(!reviewDoc||!ready)return;
+    // 番号は自分が作った札と、自分が集めた断片からだけ読む(属性だけで選ばない)。
+    var vp=document.getElementById('vp');
+    for(var n=e.target;n&&n!==vp;n=n.parentElement){
+      var no=badgeNo.get(n);
+      if(no===undefined&&parts)no=parts.noOf.get(n);
+      if(no!==undefined){post(MSG_PART_CLICK,{part:no,seq:docSeq});return;}
+    }
+  },true);
   // ブラウザズーム/ペイン幅の変化に追随する。iframe がコンテナを 100% で埋めるので、
   // ここで測る window 寸法がそのまま利用可能領域になる(親との往復は不要)。
   var pending=false;
@@ -316,7 +616,8 @@ const BOOT_SCRIPT = `(function(){
     if(pending)return;pending=true;
     requestAnimationFrame(function(){pending=false;applyFit();});
   });
-  if(!V){post(MSG_ERROR,{message:'vivliostyle bundle unavailable'});return;}
+  // 文書を受ける前なので番号は 0(親もまだ文書を送っていない)。
+  if(!V){post(MSG_ERROR,{message:'vivliostyle bundle unavailable',seq:docSeq});return;}
   post(MSG_READY);
 })();`;
 
@@ -338,7 +639,7 @@ function buildHostPage(viewerScriptTag: string): string {
      具体的な色を書くと、iframe はアプリの CSS を持たないためダークテーマへ追随できない。
      vivliostyle が screen 時に注入する viewport 背景(#aaaaaa)も同じ理由で透明へ上書きする。 */
   html,body{margin:0;padding:0;height:100%;background:transparent;}
-  #vp{height:100%;width:100%;}
+  #vp,#vp>.vp-doc{height:100%;width:100%;}
   [data-vivliostyle-viewer-viewport]{background:transparent;}
   /* アプリ本体へ描画していた頃に要った「真ん中のグレー」対策(Tailwind base の
      「*{border-color:var(--border)}」 が組版結果へ漏れる)は、iframe 化で前提ごと消えたので
@@ -404,9 +705,12 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       .send(await hostPage());
   });
 
-  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。パスの解決は
-  // `resolveServedAssetPath`(配信ルート相対への正規化)+ `resolveServedAssetSource`
-  // (許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と同じ物差しを使う。
+  // ビューアバンドルと同梱資産(`css/`(配下に `css/fonts/`)と `js/`。`images/` は配らない)。
+  // 受けるのは**論理ルート相対のパス**で、文書の参照そのものではない — web の
+  // `previewSelfContain` が文書基準の参照を `resolveDocAssetPath` で解いてから取りに来る。
+  // パスの解決は `resolveServedRoutePath`(復号済みのルート引数の検査)+
+  // `resolveServedAssetSource`(許可リスト・深さ・シンボリックリンク)の 2 段で、PDF 経路と
+  // 同じ物差しを使う。
   app.get<{ Params: { '*': string } }>(
     `${PREVIEW_HOST_BASE}/*`,
     { preHandler: requireAuth },
@@ -418,7 +722,7 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
           .type('text/javascript; charset=utf-8')
           .send(await viewerBundle());
       }
-      const rel = resolveServedAssetPath(raw);
+      const rel = resolveServedRoutePath(raw);
       // 存在しない/許可外は 404 本文なしで返す(組版側は 404 を静かに無視する)。
       if (rel === undefined) return reply.code(404).send();
       // 画像の配信経路は `/api/fund-assets/images/` の 1 本に集める。ここで配ると SVG 検査を

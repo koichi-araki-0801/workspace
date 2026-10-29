@@ -93,8 +93,10 @@ export const useAuthStore = defineStore('auth', () => {
     // (残すと次の利用者の画面へ前の利用者の編集内容が復元されうる)。
     localStorage.removeItem(undoStacksKey());
     // 下書きの所属も端末に残る。次の利用者のセッションで前の利用者の下書きが
-    // 「同じセッション」と誤判定されることは無い(トークンが違う)が、キーを残さない。
-    localStorage.removeItem(draftOwnerKey());
+    // 「同じセッション」と誤判定されることは無い(トークンが違う)が、記録は残さない。
+    // キーごと消すと `belongsToSession` が旧ビルドからの移行と見なし、再ログイン後に最初に
+    // 開いた別タブの下書きを引き継ぐため、空の記録を書いて「記録はあるが所属無し」にする。
+    localStorage.setItem(draftOwnerKey(), '{}');
     setUndoUserScope(null);
     forgetTabMemory();
     // ファンド名の取得結果もタブに残る。次の利用者の画面へ前の利用者が見た名前を出さない。

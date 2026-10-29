@@ -19,3 +19,6 @@ playwright-report/
 test-results/
 # LAN 公開用 TLS 証明書(setup-lan-https.ps1 が生成。秘密鍵を含むためコミットしない)
 server/tls/
+# 偽の生成器(server/scripts/fake_generate_template.py)の書き先と実行ログ
+server/output/
+server/log/

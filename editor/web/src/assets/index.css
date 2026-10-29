@@ -39,6 +39,11 @@
   /* エディタ/プレビューの用紙下地(A4 ページの外周)。`EditorView.vue` の canvas と
      `PreviewPanel.vue`(Vivliostyle viewport の #aaaaaa 上書き)で共用し、二重定義を防ぐ。 */
   --canvas-backdrop: hsl(220 16% 91%);
+  /* 編集画面の変更の番号の丸(紙面の目印 `.chg-mark`・右ペインの `.no-pill`・凡例)。白い文字との
+     コントラストが 4.5:1 になるよう、承認タブの未判定の青 `#3b82c4` を色相を保ったまま暗くした
+     (`#3b82c4` は 4.06:1)。丸は白い文字を自分の地の上に載せるので、比べる 2 色はどちらもテーマに
+     依らない。dark でも変えない。 */
+  --change-mark: #377ab8;
   --border: oklch(0.915 0.006 85);
   --input: oklch(0.86 0.008 85);
   --ring: oklch(0.585 0.105 240);
@@ -156,6 +161,13 @@
     font-feature-settings: "palt" 1;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+    /* アプリの文言の改行規則。紙面(canvas・プレビュー・承認の紙面)は別文書の iframe で、
+       ここは届かない */
+    line-break: strict; /* 句読点・小さい仮名・長音を行頭に置かない */
+    /* 文節の切れ目でだけ改行(Chromium 119+。非対応なら無視され禁則だけ効く) */
+    word-break: auto-phrase;
+    /* 入らない語だけ折る。min-content を変えないので表の列幅が細らない */
+    overflow-wrap: break-word;
   }
   html {
     color-scheme: light;
@@ -163,6 +175,13 @@
   html[data-theme="dark"] {
     color-scheme: dark;
   }
+}
+
+/* ID・パス・コードだけ語の途中でも折る。`anywhere` は min-content を変え、表の列や flex の子が
+   細る。 */
+.mono,
+[data-break-anywhere] {
+  overflow-wrap: anywhere;
 }
 
 /* 等幅（ID・日時・コード）。約物詰めは無効化して桁を揃える。 */
@@ -251,27 +270,27 @@
    はみ出し、overflow でクリップされ到達不能になるため、超過時は上揃えにする。判定 class は
    `useGrapes.ts` の `updateScrollMode` が `<div ref=canvasEl>` へ付与する。 */
 .gjs-frame-wrapper {
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン幅を上書きする */
   width: 210mm !important;
   left: 0;
   right: 0;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書きし上揃えするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン top を上書き(上揃え) */
   top: 0 !important;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン bottom を上書きし上揃えするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS の bottom を上書き(上揃え) */
   bottom: auto !important;
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きするため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン余白を上書きする */
   margin: 28px auto 0 !important; /* 28px = FIT_MARGIN(56)/2: 上の余白を従来の中央寄せと揃える */
 }
 /* 収まる時: 従来どおり縦中央寄せ。zoom は canvas 中央原点 scale なので、収まっている限り中央が
    自然(クリップしない)。`getElementPos` の `getViewportDelta`(center 原点前提)とも整合する。 */
 .ret-canvas-fits .gjs-frame-wrapper {
-  /* biome-ignore lint/complexity/noImportantStyles: 上の上揃えを打ち消し垂直中央寄せへ戻すため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: 上の上揃えを打ち消し縦中央へ戻す */
   bottom: 0 !important;
-  /* biome-ignore lint/complexity/noImportantStyles: 上の margin-top のみ指定を打ち消し上下対称の中央寄せへ戻すため必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: 上の margin-top を打ち消し上下対称に */
   margin: auto !important;
 }
 .gjs-frame {
-  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS がインライン幅を設定するため上書きが必要 */
+  /* biome-ignore lint/complexity/noImportantStyles: GrapesJS のインライン幅を上書きする */
   width: 100% !important;
   background: transparent;
 }

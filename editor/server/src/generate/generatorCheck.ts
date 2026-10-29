@@ -3,7 +3,7 @@
 // =============================================================================
 // 生成器を起動できない環境(PATH に python が無い・PATH で先に見つかる python が 3.13 でない・
 // Microsoft Store の偽物 WindowsApps\python.exe に解決される)は、最初の「新規作成」まで誰も
-// 気づかない。起動ログで先に知らせる。起動は止めない — 生成を使わない運用(local・閲覧専用)
+// 気づかない。起動ログで先に知らせる。起動は止めない — 生成を使わない運用(無認証モード・閲覧専用)
 // まで止まるため。
 import { execFile } from 'node:child_process';
 import { config } from '../config.js';
@@ -22,7 +22,7 @@ const PROBE_TIMEOUT_MS = 10_000;
 const FAKE_GENERATOR_BASENAME = 'fake_generate_template.py';
 
 /** 確認結果の出力先(既定はサーバのロガー。テストで差し替える)。 */
-export interface StartupLog {
+interface StartupLog {
   info(msg: string): void;
   warn(msg: string): void;
 }

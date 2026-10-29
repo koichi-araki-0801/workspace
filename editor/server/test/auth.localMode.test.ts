@@ -21,7 +21,7 @@ import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.j
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-local-mode-'));
 process.env.DATA_ROOT = tmp;
 // config は起動時に env を読む。認証を課さない配備は `AUTH_REQUIRED=false` を明示した
-// local モードだけなので、その形を再現する。
+// 無認証モードだけなので、その形を再現する。
 process.env.AUTH_REQUIRED = 'false';
 
 const initPassword = vi.fn(async (..._args: unknown[]) => {});
@@ -34,7 +34,7 @@ const authRepo = {
   initPassword: (...args: unknown[]) => initPassword(...(args as [])),
 };
 
-// ユーザー管理ルートが local モードで台帳へ到達しないことを固定するため、repo は spy にする。
+// ユーザー管理ルートが 無認証モードで台帳へ到達しないことを固定するため、repo は spy にする。
 const listUsers = vi.fn(async () => []);
 const createUser = vi.fn(async () => ({
   user: { id: 'u', username: 'x' },
@@ -102,7 +102,7 @@ describe('ローカルモード(認証を課さない構成)', () => {
     expect(initPassword).not.toHaveBeenCalled();
   });
 
-  // ★ ユーザー台帳を操作する 4 ルートも、role ガードが素通りする local モードで 401 にする
+  // ★ ユーザー台帳を操作する 4 ルートも、role ガードが素通りする 無認証モードで 401 にする
   // (`requireIdentifiedUser` の重ね掛け)。台帳へは一切到達させない。
   it('refuses the user-management routes and never reaches the ledger', async () => {
     const calls: Array<{ method: 'GET' | 'POST' | 'PATCH'; url: string; payload?: unknown }> = [

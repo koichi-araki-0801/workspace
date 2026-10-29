@@ -50,7 +50,7 @@ export function createSprocClient(query: QueryFn): SprocClient {
 
 /**
  * 本番の実行面。`pool.query` は最初の呼び出しでプールを開くので、ここでは接続を張らない
- * (`local` モードはネイティブドライバを require しないまま起動できる)。
+ * (無認証モードはネイティブドライバを require しないまま起動できる)。
  */
 export const realSproc: SprocClient = createSprocClient((sql, values) => query(sql, values));
 

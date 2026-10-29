@@ -222,10 +222,10 @@ function collectSliceCounts(profiles: LayoutItem[]) {
 }
 
 /**
- * 件数統計と cfg から密集度モードタグを diag.modeTags に追記し、
+ * 件数統計から密集度モードタグを diag.modeTags に追記し、
  * 派生フラグ (dominantWithDensePeriphery / leftStackMode 等) を diag に設定する。
  */
-function deriveModeTags(diag: Diagnostics, cfg: PieLayoutConfig): void {
+function deriveModeTags(diag: Diagnostics): void {
   if (diag.manyItems) diag.modeTags.push('many_items');
   if (diag.ultraDenseItems) diag.modeTags.push('ultra_dense_items');
   if (diag.oneSideDense) diag.modeTags.push('one_side_dense');
@@ -318,7 +318,7 @@ function runDiagnostics(profiles: LayoutItem[], cfg: PieLayoutConfig): Diagnosti
       Boolean(diag.manyItems || diag.oneSideDense || diag.topSmallDense || diag.longLabelDense),
     modeTags: [] as string[],
   };
-  deriveModeTags(diag, cfg);
+  deriveModeTags(diag);
   return diag;
 }
 
@@ -992,7 +992,7 @@ function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
 
 /**
  * 12時直左の小 top-band スライスが上左で混雑する時、12時に最も近い 1 件に topBandSmallRight を
- * 立てて右上空白へ逃がす (`layout/placement.ts` の `topBandSmallRight` が参照)。これにより上左に小
+ * 立てて右上空白へ逃がす (`layout/placement.ts` の `topRightEscapeIf` が参照)。これにより上左に小
  * top-band が 2 つ並んで片方が長体化する症状を解消し、両ラベルを原寸 2 行に収める。
  *
  * ゲート (混雑が実在する上左 triad のみに限定):
@@ -1274,7 +1274,7 @@ const BOTTOM_CENTER_HALF_DEG = 8;
 /**
  * 6時直下 (mid 270°±BOTTOM_CENTER_HALF_DEG, |cos|<cosTol) の非 dominant スライスを、左右の列に
  * 折らず pie 真下中央へ leaderless で据える印 bottomCenterBelow を立てる。
- * 背景: 当該スライスの rim draft は既に anchor=middle/x≈0/skipLeader=true だが、箱上端が円内へ
+ * 背景: 当該スライスの rim draft は既に anchor=middle/x≈0 だが、箱上端が円内へ
  * 食い込むと cascade の pie 侵入判定で leader rank まで降格し、overlap nudge で横へ流れて
  * L 字 leader が付いてしまう。本印付きは buildOutsideRimDraft で「pie 直下へ押し下げた中央配置」を
  * 返し、cascade で pie 侵入降格を免除する。

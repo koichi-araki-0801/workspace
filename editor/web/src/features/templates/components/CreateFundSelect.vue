@@ -4,8 +4,9 @@
 // =============================================================================
 // 候補は Rep1 のファンド属性(サーバの sproc 経由)から取る。会社は開いたとき、ファンドは会社を
 // 選んだときに一括取得する。会社の値はファイル名の会社コード(略称)で、ファンドを引くときだけ
-// Rep1 の会社コードを使う。見た目は編集タブの `SearchFilters` と同じ部品で組む。
-import { type CompanyOption, type FundOption, isErr } from '@editor/shared';
+// Rep1 の会社コードを使う。見た目は編集タブの `SearchFilters` と同じ部品で組む。版種は任意で、
+// 選ばなければ両版を作る(作成済み・申請中の版は飛ばす)。
+import { type CompanyOption, CREATABLE_EDITIONS, type FundOption, isErr } from '@editor/shared';
 import { Loader2, RotateCcw } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import Button from '@/components/ui/Button.vue';
@@ -15,12 +16,16 @@ import FormField from '@/components/ui/FormField.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
 import { toastError } from '@/components/ui/toast';
+import { formatCompanyLabel } from '@/lib/companyLabel';
 import { useLatest } from '@/lib/useLatest';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
 import { useTemplateCreationService } from '../services/templateCreationService';
 
-/** 作成タブで選べる版種。 */
-const EDITION_TYPES = ['交付版', '全体版'];
+/** 版種を選ばない(両版を作る)ときの選択肢の値と表示。 */
+const BOTH = 'both';
+const BOTH_LABEL = '選ばない（両版を作る）';
+/** 作成タブで選べる版種。`SelectItem` は空文字を値にできないので、未選択も 1 つの値で表す。 */
+const EDITION_OPTIONS = ['交付版', '全体版', { label: BOTH_LABEL, value: BOTH }];
 
 export interface CreateFundSelection {
   companyCode?: string;
@@ -37,6 +42,9 @@ const companies = ref<CompanyOption[]>([]);
 const funds = ref<FundOption[]>([]);
 const loading = ref(false);
 const latestFunds = useLatest();
+// 版種の Select の値。`query.editionType` を直に渡すと、未選択へ戻したときに表示が placeholder
+// へ戻らないので、未選択を `BOTH` で持つ別の値を挟む。
+const editionChoice = ref<string>(BOTH);
 
 useUrlQuerySync(query, { keys: ['companyCode', 'fundCode', 'editionType'] });
 
@@ -47,7 +55,10 @@ const companyOf = (companyCode?: string) =>
     : companies.value.find((c) => c.companyCode.toLowerCase() === companyCode.toLowerCase());
 const rep1Of = (companyCode?: string) => companyOf(companyCode)?.rep1CompanyCode;
 const companyOptions = computed(() =>
-  companies.value.map((c) => ({ label: c.companyName, value: c.companyCode })),
+  companies.value.map((c) => ({
+    label: formatCompanyLabel(c.companyCode, c.rep1CompanyCode),
+    value: c.companyCode,
+  })),
 );
 const fundOptions = computed(() =>
   funds.value.map((f) => ({ label: `${f.fundCode} ${f.fundName}`, value: f.fundCode })),
@@ -68,10 +79,16 @@ async function loadFunds(keepFund: boolean) {
   if (!keepFund) {
     query.fundCode = undefined;
     query.editionType = undefined;
+    editionChoice.value = BOTH;
   }
   notify();
-  if (!rep1) return;
+  // 世代は取得しないときも進める。前の会社の取得が飛んでいると、その応答が後から届いて
+  // 消したばかりの候補を埋め戻すため。
   const isLatest = latestFunds.begin();
+  if (!rep1) {
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   const res = await service.listFunds(rep1);
   if (!isLatest()) return;
@@ -93,6 +110,13 @@ onMounted(async () => {
     return;
   }
   companies.value = res.value;
+  // URL から復元した版種(古いブックマーク)は、その版を選んだ表示にする。作れる版でなければ
+  // (手打ちの壊れた値)捨てる。残すと表示は未選択なのに、その値で作成を送ってしまう。
+  if ((CREATABLE_EDITIONS as readonly string[]).includes(query.editionType ?? '')) {
+    editionChoice.value = query.editionType as string;
+  } else {
+    query.editionType = undefined;
+  }
   // URL から復元した会社コードは候補の綴り(略称)へそろえる。ファイル名の会社コードになるため。
   const known = companyOf(query.companyCode);
   if (known) query.companyCode = known.companyCode;
@@ -105,13 +129,23 @@ function onCompany() {
 
 function onFund() {
   query.editionType = undefined;
+  editionChoice.value = BOTH;
+  notify();
+}
+
+function onEdition(value: string | undefined) {
+  query.editionType = value === undefined || value === BOTH ? undefined : value;
   notify();
 }
 
 function reset() {
+  // 取得中の前の会社の応答で候補を埋め戻させない。
+  latestFunds.begin();
+  loading.value = false;
   query.companyCode = undefined;
   query.fundCode = undefined;
   query.editionType = undefined;
+  editionChoice.value = BOTH;
   funds.value = [];
   notify();
 }
@@ -143,13 +177,13 @@ function reset() {
       />
     </FormField>
     <FormField width="2xl">
-      <Label>版種 <span class="text-destructive">*</span></Label>
+      <Label>版種（任意）</Label>
       <Select
-        v-model="query.editionType"
-        :options="EDITION_TYPES"
-        placeholder="版種を選択"
+        v-model="editionChoice"
+        :options="EDITION_OPTIONS"
+        :placeholder="BOTH_LABEL"
         :disabled="!query.fundCode"
-        @update:model-value="notify"
+        @update:model-value="onEdition"
       />
     </FormField>
     <div class="flex items-center gap-2">

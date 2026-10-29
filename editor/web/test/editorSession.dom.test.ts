@@ -1,6 +1,6 @@
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
+import { editorUiKey, setUndoUserScope, undoStacksKey } from '@/lib/storageKeys';
 import {
   defaultEditorUiState,
   type EditorSnapshot,
@@ -16,12 +16,6 @@ describe('useEditorSessionStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     localStorage.clear();
-    // 既定は rest(= ログイン ID スコープ)なので、キー名を直書きする検証は local を明示する。
-    vi.stubEnv('VITE_API_MODE', 'local');
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
   });
 
   it('ensure() creates an empty session and returns the same instance on re-ensure', () => {
@@ -29,7 +23,6 @@ describe('useEditorSessionStore', () => {
     const a = store.ensure('t1');
     expect(a).toEqual({
       partHistory: {},
-      seq: 0,
       undoPast: [],
       undoFuture: [],
       ui: defaultEditorUiState(),
@@ -37,36 +30,87 @@ describe('useEditorSessionStore', () => {
 
     // 同一 templateId を再度 ensure すると、同じセッション(参照)が返る
     // (= 編集⇄プレビュー往復で履歴が維持される)。
-    a.seq = 3;
     a.undoPast.push({ html: '<p>x</p>', css: '.c{}' });
     const again = store.ensure('t1');
     expect(again).toBe(a);
-    expect(again.seq).toBe(3);
     expect(again.undoPast).toHaveLength(1);
   });
 
   it('keeps sessions isolated per templateId', () => {
     const store = useEditorSessionStore();
-    store.ensure('t1').seq = 1;
+    store.ensure('t1').partHistory.k = [];
     const t2 = store.ensure('t2');
-    expect(t2.seq).toBe(0);
+    expect(t2.partHistory).toEqual({});
   });
 
   it('clear() drops the session so the next ensure() starts fresh', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
-    s.seq = 5;
     s.undoPast.push({ html: 'h', css: 'c' });
     store.clear('t1');
     const fresh = store.ensure('t1');
     expect(fresh).not.toBe(s);
     expect(fresh).toEqual({
       partHistory: {},
-      seq: 0,
       undoPast: [],
       undoFuture: [],
       ui: defaultEditorUiState(),
     });
+  });
+
+  it('CSS の baseline はテンプレごとに持ち、clear() で消える(プレビュー往復では残る)', () => {
+    const store = useEditorSessionStore();
+    expect(store.cssBaselineOf('t1')).toBeNull();
+    store.setCssBaseline('t1', '.a{color:rgb(0, 0, 0);}');
+    store.setCssBaseline('t2', '.b{}');
+    expect(store.cssBaselineOf('t1')).toBe('.a{color:rgb(0, 0, 0);}');
+    // 測れなかったとき(null)は前の値を残さない。
+    store.setCssBaseline('t2', null);
+    expect(store.cssBaselineOf('t2')).toBeNull();
+    store.clear('t1');
+    expect(store.cssBaselineOf('t1')).toBeNull();
+  });
+
+  it('CSS の baseline は sessionStorage にも置き、再読み込み(新しいストア)でも読める', () => {
+    sessionStorage.clear();
+    useEditorSessionStore().setCssBaseline('t1', '.a{color:red;}');
+    // 再読み込み相当: Pinia を作り直す(メモリは空、sessionStorage は残る)。
+    setActivePinia(createPinia());
+    const fresh = useEditorSessionStore();
+    expect(fresh.cssBaselineOf('t1')).toBe('.a{color:red;}');
+    // null と clear() は sessionStorage からも消す。
+    fresh.setCssBaseline('t1', null);
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().cssBaselineOf('t1')).toBeNull();
+    useEditorSessionStore().setCssBaseline('t2', '.b{}');
+    useEditorSessionStore().clear('t2');
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().cssBaselineOf('t2')).toBeNull();
+  });
+
+  it('sessionStorage が使えなくても CSS の baseline の記録と読み出しは落ちない', () => {
+    sessionStorage.clear();
+    const store = useEditorSessionStore();
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('denied');
+    });
+    try {
+      expect(() => store.setCssBaseline('t1', '.a{}')).not.toThrow();
+      expect(store.cssBaselineOf('t1')).toBe('.a{}');
+      expect(useEditorSessionStore().cssBaselineOf('t9')).toBeNull();
+      expect(() => store.setCssBaseline('t1', null)).not.toThrow();
+      expect(() => store.clear('t1')).not.toThrow();
+    } finally {
+      set.mockRestore();
+      get.mockRestore();
+      remove.mockRestore();
+    }
   });
 
   it('clear() on an unknown templateId is a no-op', () => {
@@ -138,7 +182,6 @@ describe('useEditorSessionStore', () => {
     past.push({ html: '<p>stale</p>', css: '.a{}' });
     future.push({ html: '<p>redo</p>', css: '.b{}' });
     s.partHistory = { k1: [] };
-    s.seq = 7;
     store.persist('t1');
     expect(readUndoMap().t1.past).toHaveLength(1);
 
@@ -147,9 +190,8 @@ describe('useEditorSessionStore', () => {
     expect(past).toEqual([]);
     expect(future).toEqual([]);
     expect(store.ensure('t1').undoPast).toBe(past);
-    // 修正履歴と採番は残す(Undo だけを捨てる)。
+    // 修正履歴は残す(Undo だけを捨てる)。
     expect(s.partHistory).toEqual({ k1: [] });
-    expect(s.seq).toBe(7);
     // ミラーも空になっている(リロードで再び hydrate されない)。
     expect(readUndoMap().t1).toEqual({ past: [], future: [] });
   });
@@ -253,6 +295,7 @@ describe('useEditorSessionStore', () => {
       currentPage: 0,
       showPageGuides: true,
       selectedKey: null,
+      changeMarksEnabled: true,
     });
     s.ui.allowEdit = true;
     s.ui.zoom = 1.2;
@@ -267,7 +310,7 @@ describe('useEditorSessionStore', () => {
       selectedKey: 'p1/.x#2',
       redlineEnabled: true,
     });
-    const persisted = JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}');
+    const persisted = JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}');
     expect(persisted.t1).toEqual({
       redlineEnabled: true,
       paneTab: 'comments',
@@ -275,12 +318,13 @@ describe('useEditorSessionStore', () => {
       singlePageMode: true,
       currentPage: 0,
       showPageGuides: true,
+      changeMarksEnabled: true,
     });
   });
 
   it('新しいセッションは永続した ui から hydrate し、allowEdit と選択は既定に戻る', () => {
     localStorage.setItem(
-      'editor:session:ui:local',
+      editorUiKey(),
       JSON.stringify({
         t1: {
           redlineEnabled: true,
@@ -302,7 +346,25 @@ describe('useEditorSessionStore', () => {
       currentPage: 2,
       showPageGuides: false,
       selectedKey: null,
+      changeMarksEnabled: true,
     });
+  });
+
+  it('changeMarksEnabled は既定 true で、localStorage へ残る', () => {
+    const store = useEditorSessionStore();
+    const s = store.ensure('t1');
+    expect(s.ui.changeMarksEnabled).toBe(true);
+    s.ui.changeMarksEnabled = false;
+    store.persistUi('t1');
+    expect(JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}').t1.changeMarksEnabled).toBe(
+      false,
+    );
+    // 再読み込み(新しいストア)でも切ったまま。読めない値は既定(オン)へ戻す。
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().ensure('t1').ui.changeMarksEnabled).toBe(false);
+    localStorage.setItem(editorUiKey(), JSON.stringify({ t1: { changeMarksEnabled: 'off' } }));
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().ensure('t1').ui.changeMarksEnabled).toBe(true);
   });
 
   it('clear() は ui と永続分も消す', () => {
@@ -311,14 +373,14 @@ describe('useEditorSessionStore', () => {
     store.persistUi('t1');
     store.clear('t1');
     expect(store.ensure('t1').ui.zoom).toBeNull();
-    expect(JSON.parse(localStorage.getItem('editor:session:ui:local') ?? '{}').t1).toBeUndefined();
+    expect(JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}').t1).toBeUndefined();
   });
 
   it('永続ミラーが壊れた値を持っていても、既定値へフォールバックして復元する', () => {
     // 破損経路の例: 手動編集・旧バージョンとの互換切れ・localStorage 共有の事故。
     // 型不整合のまま `setZoom` 等へ渡すと NaN clamp 等の実害があるため、hydrate 時点で防ぐ。
     localStorage.setItem(
-      'editor:session:ui:local',
+      editorUiKey(),
       JSON.stringify({
         t1: {
           zoom: 'big',
@@ -342,29 +404,21 @@ describe('Undo ミラーのユーザー分離', () => {
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
     setUndoUserScope(null);
   });
 
-  it('local は単一利用者前提の固定スコープを使う', () => {
-    vi.stubEnv('VITE_API_MODE', 'local');
-    setUndoUserScope('alice');
-    expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
-  });
-
   it('Undo ミラーのキーは v2 で、旧形式のミラーは読まない', () => {
-    vi.stubEnv('VITE_API_MODE', 'local');
+    setUndoUserScope('alice');
     localStorage.setItem(
-      'editor:session:undo:local',
+      'editor:session:undo:alice',
       JSON.stringify({ t1: { past: [{ html: 'old', css: '' }], future: [] } }),
     );
     const store = useEditorSessionStore();
     expect(store.ensure('t1').undoPast).toEqual([]);
-    expect(undoStacksKey()).toBe('editor:session:undo:v2:local');
+    expect(undoStacksKey()).toBe('editor:session:undo:v2:alice');
   });
 
-  it('rest はログイン ID ごとに別キーで、他ユーザーの内容へ到達しない', () => {
-    vi.stubEnv('VITE_API_MODE', 'rest');
+  it('ログイン ID ごとに別キーで、他ユーザーの内容へ到達しない', () => {
     setUndoUserScope('alice');
     const keyA = undoStacksKey();
     const s = useEditorSessionStore().ensure('t1');
@@ -379,24 +433,8 @@ describe('Undo ミラーのユーザー分離', () => {
     expect(useEditorSessionStore().ensure('t1').undoPast).toEqual([]);
   });
 
-  it('rest で未ログインなら anonymous スコープへ隔離する', () => {
-    vi.stubEnv('VITE_API_MODE', 'rest');
+  it('未ログインなら anonymous スコープへ隔離する', () => {
     setUndoUserScope(null);
     expect(undoStacksKey()).toBe('editor:session:undo:v2:anonymous');
-  });
-
-  it('VITE_API_MODE 未設定でも Undo ミラーはログイン ID でスコープされる(既定は rest)', () => {
-    vi.stubEnv('VITE_API_MODE', undefined);
-    setUndoUserScope('alice');
-    const keyA = undoStacksKey();
-    const s = useEditorSessionStore().ensure('t1');
-    s.undoPast.push({ html: '<p>alice</p>', css: '' });
-    useEditorSessionStore().persist('t1');
-    expect(localStorage.getItem(keyA)).toContain('alice');
-
-    setUndoUserScope('bob');
-    expect(undoStacksKey()).not.toBe(keyA);
-    setActivePinia(createPinia());
-    expect(useEditorSessionStore().ensure('t1').undoPast).toEqual([]);
   });
 });
