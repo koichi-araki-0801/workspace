@@ -138,6 +138,15 @@ describe('buildReviewedHtmlCandidate', () => {
     expect(res.unknownDecisionPartKeys).toEqual(['gone#1']);
   });
 
+  it('本文に無いパーツの pending(取り消しで残った判定)は unknown に数えない', () => {
+    const res = buildReviewedHtmlCandidate(changed, [
+      decided('h1#1', 'approved'),
+      decided('gone#1', 'pending'),
+      decided('lost#1', 'rejected'),
+    ]);
+    expect(res.unknownDecisionPartKeys).toEqual(['lost#1']);
+  });
+
   it('中身が空になったページも区切りを残す(申請版にあるページの数を保つ)', () => {
     const diff = diffOf(
       [

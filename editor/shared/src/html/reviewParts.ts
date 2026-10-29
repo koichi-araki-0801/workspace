@@ -497,7 +497,10 @@ export function buildCreateReviewedHtml(
 
   const sourceKeySet = new Set(sourceKeys);
 
-  const unknownDecision = decisions.find((decision) => !sourceKeySet.has(decision.partKey));
+  // `pending` は判定が無いのと同じ(取り消しで残った本文に無いキーで最終確定を止めない)。
+  const unknownDecision = decisions.find(
+    (decision) => decision.status !== 'pending' && !sourceKeySet.has(decision.partKey),
+  );
 
   if (unknownDecision) {
     throw validation(`現在の本文に存在しないパーツ判定があります: ${unknownDecision.partKey}`);
@@ -511,7 +514,9 @@ export function buildCreateReviewedHtml(
     );
   }
 
-  const pendingDecision = decisions.find((decision) => decision.status === 'pending');
+  const pendingDecision = decisions.find(
+    (decision) => decision.status === 'pending' && sourceKeySet.has(decision.partKey),
+  );
 
   if (pendingDecision) {
     throw validation(`未判定のパーツがあるため最終確定できません: ${pendingDecision.partKey}`);

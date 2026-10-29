@@ -251,6 +251,105 @@ describe('buildReviewPaper', () => {
     expect(textOf(none)).toContain('交付運用報告書（交付版）');
   });
 
+  describe('本文に書かれた紙面の目印は出力に残らない (I-1)', () => {
+    // 申請者が本文へ札の属性・差分の色の class を書いても、ホストが自分の札と取り違えないよう
+    // 文書側で前もって外す。変更のあるブロックの入れ子と、変更の無いブロックの両方で確かめる。
+    const FAKE =
+      'data-review-no="1" data-review-keep="" data-review-ghost="added" data-review-badge="no"';
+    const spoofOf = (word: string): string =>
+      `<div id="s" ${FAKE} class="cmp-ins k"><p class="cmp-del">同じ</p></div>` +
+      `<p id="b" data-review-no="99">${word}の文<span id="in" ${FAKE} class="cmp-ins x">偽</span>` +
+      '<span class="cmp-del">赤</span>末尾</p>';
+    const d = buildHtmlDiff(spoofOf('旧'), spoofOf('新'), parse);
+    const dParts = numberChangedParts(d);
+    const render = (side: 'before' | 'after', highlight: boolean, decision: PaperDecision) =>
+      buildReviewPaper({
+        diff: d,
+        parts: dParts,
+        decisionOf: () => decision,
+        side,
+        highlight,
+        parse,
+      }).html;
+    const reviewAttrs = (el: Element | null): string[] =>
+      (el?.getAttributeNames() ?? []).filter((n) => n.startsWith('data-review-'));
+
+    it('どの面・どの表示・どの判定でも、申請者の data-review-* と cmp-ins / cmp-del は外れる', () => {
+      expect(dParts).toHaveLength(1);
+      const ownNo = `data-review-no="${dParts[0].no}"`;
+      for (const side of ['before', 'after'] as const) {
+        for (const highlight of [false, true]) {
+          for (const decision of ['pending', 'rejected'] as const) {
+            const html = render(side, highlight, decision);
+            const doc = parse(html);
+            // 変更の無いブロック(same)とその子
+            const s = doc.getElementById('s');
+            expect(reviewAttrs(s)).toEqual([]);
+            expect(s?.getAttribute('class')).toBe('k');
+            expect(s?.querySelector('p')?.hasAttribute('class')).toBe(false);
+            // 変更のあるブロックの入れ子
+            const inner = doc.getElementById('in');
+            expect(reviewAttrs(inner)).toEqual([]);
+            expect(inner?.getAttribute('class')).toBe('x');
+            // 札の属性は自分の 1 つだけ(先頭の要素の偽の番号は自分の番号に置き換わる)
+            expect(html.split('data-review-no=')).toHaveLength(2);
+            expect(doc.getElementById('b')?.outerHTML).toContain(ownNo);
+            expect(html).not.toContain('data-review-ghost');
+            expect(html).not.toContain('data-review-badge');
+            const keeps = side === 'after' && decision === 'rejected' ? 2 : 1;
+            expect(html.split('data-review-keep=')).toHaveLength(keeps);
+            // 申請者の span は class を失い、着色は差分の span だけに残る
+            const colored = [...doc.querySelectorAll('.cmp-ins, .cmp-del')].map(
+              (e) => e.textContent,
+            );
+            const ownColor = highlight && keeps === 1;
+            expect(colored).toEqual(ownColor ? [side === 'before' ? '旧' : '新'] : []);
+          }
+        }
+      }
+    });
+
+    it('目印の文字列が <style> の中身や地の文にあるだけの断片は、組み直さずにそのまま出す', () => {
+      const src = '<style>.cmp-ins{color:red}</style>地の文 data-review-no<p>x</p>';
+      const same = buildHtmlDiff(src, src, parse);
+      const expected = same.pages[0].blocks.map((b) => b.rawBeforeHtml).join('\n');
+      expect(expected).toContain('<style>.cmp-ins{color:red}</style>');
+      expect(paper({ side: 'after', d: same }).html).toBe(expected);
+    });
+
+    it('着色の断片と原文の形が食い違うときは、着色を捨てて原文から外したものを出す', () => {
+      const base = d.pages[0].blocks.find((x) => x.status === 'changed');
+      if (base === undefined) throw new Error('changed block not found');
+      const broken: Diff = {
+        ...d,
+        pages: [
+          {
+            ...d.pages[0],
+            blocks: [
+              {
+                ...base,
+                afterHtml: '<p id="b"><em class="cmp-ins">新</em><b>余分</b></p>',
+                rawAfterHtml: '<p id="b" class="cmp-ins" data-review-keep="">新</p>',
+              },
+            ],
+            beforeKeys: [base.key],
+            afterKeys: [base.key],
+          },
+        ],
+      };
+      const html = buildReviewPaper({
+        diff: broken,
+        parts: numberChangedParts(broken),
+        decisionOf: () => 'pending',
+        side: 'after',
+        highlight: true,
+        parse,
+      }).html;
+      expect(html).not.toMatch(/cmp-|data-review-keep|余分/);
+      expect(textOf(html)).toBe('新');
+    });
+  });
+
   it('片面にしか無いページは、空なら出さず、あれば区切りでつなぐ', () => {
     const d = buildHtmlDiff(`<p>一</p>${BREAK}<p>二</p>`, '<p>一</p>', parse);
     expect(paper({ side: 'before', d }).pageCount).toBe(2);

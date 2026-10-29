@@ -8,7 +8,8 @@
 // 出さない場合と理由:
 // - いちばん新しい申請が承認待ち: 判定はまだ途中で、承認タブで見るものだから。
 // - 申請ごと却下の理由(`review.comment`): パーツに当たらないので、承認タブで読む。
-// - 取得の失敗: 理由は補助の表示なので、空にして編集は止めない。
+// - 取得の失敗: 理由は補助の表示なので、空にして編集は止めない。本文(名前のため)だけの失敗は
+//   理由を出し、紙面に無いパーツの見出しを `UNKNOWN_PART_NAME` にする(削除されたとは限らない)。
 // 理由はコメント(notes)へは投稿しない(D1: コメントは種別を持たないメモ 1 種類)。
 
 import {
@@ -26,6 +27,9 @@ import { partEntries } from './partKey';
 export type { RejectedReason } from './historyGroups';
 
 type RejectedDecision = Extract<ReviewPartDecision, { status: 'rejected' }>;
+
+/** 本文を取れず名前を作れなかった、紙面に無いパーツの見出し。 */
+const UNKNOWN_PART_NAME = '名前の分からないパーツ';
 
 /** 本人の、そのテンプレートの申請のうち、いちばん新しいもの。無ければ null。 */
 function latestOwnReview(
@@ -87,7 +91,10 @@ export function useRejectedReasons(ctx: {
     if (missing.size > 0) {
       const body = await ctx.reviews.getReview(latest.id);
       if (isOk(body)) names = namesFromBody(body.value.filledHtml || body.value.html, missing);
-      else logError(body.error);
+      else {
+        logError(body.error);
+        names = new Map([...missing].map((k) => [k, UNKNOWN_PART_NAME]));
+      }
     }
 
     const out = new Map<string, RejectedReason>();

@@ -165,12 +165,14 @@ describe('GET /api/preview-host/index.html', () => {
       v: unknown,
     ) => unknown;
     const many = (n: number) =>
-      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i), 'pending']));
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i + 1), 'pending']));
     const base = { states: { '1': 'approved', '23': 'rejected' }, selected: '1', visible: true };
     const table: unknown[] = [
       base,
       { states: {}, selected: null, visible: false },
-      { ...base, states: { '0': 'pending', '99999': 'approved' } },
+      { ...base, states: { '1': 'pending', '99999': 'approved' } },
+      { ...base, states: { '0': 'pending' } },
+      { ...base, selected: '0' },
       { ...base, states: { x: 'approved' } },
       { ...base, states: { '01': 'approved' } },
       { ...base, states: { '123456': 'approved' } },
@@ -192,6 +194,9 @@ describe('GET /api/preview-host/index.html', () => {
       'marks',
       1,
     ];
+    // 番号は 1 から振るので '0' は両方とも拒む(1 始まりの規則が子にも入っていること)。
+    expect(hostParse({ ...base, states: { '0': 'pending' } })).toBeNull();
+    expect(hostParse({ ...base, selected: '0' })).toBeNull();
     // 子の関数は states を null prototype で作るので、JSON を通して形だけを比べる。
     const norm = (v: unknown) => (v === null ? null : JSON.parse(JSON.stringify(v)));
     for (const [i, input] of table.entries()) {

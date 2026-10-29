@@ -150,12 +150,19 @@ describe('useRejectedReasons', () => {
     expect(r.reasons.value.get('p#2')?.name).toBe('二つ目の段落');
   });
 
-  it('本文の取得に失敗したら名前は null のまま理由を返す', async () => {
-    const reviews = repo([meta({ id: 'r1', partDecisions: [rejected('p#9', '理由')] })]);
+  it('本文の取得に失敗したら、紙面に無いパーツの名前は「名前の分からないパーツ」で理由を返す', async () => {
+    const reviews = repo([
+      meta({ id: 'r1', partDecisions: [rejected('p#1', '既存'), rejected('p#9', '理由')] }),
+    ]);
     reviews.getReview.mockResolvedValueOnce(err({ kind: 'network', message: 'x' } as never));
     const r = setup(reviews, ['p#1']);
     await r.reload();
-    expect(r.reasons.value.get('p#9')).toMatchObject({ reason: '理由', name: null });
+    // 削除されたかどうかは分からないので「削除済みパーツ」とは呼ばない。canvas にあるものは null のまま。
+    expect(r.reasons.value.get('p#9')).toMatchObject({
+      reason: '理由',
+      name: '名前の分からないパーツ',
+    });
+    expect(r.reasons.value.get('p#1')?.name).toBeNull();
   });
 
   it('一覧の取得に失敗したら空で、例外を投げない', async () => {

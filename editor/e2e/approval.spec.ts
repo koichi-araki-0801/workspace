@@ -176,11 +176,14 @@ function addTo(html: string, cls: string, mark: string): string {
   return html.replace(open, `${open}\n      ${mark}`);
 }
 
-/** editor で 2 パーツの申請を出し、approver で申請カードを開いて左右の紙面と 2 行を待つ。 */
-async function openPartialReview(page: Page): Promise<Locator> {
+/**
+ * editor で 2 パーツの申請を出し、approver で申請カードを開いて左右の紙面と 2 行を待つ。
+ * `approvedMark` は 1 つ目のパーツへ足す追記(既定は `APPROVED_MARK`)。
+ */
+async function openPartialReview(page: Page, approvedMark = APPROVED_MARK): Promise<Locator> {
   const base = fs.readFileSync(partialFilledPath(), 'utf8');
   const css = fs.readFileSync(path.join(E2E_REST_DATA_ROOT, 'css', PARTIAL_CSS), 'utf8');
-  const html = addTo(addTo(base, 'cover_header', APPROVED_MARK), 'report_item_6', REJECTED_MARK);
+  const html = addTo(addTo(base, 'cover_header', approvedMark), 'report_item_6', REJECTED_MARK);
   await login(page, 'editor');
   await submitEditReviewViaApi(page, { templateId: PARTIAL_ID, html, css });
 
@@ -242,6 +245,23 @@ test.describe('申請カードの操作', () => {
     await expect(indicator).not.toHaveText(/^\s*1 \//, { timeout: 15_000 });
     await expect(paperBadge(after, 'no', 2)).toBeVisible({ timeout: 15_000 });
     await expect(paperBadge(before, 'no', 2)).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('申請本文に書いた data-review-no は札にならない(紙面の文書が前もって外す)', async ({
+    page,
+  }) => {
+    // 1 ページ目の追記に、4 ページ目のパーツ 2 の番号と差分の色を騙る span を混ぜる。外さないと
+    // ホストは文書順で最初の `data-review-no="2"` を拾い、1 ページ目にパーツ 2 の札を描く。
+    const spoof = '<p>承認する追記<span data-review-no="2" class="cmp-ins">偽の札</span></p>';
+    const item = await openPartialReview(page, spoof);
+    const { before, after } = comparePapers(item);
+    await expect(after.getByText('偽の札')).toBeVisible();
+    await expect(paperBadge(after, 'no', 1)).toHaveCount(1);
+    await expect(paperBadge(after, 'no', 2)).toHaveCount(0);
+    for (const frame of [before, after]) {
+      await expect(frame.locator('#vp span[data-review-no]')).toHaveCount(0);
+    }
+    await expect(after.locator('#vp .cmp-ins', { hasText: '偽の札' })).toHaveCount(0);
   });
 
   test('承認すると番号が緑になり、右面の data-doc-seq は増えない', async ({ page }) => {

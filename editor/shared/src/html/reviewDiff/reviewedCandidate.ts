@@ -162,9 +162,10 @@ export function buildReviewedHtmlCandidate(
   return {
     html,
     pendingPartKeys,
-    unknownDecisionPartKeys: [...decisionByPartKey.keys()].filter(
-      (partKey) => !knownPartKeys.has(partKey),
-    ),
+    // `pending` は判定が無いのと同じ(取り消しで残った本文に無いキーで最終確定を止めない)。
+    unknownDecisionPartKeys: [...decisionByPartKey]
+      .filter(([partKey, decision]) => isDecided(decision) && !knownPartKeys.has(partKey))
+      .map(([partKey]) => partKey),
     duplicateDecisionPartKeys: [...duplicates],
   };
 }

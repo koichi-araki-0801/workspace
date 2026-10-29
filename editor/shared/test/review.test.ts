@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { duplicateReviewMessage, formatDateTimeYmdHm } from '../src/domain/review.js';
 import {
+  MAX_REVIEW_PART_KEY_CHARS,
   ReviewRequestMeta,
   ReviewStatus,
   SubmitReviewBody,
@@ -118,6 +119,17 @@ describe('UpdateReviewPartDecisionsRequest', () => {
       Array.from({ length: n }, (_, i) => ({ partKey: `k#${i}`, status: 'approved' }));
     expect(ok(mk(5000))).toBe(true);
     expect(ok(mk(5001))).toBe(false);
+  });
+  it('partKey は MAX_REVIEW_PART_KEY_CHARS(512)文字まで。どの status でも長すぎれば拒む', () => {
+    expect(MAX_REVIEW_PART_KEY_CHARS).toBe(512);
+    for (const d of [
+      { status: 'approved' },
+      { status: 'rejected', comment: '理由' },
+      { status: 'pending' },
+    ]) {
+      expect(ok([{ ...d, partKey: 'k'.repeat(512) }])).toBe(true);
+      expect(ok([{ ...d, partKey: 'k'.repeat(513) }])).toBe(false);
+    }
   });
   it('長すぎる却下の理由は拒む', () => {
     const rej = (comment: string) => ok([{ partKey: 'a#0', status: 'rejected', comment }]);

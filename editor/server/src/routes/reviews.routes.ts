@@ -27,6 +27,23 @@ function actor(req: FastifyRequest): ReviewActor {
   return { username: actorOf(req), role: req.user?.role ?? 'admin' };
 }
 
+/** 判定の一括変更の監査ログに載せるキーの件数(先頭から)。 */
+const AUDIT_PART_KEYS_HEAD = 20;
+
+/**
+ * 判定の一括変更の監査ログに載せるキー。一括変更は `MAX_TOP_LEVEL_BLOCKS` 件まで受けるので、
+ * 全キーを 1 行に載せず、件数と先頭 `AUDIT_PART_KEYS_HEAD` 件だけにする。
+ */
+export function partKeysAudit(decisions: readonly { partKey: string }[]): {
+  partKeyCount: number;
+  partKeys: string[];
+} {
+  return {
+    partKeyCount: decisions.length,
+    partKeys: decisions.slice(0, AUDIT_PART_KEYS_HEAD).map((d) => d.partKey),
+  };
+}
+
 // `:reqId` を持つルートで共有する params 型(RouteGeneric に渡してキャストを消す)。
 type ReqIdParams = { Params: { reqId: string } };
 
@@ -84,15 +101,15 @@ export const reviewsRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'reviews'> }> 
     async (request) => {
       const reqId = request.params.reqId;
       const body = request.body;
-      const partKeys = body.decisions.map((d) => d.partKey);
+      const keys = partKeysAudit(body.decisions);
 
       return auditedRethrow(
         request,
         'review.part-decisions',
         () => reviews.updatePartDecisions(reqId, body, actor(request)),
         {
-          success: () => ({ resource: { reqId, partKeys } }),
-          failure: () => ({ resource: { reqId, partKeys } }),
+          success: () => ({ resource: { reqId, ...keys } }),
+          failure: () => ({ resource: { reqId, ...keys } }),
           failureMessage: 'part decisions update failed',
         },
       );

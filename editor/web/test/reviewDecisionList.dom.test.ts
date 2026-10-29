@@ -171,6 +171,15 @@ describe('ReviewDecisionList — 行と判定', () => {
     expect(r.find('del').element.textContent).toBe('x  \n y');
   });
 
+  it('変わらない部分の全角空白(U+3000)・NBSP は詰めずに残す(本文の字下げは意味のある字)', () => {
+    const [ideo, nbsp] = [String.fromCharCode(0x3000), String.fromCharCode(0xa0)];
+    const text = `${ideo}${ideo}字下げ${nbsp}${nbsp}の段落   末尾`;
+    const w = mountList({ changes: [change(1, { textOps: [{ type: 'same', text }] })] });
+    expect(row(w, 1).find('p span').element.textContent).toBe(
+      `${ideo}${ideo}字下げ${nbsp}${nbsp}の段落 末尾`,
+    );
+  });
+
   it('粗い差分の行には注記を出す', () => {
     const w = mountList({ changes: [change(1, { coarse: true }), change(2)] });
     expect(row(w, 1).text()).toContain(

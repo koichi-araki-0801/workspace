@@ -128,10 +128,13 @@ export interface PreviewMarks {
  */
 export const PREVIEW_MAX_PART_KEYS = 5_000;
 
-/** 正規形だけ通す(`'01'` と `'1'` が同じ番号の別キーとして二重に通らないように)。 */
-const PART_NO_RE = /^(0|[1-9]\d{0,4})$/;
+/**
+ * 正規形だけ通す(`'01'` と `'1'` が同じ番号の別キーとして二重に通らないように)。番号は 1 から
+ * 振る(`numberChangedParts`)ので `'0'` も通さない。
+ */
+const PART_NO_RE = /^[1-9]\d{0,4}$/;
 
-/** パーツの番号の文字列(1〜5 桁の数字の正規形。先頭の 0 は `'0'` だけ)か。 */
+/** パーツの番号の文字列(1 始まりの 1〜5 桁の数字の正規形)か。 */
 export function isPreviewPartNo(v: unknown): v is string {
   return typeof v === 'string' && PART_NO_RE.test(v);
 }

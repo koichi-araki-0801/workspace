@@ -408,6 +408,11 @@ export const ReviewStatus = z
  * 送る前に止める(契約で拒まれる理由を書かせ切らない)。
  */
 export const MAX_PART_REJECT_REASON_CHARS = 2000;
+/**
+ * パーツ判定の `partKey` の最大長。実物は `<アンカー>#<通し番号>` で数十文字。判定は申請の
+ * ファイルへ保存し監査ログにも載るので、本文に無いキーをいくらでも長く書かせない。
+ */
+export const MAX_REVIEW_PART_KEY_CHARS = 512;
 
 /** review内のパーツ1件に対する現在の判定状態。 */
 export const ReviewPartDecisionStatus = z
@@ -476,13 +481,13 @@ export const ReviewPartDecision = z
 export const ReviewPartDecisionChange = z
   .discriminatedUnion('status', [
     z.object({
-      partKey: z.string().min(1).meta({
+      partKey: z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
         description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
       }),
       status: z.literal('approved'),
     }),
     z.object({
-      partKey: z.string().min(1).meta({
+      partKey: z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
         description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
       }),
       status: z.literal('rejected'),
@@ -492,7 +497,7 @@ export const ReviewPartDecisionChange = z
         .meta({ description: 'パーツの却下理由' }),
     }),
     z.object({
-      partKey: z.string().min(1).meta({
+      partKey: z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
         description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
       }),
       status: z.literal('pending'),

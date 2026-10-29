@@ -657,3 +657,16 @@ d('review workflow (HTTP routes)', () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+// 判定の一括変更は 5,000 件まで受けるので、監査ログの 1 行に全キーを載せない。件数と先頭だけ。
+describe('partKeysAudit(判定の一括変更の監査ログに載せるキー)', () => {
+  it('件数と先頭 20 件だけを返す', async () => {
+    const { partKeysAudit } = await import('../src/routes/reviews.routes.js');
+    const keys = Array.from({ length: 25 }, (_, i) => `k#${i + 1}`);
+    expect(partKeysAudit(keys.map((partKey) => ({ partKey })))).toEqual({
+      partKeyCount: 25,
+      partKeys: keys.slice(0, 20),
+    });
+    expect(partKeysAudit([{ partKey: 'a#1' }])).toEqual({ partKeyCount: 1, partKeys: ['a#1'] });
+  });
+});

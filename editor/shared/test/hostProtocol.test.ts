@@ -34,11 +34,12 @@ describe('previewHostAssetUrl — 論理パス → プレビューホストの�
 });
 
 describe('isPreviewPartNo', () => {
-  it('isPreviewPartNo は 1〜5 桁の数字の正規形だけ(先頭の 0 は 0 だけ)', () => {
-    for (const ok of ['0', '7', '12345', '99999']) expect(isPreviewPartNo(ok)).toBe(true);
-    // '01' と '1' が別のキーとして二重に通らないよう、先頭に 0 を持つ形は拒む。
+  it('isPreviewPartNo は 1 始まりの 1〜5 桁の数字の正規形だけ(番号は 1 から振る)', () => {
+    for (const ok of ['1', '7', '12345', '99999']) expect(isPreviewPartNo(ok)).toBe(true);
+    // '01' と '1' が別のキーとして二重に通らないよう、先頭に 0 を持つ形は拒む。'0' は振らない番号。
     for (const ng of [
       '',
+      '0',
       '123456',
       '-1',
       '1.5',
@@ -82,7 +83,7 @@ describe('parsePreviewMarks', () => {
     ).toBeNull();
     expect(parsePreviewMarks({ ...base, selected: '01' })).toBeNull();
     const many = (n: number) =>
-      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i), 'pending']));
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i + 1), 'pending']));
     expect(parsePreviewMarks({ ...base, states: many(PREVIEW_MAX_PART_KEYS) })).not.toBeNull();
     expect(parsePreviewMarks({ ...base, states: many(PREVIEW_MAX_PART_KEYS + 1) })).toBeNull();
   });
@@ -114,7 +115,7 @@ describe('parsePreviewPartPages', () => {
     expect(parsePreviewPartPages(JSON.parse('{"__proto__":1}'))).toBeNull();
     expect(parsePreviewPartPages({ '01': 1 })).toBeNull();
     const many = (n: number) =>
-      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i), 0]));
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i + 1), 0]));
     expect(parsePreviewPartPages(many(PREVIEW_MAX_PART_KEYS))).not.toBeNull();
     expect(parsePreviewPartPages(many(PREVIEW_MAX_PART_KEYS + 1))).toBeNull();
   });

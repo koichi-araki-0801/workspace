@@ -3387,6 +3387,7 @@
               "partKey": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 512,
                 "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
               },
               "status": {
@@ -3405,6 +3406,7 @@
               "partKey": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 512,
                 "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
               },
               "status": {
@@ -3430,6 +3432,7 @@
               "partKey": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 512,
                 "description": "文書全体でのパーツ構造キー(<アンカー>#<通し番号>)"
               },
               "status": {

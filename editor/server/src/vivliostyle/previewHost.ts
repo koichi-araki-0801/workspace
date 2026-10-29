@@ -189,7 +189,7 @@ async function viewerBundle(): Promise<string> {
 export const BOOT_MARKS_PARSER = `
   var MAX_MARK_KEYS=${JSON.stringify(PREVIEW_MAX_PART_KEYS)};
   // 番号は正規形だけ通す(shared の isPreviewPartNo と同じ規則)。
-  var PART_NO_RE=/^(0|[1-9][0-9]{0,4})$/;
+  var PART_NO_RE=/^[1-9][0-9]{0,4}$/;
   function isPlain(v){return !!v&&typeof v==='object'&&!Array.isArray(v);}
   function parseMarks(v){
     if(!isPlain(v)||!isPlain(v.states)||typeof v.visible!=='boolean')return null;

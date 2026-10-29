@@ -249,6 +249,28 @@ describe('extractReviewParts', () => {
       ).toThrow('Jinja原文と値入りHTMLのパーツ構造が一致しません');
     });
 
+    it('本文に無いパーツの pending(取り消しで残った判定)は数えず、承認・却下は今どおり拒否する', () => {
+      const known = [
+        { partKey: 'cover#1', status: 'approved' },
+        { partKey: 'cost#1', status: 'rejected' },
+        { partKey: 'note#1', status: 'approved' },
+      ] as const;
+      expect(() =>
+        buildCreateReviewedHtml(sourceHtml, filledHtml, [
+          ...known,
+          { partKey: 'gone#1', status: 'pending' },
+        ]),
+      ).not.toThrow();
+      for (const status of ['approved', 'rejected'] as const) {
+        expect(() =>
+          buildCreateReviewedHtml(sourceHtml, filledHtml, [
+            ...known,
+            { partKey: 'gone#1', status },
+          ]),
+        ).toThrow('現在の本文に存在しないパーツ判定があります: gone#1');
+      }
+    });
+
     it('未判定パーツがあれば拒否する', () => {
       expect(() =>
         buildCreateReviewedHtml(sourceHtml, filledHtml, [
