@@ -40,21 +40,32 @@ interface FakeBuild {
  * 立てるのと同じ形)。予約はポートを押さえっぱなしにしないので、ここで bind できる。
  */
 async function startFakeBuild(body: string): Promise<FakeBuild> {
-  const reservation = await reserveBuildOrigin();
-  const origin = http.createServer((_req, res) => {
-    res.statusCode = 200;
-    res.end(body);
-  });
-  await new Promise<void>((resolve, reject) => {
-    origin.once('error', reject);
-    origin.listen(reservation.port, '127.0.0.1', () => resolve());
-  });
-  return {
-    reservation,
-    proxyUrl: new URL(reservation.proxyServer),
-    originPort: (origin.address() as AddressInfo).port,
-    origin,
-  };
+  // 予約は空きを確かめた番地を返すだけで、bind までの間に並列の別のテストファイルが同じ
+  // ephemeral の番地を取ることがある(CI の Linux で EADDRINUSE になった)。その時だけ枠を
+  // 返して取り直す。
+  for (let attempt = 1; ; attempt++) {
+    const reservation = await reserveBuildOrigin();
+    const origin = http.createServer((_req, res) => {
+      res.statusCode = 200;
+      res.end(body);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        origin.once('error', reject);
+        origin.listen(reservation.port, '127.0.0.1', () => resolve());
+      });
+    } catch (e) {
+      reservation.release();
+      if (attempt < 5 && (e as NodeJS.ErrnoException).code === 'EADDRINUSE') continue;
+      throw e;
+    }
+    return {
+      reservation,
+      proxyUrl: new URL(reservation.proxyServer),
+      originPort: (origin.address() as AddressInfo).port,
+      origin,
+    };
+  }
 }
 
 async function stopFakeBuild(build: FakeBuild): Promise<void> {
