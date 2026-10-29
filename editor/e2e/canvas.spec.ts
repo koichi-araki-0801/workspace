@@ -685,11 +685,12 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が�
   if (notifyAt === undefined) throw new Error('編集のあとの変更の通知が記録されていない');
   const shownAt = markerAt.find((t) => t > notifyAt);
   if (shownAt === undefined) throw new Error('目印の出現の時刻が記録されていない');
-  // 目印を出した計算の始まり(目印より前で最後のもの)。
-  const runAt = appMarks.runAt.filter((t) => t > notifyAt && t < shownAt).at(-1);
-  if (runAt === undefined) throw new Error('予約の満了で計算を始めた時刻が記録されていない');
+  // 目印を出した計算(worker へ投げた記録)と、その直前に打たれた計算の始まりの目印を対で選ぶ。
+  // 目印は計算を始める直前に打つので、worker へ投げた時刻より前で最後のものがその計算の始まり。
   const run = runs.filter((r) => r.start > notifyAt && r.start < shownAt).at(-1);
   if (!run || run.end === undefined) throw new Error('編集のあとの番号の計算が記録されていない');
+  const runAt = appMarks.runAt.filter((t) => t > notifyAt && t <= run.start).at(-1);
+  if (runAt === undefined) throw new Error('予約の満了で計算を始めた時刻が記録されていない');
   const notifyToMarker = shownAt - notifyAt;
   const measured = shownAt - runAt;
   const summary =

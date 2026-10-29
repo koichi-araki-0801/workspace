@@ -5,6 +5,7 @@
 // spec ごとにわずかに異なる実装で重複していた。fixtures の運用(ログインID = パスワード)は
 // 全 spec で共通なので、ユーザー名だけ渡せば足りる形にまとめる。
 import {
+  type BrowserContextOptions,
   expect,
   type FrameLocator,
   type Locator,
@@ -51,29 +52,35 @@ export async function expectStays<T>(
   expect((await read()) as unknown, message).toEqual(expected);
 }
 
+/** `contextOptionsOf` が引き継ぐ、コンテキストの設定の名前。 */
+const CONTEXT_OPTION_KEYS = [
+  'baseURL',
+  'viewport',
+  'userAgent',
+  'deviceScaleFactor',
+  'isMobile',
+  'hasTouch',
+  'locale',
+  'timezoneId',
+  'colorScheme',
+  'extraHTTPHeaders',
+  'ignoreHTTPSErrors',
+  'javaScriptEnabled',
+  'permissions',
+  'geolocation',
+] as const satisfies readonly (keyof BrowserContextOptions)[];
+
 /**
  * 手で作るブラウザコンテキスト(`browser.newContext`)へ、project の `use` のうちコンテキストの
  * 設定(baseURL・画面の幅・端末・言語・時間帯など)を引き継ぐ。手で作るコンテキストには config の
  * `use` が付かない。
  */
-export function contextOptionsOf(use: Record<string, unknown>): Record<string, unknown> {
-  const keys = [
-    'baseURL',
-    'viewport',
-    'userAgent',
-    'deviceScaleFactor',
-    'isMobile',
-    'hasTouch',
-    'locale',
-    'timezoneId',
-    'colorScheme',
-    'extraHTTPHeaders',
-    'ignoreHTTPSErrors',
-    'javaScriptEnabled',
-    'permissions',
-    'geolocation',
-  ];
-  return Object.fromEntries(keys.filter((k) => use[k] !== undefined).map((k) => [k, use[k]]));
+export function contextOptionsOf(
+  use: Partial<Record<(typeof CONTEXT_OPTION_KEYS)[number], unknown>>,
+): Pick<BrowserContextOptions, (typeof CONTEXT_OPTION_KEYS)[number]> {
+  return Object.fromEntries(
+    CONTEXT_OPTION_KEYS.filter((k) => use[k] !== undefined).map((k) => [k, use[k]]),
+  ) as Pick<BrowserContextOptions, (typeof CONTEXT_OPTION_KEYS)[number]>;
 }
 
 /**

@@ -376,9 +376,7 @@ test.describe('申請カードの操作', () => {
     const item = await openPartialReview(page);
     // 2 人目(admin も承認者)は別のブラウザコンテキストで同じ申請を開く。手で作るコンテキストには
     // config の `use` が付かないので、project の設定のうちコンテキストの分を引き継ぐ。
-    const other = await browser.newContext(
-      contextOptionsOf(test.info().project.use as Record<string, unknown>),
-    );
+    const other = await browser.newContext(contextOptionsOf(test.info().project.use));
     try {
       const page2 = await other.newPage();
       await login(page2, 'admin');
