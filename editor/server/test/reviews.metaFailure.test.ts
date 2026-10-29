@@ -115,14 +115,14 @@ d('review approve — meta 更新の部分失敗', () => {
 
   it('まとめた判定でも meta の書き込みは 1 回だけ', async () => {
     const tplId = 'XX01_333333_20250101_交付版';
-    const meta = await submit(tplId, '<p>まとめて判定</p>');
+    const meta = await submit(tplId, '<p>まとめて判定</p><div>二</div><section>三</section>');
     metaFail.calls = 0;
     await reviews.updatePartDecisions(
       meta.id,
       {
         decisions: [
-          { partKey: 'a#1', status: 'approved' },
-          { partKey: 'b#1', status: 'rejected', comment: '戻す' },
+          { partKey: 'div#1', status: 'approved' },
+          { partKey: 'section#1', status: 'rejected', comment: '戻す' },
           { partKey: 'p#1', status: 'pending' },
         ],
       },
@@ -133,14 +133,14 @@ d('review approve — meta 更新の部分失敗', () => {
 
   it('meta の書き込みが失敗したら、どの判定も残らない', async () => {
     const tplId = 'XX01_444444_20250101_交付版';
-    const meta = await submit(tplId, '<p>書き込み失敗</p>');
+    const meta = await submit(tplId, '<p>書き込み失敗</p><div>二</div>');
     metaFail.remaining = 1;
     await expect(
       reviews.updatePartDecisions(
         meta.id,
         {
           decisions: [
-            { partKey: 'a#1', status: 'approved' },
+            { partKey: 'div#1', status: 'approved' },
             { partKey: 'p#1', status: 'pending' },
           ],
         },

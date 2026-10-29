@@ -737,7 +737,10 @@ d('review workflow (reviewRepo)', () => {
 
   // ── edit 申請の最終確定: 画面と同じ差分で検査し、却下したパーツだけを現行版へ戻す ──
   describe('パーツ判定をまとめて保存する(updatePartDecisions)', () => {
-    const fresh = async (tplId: string) => (await submit(tplId, `<p>${tplId} 判定</p>`)).id;
+    // 既存の値入り(`<p>`)に対し、`p#1` を変え、`div#1`・`section#1` を足した申請。判定できる
+    // キーはこの 3 つ(差分に無いキーの判定は保存の段で拒む)。
+    const fresh = async (tplId: string) =>
+      (await submit(tplId, `<p>${tplId} 判定</p><div>二</div><section>三</section>`)).id;
     const decisionsOf = async (reqId: string) =>
       (await reviews.getReview(reqId, approver)).partDecisions ?? [];
 
@@ -747,26 +750,26 @@ d('review workflow (reviewRepo)', () => {
         id,
         {
           decisions: [
-            { partKey: 'a#1', status: 'approved' },
-            { partKey: 'b#1', status: 'rejected', comment: '数字が違う' },
+            { partKey: 'p#1', status: 'approved' },
+            { partKey: 'div#1', status: 'rejected', comment: '数字が違う' },
           ],
         },
         approver,
       );
       // 入力の順に、更新後の判定を返す。
       expect(saved.map((d) => [d.partKey, d.status])).toEqual([
-        ['a#1', 'approved'],
-        ['b#1', 'rejected'],
+        ['p#1', 'approved'],
+        ['div#1', 'rejected'],
       ]);
       const stored = await decisionsOf(id);
       expect(stored).toHaveLength(2);
-      expect(stored.find((d) => d.partKey === 'a#1')).toMatchObject({
+      expect(stored.find((d) => d.partKey === 'p#1')).toMatchObject({
         status: 'approved',
         decidedBy: 'approver1',
         comment: null,
         history: [{ from: 'pending', to: 'approved', changedBy: 'approver1', comment: null }],
       });
-      expect(stored.find((d) => d.partKey === 'b#1')).toMatchObject({
+      expect(stored.find((d) => d.partKey === 'div#1')).toMatchObject({
         status: 'rejected',
         comment: '数字が違う',
         history: [{ from: 'pending', to: 'rejected', comment: '数字が違う' }],
@@ -777,16 +780,16 @@ d('review workflow (reviewRepo)', () => {
       const id = await fresh('XX01_720002_20250101_交付版');
       await reviews.updatePartDecisions(
         id,
-        { decisions: [{ partKey: 'a#1', status: 'rejected', comment: '戻す' }] },
+        { decisions: [{ partKey: 'p#1', status: 'rejected', comment: '戻す' }] },
         approver,
       );
       const [undone] = await reviews.updatePartDecisions(
         id,
-        { decisions: [{ partKey: 'a#1', status: 'pending' }] },
+        { decisions: [{ partKey: 'p#1', status: 'pending' }] },
         approver,
       );
       expect(undone).toMatchObject({
-        partKey: 'a#1',
+        partKey: 'p#1',
         status: 'pending',
         decidedBy: null,
         decidedAt: null,
@@ -800,40 +803,98 @@ d('review workflow (reviewRepo)', () => {
       // 取り消したあとは、もう一度判定できる。
       const [again] = await reviews.updatePartDecisions(
         id,
-        { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+        { decisions: [{ partKey: 'p#1', status: 'approved' }] },
         approver,
       );
       expect(again?.history).toHaveLength(3);
+    });
+
+    it('申請の差分に無いパーツの承認・却下は 400 で、何も保存しない', async () => {
+      const id = await fresh('XX01_720010_20250101_交付版');
+      const input = {
+        decisions: [
+          { partKey: 'p#1', status: 'approved' as const },
+          { partKey: 'nope#1', status: 'rejected' as const, comment: '無いパーツ' },
+        ],
+      };
+      await expect(reviews.updatePartDecisions(id, input, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: '申請の差分に無いパーツの判定があります: nope#1。画面を読み直してください。',
+      });
+      expect(await decisionsOf(id)).toEqual([]);
+    });
+
+    it('作成経路も、申請の本文に無いパーツの判定は 400', async () => {
+      const tplId = 'XX01_720011_交付版';
+      const meta = await reviews.submitReview(
+        {
+          templateId: tplId,
+          html: '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+          css: '.x{}',
+          origin: 'create',
+          filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
+        },
+        submitter,
+      );
+      await expect(
+        reviews.updatePartDecisions(
+          meta.id,
+          { decisions: [{ partKey: 'other#1', status: 'approved' }] },
+          approver,
+        ),
+      ).rejects.toMatchObject({ kind: 'validation' });
+      const [saved] = await reviews.updatePartDecisions(
+        meta.id,
+        { decisions: [{ partKey: 's#1', status: 'approved' }] },
+        approver,
+      );
+      expect(saved?.status).toBe('approved');
+    });
+
+    it('同じ partKey が 2 回あれば、schema を通らない呼び手からでも 400 相当で何も保存しない', async () => {
+      const id = await fresh('XX01_720009_20250101_交付版');
+      const input = {
+        decisions: [
+          { partKey: 'p#1', status: 'approved' as const },
+          { partKey: 'div#1', status: 'approved' as const },
+          { partKey: 'p#1', status: 'rejected' as const, comment: '二重' },
+        ],
+      };
+      await expect(reviews.updatePartDecisions(id, input, approver)).rejects.toMatchObject({
+        kind: 'validation',
+        message: '同じパーツの判定が 1 回の保存に複数あります: p#1',
+      });
+      expect(await decisionsOf(id)).toEqual([]);
     });
 
     it('許さない遷移が 1 件でもあれば何も保存しない', async () => {
       const id = await fresh('XX01_720003_20250101_交付版');
       await reviews.updatePartDecisions(
         id,
-        { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+        { decisions: [{ partKey: 'p#1', status: 'approved' }] },
         approver,
       );
       const input = {
         decisions: [
-          { partKey: 'b#1', status: 'approved' as const },
-          { partKey: 'a#1', status: 'rejected' as const, comment: '承認済みを直接却下' },
+          { partKey: 'div#1', status: 'approved' as const },
+          { partKey: 'p#1', status: 'rejected' as const, comment: '承認済みを直接却下' },
         ],
       };
       await expect(reviews.updatePartDecisions(id, input, approver)).rejects.toMatchObject({
         kind: 'conflict',
         code: 'REVIEW_PART_DECISION_TRANSITION',
-        message: '許されていない判定の変更があります: a#1。画面を読み直してください。',
+        message: '許されていない判定の変更があります: p#1。画面を読み直してください。',
       });
       const stored = await decisionsOf(id);
-      expect(stored.find((d) => d.partKey === 'b#1')).toBeUndefined();
-      expect(stored.find((d) => d.partKey === 'a#1')?.status).toBe('approved');
+      expect(stored.find((d) => d.partKey === 'div#1')).toBeUndefined();
+      expect(stored.find((d) => d.partKey === 'p#1')?.status).toBe('approved');
     });
 
     it('未判定の取り消しと同じ判定の再送は許さない遷移', async () => {
       const id = await fresh('XX01_720004_20250101_交付版');
       await reviews.updatePartDecisions(
         id,
-        { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+        { decisions: [{ partKey: 'p#1', status: 'approved' }] },
         approver,
       );
       await expect(
@@ -841,15 +902,15 @@ d('review workflow (reviewRepo)', () => {
           id,
           {
             decisions: [
-              { partKey: 'c#1', status: 'pending' },
-              { partKey: 'a#1', status: 'approved' },
+              { partKey: 'section#1', status: 'pending' },
+              { partKey: 'p#1', status: 'approved' },
             ],
           },
           approver,
         ),
       ).rejects.toMatchObject({
         code: 'REVIEW_PART_DECISION_TRANSITION',
-        message: '許されていない判定の変更があります: c#1, a#1。画面を読み直してください。',
+        message: '許されていない判定の変更があります: section#1, p#1。画面を読み直してください。',
       });
       expect(await decisionsOf(id)).toHaveLength(1);
     });
@@ -860,7 +921,7 @@ d('review workflow (reviewRepo)', () => {
       await expect(
         reviews.updatePartDecisions(
           id,
-          { decisions: [{ partKey: 'a#1', status: 'approved' }] },
+          { decisions: [{ partKey: 'p#1', status: 'approved' }] },
           approver,
         ),
       ).rejects.toMatchObject({
@@ -880,7 +941,7 @@ d('review workflow (reviewRepo)', () => {
 
     it('権限と職務分掌は今どおり(editor は 403、自分の申請は 403)', async () => {
       const id = await fresh('XX01_720006_20250101_交付版');
-      const one = { decisions: [{ partKey: 'a#1', status: 'approved' as const }] };
+      const one = { decisions: [{ partKey: 'p#1', status: 'approved' as const }] };
       await expect(reviews.updatePartDecisions(id, one, submitter)).rejects.toMatchObject({
         kind: 'forbidden',
       });
@@ -989,7 +1050,16 @@ d('review workflow (reviewRepo)', () => {
         message: expect.stringMatching(/未判定の変更が 2 件.*added#1, gone#1.*画面を再読み込み/),
       });
 
-      await decide(meta.id, { 'added#1': 'approved', 'gone#1': 'approved', 'nope#1': 'approved' });
+      await decide(meta.id, { 'added#1': 'approved', 'gone#1': 'approved' });
+      // 差分に無いキーの判定は保存の段で拒むので、申請のファイルへ直接書いて最終確定の検査を見る
+      // (照合の入る前に保存された申請を模す)。
+      const { updateReviewMeta, readReview } = await import('../src/files/reviewFiles.js');
+      const decided = (await readReview(meta.id))?.partDecisions ?? [];
+      const added = decided.find((p) => p.partKey === 'added#1');
+      if (added === undefined) throw new Error('added#1 not saved');
+      await updateReviewMeta(meta.id, {
+        partDecisions: [...decided, { ...added, partKey: 'nope#1' }],
+      });
       await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
         kind: 'validation',
         message: expect.stringContaining(
@@ -997,7 +1067,6 @@ d('review workflow (reviewRepo)', () => {
         ),
       });
 
-      const { updateReviewMeta, readReview } = await import('../src/files/reviewFiles.js');
       const stored = await readReview(meta.id);
       const cover = stored?.partDecisions?.find((p) => p.partKey === 'cover#1');
       await updateReviewMeta(meta.id, {

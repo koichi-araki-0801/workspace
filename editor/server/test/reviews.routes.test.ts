@@ -230,12 +230,12 @@ d('review workflow (HTTP routes)', () => {
     const otherReqId = otherRequest.json().id as string;
 
     const approvedByApprover = await decide(otherReqId, asUser('approver1', 'approver'), [
-      { partKey: 'page:0/p#1', status: 'approved' },
+      { partKey: 'p#1', status: 'approved' },
     ]);
     expect(approvedByApprover.statusCode).toBe(200);
     expect(approvedByApprover.json()).toMatchObject([
       {
-        partKey: 'page:0/p#1',
+        partKey: 'p#1',
         status: 'approved',
         decidedBy: 'approver1',
         comment: null,
@@ -244,7 +244,7 @@ d('review workflow (HTTP routes)', () => {
 
     for (const role of ['editor', 'viewer']) {
       const forbidden = await decide(otherReqId, asUser(`${role}1`, role), [
-        { partKey: `page:0/${role}#1`, status: 'approved' },
+        { partKey: 'p#1', status: 'approved' },
       ]);
       expect(forbidden.statusCode).toBe(403);
     }
@@ -257,7 +257,7 @@ d('review workflow (HTTP routes)', () => {
     expect(approverRequest.statusCode).toBe(200);
 
     const approverSelf = await decide(approverRequest.json().id, asUser('approver1', 'approver'), [
-      { partKey: 'page:0/p#1', status: 'approved' },
+      { partKey: 'p#1', status: 'approved' },
     ]);
     expect(approverSelf.statusCode).toBe(403);
 
@@ -269,7 +269,7 @@ d('review workflow (HTTP routes)', () => {
     expect(adminRequest.statusCode).toBe(200);
 
     const adminSelf = await decide(adminRequest.json().id, asUser('admin1', 'admin'), [
-      { partKey: 'page:0/p#1', status: 'approved' },
+      { partKey: 'p#1', status: 'approved' },
     ]);
     expect(adminSelf.statusCode).toBe(200);
     expect(adminSelf.json()).toMatchObject([{ status: 'approved', decidedBy: 'admin1' }]);
@@ -378,7 +378,7 @@ d('review workflow (HTTP routes)', () => {
     expect(approved.statusCode).toBe(200);
 
     const changed = await decide(reqId, asUser('approver1', 'approver'), [
-      { partKey: 'page:0/p#1', status: 'approved' },
+      { partKey: 'p#1', status: 'approved' },
     ]);
     expect(changed.statusCode).toBe(409);
     expect(changed.json().code).toBe('REVIEW_ALREADY_DECIDED');
@@ -387,17 +387,15 @@ d('review workflow (HTTP routes)', () => {
     const submitted = await submit(
       asUser('editor1', 'editor'),
       'XX01_688885_20250101_交付版',
-      '<p>並行更新対象</p>',
+      '<p>並行更新対象</p><div>2件目</div>',
     );
     expect(submitted.statusCode).toBe(200);
     const reqId = submitted.json().id as string;
 
     const [approved, rejected] = await Promise.all([
+      decide(reqId, asUser('approver1', 'approver'), [{ partKey: 'p#1', status: 'approved' }]),
       decide(reqId, asUser('approver1', 'approver'), [
-        { partKey: 'page:0/p#1', status: 'approved' },
-      ]),
-      decide(reqId, asUser('approver1', 'approver'), [
-        { partKey: 'page:0/p#2', status: 'rejected', comment: '2件目は修正が必要' },
+        { partKey: 'div#1', status: 'rejected', comment: '2件目は修正が必要' },
       ]),
     ]);
 
@@ -421,12 +419,12 @@ d('review workflow (HTTP routes)', () => {
     expect(decisions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          partKey: 'page:0/p#1',
+          partKey: 'p#1',
           status: 'approved',
           comment: null,
         }),
         expect.objectContaining({
-          partKey: 'page:0/p#2',
+          partKey: 'div#1',
           status: 'rejected',
           comment: '2件目は修正が必要',
         }),
@@ -443,21 +441,21 @@ d('review workflow (HTTP routes)', () => {
     const reqId = submitted.json().id as string;
 
     const approver = asUser('approver1', 'approver');
-    const approved = await decide(reqId, approver, [{ partKey: 'page:0/p#1', status: 'approved' }]);
+    const approved = await decide(reqId, approver, [{ partKey: 'p#1', status: 'approved' }]);
     expect(approved.statusCode).toBe(200);
     // 承認済みから直接は却下できない。取り消して(pending)から却下する。
     const direct = await decide(reqId, approver, [
-      { partKey: 'page:0/p#1', status: 'rejected', comment: '判定変更後の却下理由' },
+      { partKey: 'p#1', status: 'rejected', comment: '判定変更後の却下理由' },
     ]);
     expect(direct.statusCode).toBe(409);
     expect(direct.json()).toMatchObject({
       code: 'REVIEW_PART_DECISION_TRANSITION',
-      message: '許されていない判定の変更があります: page:0/p#1。画面を読み直してください。',
+      message: '許されていない判定の変更があります: p#1。画面を読み直してください。',
     });
-    const undone = await decide(reqId, approver, [{ partKey: 'page:0/p#1', status: 'pending' }]);
+    const undone = await decide(reqId, approver, [{ partKey: 'p#1', status: 'pending' }]);
     expect(undone.statusCode).toBe(200);
     const rejected = await decide(reqId, approver, [
-      { partKey: 'page:0/p#1', status: 'rejected', comment: '判定変更後の却下理由' },
+      { partKey: 'p#1', status: 'rejected', comment: '判定変更後の却下理由' },
     ]);
     expect(rejected.statusCode).toBe(200);
 
@@ -486,7 +484,7 @@ d('review workflow (HTTP routes)', () => {
 
     expect(review.partDecisions).toHaveLength(1);
     expect(review.partDecisions?.[0]).toMatchObject({
-      partKey: 'page:0/p#1',
+      partKey: 'p#1',
       status: 'rejected',
       comment: '判定変更後の却下理由',
       history: [
@@ -519,8 +517,8 @@ d('review workflow (HTTP routes)', () => {
     );
     const reqId = submitted.json().id as string;
     const res = await decide(reqId, asUser('approver1', 'approver'), [
-      { partKey: 'page:0/p#1', status: 'approved' },
-      { partKey: 'page:0/p#1', status: 'rejected', comment: '同じキー' },
+      { partKey: 'p#1', status: 'approved' },
+      { partKey: 'p#1', status: 'rejected', comment: '同じキー' },
     ]);
     expect(res.statusCode).toBe(400);
     const reread = await app.inject({
@@ -584,8 +582,14 @@ d('review workflow (HTTP routes)', () => {
     const tplId = 'XX01_667777_20250101_交付版';
     const sub = await submit(asUser('editor1', 'editor'), tplId, '<p>理由なしの却下</p>');
     const reqId = sub.json().id;
-    // 空ボディ・空文字・空白のみは、いずれも「理由を書いた」ことにならない。
-    for (const payload of [{}, { comment: '' }, { comment: '   ' }]) {
+    // 空ボディ・空文字・空白のみは、いずれも「理由を書いた」ことにならない。2,000 単位を超える
+    // 理由も拒む(申請のファイルと監査ログに残るため)。
+    for (const payload of [
+      {},
+      { comment: '' },
+      { comment: '   ' },
+      { comment: 'あ'.repeat(2001) },
+    ]) {
       const res = await app.inject({
         method: 'POST',
         url: `/review-requests/${reqId}/reject`,

@@ -409,10 +409,23 @@ export const ReviewStatus = z
  */
 export const MAX_PART_REJECT_REASON_CHARS = 2000;
 /**
+ * 申請ごと却下の理由の最大長(UTF-16 単位)。パーツの却下の理由と同じ値・同じ数え方で、承認タブの
+ * 申請ごと却下の理由欄も同じ値で送る前に止める。理由は申請のファイルと監査ログに残るので縛る。
+ */
+export const MAX_REVIEW_REJECT_REASON_CHARS = MAX_PART_REJECT_REASON_CHARS;
+/**
  * パーツ判定の `partKey` の最大長。実物は `<アンカー>#<通し番号>` で数十文字。判定は申請の
  * ファイルへ保存し監査ログにも載るので、本文に無いキーをいくらでも長く書かせない。
  */
 export const MAX_REVIEW_PART_KEY_CHARS = 512;
+
+/** 保存済みのパーツ判定の `partKey`(review 内で一意)。3 つの状態で同じ定義を使う。 */
+const ReviewPartKey = z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' });
+
+/** 判定の変更で受ける `partKey`。長さの上限を 3 つの状態で同じ定義に揃える。 */
+const ReviewPartKeyInput = z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
+  description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
+});
 
 /** review内のパーツ1件に対する現在の判定状態。 */
 export const ReviewPartDecisionStatus = z
@@ -448,7 +461,7 @@ export const ReviewPartDecisionHistoryEntry = z
 export const ReviewPartDecision = z
   .discriminatedUnion('status', [
     z.object({
-      partKey: z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' }),
+      partKey: ReviewPartKey,
       status: z.literal('pending'),
       decidedBy: z.null(),
       decidedAt: z.null(),
@@ -456,15 +469,22 @@ export const ReviewPartDecision = z
       history: z.array(ReviewPartDecisionHistoryEntry),
     }),
     z.object({
-      partKey: z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' }),
+      partKey: ReviewPartKey,
       status: z.literal('approved'),
       decidedBy: z.string().min(1).meta({ description: '最後に判定したユーザ' }),
       decidedAt: z.string().meta({ description: '最後に判定したISOタイムスタンプ' }),
-      comment: z.string().nullable().meta({ description: '現在の承認メモ。無ければnull' }),
+      comment: z
+        .string()
+        .nullable()
+        .meta({
+          description:
+            '承認メモ。いまの API は承認のメモを受けないので新しい判定では null' +
+            '(旧 API で保存したものは残る)',
+        }),
       history: z.array(ReviewPartDecisionHistoryEntry),
     }),
     z.object({
-      partKey: z.string().min(1).meta({ description: 'review内で一意なパーツ識別子' }),
+      partKey: ReviewPartKey,
       status: z.literal('rejected'),
       decidedBy: z.string().min(1).meta({ description: '最後に判定したユーザ' }),
       decidedAt: z.string().meta({ description: '最後に判定したISOタイムスタンプ' }),
@@ -481,25 +501,22 @@ export const ReviewPartDecision = z
 export const ReviewPartDecisionChange = z
   .discriminatedUnion('status', [
     z.object({
-      partKey: z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
-        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
-      }),
+      partKey: ReviewPartKeyInput,
       status: z.literal('approved'),
     }),
     z.object({
-      partKey: z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
-        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
-      }),
+      partKey: ReviewPartKeyInput,
       status: z.literal('rejected'),
+      // 2,000 単位の上限は trim の前の生の文字列に掛かる(`utf16Max` の検査が `.trim()` より
+      // 先に並ぶ)。画面(web の `reviewDecisionList.ts` の `rejectReasonProblem`)も trim の前の
+      // 長さで数えるので、両者は一致する。
       comment: utf16Max(MAX_PART_REJECT_REASON_CHARS, '却下の理由')
         .trim()
         .min(1)
         .meta({ description: 'パーツの却下理由' }),
     }),
     z.object({
-      partKey: z.string().min(1).max(MAX_REVIEW_PART_KEY_CHARS).meta({
-        description: '文書全体でのパーツ構造キー(<アンカー>#<通し番号>)',
-      }),
+      partKey: ReviewPartKeyInput,
       status: z.literal('pending'),
     }),
   ])
@@ -615,7 +632,13 @@ export const ReviewDecisionBody = z
  * 承認・保留のメモを必須にはしない(通すだけの承認で無意味な文字列を書かせることになる)。
  */
 export const ReviewRejectBody = z
-  .object({ comment: z.string().trim().min(1).meta({ description: '却下理由(必須)' }) })
+  .object({
+    // 上限は trim の前の生の文字列に掛かる(パーツの却下の理由 `ReviewPartDecisionChange` と同じ)。
+    comment: utf16Max(MAX_REVIEW_REJECT_REASON_CHARS, '却下の理由')
+      .trim()
+      .min(1)
+      .meta({ description: '却下理由(必須。UTF-16 で 2,000 単位まで)' }),
+  })
   .meta({ id: 'ReviewRejectBody' });
 
 /** (server 専用) 申請一覧の絞り込みクエリ。 */

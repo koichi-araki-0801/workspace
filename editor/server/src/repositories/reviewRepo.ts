@@ -12,8 +12,10 @@ import {
   anyTemplateFileName,
   buildCreateReviewedHtml,
   buildEditReviewedHtml,
+  buildHtmlDiff,
   conflict,
   duplicateReviewMessage,
+  extractReviewParts,
   forbidden,
   isApprover,
   notFound,
@@ -105,6 +107,47 @@ async function pairCssSourceOf(review: StoredReviewRequest): Promise<PairCssSour
     return null;
   }
   return { before, baseline: review.cssBaseline };
+}
+
+/** `decidablePartKeys` の結果を覚えておく申請の数。承認タブで同時に開く申請は数件。 */
+const DECIDABLE_KEYS_CACHE_SIZE = 32;
+const decidableKeysCache = new Map<string, ReadonlySet<string> | null>();
+
+/**
+ * 申請で判定できるパーツのキー。最終確定(`confirmedHtmlOf`)が照合するのと同じ集合で、編集経路は
+ * 申請時点の比較元と申請の本文の差分(linkedom)の変更パーツ、作成経路は Jinja 原文のパーツ。
+ * 照合できない申請(比較元の無い古い編集経路・差分の打ち切り・走査の上限超え)は null。
+ *
+ * 申請の本文は申請のあと変わらないので、申請 id ごとに覚えておく。差分は 340 パーツの帳票で
+ * 約 0.2 秒かかり(2026-10-29 に測定)、判定のたびに取り直すと承認の押下が重くなるため。
+ */
+function decidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
+  if (decidableKeysCache.has(review.id)) return decidableKeysCache.get(review.id) ?? null;
+  const keys = computeDecidablePartKeys(review);
+  if (decidableKeysCache.size >= DECIDABLE_KEYS_CACHE_SIZE) {
+    const oldest = decidableKeysCache.keys().next().value;
+    if (oldest !== undefined) decidableKeysCache.delete(oldest);
+  }
+  decidableKeysCache.set(review.id, keys);
+  return keys;
+}
+
+function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
+  if (review.origin === 'create') {
+    try {
+      return new Set(extractReviewParts(review.html).map((part) => part.partKey));
+    } catch {
+      return null;
+    }
+  }
+  if (review.baseHtml === undefined) return null;
+  const diff = buildHtmlDiff(review.baseHtml, review.html, linkedomParser);
+  if (diff.truncated) return null;
+  return new Set(
+    diff.pages.flatMap((page) =>
+      page.blocks.filter((block) => block.status !== 'same').map((block) => block.partKey),
+    ),
+  );
 }
 
 /** 申請元の経路 → 書込先。編集タブは値入り HTML、作成タブは Jinja スケルトン。 */
@@ -365,6 +408,32 @@ export function createReviewRepo({
 
         assertUndecided(review);
 
+        // 同じキーが 2 回あると、遷移の検査は両方を「今の判定から」と読んで通し、保存は後の
+        // ものだけが残る(返り値には両方が載る)。契約(`UpdateReviewPartDecisionsRequest`)でも
+        // 拒むが、契約を通らない内部の呼び手にも同じ関所を掛ける。
+        const seen = new Set<string>();
+        for (const d of input.decisions) {
+          if (seen.has(d.partKey)) {
+            throw validation(`同じパーツの判定が 1 回の保存に複数あります: ${d.partKey}`);
+          }
+          seen.add(d.partKey);
+        }
+
+        // 差分に無いキーの承認・却下は最終確定で必ず止まる(本文に無い判定)。保存の段で拒み、
+        // 申請のファイルに要らないキーを積ませない。取り消し(pending)は遷移の検査が今の判定の
+        // あるキーだけに許すので、ここでは見ない。
+        const decidable = decidablePartKeys(review);
+        if (decidable !== null) {
+          const unknown = input.decisions
+            .filter((d) => d.status !== 'pending' && !decidable.has(d.partKey))
+            .map((d) => d.partKey);
+          if (unknown.length > 0) {
+            throw validation(
+              `申請の差分に無いパーツの判定があります: ${unknown.join(', ')}。画面を読み直してください。`,
+            );
+          }
+        }
+
         const partDecisions = review.partDecisions ?? [];
         const currentOf = new Map(partDecisions.map((d) => [d.partKey, d]));
         const refused = input.decisions
@@ -409,6 +478,8 @@ export function createReviewRepo({
               status: 'approved',
               decidedBy: actor.username,
               decidedAt,
+              // 承認は判定メモを受けない(設計正典の承認タブ。契約 `ReviewPartDecisionChange` の
+              // approved に `comment` が無い)ので、新しく保存する承認メモは常に null。
               comment: null,
               history,
             };

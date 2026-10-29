@@ -4,7 +4,10 @@
 import { describe, expect, it } from 'vitest';
 import { duplicateReviewMessage, formatDateTimeYmdHm } from '../src/domain/review.js';
 import {
+  MAX_PART_REJECT_REASON_CHARS,
   MAX_REVIEW_PART_KEY_CHARS,
+  MAX_REVIEW_REJECT_REASON_CHARS,
+  ReviewRejectBody,
   ReviewRequestMeta,
   ReviewStatus,
   SubmitReviewBody,
@@ -144,5 +147,25 @@ describe('UpdateReviewPartDecisionsRequest', () => {
       decisions: [{ partKey: 'a#0', status: 'approved', comment: 'メモ' }],
     });
     expect(r.decisions[0]).toEqual({ partKey: 'a#0', status: 'approved' });
+  });
+});
+
+describe('ReviewRejectBody(申請ごと却下)', () => {
+  const ok = (comment: unknown) => ReviewRejectBody.safeParse({ comment }).success;
+
+  it('上限はパーツの却下の理由と同じ 2,000 単位(UTF-16)', () => {
+    expect(MAX_REVIEW_REJECT_REASON_CHARS).toBe(2000);
+    expect(MAX_REVIEW_REJECT_REASON_CHARS).toBe(MAX_PART_REJECT_REASON_CHARS);
+  });
+  it('2,000 単位までは通し、2,001 単位は拒む(サロゲートペアも UTF-16 で数える)', () => {
+    expect(ok('あ'.repeat(2000))).toBe(true);
+    expect(ok('あ'.repeat(2001))).toBe(false);
+    expect(ok('😀'.repeat(1000))).toBe(true);
+    expect(ok('😀'.repeat(1001))).toBe(false);
+  });
+  it('上限は trim の前の長さに掛かり、空白だけ・欠落は拒む', () => {
+    expect(ok(`${'あ'.repeat(2000)} `)).toBe(false);
+    expect(ok(' 　\n')).toBe(false);
+    expect(ReviewRejectBody.safeParse({}).success).toBe(false);
   });
 });

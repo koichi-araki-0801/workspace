@@ -46,8 +46,14 @@ describe('openapi document', () => {
       .filter((template) => !KNOWN_OPENAPI_GAPS.includes(template))
       .filter((template) => !documented.has(toOpenApiPath(template)));
     expect(missing, `paths missing from OpenAPI document: ${missing.join(', ')}`).toEqual([]);
-    // ギャップが解消(document に追記)されたら allowlist からも外すよう促す。
+    // ギャップが解消(document に追記)されたら allowlist からも外すよう促す。正典から消えた
+    // パス(旧パス)が残っても、上の検査は素通りするので、正典にあることも確かめる。
+    const canonical: readonly string[] = Object.values(apiPaths);
     for (const gap of KNOWN_OPENAPI_GAPS) {
+      expect(
+        canonical,
+        `gap ${gap} is not in apiPaths; remove it from KNOWN_OPENAPI_GAPS`,
+      ).toContain(gap);
       expect(
         documented.has(toOpenApiPath(gap)),
         `gap ${gap} is now documented; remove it from KNOWN_OPENAPI_GAPS`,
