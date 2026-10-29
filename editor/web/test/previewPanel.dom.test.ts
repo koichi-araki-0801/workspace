@@ -423,6 +423,66 @@ describe('PreviewPanel — postMessage クライアント', () => {
       wrapper.unmount();
     });
 
+    it('他フレーム発の part-pages は捨てる', async () => {
+      const { wrapper } = await setup();
+      deliver({ type: 'editor:preview-part-pages', pages: { '1': 0 } }, window);
+      expect(wrapper.emitted('part-pages')).toBeUndefined();
+      wrapper.unmount();
+    });
+
+    it('自己完結化の最中に前の文書の ready が割り込んでも、新しい文書の ready で marks を送る', async () => {
+      const { wrapper, win, post } = await setup();
+      deliver(readyState, win);
+      await flushPromises();
+      expect(marksCalls(post)).toHaveLength(1);
+
+      // 次の文書の自己完結化を止めておき、その間に前の文書の ready を届ける。
+      const { selfContainPreviewDoc } = await import('../src/lib/previewSelfContain');
+      let release: (html: string) => void = () => {};
+      vi.mocked(selfContainPreviewDoc).mockImplementationOnce(
+        () => new Promise<string>((resolve) => (release = resolve)),
+      );
+      await wrapper.setProps({ html: '<p>doc2</p>' });
+      deliver(readyState, win);
+      await flushPromises();
+      release('<p>doc2</p>');
+      await flushPromises();
+      expect(post).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: 'editor:preview-doc', html: '<p>doc2</p>' }),
+        '*',
+      );
+      const before = marksCalls(post).length;
+      deliver(readyState, win);
+      await flushPromises();
+      expect(marksCalls(post)).toHaveLength(before + 1);
+      wrapper.unmount();
+    });
+
+    it('state の ready は、文書が変わってから新しい文書の組版が終わるまで偽', async () => {
+      const { wrapper, win } = await setup();
+      deliver(readyState, win);
+      await flushPromises();
+      const readyOf = () =>
+        (wrapper.emitted('state')?.at(-1)?.[0] as { ready: boolean } | undefined)?.ready;
+      expect(readyOf()).toBe(true);
+
+      const { selfContainPreviewDoc } = await import('../src/lib/previewSelfContain');
+      let release: (html: string) => void = () => {};
+      vi.mocked(selfContainPreviewDoc).mockImplementationOnce(
+        () => new Promise<string>((resolve) => (release = resolve)),
+      );
+      await wrapper.setProps({ html: '<p>doc2</p>' });
+      expect(readyOf()).toBe(false);
+      // 送る前に前の文書の ready が届いても偽のまま。
+      deliver(readyState, win);
+      expect(readyOf()).toBe(false);
+      release('<p>doc2</p>');
+      await flushPromises();
+      deliver(readyState, win);
+      expect(readyOf()).toBe(true);
+      wrapper.unmount();
+    });
+
     it('gotoPart は cmd gotoPart を送り、フォールバック中は送らない', async () => {
       const { wrapper, win, post } = await setup();
       post.mockClear();

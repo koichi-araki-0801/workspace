@@ -25,7 +25,8 @@ export function sanitizeStyleContent(css: string): string {
  *
  * ⚠ これは*包む*(前後に定数を連結する)専用で、素材が 100% 自分の管理下にある場合にだけ
  * 使ってよい。DOM が使える経路では `sanitizeHtml.ts` の `appendPreviewStyle` を使うこと。
- * 現在の唯一の利用者は `htmlBlockDiff.buildDiffDoc`(srcdoc 文字列の組み立て)。
+ * 利用者は `htmlBlockDiff.buildDiffDoc`(srcdoc 文字列の組み立て)と、承認タブの紙面の文書を包む
+ * `reviewCompareDocs.buildCompareDoc`。
  */
 export function styleTag(css: string, attrs = ''): string {
   return `<style${attrs ? ` ${attrs}` : ''}>${sanitizeStyleContent(css)}</style>`;

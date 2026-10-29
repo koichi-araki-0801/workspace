@@ -1,676 +1,86 @@
 // =============================================================================
-// reviewCompareDocs.test.ts — 精査画面の左右組版比較に渡す完全文書の組み立て
+// reviewCompareDocs.dom.test.ts — 承認タブの紙面へ渡す完全文書の組み立て
 // =============================================================================
+// 本文(`buildReviewPaper`)を申請者 CSS と一緒に包み、ページの先頭へアンカーを振るだけで、
+// 見た目(inline style・文字の差分の色の CSS)は足さないこと(色と札はホストが描く)を固定する。
+import { buildReviewPaper, numberChangedParts, type ReviewPaper } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
-import { buildHtmlDiff, MAX_TOP_LEVEL_BLOCKS } from '@/features/compare/htmlBlockDiff';
-import { buildCompareDocs } from '@/features/reviews/services/reviewCompareDocs';
+import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
+import { buildCompareDoc } from '@/features/reviews/services/reviewCompareDocs';
+import { defaultHtmlParser } from '@/lib/htmlParser';
 
-const NO_MARKER_PART_KEYS = new Set<string>();
+const pb = '<div class="pagebreak"></div>';
 
-describe('buildCompareDocs', () => {
-  it('完全なHTML文書(doctype + lang="ja" + CSS内蔵)を返す', () => {
-    const { beforeDoc, afterDoc } = buildCompareDocs({
-      beforeHtml: '<div class="page">before</div>',
-      afterHtml: '<div class="page">after</div>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '.page{margin:0}',
-      cssAfter: '.page{margin:0}',
-      changedPageIndexes: new Set(),
-      marker: true,
+function paperOf(before: string, after: string, highlight = true): ReviewPaper {
+  const diff = buildHtmlDiff(before, after);
+  return buildReviewPaper({
+    diff,
+    parts: numberChangedParts(diff),
+    decisionOf: () => 'pending',
+    side: 'after',
+    highlight,
+    parse: defaultHtmlParser,
+  });
+}
+
+const bodyOf = (doc: string) => new DOMParser().parseFromString(doc, 'text/html').body;
+
+describe('buildCompareDoc', () => {
+  it('完全な HTML 文書(doctype・lang="ja"・申請者 CSS 内蔵)を返す', () => {
+    const { doc } = buildCompareDoc({
+      paper: { html: '<p>a</p>', pageCount: 1 },
+      css: '.p{margin:0}',
     });
-
-    for (const doc of [beforeDoc, afterDoc]) {
-      expect(doc).toContain('<!doctype html>');
-      expect(doc).toContain('lang="ja"');
-      expect(doc).toContain('.page{margin:0}');
-      expect(doc).toContain('<meta charset="utf-8">');
-    }
+    expect(doc.startsWith('<!doctype html>')).toBe(true);
+    expect(doc).toContain('lang="ja"');
+    expect(doc).toContain('<meta charset="utf-8">');
+    expect(doc).toContain('.p{margin:0}');
   });
 
-  it('2ページのうちindex 1だけchangedなら、指定した2ページ目のパーツとアンカーを付ける', () => {
-    const { afterDoc, anchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div>',
-      afterHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2-changed</div>',
-      beforeMarkerPartKeys: new Set(['.page#2']),
-      afterMarkerPartKeys: new Set(['.page#2']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      marker: true,
-    });
-
-    expect(afterDoc).toContain('id="review-anchor-2"');
-    expect(afterDoc).toContain('data-review-marker');
-    expect(anchors).toEqual(['review-anchor-2']);
+  it('文字の差分の色の CSS は足さず、class を付けるまでにする(色はホストが描く)', () => {
+    const paper = paperOf('<p class="a">古い文</p>', '<p class="a">新しい文</p>');
+    const { doc } = buildCompareDoc({ paper, css: '.a{color:black}' });
+    expect(bodyOf(doc).querySelector('.cmp-ins')).not.toBeNull();
+    expect(doc).not.toContain('@layer');
+    expect(doc).not.toMatch(/\.cmp-(ins|del)\s*\{/);
   });
 
-  it('既存idを持つパーツはidを温存し、指定したpartKeyへ印を付ける', () => {
-    const { afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page" id="custom-id">page1</div>',
-      afterHtml: '<div class="page" id="custom-id">page1-changed</div>',
-      beforeMarkerPartKeys: new Set(['custom-id#1']),
-      afterMarkerPartKeys: new Set(['custom-id#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    expect(afterDoc).toContain('id="custom-id"');
-    expect(afterDoc).toContain('data-review-marker');
-    expect(anchors).toEqual(['custom-id']);
+  it('文書に style 属性を足さない', () => {
+    const before = `<p class="a">1</p>${pb}<p class="b">2</p>`;
+    const after = `<p class="a">1x</p>${pb}<p class="c">3</p>`;
+    const { doc } = buildCompareDoc({ paper: paperOf(before, after), css: '' });
+    const body = bodyOf(doc);
+    // 番号と空き枠の属性は付くが、見た目の宣言はどこにも無い。
+    expect(body.querySelector('[data-review-no]')).not.toBeNull();
+    expect(body.querySelector('[data-review-ghost]')).not.toBeNull();
+    expect(body.querySelector('[style]')).toBeNull();
   });
 
-  it('afterに無いページindexはbeforeから拾う(削除ページ)', () => {
-    const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div>',
-      afterHtml: '<div class="page">page1</div>',
-      beforeMarkerPartKeys: new Set(['.page#2']),
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      marker: true,
-    });
-
-    expect(anchors).toContain('review-anchor-2');
-    expect(beforeDoc).toContain('data-review-marker');
-    expect(afterDoc).not.toContain('data-review-marker');
+  it('全ページの先頭にアンカー id を付ける(既存 id は上書きしない)', () => {
+    const html = `<section id="mine">a1</section>${pb}<section>b1</section>${pb}<section>c1</section>`;
+    const { doc, pageAnchors } = buildCompareDoc({ paper: { html, pageCount: 3 }, css: '' });
+    expect(pageAnchors).toEqual(['mine', 'review-anchor-2', 'review-anchor-3']);
+    expect(bodyOf(doc).querySelector('#review-anchor-2')?.textContent).toBe('b1');
   });
 
-  it('marker: falseでは対象属性とアンカーを残し、見た目の装飾を付けない', () => {
-    const { afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div>',
-      afterHtml: '<div class="page">page1-changed</div>',
-      beforeMarkerPartKeys: new Set(['.page#1']),
-      afterMarkerPartKeys: new Set(['.page#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: false,
+  it('白紙のページは区切りへアンカーを付け、要素の無い本文は空文字を置く', () => {
+    const blank = buildCompareDoc({
+      paper: { html: `<p>a</p>${pb}<div class="pagebreak" id="k2"></div><p>c</p>`, pageCount: 3 },
+      css: '',
     });
-
-    const doc = new DOMParser().parseFromString(afterDoc, 'text/html');
-    const marked = doc.body.querySelector('[data-review-marker]') as HTMLElement | null;
-
-    expect(marked).not.toBeNull();
-    expect(marked?.style.getPropertyValue('background-color')).toBe('');
-    expect(marked?.style.getPropertyValue('outline')).toBe('');
-    expect(marked?.style.getPropertyValue('outline-offset')).toBe('');
-    expect(afterDoc).not.toContain('@layer');
-    expect(anchors).toEqual(['review-anchor-1']);
+    expect(blank.pageAnchors).toEqual(['review-anchor-1', 'k2', 'review-anchor-3']);
+    expect(
+      buildCompareDoc({ paper: { html: 'text only', pageCount: 1 }, css: '' }).pageAnchors,
+    ).toEqual(['']);
+    expect(buildCompareDoc({ paper: { html: '', pageCount: 0 }, css: '' }).pageAnchors).toEqual([]);
   });
 
-  it('marker: trueでは指定した変更要素へインライン重要宣言を付ける', () => {
-    const { afterDoc } = buildCompareDocs({
-      beforeHtml: '<div class="page">before</div>',
-      afterHtml:
-        '<div class="page" style="color: red; background-color: black; outline: none">' +
-        'after' +
-        '</div>',
-      beforeMarkerPartKeys: new Set(['.page#1']),
-      afterMarkerPartKeys: new Set(['.page#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
+  it('申請者 CSS の相対 url() を文書基準へ付け替え、</style> で文書を抜けさせない', () => {
+    const { doc } = buildCompareDoc({
+      paper: { html: '<p>a</p>', pageCount: 1 },
+      css: '.p{background:url(../images/x.svg)}</style><p id="evil">x</p><style>',
     });
-
-    const doc = new DOMParser().parseFromString(afterDoc, 'text/html');
-    const marked = doc.body.querySelector('[data-review-marker]') as HTMLElement | null;
-
-    expect(marked).not.toBeNull();
-    expect(marked?.style.getPropertyValue('background-color')).toMatch(
-      /#fff3bf|rgb\(255,\s*243,\s*191\)/i,
-    );
-    expect(marked?.style.getPropertyPriority('background-color')).toBe('important');
-    expect(marked?.style.getPropertyValue('outline')).toMatch(/2px.*solid/i);
-    expect(marked?.style.getPropertyPriority('outline')).toBe('important');
-    expect(marked?.style.getPropertyValue('outline-offset')).toBe('1px');
-    expect(marked?.style.getPropertyPriority('outline-offset')).toBe('important');
-
-    // マーカーと無関係な既存インラインスタイルは維持する。
-    expect(marked?.style.getPropertyValue('color')).not.toBe('');
-
-    // preview-hostが解釈できない`@layer`へ依存しない。
-    expect(afterDoc).not.toContain('@layer');
-  });
-
-  it('changed相当のパーツは修正前・修正後の両側へ印を付ける', () => {
-    const { beforeDoc, afterDoc } = buildCompareDocs({
-      beforeHtml: '<section data-part-id="changed-part">変更前</section>',
-      afterHtml: '<section data-part-id="changed-part">変更後</section>',
-      beforeMarkerPartKeys: new Set(['changed-part#1']),
-      afterMarkerPartKeys: new Set(['changed-part#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    const before = new DOMParser().parseFromString(beforeDoc, 'text/html');
-    const after = new DOMParser().parseFromString(afterDoc, 'text/html');
-
-    const beforeMarked = before.querySelector(
-      '[data-part-id="changed-part"][data-review-marker]',
-    ) as HTMLElement | null;
-    const afterMarked = after.querySelector(
-      '[data-part-id="changed-part"][data-review-marker]',
-    ) as HTMLElement | null;
-
-    expect(beforeMarked?.textContent).toBe('変更前');
-    expect(afterMarked?.textContent).toBe('変更後');
-    expect(beforeMarked?.style.getPropertyPriority('background-color')).toBe('important');
-    expect(afterMarked?.style.getPropertyPriority('background-color')).toBe('important');
-  });
-
-  it('追加パーツは修正後側だけへ印を付ける', () => {
-    const { beforeDoc, afterDoc } = buildCompareDocs({
-      beforeHtml: '<section class="base">既存</section>',
-      afterHtml:
-        '<section class="base">既存</section>' +
-        '<section data-part-id="added-part">追加</section>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: new Set(['added-part#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    const before = new DOMParser().parseFromString(beforeDoc, 'text/html');
-    const after = new DOMParser().parseFromString(afterDoc, 'text/html');
-
-    expect(before.querySelector('[data-review-marker]')).toBeNull();
-
-    const marked = after.querySelector(
-      '[data-part-id="added-part"][data-review-marker]',
-    ) as HTMLElement | null;
-
-    expect(marked?.textContent).toBe('追加');
-    expect(marked?.style.getPropertyPriority('background-color')).toBe('important');
-  });
-
-  it('削除パーツは修正前側だけへ印を付ける', () => {
-    const { beforeDoc, afterDoc } = buildCompareDocs({
-      beforeHtml:
-        '<section class="base">既存</section>' +
-        '<section data-part-id="removed-part">削除対象</section>',
-      afterHtml: '<section class="base">既存</section>',
-      beforeMarkerPartKeys: new Set(['removed-part#1']),
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    const before = new DOMParser().parseFromString(beforeDoc, 'text/html');
-    const after = new DOMParser().parseFromString(afterDoc, 'text/html');
-
-    const marked = before.querySelector(
-      '[data-part-id="removed-part"][data-review-marker]',
-    ) as HTMLElement | null;
-
-    expect(marked?.textContent).toBe('削除対象');
-    expect(marked?.style.getPropertyPriority('background-color')).toBe('important');
-    expect(after.querySelector('[data-review-marker]')).toBeNull();
-  });
-
-  it('期待ページ数と数えたページ数が一致する場合は指定パーツをマークする', () => {
-    const { afterDoc, anchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div>',
-      afterHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2-changed</div>',
-      beforeMarkerPartKeys: new Set(['.page#2']),
-      afterMarkerPartKeys: new Set(['.page#2']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      beforeExpectedPageCount: 2,
-      afterExpectedPageCount: 2,
-      marker: true,
-    });
-
-    expect(afterDoc).toContain('data-review-marker');
-    expect(anchors).toEqual(['review-anchor-2']);
-  });
-
-  it('期待ページ数と数えたページ数が不一致なら、その面を無印へdegradeする', () => {
-    const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1+page2 collapsed</div>',
-      afterHtml: '<div class="page">page1+page2-changed collapsed</div>',
-      beforeMarkerPartKeys: new Set(['.page#1']),
-      afterMarkerPartKeys: new Set(['.page#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      beforeExpectedPageCount: 2,
-      afterExpectedPageCount: 2,
-      marker: true,
-    });
-
-    expect(beforeDoc).not.toContain('data-review-marker');
-    expect(afterDoc).not.toContain('data-review-marker');
-    expect(anchors).toEqual([]);
-  });
-
-  it('期待ページ数が省略された場合は従来どおり検査せず、指定パーツをマークする', () => {
-    const { afterDoc } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1</div>',
-      afterHtml: '<div class="page">page1-changed</div>',
-      beforeMarkerPartKeys: new Set(['.page#1']),
-      afterMarkerPartKeys: new Set(['.page#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    expect(afterDoc).toContain('data-review-marker');
-  });
-
-  it('本文が空の文書はマーカー無し・anchors空にdegradeする', () => {
-    const { beforeDoc, afterDoc, anchors } = buildCompareDocs({
-      beforeHtml: '',
-      afterHtml: '  ',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    expect(beforeDoc).toContain('<!doctype html>');
-    expect(afterDoc).toContain('<!doctype html>');
-    expect(beforeDoc).not.toContain('data-review-marker');
-    expect(afterDoc).not.toContain('data-review-marker');
-    expect(anchors).toEqual([]);
-  });
-
-  describe('ページはパーツ単位(div.pagebreak区切り)', () => {
-    const pb = '<div class="pagebreak"></div>';
-    const html3 =
-      `<section>a1</section><p>a2</p>${pb}<section>b1</section><p>b2</p>${pb}` +
-      '<section>c1</section>';
-
-    const opts = {
-      beforeHtml: html3,
-      afterHtml: html3,
-      beforeMarkerPartKeys: new Set(['section#2']),
-      afterMarkerPartKeys: new Set(['section#2']),
-      cssBefore: '',
-      cssAfter: '',
-      marker: true,
-    };
-
-    const bodyOf = (doc: string) => new DOMParser().parseFromString(doc, 'text/html').body;
-
-    it('指定したpartKeyだけに印が付き、同じページの他パーツと区切りには付かない', () => {
-      const { afterDoc } = buildCompareDocs({
-        ...opts,
-        changedPageIndexes: new Set([1]),
-      });
-
-      const kids = Array.from(bodyOf(afterDoc).children);
-
-      expect(kids.map((element) => element.hasAttribute('data-review-marker'))).toEqual([
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false,
-      ]);
-
-      expect(kids[2]?.className).toBe('pagebreak');
-      expect(kids[5]?.className).toBe('pagebreak');
-    });
-
-    it('インラインのマーカー装飾は指定したpartKeyだけに付く', () => {
-      const { afterDoc } = buildCompareDocs({
-        ...opts,
-        changedPageIndexes: new Set([1]),
-      });
-
-      const kids = Array.from(bodyOf(afterDoc).children) as HTMLElement[];
-
-      for (const [index, element] of kids.entries()) {
-        const isMarkedPart = index === 3;
-
-        expect(element.style.getPropertyPriority('background-color')).toBe(
-          isMarkedPart ? 'important' : '',
-        );
-        expect(element.style.getPropertyPriority('outline')).toBe(isMarkedPart ? 'important' : '');
-        expect(element.style.getPropertyPriority('outline-offset')).toBe(
-          isMarkedPart ? 'important' : '',
-        );
-      }
-
-      expect(kids[2]?.className).toBe('pagebreak');
-      expect(kids[2]?.style.getPropertyValue('outline')).toBe('');
-      expect(kids[5]?.className).toBe('pagebreak');
-      expect(kids[5]?.style.getPropertyValue('outline')).toBe('');
-    });
-
-    it('pageAnchorsは各ページの先頭パーツのidで、既存idは上書きしない', () => {
-      const html =
-        `<section id="mine">a1</section>${pb}<section>b1</section>${pb}` + '<section>c1</section>';
-
-      const { pageAnchors, anchors, afterDoc } = buildCompareDocs({
-        ...opts,
-        beforeHtml: html,
-        afterHtml: html,
-        beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-        afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-        changedPageIndexes: new Set([1]),
-      });
-
-      expect(pageAnchors).toEqual(['mine', 'review-anchor-2', 'review-anchor-3']);
-      expect(anchors).toEqual(['review-anchor-2']);
-      expect(bodyOf(afterDoc).querySelector('#review-anchor-2')?.textContent).toBe('b1');
-    });
-
-    it('白紙ページはページに数え、区切りへアンカーを付けるが印は付けない', () => {
-      const html =
-        `<section>a1</section>${pb}` +
-        '<div class="pagebreak" id="k2"></div>' +
-        '<section>c1</section>';
-
-      const { pageAnchors, anchors, afterDoc } = buildCompareDocs({
-        ...opts,
-        beforeHtml: html,
-        afterHtml: html,
-        beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-        afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-        changedPageIndexes: new Set([1]),
-        beforeExpectedPageCount: 3,
-        afterExpectedPageCount: 3,
-      });
-
-      expect(pageAnchors).toEqual(['review-anchor-1', 'k2', 'review-anchor-3']);
-      expect(anchors).toEqual(['k2']);
-      expect(bodyOf(afterDoc).querySelector('[data-review-marker]')).toBeNull();
-    });
-
-    it('期待ページ数と数えた数が違えば無印', () => {
-      const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
-        ...opts,
-        changedPageIndexes: new Set([1]),
-        beforeExpectedPageCount: 2,
-        afterExpectedPageCount: 2,
-      });
-
-      expect(afterDoc).not.toContain('data-review-marker');
-      expect(anchors).toEqual([]);
-      expect(pageAnchors).toEqual([]);
-    });
-
-    it('bodyの要素の並びは入力と同じで、包む要素を作らない', () => {
-      const { afterDoc } = buildCompareDocs({
-        ...opts,
-        changedPageIndexes: new Set([0, 1, 2]),
-      });
-
-      const tags = Array.from(bodyOf(afterDoc).children).map(
-        (element) => `${element.tagName.toLowerCase()}.${element.className}`,
-      );
-
-      expect(tags).toEqual([
-        'section.',
-        'p.',
-        'div.pagebreak',
-        'section.',
-        'p.',
-        'div.pagebreak',
-        'section.',
-      ]);
-    });
-  });
-
-  it('要素の無い本文は1ページで、そのページのアンカーは空文字になる', () => {
-    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
-      beforeHtml: 'text only',
-      afterHtml: 'text only changed',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-    });
-
-    expect(pageAnchors).toEqual(['']);
-    expect(anchors).toEqual([]);
-    expect(afterDoc).not.toContain('data-review-marker');
-  });
-
-  it('文書に無いページindexの変更は印もアンカーも付けない', () => {
-    const html = '<p>a</p><div class="pagebreak"></div><p>b</p>';
-
-    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
-      beforeHtml: html,
-      afterHtml: html,
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([5]),
-      marker: true,
-    });
-
-    expect(anchors).toEqual([]);
-    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
-    expect(afterDoc).not.toContain('data-review-marker');
-  });
-
-  it('pageAnchorsは全ページ分で、anchorsは変更ページだけに留まる', () => {
-    const { pageAnchors, anchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div><div class="pagebreak"></div>' +
-        '<div class="page">page3</div>',
-      afterHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2-changed</div><div class="pagebreak"></div>' +
-        '<div class="page">page3</div>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      marker: true,
-    });
-
-    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
-    expect(anchors).toEqual(['review-anchor-2']);
-  });
-
-  it('変更のないページもpageAnchorsからidを取得できる', () => {
-    const { pageAnchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div>',
-      afterHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2-changed</div>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      marker: true,
-    });
-
-    expect(pageAnchors[0]).toBe('review-anchor-1');
-  });
-
-  it('両面とも期待ページ数不一致ならanchors・pageAnchorsとも空になる', () => {
-    const { pageAnchors, anchors } = buildCompareDocs({
-      beforeHtml: '<div class="page">page1+page2 collapsed</div>',
-      afterHtml: '<div class="page">page1+page2-changed collapsed</div>',
-      beforeMarkerPartKeys: new Set(['.page#1']),
-      afterMarkerPartKeys: new Set(['.page#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      beforeExpectedPageCount: 2,
-      afterExpectedPageCount: 2,
-      marker: true,
-    });
-
-    expect(anchors).toEqual([]);
-    expect(pageAnchors).toEqual([]);
-  });
-
-  it('afterだけ期待ページ数不一致ならpageAnchorsをbeforeから補う', () => {
-    const { pageAnchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div>',
-      afterHtml: '<div class="page">page1+page2 collapsed</div>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      beforeExpectedPageCount: 2,
-      afterExpectedPageCount: 2,
-      marker: true,
-    });
-
-    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
-  });
-
-  it('前後でページ数が違っても縮退しなければpageAnchorsを両側から補う', () => {
-    const { pageAnchors } = buildCompareDocs({
-      beforeHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div><div class="pagebreak"></div>' +
-        '<div class="page">page3</div>',
-      afterHtml:
-        '<div class="page">page1</div><div class="pagebreak"></div>' +
-        '<div class="page">page2</div>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      beforeExpectedPageCount: 3,
-      afterExpectedPageCount: 2,
-      marker: true,
-    });
-
-    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
-  });
-
-  it('申請者CSSの相対url()を文書基準へ付け替えて埋め込む', () => {
-    const { beforeDoc, afterDoc } = buildCompareDocs({
-      beforeHtml: '<div class="page">b</div>',
-      afterHtml: '<div class="page">a</div>',
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '@font-face{src:url(fonts/a.woff2)}',
-      cssAfter: '.p{background:url(../images/x.svg)}',
-      changedPageIndexes: new Set(),
-      marker: false,
-    });
-
-    expect(beforeDoc).toContain('../css/fonts/a.woff2');
-    expect(afterDoc).toContain('../images/x.svg');
-    expect(afterDoc).not.toContain('"images/x.svg"');
-  });
-
-  it('本文のstyleはパーツに数えず、指定した次のパーツだけへ印を付ける', () => {
-    const html =
-      '<style>.a{}</style><p class="a">1</p><div class="pagebreak"></div>' +
-      '<style>.b{}</style><p class="b">2</p>';
-
-    const { afterDoc, pageAnchors } = buildCompareDocs({
-      beforeHtml: html,
-      afterHtml: html,
-      beforeMarkerPartKeys: new Set(['.b#1']),
-      afterMarkerPartKeys: new Set(['.b#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      marker: true,
-      afterExpectedPageCount: 2,
-    });
-
-    expect(pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2']);
-
-    const doc = new DOMParser().parseFromString(afterDoc, 'text/html');
-    const marked = doc.body.querySelector(
-      'p.b#review-anchor-2[data-review-marker]',
-    ) as HTMLElement | null;
-
-    expect(marked?.textContent).toBe('2');
-    expect(marked?.style.getPropertyPriority('background-color')).toBe('important');
-    expect(marked?.style.getPropertyPriority('outline')).toBe('important');
-    expect(marked?.style.getPropertyPriority('outline-offset')).toBe('important');
-    expect(doc.body.querySelector('style[data-review-marker]')).toBeNull();
-  });
-
-  it('打ち切りでページ数が食い違った面は無印になる', { timeout: 60_000 }, () => {
-    const many = Array.from({ length: MAX_TOP_LEVEL_BLOCKS }, () => '<p>x</p>').join('');
-    const html =
-      `<!doctype html><html><body>${many}` +
-      '<div class="pagebreak"></div><p>tail</p></body></html>';
-
-    const diff = buildHtmlDiff(html, html);
-
-    expect(diff.truncated).toBe(true);
-    expect(diff.afterPageCount).toBe(1);
-
-    const { afterDoc, anchors, pageAnchors } = buildCompareDocs({
-      beforeHtml: html,
-      afterHtml: html,
-      beforeMarkerPartKeys: new Set(['p#1']),
-      afterMarkerPartKeys: new Set(['p#1']),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([0]),
-      marker: true,
-      beforeExpectedPageCount: diff.beforePageCount,
-      afterExpectedPageCount: diff.afterPageCount,
-    });
-
-    expect(afterDoc).not.toContain('data-review-marker=');
-    expect(anchors).toEqual([]);
-    expect(pageAnchors).toEqual([]);
-  });
-
-  it('本文全体を固めたcanvasと同じページ数で、保存文書へアンカーを付ける', () => {
-    const html =
-      '<p class="a">A</p><div class="pagebreak"></div>' +
-      '<section class="s">S</section><div class="pagebreak"></div>' +
-      '<p class="a">A3</p>';
-
-    const { pageAnchors } = buildCompareDocs({
-      beforeHtml: html,
-      afterHtml: html,
-      beforeMarkerPartKeys: NO_MARKER_PART_KEYS,
-      afterMarkerPartKeys: NO_MARKER_PART_KEYS,
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set(),
-      marker: true,
-      afterExpectedPageCount: 3,
-    });
-
-    expect(pageAnchors).toHaveLength(3);
+    expect(doc).toContain('../images/x.svg');
+    expect(bodyOf(doc).querySelector('#evil')).toBeNull();
   });
 });

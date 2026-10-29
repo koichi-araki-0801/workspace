@@ -290,6 +290,7 @@ export default defineConfig({
         'editor/web/src/features/reviews/reviewDecisionState.ts',
         'editor/web/src/features/reviews/useReviewDecisions.ts',
         'editor/web/src/features/reviews/ReviewNoticeBar.vue',
+        'editor/web/src/features/reviews/ReviewVisualCompare.vue',
         // rest トランスポートと 7 リポジトリ、DI 合成ルート。契約どおりに動くことを
         // 直接テストで固定する(rest e2e は挙動の一部しか通らない)。
         'editor/web/src/api/rest/*.ts',

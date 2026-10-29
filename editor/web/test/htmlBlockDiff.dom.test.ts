@@ -1,3 +1,4 @@
+import { buildReviewPaper, numberChangedParts } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   buildDiffDoc,
@@ -11,7 +12,8 @@ import {
   HL_REMOVED,
   type PagePair,
 } from '@/features/compare/htmlBlockDiff';
-import { buildCompareDocs } from '@/features/reviews/services/reviewCompareDocs';
+import { buildCompareDoc } from '@/features/reviews/services/reviewCompareDocs';
+import { defaultHtmlParser } from '@/lib/htmlParser';
 import { splitPages } from '@/lib/pageBreaks';
 
 /** Wrap body fragments in a minimal HTML document (what renderJinja produces). */
@@ -290,22 +292,22 @@ describe('buildHtmlDiff', () => {
     expect(changedStyle?.status).toBe('changed');
     expect(diff.pages[1].afterHtml).toContain('blue');
     expect(diff.pages[0].afterHtml).toContain('.a{color:red}');
-    // ページ数は承認タブの数え方(`buildCompareDocs`)と同じ。
-    const docs = buildCompareDocs({
-      beforeHtml: html('red'),
-      afterHtml: html('blue'),
-      beforeMarkerPartKeys: new Set<string>(),
-      afterMarkerPartKeys: new Set<string>(),
-      cssBefore: '',
-      cssAfter: '',
-      changedPageIndexes: new Set([1]),
-      marker: true,
-      beforeExpectedPageCount: diff.beforePageCount,
-      afterExpectedPageCount: diff.afterPageCount,
+    // ページ数は承認タブの紙面の数え方(`buildReviewPaper` → `buildCompareDoc`)と同じ。
+    const paper = buildReviewPaper({
+      diff,
+      parts: numberChangedParts(diff),
+      decisionOf: () => 'pending',
+      side: 'after',
+      highlight: true,
+      parse: defaultHtmlParser,
     });
+    expect(paper.pageCount).toBe(diff.afterPageCount);
     // 白紙のページのアンカーは、そのページの区切りに付く。
-    expect(docs.pageAnchors).toEqual(['review-anchor-1', 'review-anchor-2', 'review-anchor-3']);
-    expect(docs.anchors).toHaveLength(1);
+    expect(buildCompareDoc({ paper, css: '' }).pageAnchors).toEqual([
+      'review-anchor-1',
+      'review-anchor-2',
+      'review-anchor-3',
+    ]);
   });
 
   it('removed block labels skip <style> too', () => {

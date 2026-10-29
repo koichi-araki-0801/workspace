@@ -61,6 +61,11 @@ const emit = defineEmits<{
       zoom: number;
       /** vivliostyle 描画中(= ズーム/ページ送り可)。iframe フォールバック時は false。 */
       vivlioReady: boolean;
+      /**
+       * いま渡している文書の組版が終わったか。文書が変わってから子が新しい文書を組み終えるまでは
+       * false(承認タブは組み直したあとの移り直しをこれで待つ)。
+       */
+      ready: boolean;
     },
   ];
   /** 紙面のパーツが押された(番号の文字列。形は検査済み)。 */
@@ -114,6 +119,7 @@ function emitState() {
     atLast: nav.value.atLast,
     zoom: nav.value.zoom,
     vivlioReady: !useFallback.value,
+    ready: nav.value.ready && !docPending,
   });
 }
 
@@ -148,17 +154,29 @@ function reviewFlag(): { review?: true } {
 
 /** 進行中の自己完結化を識別する連番。文書が続けて変わったとき、古い結果を子へ送らない。 */
 let sendSeq = 0;
+/** 文書が変わってから子へ送るまでの間か。この間は親へ上げる `ready` を偽にする。 */
+let docPending = false;
+
+/** 文書を子へ送る。この文書の組版が終わるまで目印を送らないよう、ここで `ready` を落とす。 */
+function postDoc(html: string) {
+  docPending = false;
+  nav.value = { ...nav.value, ready: false };
+  docSeq.value++;
+  postToHost({ type: PREVIEW_MSG_DOC, html, ...reviewFlag() });
+}
 
 function sendDoc() {
   if (!hostReady.value || useFallback.value) return;
   loaderFailsafe = clearTimer(loaderFailsafe);
   rendering.value = props.html !== '';
   const seq = ++sendSeq;
-  nav.value = { ...nav.value, ready: false };
+  // 子へ送るまでは前の文書が子に残っている。ここで `nav.ready` を落とすと、前の文書の
+  // `ready: true` が割り込んだときに目印が前の文書へ行き、新しい文書への送信が抜ける。
+  // 落とすのは送る直前(`postDoc`)にし、それまでは親へ上げる `ready` だけを偽にする。
+  docPending = true;
+  emitState();
   if (props.html === '') {
-    docSeq.value++;
-    postToHost({ type: PREVIEW_MSG_DOC, html: '', ...reviewFlag() });
-    emitState();
+    postDoc('');
     return;
   }
   // 子は opaque オリジンでサブリソース要求にセッション cookie が付かない(SameSite=Lax)。
@@ -169,8 +187,7 @@ function sendDoc() {
     .catch(() => props.html)
     .then((html) => {
       if (seq !== sendSeq || !hostReady.value || useFallback.value) return;
-      docSeq.value++;
-      postToHost({ type: PREVIEW_MSG_DOC, html, ...reviewFlag() });
+      postDoc(html);
     });
   // 子が COMPLETE へ到達しない非同期失敗への保険。組版自体は継続しうるので、
   // フォールバックへは倒さずローダーだけ解除する。
@@ -269,7 +286,7 @@ function zoomOut() {
 function fit() {
   send('fit');
 }
-/** 精査画面の変更箇所ジャンプ。`id` は `buildCompareDocs` が付与する `review-anchor-<n>`。 */
+/** 承認タブのページの先頭へ移る。`id` は `buildCompareDoc` が振るアンカー(既存の id を含む)。 */
 function gotoAnchor(id: string) {
   if (useFallback.value) return;
   postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoAnchor', anchor: id });
