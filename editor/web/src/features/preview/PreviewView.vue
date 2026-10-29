@@ -162,7 +162,15 @@ const origin = computed<ReviewOrigin>(() => routeOrigin(route.query));
  * 申請させない。編集経路は値入り HTML を要らないので今のまま。
  */
 const SUBMIT_WAIT_HINT = 'プレビューの描画が終わってから申請できます';
+const SUBMIT_FAILED_HINT = 'プレビューを描けないため申請できません。テンプレートを確かめてください';
 const waitingPreview = computed(() => origin.value === 'create' && !previewDoc.value);
+/** 読み込みが終わっても本文が空(描画の失敗)。待っても押せないので、待つ文言を出さない。 */
+const previewUnrenderable = computed(
+  () => waitingPreview.value && !loadingPreview.value && !loadFailed.value,
+);
+const submitBlockedHint = computed(() =>
+  previewUnrenderable.value ? SUBMIT_FAILED_HINT : waitingPreview.value ? SUBMIT_WAIT_HINT : undefined,
+);
 
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
@@ -336,15 +344,15 @@ async function exportPdf() {
       </Button>
       <!-- 読み込み中は本文の上の表示が状態を出すので、理由は読み込みが終わってからだけ出す。 -->
       <span
-        v-if="waitingPreview && !loadingPreview && !loadFailed"
+        v-if="previewUnrenderable"
         data-submit-wait-hint
         class="text-xs text-muted-foreground"
-        >{{ SUBMIT_WAIT_HINT }}</span
+        >{{ SUBMIT_FAILED_HINT }}</span
       >
       <Button
         size="sm"
         :disabled="submitting || loadFailed || waitingPreview"
-        :title="waitingPreview ? SUBMIT_WAIT_HINT : undefined"
+        :title="submitBlockedHint"
         @click="submitForReview"
       >
         <Loader2 v-if="submitting" class="h-4 w-4 animate-spin" />
