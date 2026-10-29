@@ -477,6 +477,8 @@ export const BOOT_SCRIPT = `(function(){
     }catch(e){/* 目印は補助。失敗してもプレビューは操作不能へ倒さない */}
   }
   function load(html,review,seq){
+    // 番号は最初に変える。読み込みのどこで失敗しても、そのエラーをこの文書の番号で送る。
+    var s=parseDocSeq(seq);docSeq=s===null?0:s;
     try{
       if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null;}
       if(errTimer){clearTimeout(errTimer);errTimer=null;}
@@ -485,7 +487,6 @@ export const BOOT_SCRIPT = `(function(){
       viewer=null;
       currentPage=1;pageCount=0;atFirst=true;atLast=false;zoom=1;userZoomed=false;ready=false;
       reviewDoc=review===true;marks=null;parts=null;saved=new WeakMap();badges=[];badgeNo=new Map();
-      var s=parseDocSeq(seq);docSeq=s===null?0:s;
       var vp=document.getElementById('vp');
       vp.innerHTML='';
       if(!html){sendState();return;}
@@ -498,7 +499,12 @@ export const BOOT_SCRIPT = `(function(){
       // しうる形をしており(bundle 原文の静的確認。resize() は readyState を復元せずに早期
       // return する)、そもそも帳票のページ寸法は @page が決めるため viewport 再レイアウトは
       // 不要。リサイズ追随は自前の zoom フィット(下の resize リスナ → applyFit)で行う。
-      var v=new V.CoreViewer({viewportElement:vp},
+      // 描画先は文書ごとに作り直す。前の viewer は外した要素へ描き続けても、表示中の紙面に
+      // 混ざらない(core の CoreViewer は止める手段を持たない)。
+      var root=document.createElement('div');
+      root.className='vp-doc';
+      vp.appendChild(root);
+      var v=new V.CoreViewer({viewportElement:root},
         {autoResize:false,renderAllPages:true,pageViewMode:V.PageViewMode.SINGLE_PAGE,fitToScreen:false});
       viewer=v;
       var mySeq=docSeq;
@@ -632,7 +638,7 @@ function buildHostPage(viewerScriptTag: string): string {
      具体的な色を書くと、iframe はアプリの CSS を持たないためダークテーマへ追随できない。
      vivliostyle が screen 時に注入する viewport 背景(#aaaaaa)も同じ理由で透明へ上書きする。 */
   html,body{margin:0;padding:0;height:100%;background:transparent;}
-  #vp{height:100%;width:100%;}
+  #vp,#vp>.vp-doc{height:100%;width:100%;}
   [data-vivliostyle-viewer-viewport]{background:transparent;}
   /* アプリ本体へ描画していた頃に要った「真ん中のグレー」対策(Tailwind base の
      「*{border-color:var(--border)}」 が組版結果へ漏れる)は、iframe 化で前提ごと消えたので

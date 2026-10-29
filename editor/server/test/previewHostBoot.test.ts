@@ -16,7 +16,9 @@ class FakeViewer {
   static throwNext = false;
   readonly listeners: Record<string, Listener> = {};
   readyState = 'loading';
-  constructor() {
+  readonly viewport: unknown;
+  constructor(opts: { viewportElement: unknown }) {
+    this.viewport = opts.viewportElement;
     if (FakeViewer.throwNext) {
       FakeViewer.throwNext = false;
       throw new Error('組版の初期化に失敗');
@@ -35,12 +37,20 @@ class FakeViewer {
 }
 
 /** ブートスクリプトを偽の window・document の上で起こす。 */
-function bootHost(opts: { withViewer?: boolean } = {}) {
+function bootHost(opts: { withViewer?: boolean; revokeThrows?: boolean } = {}) {
   const sent: Msg[] = [];
   const parent = { postMessage: (m: Msg) => sent.push(m) };
   const winListeners: Record<string, (e: unknown) => void> = {};
+  type Node = { tag: string; className: string };
   const vp = {
-    innerHTML: '',
+    children: [] as Node[],
+    set innerHTML(_v: string) {
+      this.children = [];
+    },
+    appendChild(n: Node) {
+      this.children.push(n);
+      return n;
+    },
     addEventListener() {},
     querySelectorAll: () => [],
     querySelector: () => null,
@@ -62,8 +72,16 @@ function bootHost(opts: { withViewer?: boolean } = {}) {
       winListeners[type] = fn;
     },
   };
-  const doc = { getElementById: () => vp };
-  const url = { createObjectURL: () => 'blob:doc', revokeObjectURL() {} };
+  const doc = {
+    getElementById: () => vp,
+    createElement: (tag: string): Node => ({ tag, className: '' }),
+  };
+  const url = {
+    createObjectURL: () => 'blob:doc',
+    revokeObjectURL() {
+      if (opts.revokeThrows) throw new Error('revoke に失敗');
+    },
+  };
   new Function('window', 'document', 'URL', 'Blob', 'requestAnimationFrame', BOOT_SCRIPT)(
     win,
     doc,
@@ -77,7 +95,7 @@ function bootHost(opts: { withViewer?: boolean } = {}) {
       data: { type: 'editor:preview-doc', html: '<p>x</p>', seq },
     });
   const of = (type: string) => sent.filter((m) => m.type === type);
-  return { sent, sendDoc, of };
+  return { sent, sendDoc, of, vp };
 }
 
 beforeEach(() => {
@@ -137,5 +155,34 @@ describe('ブートスクリプトの文書の番号', () => {
     expect(host.of('editor:preview-error')).toEqual([
       { type: 'editor:preview-error', message: 'vivliostyle bundle unavailable', seq: 0 },
     ]);
+  });
+
+  it('前の viewer の error が読み直しの前に届き、猶予が読み直しの後に満了しても通知しない', () => {
+    vi.useFakeTimers();
+    const host = bootHost();
+    host.sendDoc(7);
+    FakeViewer.all[0]?.listeners.error?.({ content: { messages: ['前の文書'] } });
+    vi.advanceTimersByTime(1000);
+    host.sendDoc(8);
+    vi.advanceTimersByTime(3000);
+    expect(host.of('editor:preview-error')).toEqual([]);
+  });
+
+  it('読み込みの最初で失敗しても、その文書の番号でエラーを送る', () => {
+    const host = bootHost({ revokeThrows: true });
+    host.sendDoc(9);
+    // 2 回目の読み込みは前の blob URL を外すところで投げる。
+    host.sendDoc(10);
+    expect(host.of('editor:preview-error').at(-1)).toMatchObject({ seq: 10 });
+  });
+
+  it('viewer は文書ごとに作り直した描画先へ描く(前の viewer は外した要素へ描く)', () => {
+    const host = bootHost();
+    host.sendDoc(11);
+    host.sendDoc(12);
+    const [old, cur] = FakeViewer.all;
+    expect(old?.viewport).not.toBe(host.vp);
+    expect(cur?.viewport).not.toBe(old?.viewport);
+    expect(host.vp.children).toEqual([cur?.viewport]);
   });
 });
