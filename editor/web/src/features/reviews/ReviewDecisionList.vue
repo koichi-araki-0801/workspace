@@ -170,8 +170,12 @@ function renderedRowEls(): HTMLElement[] {
   return Array.from(scroller.value?.querySelectorAll<HTMLElement>('[data-review-row-no]') ?? []);
 }
 
+/**
+ * 行の実高。`offsetHeight` は整数に丸めるので使わない — 行が 92.5px のような小数の高さだと 1 行
+ * 0.5px ずつ補正が欠け、50 行で 25px ずれた(Task 14 の e2e)。
+ */
 function heightsOf(els: HTMLElement[]): number[] {
-  return els.map((el) => el.offsetHeight);
+  return els.map((el) => el.getBoundingClientRect().height);
 }
 
 async function extendDown() {

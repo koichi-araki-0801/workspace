@@ -81,6 +81,8 @@ describe('reviewDecisionList', () => {
     expect(scrollDelta([40, 60])).toBe(100 - 192);
     expect(scrollDelta([])).toBe(0);
     expect(scrollDelta([10, 20], 5)).toBe(20);
+    // 小数の高さの端数を落とさない(50 行 × 0.5px が 25px のずれになった)
+    expect(scrollDelta(Array(50).fill(92.5))).toBe(50 * 92.5 - 50 * 96);
   });
 
   it('却下の理由は空白だけなら empty、2000 単位を超えたら tooLong', () => {

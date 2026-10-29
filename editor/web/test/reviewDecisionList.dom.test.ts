@@ -380,14 +380,16 @@ describe('ReviewDecisionList — 表示窓', () => {
     await flush();
     await see(w, '[data-review-sentinel="bottom"]');
     await see(w, '[data-review-sentinel="bottom"]');
-    // 行の実高を 120px とする(見込み 96px より 24px 高い)
+    // 行の実高を 120.5px とする。端数を落とす `offsetHeight`(120 を返す)では測らない —
+    // 実ブラウザで 50 行 × 0.5px = 25px ずれた(Task 14 の e2e)。
     for (const r of w.findAll('[data-review-row-no]')) {
       Object.defineProperty(r.element, 'offsetHeight', { value: 120, configurable: true });
+      r.element.getBoundingClientRect = () => ({ height: 120.5 }) as DOMRect;
     }
     const scroller = w.find('[data-review-scroller]').element as HTMLElement;
     scroller.scrollTop = 10000;
     await see(w, '[data-review-sentinel="bottom"]');
-    expect(scroller.scrollTop).toBe(10000 - 50 * (120 - 96));
+    expect(scroller.scrollTop).toBe(10000 - 50 * (120.5 - 96));
   });
 
   it('上の番兵が見えたら上へ 50 行戻し、下から外し、足した行の差だけ scrollTop を足す', async () => {
@@ -397,18 +399,21 @@ describe('ReviewDecisionList — 表示窓', () => {
     expect(rowNos(w)[0]).toBe(51);
     const scroller = w.find('[data-review-scroller]').element as HTMLElement;
     scroller.scrollTop = 5000;
-    // 足される行(1〜50)の実高を 80px にする — 描かれた直後に測るので prototype で与える
-    const spy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
-      this: HTMLElement,
+    // 足される行(1〜50)の実高を 92.5px にする — 描かれた直後に測るので prototype で与える。
+    // `offsetHeight` は端数を落とした 92 を返すようにして、そちらで測っていないことも見る。
+    const ohSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(92);
+    const spy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: Element,
     ) {
-      return this.hasAttribute('data-review-row-no') ? 80 : 0;
+      return { height: this.hasAttribute('data-review-row-no') ? 92.5 : 0 } as DOMRect;
     });
     await see(w, '[data-review-sentinel="top"]');
     spy.mockRestore();
+    ohSpy.mockRestore();
     const nos = rowNos(w);
     expect(nos[0]).toBe(1);
     expect(nos.at(-1)).toBe(150);
-    expect(scroller.scrollTop).toBe(5000 + 50 * (80 - 96));
+    expect(scroller.scrollTop).toBe(5000 + 50 * (92.5 - 96));
   });
 
   it('start が 0 のときは上の番兵を観測しない', async () => {
