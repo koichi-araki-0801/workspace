@@ -8,7 +8,7 @@
 // 通して、両側の (no, partKey, kind) を比べる。
 // 番号の一致は保存済みの下書きの時点で比べる(編集画面はライブの canvas、申請は保存済みの下書きから
 // 組むため、保存の前の一瞬はずれうる)。差分は両側とも worker と同じ linkedom のパーサで取る。
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   type ChangedPart,
@@ -158,8 +158,11 @@ async function reviewSide(canvasBody: string): Promise<ChangedPart[]> {
 }
 
 /** 編集画面側: `useChangeNumbers` の入力(確定版の原文と申請と同じ組み立ての本文)で番号を振る。 */
-async function editorSide(): Promise<ChangedPart[]> {
-  const diff = await htmlWorker.buildHtmlDiff(confirmedBody, submitBodyOf(FILLED, g.getBodyHtml()));
+async function editorSide(filled = FILLED): Promise<ChangedPart[]> {
+  const diff = await htmlWorker.buildHtmlDiff(
+    getBodyInner(filled),
+    submitBodyOf(filled, g.getBodyHtml()),
+  );
   return numberChangedParts(diff);
 }
 
@@ -216,9 +219,17 @@ describe('編集画面と承認タブの変更の番号', () => {
       ['.added-note#1', 3],
     ]);
     expect(n.numbers.value.removed.map((r) => [r.no, r.key])).toEqual([[2, '.cover_report#1']]);
-    // 編集側の番号のキーは、canvas の目印が測るパーツのキーに全件ある。
+    // 編集側の番号のキーは、canvas の目印が測るパーツのキーに全件ある。ただしパーツに数えない
+    // block(地の文 `#text#n`・区切りに付く要素 `#attached#n`。`htmlDiff.ts` の `paginateDoc`)は
+    // 番号を持つが紙面に要素が無い(目印を出さない)ので除く。キーの形(`#text#` / `#attached#` で
+    // 始まる)で見分ける。パーツのキーのアンカー(`data-part-id`・`id`・`.class`・タグ名)はこの形を取らない
+    // 前提(`blockKey.ts` の `rawKeyFromParts`)。
     const keys = canvasKeys();
-    for (const key of n.numbers.value.byKey.keys()) expect(keys.has(key), key).toBe(true);
+    const partNumberKeys = [...n.numbers.value.byKey.keys()].filter(
+      (k) => !/^#(text|attached)#/.test(k),
+    );
+    expect(partNumberKeys.length).toBeGreaterThan(0);
+    for (const key of partNumberKeys) expect(keys.has(key), key).toBe(true);
   });
 
   it('無変更なら両側とも番号は空', async () => {
@@ -264,5 +275,39 @@ describe('編集画面と承認タブの変更の番号', () => {
     await n.flush();
     expect(n.numbers.value.byKey.size).toBe(0);
     expect(n.numbers.value.removed).toEqual([]);
+  });
+});
+
+/** テスト用 fixtures(`editor/fixtures/filled/`)の値入り HTML の全件。 */
+const FILLED_DIR = path.resolve(__dirname, '../../fixtures/filled');
+const allFilled = readdirSync(FILLED_DIR)
+  .filter((n) => n.endsWith('.html'))
+  .map((n) => [n, readFileSync(path.join(FILLED_DIR, n), 'utf8')] as const);
+
+describe('未編集で開いたときは番号を出さない(原文と GrapesJS の直列化の差を番号にしない)', () => {
+  it('全体版 3 件と別ファンドの交付版を含む', () => {
+    const names = allFilled.map(([n]) => n);
+    for (const n of [
+      'XX01_950037_20240710_全体版.html',
+      'XX01_950124_20251020_全体版.html',
+      'XX01_910024_20251117_全体版.html',
+      'XX01_950155_20240710_交付版.html',
+    ])
+      expect(names).toContain(n);
+  });
+
+  it.each(allFilled)('%s: 確定版から開いて何もしなければ番号は空', async (_name, filled) => {
+    g.load(getBodyInner(filled), CSS);
+    render();
+    expect(sig(await editorSide(filled))).toEqual([]);
+  });
+
+  it.each(allFilled)('%s: 確定版と同じ内容の下書きから開いても番号は空', async (_name, filled) => {
+    // 下書きは確定版を canvas へ読んだあとの `getBodyHtml()`(autosave が保存する形)。
+    g.load(getBodyInner(filled), CSS);
+    const draft = g.getBodyHtml();
+    g.load(draft, CSS);
+    render();
+    expect(sig(await editorSide(filled))).toEqual([]);
   });
 });

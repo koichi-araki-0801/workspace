@@ -3,11 +3,9 @@
 // =============================================================================
 // worker は jsdom で起動しないので、shared の `buildHtmlDiff` を DOMParser で直に呼ぶ形へ差し替える。
 // 呼び出しを数え、解決の順を入れ替えられるようにする。
-import fs from 'node:fs';
-import path from 'node:path';
 import { buildHtmlDiff, type HtmlDiff } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBodyChangeGate, useChangeNumbers } from '@/features/editor/useChangeNumbers';
+import { createChangeCheckScheduler, useChangeNumbers } from '@/features/editor/useChangeNumbers';
 import { defaultHtmlParser } from '@/lib/htmlParser';
 
 const diffCalls = vi.fn(
@@ -112,23 +110,51 @@ describe('useChangeNumbers', () => {
     expect(diffCalls).toHaveBeenCalledTimes(1);
   });
 
-  it('計算中に古い結果が新しい結果を上書きしない', async () => {
-    let body = '<p class="a">1x</p><p class="b">2</p><p class="c">3</p>';
-    const n = useChangeNumbers({ baseline: () => BASE, current: () => doc(body) });
-    // 1 回目の計算を止めておき、2 回目が先に終わる形にする。
-    let releaseFirst: () => void = () => {};
+  /** 次の 1 回の計算を止めておく。返す関数で再開する。 */
+  function holdNextDiff(): () => void {
+    let release: () => void = () => {};
     diffCalls.mockImplementationOnce(async (before, after) => {
       await new Promise<void>((r) => {
-        releaseFirst = r;
+        release = r;
       });
       return buildHtmlDiff(before, after, defaultHtmlParser);
     });
+    return () => release();
+  }
+
+  it('計算中に 3 回予約しても worker への送信は 2 回で、最新の本文の結果になる', async () => {
+    vi.useFakeTimers();
+    let body = '<p class="a">1x</p><p class="b">2</p><p class="c">3</p>';
+    const n = useChangeNumbers({ baseline: () => BASE, current: () => doc(body) });
+    const release = holdNextDiff();
+    n.schedule();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(diffCalls).toHaveBeenCalledTimes(1);
+    // 計算中の予約は worker へ重ねず、印だけ立てる。
+    body = '<p class="a">1</p><p class="b">2</p><p class="c">3x</p>';
+    for (let i = 0; i < 3; i++) {
+      n.schedule();
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+    expect(diffCalls).toHaveBeenCalledTimes(1);
+    release();
+    await vi.advanceTimersByTimeAsync(5000);
+    // 終わったあとに最新の本文で 1 回だけ投げ直す。
+    expect(diffCalls).toHaveBeenCalledTimes(2);
+    expect(diffCalls.mock.calls[1][1]).toBe(doc(body));
+    expect([...n.numbers.value.byKey]).toEqual([['.c#1', 1]]);
+  });
+
+  it('投げ直しの前の古い結果は当てない', async () => {
+    let body = '<p class="a">1x</p><p class="b">2</p><p class="c">3</p>';
+    const n = useChangeNumbers({ baseline: () => BASE, current: () => doc(body) });
+    const release = holdNextDiff();
     const first = n.flush();
     body = '<p class="a">1</p><p class="b">2</p><p class="c">3x</p>';
-    await n.flush();
-    expect([...n.numbers.value.byKey]).toEqual([['.c#1', 1]]);
-    releaseFirst();
-    await first;
+    const second = n.flush();
+    release();
+    await Promise.all([first, second]);
+    expect(diffCalls).toHaveBeenCalledTimes(2);
     expect([...n.numbers.value.byKey]).toEqual([['.c#1', 1]]);
   });
 
@@ -145,6 +171,16 @@ describe('useChangeNumbers', () => {
     const pending = n.flush();
     n.cancel();
     await pending;
+    expect(n.numbers.value.byKey.size).toBe(0);
+    // 計算中の「もう一度」の印も消す(投げ直さない)。
+    diffCalls.mockClear();
+    const release = holdNextDiff();
+    const running = n.flush();
+    void n.flush();
+    n.cancel();
+    release();
+    await running;
+    expect(diffCalls).toHaveBeenCalledTimes(1);
     expect(n.numbers.value.byKey.size).toBe(0);
   });
 
@@ -163,45 +199,66 @@ describe('useChangeNumbers', () => {
   });
 });
 
-describe('createBodyChangeGate(本文が変わった変更だけを差分の予約へ通す)', () => {
-  it('CSS だけの変更では schedule しない', async () => {
-    vi.useFakeTimers();
-    // canvas の保存内容の写し。`useTemplateEditor` は本文を `getBodyHtml()`、CSS を `getCss()` で読む。
+describe('createChangeCheckScheduler(本文が変わった変更だけを差分の予約へ通す)', () => {
+  /** canvas の保存内容の写し。`useTemplateEditor` は本文を `getBodyHtml()`、CSS を `getCss()` で読む。 */
+  function setup(baseline: string | null = '<p class="a">1</p>') {
     const canvas = { html: '<body><p class="a">1</p></body>', css: '.a{color:red}' };
-    const n = useChangeNumbers({
-      baseline: () => '<p class="a">1</p>',
-      current: () => doc(canvas.html),
-    });
-    const gate = createBodyChangeGate(() => canvas.html);
-    gate.reset();
-    const onCanvasChange = () => {
-      if (gate.changed()) n.schedule();
-    };
+    const readBody = vi.fn(() => canvas.html);
+    const schedule = vi.fn();
+    const check = createChangeCheckScheduler({ readBody, baseline: () => baseline, schedule });
+    check.reset();
+    readBody.mockClear();
+    return { canvas, readBody, schedule, check };
+  }
+
+  it('CSS だけの変更では予約しない', async () => {
+    vi.useFakeTimers();
+    const { canvas, schedule, check } = setup();
     canvas.css = '.a{color:blue}';
-    onCanvasChange();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(diffCalls).not.toHaveBeenCalled();
-
-    canvas.html = '<body><p class="a">2</p></body>';
-    onCanvasChange();
+    check.notify();
     await vi.advanceTimersByTimeAsync(1000);
-    expect(diffCalls).toHaveBeenCalledTimes(1);
-
-    // 同じ本文のままの変更(選択の状態などで発火した通知)は再び通さない。
-    onCanvasChange();
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(diffCalls).toHaveBeenCalledTimes(1);
+    expect(schedule).not.toHaveBeenCalled();
   });
 
-  it('useTemplateEditor は canvas の変更を本文の門で振り分けてから差分を予約する', () => {
-    // `useTemplateEditor` は GrapesJS 一式を起こすので単体では組めない。呼び分けの形を原文で固定する。
-    const src = fs.readFileSync(
-      path.resolve(__dirname, '../src/features/editor/useTemplateEditor.ts'),
-      'utf8',
-    );
-    expect(src).toMatch(/createBodyChangeGate\(\(\) => g\.getBodyHtml\(\)\)/);
-    expect(src).toMatch(/if \(bodyGate\.changed\(\)\) changeNumbers\.schedule\(\)/);
-    // 予約は gate の後ろでだけ呼ぶ(markChanged から直に schedule しない)。
-    expect(src.match(/changeNumbers\.schedule\(\)/g)).toHaveLength(1);
+  it('本文の変更は 300ms 後に 1 回だけ予約し、続く通知は待ちを延ばす', async () => {
+    vi.useFakeTimers();
+    const { canvas, readBody, schedule, check } = setup();
+    canvas.html = '<body><p class="a">2</p></body>';
+    check.notify();
+    await vi.advanceTimersByTimeAsync(200);
+    check.notify();
+    check.notify();
+    await vi.advanceTimersByTimeAsync(299);
+    expect(schedule).not.toHaveBeenCalled();
+    expect(readBody).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(schedule).toHaveBeenCalledTimes(1);
+    // 本文の直列化は待ちのあとの 1 回だけで、読んだ本文を差分の計算へ渡せる。
+    expect(readBody).toHaveBeenCalledTimes(1);
+    expect(check.lastBody()).toBe(canvas.html);
+    // 同じ本文のままの通知(選択の状態などで発火したもの)は再び予約しない。
+    check.notify();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(schedule).toHaveBeenCalledTimes(1);
+  });
+
+  it('baseline が null なら何もしない(本文も読まない)', async () => {
+    vi.useFakeTimers();
+    const { canvas, readBody, schedule, check } = setup(null);
+    canvas.html = '<body><p class="a">2</p></body>';
+    check.notify();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(readBody).not.toHaveBeenCalled();
+    expect(schedule).not.toHaveBeenCalled();
+  });
+
+  it('cancel は待っている振り分けを捨てる', async () => {
+    vi.useFakeTimers();
+    const { canvas, schedule, check } = setup();
+    canvas.html = '<body><p class="a">2</p></body>';
+    check.notify();
+    check.cancel();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(schedule).not.toHaveBeenCalled();
   });
 });

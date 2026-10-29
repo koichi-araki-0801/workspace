@@ -55,7 +55,7 @@ import { syncUi } from './syncUi';
 import { afterTextEdit } from './textEditFinish';
 import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
-import { changeBaselineOf, createBodyChangeGate, useChangeNumbers } from './useChangeNumbers';
+import { changeBaselineOf, createChangeCheckScheduler, useChangeNumbers } from './useChangeNumbers';
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
@@ -176,23 +176,20 @@ export function useTemplateEditor(
   // 決める(`changeBaselineOf`・`submitBodyOf`)。読み込みまでは比較元が null で計算しない。
   let changeBaseline: string | null = null;
   let filledHtml = '';
+  /** 変更の目印を出せるか(比較元がある経路だけ。作成経路・値入り HTML の無いテンプレでは出さない)。 */
+  const changeMarksAvailable = ref(false);
   const changeNumbers = useChangeNumbers({
     baseline: () => changeBaseline,
-    current: () => submitBodyOf(filledHtml, g.getBodyHtml()),
+    // 本文は振り分けが読んだもの(`lastBody`)を使い、直列化を 2 度しない。
+    current: () => submitBodyOf(filledHtml, changeCheck.lastBody() ?? g.getBodyHtml()),
     nameById: () => new Map([...partsById.values()].map((p) => [p.id, p.name])),
   });
-  // 本文が変わった変更だけを予約する。canvas の変更の通知は style・選択の状態などでも頻繁に来るので、
-  // 本文の読み出し(`getBodyHtml()`)は通知のたびでなく短い待ちのあとに 1 回だけ行う。
-  const bodyGate = createBodyChangeGate(() => g.getBodyHtml());
-  let changeCheckTimer: ReturnType<typeof setTimeout> | null = null;
-  function scheduleChangeCheck(): void {
-    if (changeBaseline === null) return;
-    if (changeCheckTimer) clearTimeout(changeCheckTimer);
-    changeCheckTimer = setTimeout(() => {
-      changeCheckTimer = null;
-      if (bodyGate.changed()) changeNumbers.schedule();
-    }, 300);
-  }
+  // 本文が変わった変更だけを予約する(CSS だけの変更では予約しない。`createChangeCheckScheduler`)。
+  const changeCheck = createChangeCheckScheduler({
+    readBody: () => g.getBodyHtml(),
+    baseline: () => changeBaseline,
+    schedule: () => changeNumbers.schedule(),
+  });
   watch(changeNumbers.numbers, (n) => g.setChangeNumbers(n.byKey));
 
   // ── 1. undo / redo (snapshot 方式) ──
@@ -655,7 +652,8 @@ export function useTemplateEditor(
       filled: res.value.template.filled,
       confirmedBody: res.value.confirmedBody,
     });
-    bodyGate.reset();
+    changeMarksAvailable.value = changeBaseline !== null;
+    changeCheck.reset();
     void changeNumbers.flush();
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
     // `refreshPageGuides`→`refreshPartMarkers` が位置を測り直す。
@@ -723,7 +721,7 @@ export function useTemplateEditor(
     draftMayExist = true;
     autosave.trigger();
     scheduleCleanCheck();
-    scheduleChangeCheck();
+    changeCheck.notify();
   }
 
   /**
@@ -789,7 +787,7 @@ export function useTemplateEditor(
     if (persistTimer) clearTimeout(persistTimer);
     persistUndo();
     if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
-    if (changeCheckTimer) clearTimeout(changeCheckTimer);
+    changeCheck.cancel();
     changeNumbers.cancel();
     g.destroy();
   });
@@ -831,8 +829,8 @@ export function useTemplateEditor(
     selectedKey: currentNoteKeyRef,
     /** 確定版との差分のあるパーツの番号(作成経路・値入り HTML の無いテンプレでは常に空)。 */
     changeNumbers: changeNumbers.numbers,
-    /** 変更の目印を出せる経路か(作成経路では切替も目印も出さない)。 */
-    changeMarksAvailable: computed(() => !isCreateRoute.value),
+    /** 変更の目印を出せるか(比較元が無い経路では切替も凡例も目印も出さない)。 */
+    changeMarksAvailable,
     selectedPart,
     selectedGeom,
     selectedPartBreak,

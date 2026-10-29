@@ -81,10 +81,15 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
   const numbers = ref<ChangeNumbers>(emptyNumbers());
   const delay = Math.max(MIN_DEBOUNCE_MS, ctx.debounceMs ?? MIN_DEBOUNCE_MS);
   let timer: ReturnType<typeof setTimeout> | null = null;
-  /** 計算を始めるたびに進める。終わったときに最新でなければ結果を捨てる。 */
+  /** 計算を始めるたび・`cancel` のたびに進める。終わったときに最新でなければ結果を捨てる。 */
   let seq = 0;
+  /** worker へ投げている計算(1 本だけ)。 */
+  let running: Promise<void> | null = null;
+  /** 計算中に来た要求の印。終わったら 1 回だけ投げ直す。 */
+  let again = false;
 
-  async function compute(): Promise<void> {
+  /** 1 回分の計算。計算中にもう一度の要求が来ていれば、結果は古いので当てない。 */
+  async function computeOnce(): Promise<void> {
     const mine = ++seq;
     const baseline = ctx.baseline();
     if (baseline === null) {
@@ -93,14 +98,37 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
     }
     try {
       const diff = await htmlWorker.buildHtmlDiff(baseline, ctx.current());
-      if (mine !== seq) return;
+      if (mine !== seq || again) return;
       numbers.value = splitNumbers(numberChangedParts(diff), ctx.nameById?.() ?? new Map());
     } catch (e) {
-      if (mine !== seq) return;
+      if (mine !== seq || again) return;
       // 古い番号を残すと、直したパーツと違う場所に丸数字が出る。出さない側へ倒す。
       logError(unexpected('change numbers failed', { cause: e }));
       numbers.value = emptyNumbers();
     }
+  }
+
+  /**
+   * 計算を要求する。計算中なら worker へ重ねて投げず印だけ立て、終わったら最新の本文で 1 回だけ
+   * 投げ直す(大きな文書で計算が予約の間隔より長いと、重ねて投げるほど worker が詰まる)。
+   * 返す promise は、投げ直しを含めて計算が落ち着いたときに解決する。
+   */
+  function compute(): Promise<void> {
+    if (running) {
+      again = true;
+      return running;
+    }
+    running = (async () => {
+      try {
+        do {
+          again = false;
+          await computeOnce();
+        } while (again);
+      } finally {
+        running = null;
+      }
+    })();
+    return running;
   }
 
   function schedule(): void {
@@ -118,10 +146,11 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
     await compute();
   }
 
-  /** 予約と計算中の結果を捨てる(画面を離れるとき)。 */
+  /** 予約・投げ直しの印・計算中の結果を捨てる(画面を離れるとき)。 */
   function cancel(): void {
     if (timer) clearTimeout(timer);
     timer = null;
+    again = false;
     seq += 1;
   }
 
@@ -141,25 +170,53 @@ export function changeBaselineOf(input: {
   return input.isCreateRoute || !input.filled ? null : input.confirmedBody;
 }
 
+/** canvas の変更の通知から本文を読みに行くまでの待ち(既定)。 */
+const CHANGE_CHECK_WAIT_MS = 300;
+
 /**
- * canvas の変更のうち本文(`getBodyHtml()`)が変わったものだけを通す門。CSS だけの変更や、保存
- * 内容の変わらない通知では差分を予約しない(番号はパーツの差分だけで決まり、CSS は比べない)。
- * `reset` で今の本文を基準にし、`changed` は前に見た本文と違えば true を返して基準を進める。
+ * canvas の変更の通知を、本文(`getBodyHtml()`)が変わったときだけの差分の予約へ振り分ける。CSS
+ * だけの変更や、保存内容の変わらない通知では予約しない(番号はパーツの差分だけで決まり、CSS は
+ * 比べない)。通知は style・選択の状態などでも頻繁に来る(ハンドルの drag では連続する)ので、本文の
+ * 直列化は通知のたびでなく `waitMs` 待ってから 1 回だけ行う。読んだ本文は `lastBody` で返し、差分の
+ * 計算(`useChangeNumbers` の `current`)が同じ本文を使えるようにする(直列化を 2 度しない)。
+ * `baseline` が null(番号を出さない経路)の間は何もしない。
  */
-export function createBodyChangeGate(readBody: () => string): {
+export function createChangeCheckScheduler(opts: {
+  readBody: () => string;
+  baseline: () => string | null;
+  schedule: () => void;
+  waitMs?: number;
+}): {
+  /** 今の本文を基準にする(開いた直後)。 */
   reset(): void;
-  changed(): boolean;
+  /** canvas の変更の通知。 */
+  notify(): void;
+  /** 最後に読んだ本文(`reset` の前は null)。 */
+  lastBody(): string | null;
+  cancel(): void;
 } {
+  const wait = opts.waitMs ?? CHANGE_CHECK_WAIT_MS;
   let last: string | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   return {
     reset() {
-      last = readBody();
+      last = opts.readBody();
     },
-    changed() {
-      const body = readBody();
-      if (body === last) return false;
-      last = body;
-      return true;
+    notify() {
+      if (opts.baseline() === null) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        const body = opts.readBody();
+        if (body === last) return;
+        last = body;
+        opts.schedule();
+      }, wait);
+    },
+    lastBody: () => last,
+    cancel() {
+      if (timer) clearTimeout(timer);
+      timer = null;
     },
   };
 }
