@@ -479,12 +479,13 @@ export const BOOT_SCRIPT = `(function(){
   function load(html,review,seq){
     // 番号は最初に変える。読み込みのどこで失敗しても、そのエラーをこの文書の番号で送る。
     var s=parseDocSeq(seq);docSeq=s===null?0:s;
+    // 前の文書の viewer と猶予のタイマーも、失敗しうる処理より前に手放す。core の CoreViewer は
+    // cleanup を持たず、前の viewer のリスナーは外れない(バンドルで確認)ので、各リスナーの先頭で
+    // 「いまの viewer か」を見て捨てる。
+    viewer=null;
+    if(errTimer){clearTimeout(errTimer);errTimer=null;}
     try{
       if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null;}
-      if(errTimer){clearTimeout(errTimer);errTimer=null;}
-      // core の CoreViewer は cleanup を持たず、前の viewer のリスナーは外れない(バンドルで確認)。
-      // 前の viewer の通知は、各リスナーの先頭で「いまの viewer か」を見て捨てる。
-      viewer=null;
       currentPage=1;pageCount=0;atFirst=true;atLast=false;zoom=1;userZoomed=false;ready=false;
       reviewDoc=review===true;marks=null;parts=null;saved=new WeakMap();badges=[];badgeNo=new Map();
       var vp=document.getElementById('vp');

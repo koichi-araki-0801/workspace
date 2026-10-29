@@ -185,4 +185,19 @@ describe('ブートスクリプトの文書の番号', () => {
     expect(cur?.viewport).not.toBe(old?.viewport);
     expect(host.vp.children).toEqual([cur?.viewport]);
   });
+
+  it('読み込みの最初で失敗しても、前の viewer の通知と猶予のタイマーは止まる', () => {
+    vi.useFakeTimers();
+    const host = bootHost({ revokeThrows: true });
+    host.sendDoc(13);
+    const [old] = FakeViewer.all;
+    old?.listeners.error?.({ content: { messages: ['前の文書'] } });
+    host.sendDoc(14);
+    const before = host.sent.length;
+    old?.listeners.nav?.({ epage: 1, epageCount: 3 });
+    vi.advanceTimersByTime(3000);
+    // 読み込みの失敗そのものの通知(番号 14)より後には、前の viewer からは何も送られない。
+    expect(host.sent.slice(before)).toEqual([]);
+    expect(host.of('editor:preview-error').map((m) => m.seq)).toEqual([14]);
+  });
 });
