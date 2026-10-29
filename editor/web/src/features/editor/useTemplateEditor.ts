@@ -17,6 +17,7 @@ import { computed, onBeforeUnmount, onMounted, ref, type ShallowRef, watch } fro
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import { useFundAssetRepo, useNoteRepo } from '@/api/repositories';
 import { toast, toastError } from '@/components/ui/toast';
+import { submitBodyOf } from '@/features/preview/services/submitBody';
 import { logError } from '@/lib/appError';
 import { editorAssetWarnings } from '@/lib/assetWarnings';
 import {
@@ -50,6 +51,7 @@ import { syncUi } from './syncUi';
 import { afterTextEdit } from './textEditFinish';
 import { undoable } from './undoStep';
 import { useAutosave } from './useAutosave';
+import { changeBaselineOf, createBodyChangeGate, useChangeNumbers } from './useChangeNumbers';
 import { useComments } from './useComments';
 import { useGrapes } from './useGrapes';
 import { usePartEditHistory } from './usePartEditHistory';
@@ -165,6 +167,29 @@ export function useTemplateEditor(
   });
   // ON/OFF はセッションの ui 状態を継ぐ(プレビュー往復で保持、永続ミラー経由でリロードでも復元)。
   redline.enabled.value = sess.ui.redlineEnabled;
+
+  // 確定版との差分のあるパーツの番号(紙面の丸数字と修正履歴の見出し)。比較元・比較先は読み込みで
+  // 決める(`changeBaselineOf`・`submitBodyOf`)。読み込みまでは比較元が null で計算しない。
+  let changeBaseline: string | null = null;
+  let filledHtml = '';
+  const changeNumbers = useChangeNumbers({
+    baseline: () => changeBaseline,
+    current: () => submitBodyOf(filledHtml, g.getBodyHtml()),
+    nameById: () => new Map([...partsById.values()].map((p) => [p.id, p.name])),
+  });
+  // 本文が変わった変更だけを予約する。canvas の変更の通知は style・選択の状態などでも頻繁に来るので、
+  // 本文の読み出し(`getBodyHtml()`)は通知のたびでなく短い待ちのあとに 1 回だけ行う。
+  const bodyGate = createBodyChangeGate(() => g.getBodyHtml());
+  let changeCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleChangeCheck(): void {
+    if (changeBaseline === null) return;
+    if (changeCheckTimer) clearTimeout(changeCheckTimer);
+    changeCheckTimer = setTimeout(() => {
+      changeCheckTimer = null;
+      if (bodyGate.changed()) changeNumbers.schedule();
+    }, 300);
+  }
+  watch(changeNumbers.numbers, (n) => g.setChangeNumbers(n.byKey));
 
   // ── 1. undo / redo (snapshot 方式) ──
   // GrapesJS の UndoManager はプログラム経由の style 書き込みを確実には追えないため、
@@ -576,8 +601,18 @@ export function useTemplateEditor(
     // `filled` が空になり、基準が無いまま機能が黙って死ぬため。作成経路(`?created=1`)は確定版
     // そのものが無いので機能を出さない。
     redline.setBaseline(isCreateRoute.value ? undefined : res.value.confirmedBody);
+    // 変更の番号は確定版の原文(`confirmedBody`)と、申請と同じ組み立ての本文で比べる。値入り HTML の
+    // 無いテンプレと作成経路は比較元を持たない(番号を出さない)。開いた直後に 1 回計算する。
+    filledHtml = res.value.template.filled;
+    changeBaseline = changeBaselineOf({
+      isCreateRoute: isCreateRoute.value,
+      filled: res.value.template.filled,
+      confirmedBody: res.value.confirmedBody,
+    });
+    bodyGate.reset();
+    void changeNumbers.flush();
     // 当該版インスタンスのメモを読み込む(マーカー/メモ欄へ反映)。load 後のレイアウト確定で
-    // `refreshPageGuides`→`refreshNoteMarkers` が位置を測り直す。
+    // `refreshPageGuides`→`refreshPartMarkers` が位置を測り直す。
     void note.reload();
     // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `displayHistory` が
     // 選択キーで絞る(リロード後も安定構造キーで一致するため右下の履歴が復元される)。
@@ -642,6 +677,7 @@ export function useTemplateEditor(
     draftMayExist = true;
     autosave.trigger();
     scheduleCleanCheck();
+    scheduleChangeCheck();
   }
 
   /**
@@ -707,6 +743,8 @@ export function useTemplateEditor(
     if (persistTimer) clearTimeout(persistTimer);
     persistUndo();
     if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
+    if (changeCheckTimer) clearTimeout(changeCheckTimer);
+    changeNumbers.cancel();
     g.destroy();
   });
 
@@ -741,6 +779,10 @@ export function useTemplateEditor(
     ]),
     displayHistory,
     partLabels,
+    /** 確定版との差分のあるパーツの番号(作成経路・値入り HTML の無いテンプレでは常に空)。 */
+    changeNumbers: changeNumbers.numbers,
+    /** 変更の目印を出せる経路か(作成経路では切替も目印も出さない)。 */
+    changeMarksAvailable: computed(() => !isCreateRoute.value),
     selectedPart,
     selectedGeom,
     selectedPartBreak,

@@ -46,6 +46,7 @@ const {
   assetWarnings,
   displayHistory,
   partLabels,
+  changeMarksAvailable,
   selectedPart,
   selectedGeom,
   selectedPartBreak,
@@ -193,6 +194,18 @@ onBeforeUnmount(() => {
 // スレッド(選択パーツの切替 / 追加・編集・削除)が変わるたびに実寸を測り直す(`refreshBubbleAnchorEstimate`)。
 // 以後の zoom/layout 再計算は `useGrapes.ts` の `lastBubbleSize` キャッシュがこの実寸のまま追従させる。
 watch(noteEntries, refreshBubbleAnchorEstimate, { immediate: true });
+
+// ── 変更の目印(確定版から変わったパーツの左上の丸数字)。既定 ON、紙面の左下の切替で出し入れ
+// する(上部バーには置かない — 1 行に収まらなくなる)。ui 状態を継ぐ(paneTab と同じ理由)。 ──
+const changeMarksEnabled = ref(ui.changeMarksEnabled);
+syncUi(sessionStore, props.id, changeMarksEnabled, 'changeMarksEnabled');
+
+/** 丸数字の押下: そのパーツを選び、右ペインをプロパティ(修正履歴のある面)へ切り替える。 */
+function openHistoryFor(key: string): void {
+  selectPartByKey(key);
+  paneTab.value = 'props';
+  rightCollapsed.value = false;
+}
 
 // ページ境界の overlay guide: 既定 ON、上部バーから切替える。ui 状態を継ぐ(paneTab と同じ理由)。
 const showPageGuides = ref(ui.showPageGuides);
@@ -464,6 +477,25 @@ const statusText = computed(() => {
             <StickyNote class="h-3 w-3" />
           </button>
 
+          <!-- 変更の目印(確定版から変わったパーツの左上の丸数字)。番号は承認タブと同じ数え方
+               (`useChangeNumbers.ts`)。メモ目印(右上・琥珀)とは位置と色で分ける。overlay にだけ
+               描き、canvas の DOM・保存内容には載せない。 -->
+          <template v-if="changeMarksAvailable && changeMarksEnabled">
+            <button
+              v-for="m in g.changeMarkers.value"
+              :key="m.key"
+              type="button"
+              data-change-marker
+              class="chg-mark"
+              :title="`変更 ${m.no}（押すと修正履歴を開く）`"
+              :aria-label="`変更 ${m.no}（押すと修正履歴を開く）`"
+              :style="{ left: `${m.left}px`, top: `${m.top}px` }"
+              @click="openHistoryFor(m.key)"
+            >
+              {{ m.no }}
+            </button>
+          </template>
+
           <!-- メモ吹き出し(選択パーツのスレッド)。表計算ソフトのセルコメントと同じく常に
                ページへ重ねて出す。大きさ・倍率は変えない(`noteBubbleLayout` を見よ)。 -->
           <template v-if="g.bubbleAnchor.value && noteEntries.length > 0 && bubbleOpen">
@@ -534,6 +566,27 @@ const statusText = computed(() => {
             </div>
 
           </template>
+        </div>
+
+        <!-- 紙面の左下: 変更の目印の出し入れと凡例。作成経路(確定版が無い)では出さない。 -->
+        <div v-if="changeMarksAvailable" class="chg-dock">
+          <button
+            type="button"
+            class="chg-toggle"
+            :aria-pressed="changeMarksEnabled"
+            @click="changeMarksEnabled = !changeMarksEnabled"
+          >
+            <span
+              class="chg-swatch"
+              :class="changeMarksEnabled ? '' : 'chg-swatch-off'"
+              aria-hidden="true"
+              >1</span
+            >変更の目印
+          </button>
+          <span v-if="changeMarksEnabled" class="chg-legend" aria-hidden="true">
+            <span><i class="chg-legend-sw chg-legend-change"></i>確定版から変更</span>
+            <span><i class="chg-legend-sw chg-legend-note"></i>コメント</span>
+          </span>
         </div>
 
         <!-- 右端の縦ページ目盛り(スクラバ)。400 ページ規模で現在位置の把握と任意ページへの
@@ -671,6 +724,103 @@ const statusText = computed(() => {
 /* 全部解決済みのパーツは灰色で残す(「見た」ことは分かるが、次に見るべき場所ではない)。 */
 .note-marker-resolved {
   background: #9aa0a6;
+}
+
+/* change mark: numbered blue circle at a part's top-left corner (the note marker sits at the
+   top-right in amber). fixed px size like the note marker; fixed colors because it always sits on
+   the white A4 sheet (same reason as `.note-marker`). */
+.chg-mark {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0 4px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  appearance: none;
+  transform: translate(-2px, -2px);
+  border-radius: 11px;
+  color: #fff;
+  background: #3b82c4;
+  border: 1.5px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 24;
+}
+
+/* bottom-left dock: toggle for the change marks and their legend (off the sheet, theme colors) */
+.chg-dock {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px;
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+.chg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.chg-toggle[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+}
+.chg-swatch {
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  font-size: 10px;
+  color: #fff;
+  background: #3b82c4;
+}
+.chg-swatch-off {
+  background: #9aa0a6;
+}
+.chg-legend {
+  display: inline-flex;
+  gap: 10px;
+}
+.chg-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.chg-legend-sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+.chg-legend-change {
+  border-radius: 50%;
+  background: #3b82c4;
+}
+.chg-legend-note {
+  border-radius: 3px;
+  background: var(--warning);
 }
 
 /* drag grip on the selected block — large, obvious grab target for reorder */

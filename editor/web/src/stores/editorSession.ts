@@ -36,6 +36,8 @@ export interface EditorUiState {
   showPageGuides: boolean;
   /** 選択パーツの構造キー(永続しない — リロード後は未選択から)。 */
   selectedKey: string | null;
+  /** 紙面の変更の目印(丸数字)。既定 ON(紙面の左下の切替で消せる)。ON/OFF は永続する。 */
+  changeMarksEnabled: boolean;
 }
 
 export function defaultEditorUiState(): EditorUiState {
@@ -48,6 +50,7 @@ export function defaultEditorUiState(): EditorUiState {
     currentPage: 0,
     showPageGuides: true,
     selectedKey: null,
+    changeMarksEnabled: true,
   };
 }
 
@@ -76,6 +79,8 @@ function sanitizePersistedUi(raw: unknown): Partial<PersistedUi> {
     typeof r.singlePageMode === 'boolean' ? r.singlePageMode : def.singlePageMode;
   out.showPageGuides =
     typeof r.showPageGuides === 'boolean' ? r.showPageGuides : def.showPageGuides;
+  out.changeMarksEnabled =
+    typeof r.changeMarksEnabled === 'boolean' ? r.changeMarksEnabled : def.changeMarksEnabled;
   out.paneTab = r.paneTab === 'props' || r.paneTab === 'comments' ? r.paneTab : def.paneTab;
   return out;
 }

@@ -295,6 +295,7 @@ describe('useEditorSessionStore', () => {
       currentPage: 0,
       showPageGuides: true,
       selectedKey: null,
+      changeMarksEnabled: true,
     });
     s.ui.allowEdit = true;
     s.ui.zoom = 1.2;
@@ -317,6 +318,7 @@ describe('useEditorSessionStore', () => {
       singlePageMode: true,
       currentPage: 0,
       showPageGuides: true,
+      changeMarksEnabled: true,
     });
   });
 
@@ -344,7 +346,25 @@ describe('useEditorSessionStore', () => {
       currentPage: 2,
       showPageGuides: false,
       selectedKey: null,
+      changeMarksEnabled: true,
     });
+  });
+
+  it('changeMarksEnabled は既定 true で、localStorage へ残る', () => {
+    const store = useEditorSessionStore();
+    const s = store.ensure('t1');
+    expect(s.ui.changeMarksEnabled).toBe(true);
+    s.ui.changeMarksEnabled = false;
+    store.persistUi('t1');
+    expect(JSON.parse(localStorage.getItem(editorUiKey()) ?? '{}').t1.changeMarksEnabled).toBe(
+      false,
+    );
+    // 再読み込み(新しいストア)でも切ったまま。読めない値は既定(オン)へ戻す。
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().ensure('t1').ui.changeMarksEnabled).toBe(false);
+    localStorage.setItem(editorUiKey(), JSON.stringify({ t1: { changeMarksEnabled: 'off' } }));
+    setActivePinia(createPinia());
+    expect(useEditorSessionStore().ensure('t1').ui.changeMarksEnabled).toBe(true);
   });
 
   it('clear() は ui と永続分も消す', () => {

@@ -24,9 +24,10 @@ import { formatCss } from '@/lib/formatOutput';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
 import { PDF_ERROR_MSG, postBuild, renderPdfDocument } from '@/lib/pdfDocument';
 import { renderJinjaIsolated } from '@/lib/renderHostClient';
-import { getBodyInner, replaceBodyInner } from '@/lib/templateDoc';
+import { replaceBodyInner } from '@/lib/templateDoc';
 
 import { htmlWorker } from '@/workers';
+import { submitBodyOf } from './submitBody';
 
 // 文書組み立て(隔離描画 → sanitize → format)は結合 PDF と共用のため
 // `lib/pdfDocument.ts` が持つ。文言定数は既存の import 元を保つため再エクスポートする。
@@ -159,8 +160,8 @@ export function createTemplatePreviewService(
       if (draft && isFilled) {
         // 値入り HTML の下書きは値を保った本文そのもの。Jinja 復元は掛けない(掛けると
         // round-trip 用のチップから Jinja が戻り、承認で filled/ に Jinja が書かれる)。
-        restoredHtml = replaceBodyInner(baseHtml, getBodyInner(draft.html));
-
+        // 編集画面の変更の番号も同じ組み立てで比べる(`submitBody.ts`)。
+        restoredHtml = submitBodyOf(baseHtml, draft.html);
         css = formatCss(draft.css);
       } else if (draft) {
         // Jinja 復元(DOM 重処理)は Worker(linkedom)で実行しメインを塞がない。`pretty` で

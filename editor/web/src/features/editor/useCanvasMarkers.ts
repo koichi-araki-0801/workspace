@@ -1,7 +1,8 @@
 // =============================================================================
-// useCanvasMarkers.ts — 選択枠 rect とメモ目印の overlay 計測
+// useCanvasMarkers.ts — 選択枠 rect・メモ目印・変更の目印の overlay 計測
 // =============================================================================
-// 役割: 選択要素の画面 rect(浮動ツールバー / ハンドル用)と、メモを持つパーツの目印位置を、
+// 役割: 選択要素の画面 rect(浮動ツールバー / ハンドル用)と、メモを持つパーツの目印位置・確定版から
+// 変わったパーツの丸数字の位置(`useChangeNumbers.ts` の番号)を、
 // canvas 相対 / zoom 考慮(`noScroll:true` の viewport 相対)で測る。
 // ページ表示状態(currentPageIndex / singlePageMode)は `ctx` の ref を読む。ページの分け方は
 // `partKey.ts` の `partEntries`(`useGrapes.ts` の `pageBlocks` と同じ `splitPages`)で読む。
@@ -27,6 +28,21 @@ export interface NoteMarker {
   left: number;
 }
 
+/**
+ * 確定版から変わったパーツの丸数字(`NoteMarker` と同じ座標系)。パーツの左上隅に重ね、右上の
+ * メモ目印とは位置と色で分ける。目印は overlay にだけ描き、canvas の DOM・保存内容には載せない。
+ * @public
+ */
+export interface ChangeMarker {
+  /** パーツのキー(`partKey.ts` の `partEntries`)。 */
+  key: string;
+  /** 番号(`useChangeNumbers.ts`)。 */
+  no: number;
+  top: number;
+  /** パーツ左上隅の x(`rect.left`)。 */
+  left: number;
+}
+
 interface CanvasMarkersContext {
   editor: ShallowRef<Editor | undefined>;
   currentPageIndex: Ref<number>;
@@ -42,6 +58,10 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
   const noteKeys = ref<Set<string>>(new Set());
   /** メモ目印の overlay 位置(`refreshNoteMarkers` が現在ページのパーツから算出)。 */
   const noteMarkers = ref<NoteMarker[]>([]);
+  /** 変更のあるパーツのキー → 番号(外部 = `useChangeNumbers` から `setChangeNumbers` で注入)。 */
+  const changeNumbers = ref<Map<string, number>>(new Map());
+  /** 変更の目印の overlay 位置(`refreshPartMarkers` がメモ目印と同じ走査で算出)。 */
+  const changeMarkers = ref<ChangeMarker[]>([]);
   /** 吹き出しの配置(選択パーツが無い / 吹き出しを閉じている間は null)。 */
   const bubbleAnchor = ref<BubbleAnchor | null>(null);
 
@@ -68,42 +88,53 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
   }
 
   /**
-   * メモを持つパーツ(`noteKeys`)の overlay 目印位置を再計算する。1 ページ表示中は現在
-   * ページのパーツのみを走査する(非表示ページの `getElementPos` は 0 になり位置が崩れる
-   * ため)。全ページ表示時は全ページを走査する。座標は `noScroll:true`(guide/rect と同様、
-   * 非スクロールの overlay 層に重ねるための viewport 相対)で測る。
+   * メモを持つパーツ(`noteKeys`)と変更のあるパーツ(`changeNumbers`)の overlay 目印位置を、全パーツの
+   * 1 回の走査で再計算する。1 ページ表示中は現在ページのパーツのみを走査する(非表示ページの
+   * `getElementPos` は 0 になり位置が崩れるため)。全ページ表示時は全ページを走査する。座標は
+   * `noScroll:true`(guide/rect と同様、非スクロールの overlay 層に重ねるための viewport 相対)で測る。
+   * メモ目印はパーツの右上、変更の目印は左上に置く。
    */
-  function refreshNoteMarkers(): void {
+  function refreshPartMarkers(): void {
     const ed = ctx.editor.value;
     // 根は GrapesJS の wrapper(`useGrapes.ts` の `recomputePages` と同じ)。まだ描かれていなければ
     // 数えない。canvas の body の直下は wrapper 1 つで、パーツの並びではない。
     const root = canvasRoot(ctx.editor);
-    if (!ed || !root || noteKeys.value.size === 0) {
+    const clear = () => {
       noteMarkers.value = [];
+      changeMarkers.value = [];
+    };
+    if (!ed || !root || (noteKeys.value.size === 0 && changeNumbers.value.size === 0)) {
+      clear();
       return;
     }
-    measureOrClear(
-      () => {
-        const out: NoteMarker[] = [];
-        const single = ctx.singlePageMode.value;
-        for (const { part, key, page } of partEntries(root, canvasRawKey(ed))) {
-          if (single && page !== ctx.currentPageIndex.value) continue;
-          if (!noteKeys.value.has(key)) continue;
-          const p = ed.Canvas.getElementPos(part, { noScroll: true });
-          out.push({ key, top: p.top, left: p.left + p.width });
-        }
-        noteMarkers.value = out;
-      },
-      () => {
-        noteMarkers.value = [];
-      },
-    );
+    measureOrClear(() => {
+      const notes: NoteMarker[] = [];
+      const changes: ChangeMarker[] = [];
+      const single = ctx.singlePageMode.value;
+      for (const { part, key, page } of partEntries(root, canvasRawKey(ed))) {
+        if (single && page !== ctx.currentPageIndex.value) continue;
+        const noted = noteKeys.value.has(key);
+        const no = changeNumbers.value.get(key);
+        if (!noted && no === undefined) continue;
+        const p = ed.Canvas.getElementPos(part, { noScroll: true });
+        if (noted) notes.push({ key, top: p.top, left: p.left + p.width });
+        if (no !== undefined) changes.push({ key, no, top: p.top, left: p.left });
+      }
+      noteMarkers.value = notes;
+      changeMarkers.value = changes;
+    }, clear);
   }
 
   /** メモを持つパーツの構造キー集合を差し替え、目印を即時に測り直す(`useComments` から)。 */
   function setNoteKeys(keys: Set<string>): void {
     noteKeys.value = keys;
-    refreshNoteMarkers();
+    refreshPartMarkers();
+  }
+
+  /** 変更のあるパーツの番号を差し替え、目印を即時に測り直す(`useChangeNumbers` から)。 */
+  function setChangeNumbers(byKey: Map<string, number>): void {
+    changeNumbers.value = byKey;
+    refreshPartMarkers();
   }
 
   /**
@@ -147,10 +178,12 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
   return {
     selectedRect,
     noteMarkers,
+    changeMarkers,
     bubbleAnchor,
     refreshRect,
-    refreshNoteMarkers,
+    refreshPartMarkers,
     refreshBubbleAnchor,
     setNoteKeys,
+    setChangeNumbers,
   };
 }

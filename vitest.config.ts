@@ -180,6 +180,7 @@ export default defineConfig({
         'editor/web/src/features/editor/services/templateEditorService.ts',
         'editor/web/src/features/editor/services/legacyDraft.ts',
         'editor/web/src/features/preview/services/templatePreviewService.ts',
+        'editor/web/src/features/preview/services/submitBody.ts',
         'editor/web/src/lib/pdfDocument.ts',
         'editor/web/src/features/merge/services/mergePdfService.ts',
         'editor/web/src/features/admin/viewmodels/userVm.ts',
@@ -248,6 +249,7 @@ export default defineConfig({
         'editor/web/src/features/editor/comments/useThreadActions.ts',
         'editor/web/src/features/editor/comments/CommentPanel.vue',
         'editor/web/src/features/editor/partKey.ts',
+        'editor/web/src/features/editor/useChangeNumbers.ts',
         // 編集キャンバスの赤入れ（旧文言の取り消し線）。装飾が draft に混入しないことは
         // 「モデルに載せない」設計で担保しており、この 4 ファイルの純粋部分を被覆に入れる。
         'editor/web/src/features/editor/redline/redlineTree.ts',
