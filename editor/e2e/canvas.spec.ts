@@ -505,6 +505,30 @@ test('編集を元に戻して確定版と同じになれば、再読み込み�
   await partLocator(reloaded).first().waitFor({ state: 'visible', timeout: 30_000 });
 });
 
+test('未確定の編集が残ったまま再読み込みすると、離脱の確認がちょうど 1 回出る', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const frame = await openEditor(page);
+  await editOneWord(page, frame);
+  await expect(page.locator('header [role="status"]')).toHaveAttribute('title', /に自動保存/, {
+    timeout: 15_000,
+  });
+  await expect(page.getByText('未確定', { exact: true })).toBeVisible();
+  // 「出ない」テストの対。確認はアプリの `beforeunload`(未確定のときだけ)が出す。受け入れて
+  // 再読み込みを進め、出た回数を数える(GrapesJS の離脱確認は切ってあるので重ならない)。
+  const dialogs: string[] = [];
+  page.on('dialog', (d) => {
+    dialogs.push(d.type());
+    void d.accept();
+  });
+  await page.reload({ waitUntil: 'commit', timeout: 15_000 });
+  const reloaded = page.frameLocator('iframe.gjs-frame');
+  await partLocator(reloaded).first().waitFor({ state: 'visible', timeout: 30_000 });
+  expect(dialogs).toEqual(['beforeunload']);
+});
+
 test('変更の目印を切ると丸数字が消え、再読み込みしても切ったまま', async ({ page }) => {
   test.setTimeout(120_000);
   await login(page);
@@ -567,7 +591,7 @@ const CHANGE_MARKS = { notify: 'change-numbers:notify', run: 'change-numbers:run
 
 /**
  * 番号の計算(worker の `buildHtmlDiff`。Comlink の要求に `path` が載る)の開始・終了の時刻と、
- * 変更の通知・計算の始まりの時刻(アプリが打つ `performance.mark`)と、変更の目印が画面に現れた
+ * 変更の通知・予約が満了した時刻(アプリが打つ `performance.mark`)と、変更の目印が画面に現れた
  * 時刻を、ページの `performance.now()` で記録する。
  */
 async function trackChangeNumberRuns(page: Page): Promise<void> {
@@ -685,7 +709,7 @@ const CHANGE_NUMBERS_DEBOUNCE_MS = 1_000;
 /** 変更の通知から本文を読みに行くまでの待ち(`useChangeNumbers.ts` の `CHANGE_CHECK_WAIT_MS`)。 */
 const CHANGE_CHECK_WAIT_MS = 300;
 
-test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が満了して計算を始めてから目印まで)', async ({
+test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が満了した時刻から目印まで)', async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -721,7 +745,7 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が�
   const run = runs.filter((r) => r.start > notifyAt && r.start < shownAt).at(-1);
   if (!run || run.end === undefined) throw new Error('編集のあとの番号の計算が記録されていない');
   const runAt = appMarks.runAt.filter((t) => t > notifyAt && t <= run.start).at(-1);
-  if (runAt === undefined) throw new Error('予約の満了で計算を始めた時刻が記録されていない');
+  if (runAt === undefined) throw new Error('予約が満了した時刻が記録されていない');
   const notifyToMarker = shownAt - notifyAt;
   const measured = shownAt - runAt;
   const summary =
