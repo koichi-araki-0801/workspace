@@ -7,6 +7,7 @@ import {
   isPreviewPartNo,
   PREVIEW_HOST_BASE,
   PREVIEW_MAX_PART_KEYS,
+  parsePreviewDocSeq,
   parsePreviewMarks,
   parsePreviewPartPages,
   previewHostAssetUrl,
@@ -118,5 +119,27 @@ describe('parsePreviewPartPages', () => {
       Object.fromEntries(Array.from({ length: n }, (_, i) => [String(i + 1), 0]));
     expect(parsePreviewPartPages(many(PREVIEW_MAX_PART_KEYS))).not.toBeNull();
     expect(parsePreviewPartPages(many(PREVIEW_MAX_PART_KEYS + 1))).toBeNull();
+  });
+});
+
+describe('parsePreviewDocSeq', () => {
+  it('0 以上の安全な整数だけを文書の番号として通す', () => {
+    expect(parsePreviewDocSeq(0)).toBe(0);
+    expect(parsePreviewDocSeq(1)).toBe(1);
+    expect(parsePreviewDocSeq(Number.MAX_SAFE_INTEGER)).toBe(Number.MAX_SAFE_INTEGER);
+  });
+  it('負・小数・NaN・Infinity・安全な整数を超える値・数でない値は null', () => {
+    for (const v of [
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      2 ** 60,
+      '1',
+      null,
+      undefined,
+    ]) {
+      expect(parsePreviewDocSeq(v), String(v)).toBeNull();
+    }
   });
 });

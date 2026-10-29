@@ -7,6 +7,8 @@
 //   2. READY 前に届いた文書は保留し、READY 受信時に送る。
 //   3. 子が沈黙する形の失敗は boot タイムアウトで簡易表示へ倒す。
 //   4. 子からの STATE は数値正規化して親へ上げる(壊れた値で NaN を配らない)。
+//   5. 子からの STATE・PART_PAGES・PART_CLICK は、親が最後に送った文書の番号(`seq`)のものだけ
+//      受ける(前の文書についての通知を新しい文書のものと取り違えない)。
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import PreviewPanel from '../src/features/preview/PreviewPanel.vue';
@@ -23,6 +25,11 @@ function frameWindow(wrapper: PanelWrapper): Window {
   const win = frame.contentWindow;
   if (!win) throw new Error('jsdom が contentWindow を作っていない');
   return win;
+}
+
+/** 親が最後に送った文書の番号(`data-doc-seq`)。子は通知にこの番号を載せて返す。 */
+function seqOf(wrapper: PanelWrapper): number {
+  return Number(wrapper.attributes('data-doc-seq'));
 }
 
 /** 子からのメッセージを装って親 window へ配送する(`source` を指定できる形)。 */
@@ -100,6 +107,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
       {
         type: 'editor:preview-state',
         state: { currentPage: 'x', pageCount: 3, atFirst: undefined, atLast: 'yes', zoom: null },
+        seq: seqOf(wrapper),
       },
       win,
     );
@@ -257,7 +265,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
     expect(wrapper.text()).toContain('プレビューを生成中');
 
     deliver({ foo: 1 }, win); // type 無し → 無視
-    deliver({ type: 'editor:preview-state' }, win); // state 無し → 無視
+    deliver({ type: 'editor:preview-state', seq: seqOf(wrapper) }, win); // state 無し → 無視
     await flushPromises();
     expect(wrapper.text()).toContain('プレビューを生成中'); // まだ変化しない
 
@@ -265,6 +273,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
       {
         type: 'editor:preview-state',
         state: { currentPage: 1, pageCount: 1, atFirst: true, atLast: true, zoom: 1, ready: true },
+        seq: seqOf(wrapper),
       },
       win,
     );
@@ -339,7 +348,12 @@ describe('PreviewPanel — postMessage クライアント', () => {
 
   describe('承認タブの目印', () => {
     const marks = { states: { '1': 'pending' as const }, selected: null, visible: true };
-    const readyState = { type: 'editor:preview-state', state: { ready: true, pageCount: 2 } };
+    /** いまの文書についての、組版が終わった通知。 */
+    const readyState = (wrapper: PanelWrapper) => ({
+      type: 'editor:preview-state',
+      state: { ready: true, pageCount: 2 },
+      seq: seqOf(wrapper),
+    });
     const marksCalls = (post: ReturnType<typeof vi.spyOn>) =>
       post.mock.calls
         .map((c) => c[0] as { type: string })
@@ -364,14 +378,14 @@ describe('PreviewPanel — postMessage クライアント', () => {
         '*',
       );
       expect(marksCalls(post)).toHaveLength(0);
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       expect(marksCalls(post)).toHaveLength(1);
       expect(marksCalls(post)[0]).toMatchObject({ marks });
 
       await wrapper.setProps({ html: '<p>doc2</p>' });
       await flushPromises();
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       expect(marksCalls(post)).toHaveLength(2);
       wrapper.unmount();
@@ -379,7 +393,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
 
     it('marks が変わったら文書は送らず marks だけ送る', async () => {
       const { wrapper, win, post } = await setup();
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       post.mockClear();
       await wrapper.setProps({ marks: { ...marks, selected: '1' } });
@@ -390,7 +404,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
 
     it('marks を渡さなければ review も marks も付けない', async () => {
       const { wrapper, win, post } = await setup({});
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       expect(post.mock.calls[0][0]).not.toHaveProperty('review');
       expect(marksCalls(post)).toHaveLength(0);
@@ -399,40 +413,45 @@ describe('PreviewPanel — postMessage クライアント', () => {
 
     it('part-click を emit する', async () => {
       const { wrapper, win } = await setup();
-      deliver({ type: 'editor:preview-part-click', part: '3' }, win);
+      deliver({ type: 'editor:preview-part-click', part: '3', seq: seqOf(wrapper) }, win);
       expect(wrapper.emitted('part-click')).toEqual([['3']]);
       wrapper.unmount();
     });
 
     it('形の違う part-click は捨てる', async () => {
       const { wrapper, win } = await setup();
-      deliver({ type: 'editor:preview-part-click', part: '1;x' }, win);
-      deliver({ type: 'editor:preview-part-click', part: 3 }, win);
-      deliver({ type: 'editor:preview-part-click', part: '2' }, window);
+      const seq = seqOf(wrapper);
+      deliver({ type: 'editor:preview-part-click', part: '1;x', seq }, win);
+      deliver({ type: 'editor:preview-part-click', part: 3, seq }, win);
+      deliver({ type: 'editor:preview-part-click', part: '2', seq }, window);
       expect(wrapper.emitted('part-click')).toBeUndefined();
       wrapper.unmount();
     });
 
     it('part-pages を検査して emit し、形が違えば捨てる', async () => {
       const { wrapper, win } = await setup();
-      deliver({ type: 'editor:preview-part-pages', pages: { '1': 0, '2': 3 } }, win);
-      deliver({ type: 'editor:preview-part-pages', pages: { '1': -1 } }, win);
-      deliver({ type: 'editor:preview-part-pages', pages: { x: 1 } }, win);
-      deliver({ type: 'editor:preview-part-pages', pages: [1] }, win);
+      const seq = seqOf(wrapper);
+      deliver({ type: 'editor:preview-part-pages', pages: { '1': 0, '2': 3 }, seq }, win);
+      deliver({ type: 'editor:preview-part-pages', pages: { '1': -1 }, seq }, win);
+      deliver({ type: 'editor:preview-part-pages', pages: { x: 1 }, seq }, win);
+      deliver({ type: 'editor:preview-part-pages', pages: [1], seq }, win);
       expect(wrapper.emitted('part-pages')).toEqual([[{ '1': 0, '2': 3 }]]);
       wrapper.unmount();
     });
 
     it('他フレーム発の part-pages は捨てる', async () => {
       const { wrapper } = await setup();
-      deliver({ type: 'editor:preview-part-pages', pages: { '1': 0 } }, window);
+      deliver(
+        { type: 'editor:preview-part-pages', pages: { '1': 0 }, seq: seqOf(wrapper) },
+        window,
+      );
       expect(wrapper.emitted('part-pages')).toBeUndefined();
       wrapper.unmount();
     });
 
     it('自己完結化の最中に前の文書の ready が割り込んでも、新しい文書の ready で marks を送る', async () => {
       const { wrapper, win, post } = await setup();
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       expect(marksCalls(post)).toHaveLength(1);
 
@@ -443,7 +462,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
         () => new Promise<string>((resolve) => (release = resolve)),
       );
       await wrapper.setProps({ html: '<p>doc2</p>' });
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       release('<p>doc2</p>');
       await flushPromises();
@@ -452,7 +471,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
         '*',
       );
       const before = marksCalls(post).length;
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       expect(marksCalls(post)).toHaveLength(before + 1);
       wrapper.unmount();
@@ -460,7 +479,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
 
     it('state の ready は、文書が変わってから新しい文書の組版が終わるまで偽', async () => {
       const { wrapper, win } = await setup();
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       await flushPromises();
       const readyOf = () =>
         (wrapper.emitted('state')?.at(-1)?.[0] as { ready: boolean } | undefined)?.ready;
@@ -474,11 +493,11 @@ describe('PreviewPanel — postMessage クライアント', () => {
       await wrapper.setProps({ html: '<p>doc2</p>' });
       expect(readyOf()).toBe(false);
       // 送る前に前の文書の ready が届いても偽のまま。
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       expect(readyOf()).toBe(false);
       release('<p>doc2</p>');
       await flushPromises();
-      deliver(readyState, win);
+      deliver(readyState(wrapper), win);
       expect(readyOf()).toBe(true);
       wrapper.unmount();
     });
@@ -496,6 +515,53 @@ describe('PreviewPanel — postMessage クライアント', () => {
       post.mockClear();
       vm.gotoPart('5');
       expect(post).not.toHaveBeenCalled();
+      wrapper.unmount();
+    });
+
+    it('文書には番号を付けて送り、その番号は data-doc-seq と同じ', async () => {
+      const { wrapper, post } = await setup();
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'editor:preview-doc', seq: 1 }),
+        '*',
+      );
+      await wrapper.setProps({ html: '<p>b</p>' });
+      await flushPromises();
+      expect(post).toHaveBeenLastCalledWith(
+        expect.objectContaining({ type: 'editor:preview-doc', seq: 2 }),
+        '*',
+      );
+      expect(seqOf(wrapper)).toBe(2);
+      wrapper.unmount();
+    });
+
+    it('前の文書の番号・番号の無い・形の違う番号の通知は捨てる', async () => {
+      const { wrapper, win, post } = await setup();
+      deliver(readyState(wrapper), win);
+      await flushPromises();
+      await wrapper.setProps({ html: '<p>doc2</p>' });
+      await flushPromises();
+      const stale = seqOf(wrapper) - 1;
+      const marksBefore = marksCalls(post).length;
+      for (const seq of [stale, undefined, '2', 2.5, -1]) {
+        deliver({ type: 'editor:preview-state', state: { ready: true, pageCount: 9 }, seq }, win);
+        deliver({ type: 'editor:preview-part-pages', pages: { '1': 0 }, seq }, win);
+        deliver({ type: 'editor:preview-part-click', part: '1', seq }, win);
+      }
+      await flushPromises();
+      // 前の文書の ready で新しい文書へ目印を送らず、ページ表・押下も上げない。
+      expect(marksCalls(post)).toHaveLength(marksBefore);
+      const readyOf = () =>
+        (wrapper.emitted('state')?.at(-1)?.[0] as { ready: boolean; pageCount: number }) ?? null;
+      expect(readyOf()).toMatchObject({ ready: false });
+      expect(wrapper.emitted('part-pages')).toBeUndefined();
+      expect(wrapper.emitted('part-click')).toBeUndefined();
+      // いまの文書の番号なら受ける。
+      deliver(readyState(wrapper), win);
+      deliver({ type: 'editor:preview-part-click', part: '1', seq: seqOf(wrapper) }, win);
+      await flushPromises();
+      expect(marksCalls(post)).toHaveLength(marksBefore + 1);
+      expect(readyOf()).toMatchObject({ ready: true, pageCount: 2 });
+      expect(wrapper.emitted('part-click')).toEqual([['1']]);
       wrapper.unmount();
     });
 

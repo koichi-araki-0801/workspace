@@ -170,14 +170,18 @@ async function hostMsgs(page: Page): Promise<HostMsg[]> {
   return page.evaluate(() => (window as unknown as { __msgs: HostMsg[] }).__msgs);
 }
 
+/** 送った文書の番号(親の `PreviewPanel.vue` と同じく、送るたびに 1 増やす)。 */
+let docSeq = 0;
+
 /** 文書を送り、組版が終わる(state.ready)まで待つ。 */
 async function sendDoc(page: Page, html: string, review = true): Promise<void> {
+  docSeq++;
   await page.evaluate(
-    ([h, r]) => {
+    ([h, r, seq]) => {
       (window as unknown as { __msgs: HostMsg[] }).__msgs = [];
-      window.postMessage({ type: 'editor:preview-doc', html: h, review: r }, '*');
+      window.postMessage({ type: 'editor:preview-doc', html: h, review: r, seq }, '*');
     },
-    [html, review] as const,
+    [html, review, docSeq] as const,
   );
   await expect
     .poll(
@@ -296,7 +300,7 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
   await page.locator('#vp [data-review-no="2"]').click();
   await expect
     .poll(async () => (await hostMsgs(page)).filter((m) => m.type === 'editor:preview-part-click'))
-    .toEqual([{ type: 'editor:preview-part-click', part: '2' }]);
+    .toEqual([{ type: 'editor:preview-part-click', part: '2', seq: docSeq }]);
   await expect(page.getByText('偽の札')).toHaveCount(1);
 
   // 表示を切ると札と枠が消える。戻すと描き直す。
@@ -415,4 +419,96 @@ test('wrong credentials show an error and stay on login', async ({ page }) => {
     page.locator('form').getByText('ユーザーIDまたはパスワードが違います'),
   ).toBeVisible();
   await expect(page).toHaveURL(/\/login/);
+});
+
+test('子の通知(state・part-pages・part-click)は、組んでいる文書の番号を載せて返す', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await openHost(page);
+  await sendDoc(page, reviewDoc());
+  const seq = docSeq;
+  await page.locator('#vp [data-review-no="2"]').click();
+  await expect
+    .poll(async () => (await hostMsgs(page)).some((m) => m.type === 'editor:preview-part-click'))
+    .toBe(true);
+  const msgs = await hostMsgs(page);
+  for (const type of [
+    'editor:preview-state',
+    'editor:preview-part-pages',
+    'editor:preview-part-click',
+  ]) {
+    const of = msgs.filter((m) => m.type === type);
+    expect(of.length, type).toBeGreaterThan(0);
+    expect(
+      of.map((m) => m.seq),
+      type,
+    ).toEqual(of.map(() => seq));
+  }
+});
+
+test('ページの一部が入れ替わって集め直しても、表示を切ると申請者の要素の値へ戻す', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await openHost(page);
+  await sendDoc(page, reviewDoc());
+  const part1 = page.locator('#vp [data-review-no="1"]');
+  await expect(part1).toHaveCSS('outline-color', 'rgb(59, 130, 196)');
+  // 組み直しで 2 ページ目の page container だけが入れ替わった形を作る(1 ページ目の断片は残る)。
+  await page.evaluate(() => {
+    const pc = document.querySelectorAll('#vp [data-vivliostyle-page-container]')[1];
+    pc?.replaceWith(pc.cloneNode(true));
+  });
+  // 集め直しを起こしてから表示を切る。残った断片は、描く前の値(枠なし)へ戻る。
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: {}, selected: null, visible: true },
+  });
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: {}, selected: null, visible: false },
+  });
+  await expect(part1).toHaveCSS('outline-style', 'none');
+});
+
+test('ページ送りでは断片を塗り直さず、marks を受けたときだけ塗り直す', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openHost(page);
+  await sendDoc(page, reviewDoc());
+  const part1 = page.locator('#vp [data-review-no="1"]');
+  await expect(part1).toHaveCSS('outline-color', 'rgb(59, 130, 196)');
+  // 塗った値を外から変えておき、ページ送り(nav)で上書きされないことを見る。
+  await part1.evaluate((el) =>
+    (el as HTMLElement).style.setProperty('outline-color', 'rgb(1, 2, 3)', 'important'),
+  );
+  const pageIs = (n: number) =>
+    expect
+      .poll(async () => {
+        const states = (await hostMsgs(page)).filter((m) => m.type === 'editor:preview-state');
+        return (states.at(-1)?.state as { currentPage: number } | undefined)?.currentPage;
+      })
+      .toBe(n);
+  await post(page, { type: 'editor:preview-cmd', cmd: 'nextPage' });
+  await pageIs(2);
+  await post(page, { type: 'editor:preview-cmd', cmd: 'prevPage' });
+  await pageIs(1);
+  await expect(badge(page, '1')).toHaveCount(1);
+  await expect(part1).toHaveCSS('outline-color', 'rgb(1, 2, 3)');
+  await post(page, {
+    type: 'editor:preview-marks',
+    marks: { states: {}, selected: null, visible: true },
+  });
+  await expect(part1).toHaveCSS('outline-color', 'rgb(59, 130, 196)');
+});
+
+test('番号の無い札(空き枠の文言・却下の札)は押せる見た目にしない', async ({ page }) => {
+  test.setTimeout(120_000);
+  await openHost(page);
+  await sendDoc(page, reviewDoc());
+  await expect(badge(page, '1')).toHaveCSS('cursor', 'pointer');
+  for (const kind of ['ghost', 'keep']) {
+    await expect(ownBadges(page, [kind])).toHaveCount(1);
+    await expect(ownBadges(page, [kind])).toHaveCSS('cursor', 'default');
+  }
 });

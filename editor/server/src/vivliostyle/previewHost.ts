@@ -182,9 +182,10 @@ async function viewerBundle(): Promise<string> {
  * いないページの断片は `getBoundingClientRect` が 0 になり、座標を取れない)。
  */
 /**
- * ブートスクリプトの中の `marks` の形の検査(`parseMarks`)と、それが使う番号の規則。子は shared を
- * import できないので同じ規則を手で書く。shared の `parsePreviewMarks` と同じ入力に同じ答えを
- * 返すことを、テストがこの文字列を評価して確かめる(そのために export する)。
+ * ブートスクリプトの中の `marks` の形の検査(`parseMarks`)と、それが使う番号の規則、文書の番号の
+ * 検査(`parseDocSeq`)。子は shared を import できないので同じ規則を手で書く。shared の
+ * `parsePreviewMarks`・`parsePreviewDocSeq` と同じ入力に同じ答えを返すことを、テストがこの文字列を
+ * 評価して確かめる(そのために export する)。
  */
 export const BOOT_MARKS_PARSER = `
   var MAX_MARK_KEYS=${JSON.stringify(PREVIEW_MAX_PART_KEYS)};
@@ -203,7 +204,8 @@ export const BOOT_MARKS_PARSER = `
       states[keys[i]]=s;
     }
     return {states:states,selected:v.selected,visible:v.visible};
-  }`;
+  }
+  function parseDocSeq(v){return typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?v:null;}`;
 
 /** 空き枠の種類(`data-review-ghost` の値)→ 札に描く文言。文言は文書側と同じ定数。 */
 const GHOST_TEXT_BY_KIND: Readonly<Record<string, string>> = {
@@ -241,8 +243,12 @@ const BOOT_SCRIPT = `(function(){
   var ZOOM_MIN=0.4, ZOOM_MAX=1.4, ZOOM_STEP=0.1, FIT_MARGIN=32;
   var V=window.Vivliostyle, viewer=null, blobUrl=null, errTimer=null;
   var currentPage=1, pageCount=0, atFirst=true, atLast=false, zoom=1, userZoomed=false, ready=false;
-  // 目印の状態。どれも文書単位で、load() の先頭で捨てる。
-  var reviewDoc=false, marks=null, parts=null, saved=new Map(), badges=[], badgeNo=new Map();
+  // 目印の状態。どれも文書単位で、load() の先頭で捨てる。saved は申請者の要素へ書く前の値で、
+  // 要素をキーにした WeakMap(集め直しても捨てない。文書から外れた要素の分は GC が回収する)。
+  var reviewDoc=false, marks=null, parts=null, saved=new WeakMap(), badges=[], badgeNo=new Map();
+  // いま組んでいる文書の番号(親が PREVIEW_MSG_DOC の seq で振る)。文書についての通知に載せ、親は
+  // 最後に送った番号と違う通知を捨てる。番号の無い・形の違う文書は 0 として返す。
+  var docSeq=0;
   // 親のオリジンは opaque な子からは指定できないため '*' 固定。運ぶのはページ番号と倍率の
   // 数値だけで、親が既に持っていない情報は 1 つも含まない。
   function post(type,extra){
@@ -252,7 +258,7 @@ const BOOT_SCRIPT = `(function(){
   }
   function sendState(){
     post(MSG_STATE,{state:{currentPage:currentPage,pageCount:pageCount,atFirst:atFirst,
-      atLast:atLast,zoom:zoom,ready:ready}});
+      atLast:atLast,zoom:zoom,ready:ready},seq:docSeq});
   }
   function clampZoom(z){return Math.min(ZOOM_MAX,Math.max(ZOOM_MIN,Math.round(z*100)/100));}
   // ready(= readyState COMPLETE)前に setOptions({zoom}) を呼ばない。core のコマンドループは
@@ -309,8 +315,8 @@ const BOOT_SCRIPT = `(function(){
     for(var i=0;i<pcs.length;i++)pcIndex.set(pcs[i],i);
     var p={pcs:pcs,first:Object.create(null),firstPage:Object.create(null),
       keepLast:Object.create(null),frags:[],ghosts:[],diffs:[],noOf:new Map()};
-    // 集め直すときは前の断片へ書いた値の記録を捨てる(切り離された要素を持ち続けない)。
-    saved=new Map();
+    // 書く前の値の記録(saved)は捨てない。組み直しで一部のページだけ入れ替わったとき、残った
+    // 断片の記録まで捨てると、次に塗る値を「書く前の値」と取り違え、表示を切っても色が残る。
     var els=vp.querySelectorAll('['+NO_ATTR+'],['+GHOST_ATTR+'],['+KEEP_ATTR+'],.'+INS_CLASS+',.'+DEL_CLASS);
     for(var j=0;j<els.length;j++){
       var el=els[j], pc=el.closest(PC_SEL);
@@ -330,7 +336,7 @@ const BOOT_SCRIPT = `(function(){
     parts=p;
     var pages={};
     for(var n in p.firstPage)pages[n]=p.firstPage[n];
-    post(MSG_PART_PAGES,{pages:pages});
+    post(MSG_PART_PAGES,{pages:pages,seq:docSeq});
   }
   // 札の座標系: 札を page container の (0,0) に置いて測り、倍率は幅 100px の物差しで取る。
   // ズームは祖先の transform なので、こうすれば倍率の出どころに依らず断片の左上へ置ける。
@@ -349,8 +355,11 @@ const BOOT_SCRIPT = `(function(){
     b.textContent=text;
     paintAll(b,SHOWN);
     paintAll(b,css);
-    paintAll(b,{position:'absolute','z-index':'2147483647',cursor:'pointer','box-sizing':'border-box',
-      'white-space':'nowrap',margin:'0',float:'none',transform:'none',filter:'none'});
+    // 押して移れるのは番号のある札だけ(クリックは badgeNo で番号を返す)。番号の無い札は押しても
+    // 何も起きないので、押せる見た目にしない。
+    paintAll(b,{position:'absolute','z-index':'2147483647',cursor:no!==null?'pointer':'default',
+      'box-sizing':'border-box','white-space':'nowrap',margin:'0',float:'none',transform:'none',
+      filter:'none'});
     pc.appendChild(b);
     badges.push(b);
     if(no!==null)badgeNo.set(b,no);
@@ -360,7 +369,10 @@ const BOOT_SCRIPT = `(function(){
     for(var i=0;i<badges.length;i++){if(badges[i].parentNode)badges[i].parentNode.removeChild(badges[i]);}
     badges=[];badgeNo=new Map();
   }
-  // 札を描き直す必要があるか(組み直しで page container が入れ替わった・増えた)。
+  // 目印の対象を集め直す必要があるか。まだ集めていない、集めたときに page container が 1 枚も
+  // 無かったのに今はある、集めた page container のどれかが文書から外れた(組み直しで入れ替わった)、
+  // のどれか。集めたあとに page container が増えただけ(外れたものが無い)は見ないので、そうして
+  // 増えたページの断片には、次に集め直すまで目印が付かない。
   function stale(){
     if(!parts)return true;
     if(parts.pcs.length===0)return document.getElementById('vp').querySelector(PC_SEL)!==null;
@@ -463,14 +475,15 @@ const BOOT_SCRIPT = `(function(){
       placeBadges();
     }catch(e){/* 目印は補助。失敗してもプレビューは操作不能へ倒さない */}
   }
-  function load(html,review){
+  function load(html,review,seq){
     try{
       if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null;}
       if(errTimer){clearTimeout(errTimer);errTimer=null;}
       if(viewer&&viewer.cleanup)viewer.cleanup();
       viewer=null;
       currentPage=1;pageCount=0;atFirst=true;atLast=false;zoom=1;userZoomed=false;ready=false;
-      reviewDoc=review===true;marks=null;parts=null;saved=new Map();badges=[];badgeNo=new Map();
+      reviewDoc=review===true;marks=null;parts=null;saved=new WeakMap();badges=[];badgeNo=new Map();
+      var s=parseDocSeq(seq);docSeq=s===null?0:s;
       var vp=document.getElementById('vp');
       vp.innerHTML='';
       if(!html){sendState();return;}
@@ -560,7 +573,7 @@ const BOOT_SCRIPT = `(function(){
     if(e.source!==PARENT)return;
     var d=e.data;
     if(!d||typeof d.type!=='string')return;
-    if(d.type===MSG_DOC)load(typeof d.html==='string'?d.html:'',d.review);
+    if(d.type===MSG_DOC)load(typeof d.html==='string'?d.html:'',d.review,d.seq);
     else if(d.type===MSG_CMD)command(d.cmd,d.page,d.anchor,d.part);
     else if(d.type===MSG_MARKS){
       // 文書は組み直さずに描き替える。形の違う値は捨てる(前の marks のまま)。
@@ -577,7 +590,7 @@ const BOOT_SCRIPT = `(function(){
     for(var n=e.target;n&&n!==vp;n=n.parentElement){
       var no=badgeNo.get(n);
       if(no===undefined&&parts)no=parts.noOf.get(n);
-      if(no!==undefined){post(MSG_PART_CLICK,{part:no});return;}
+      if(no!==undefined){post(MSG_PART_CLICK,{part:no,seq:docSeq});return;}
     }
   },true);
   // ブラウザズーム/ペイン幅の変化に追随する。iframe がコンテナを 100% で埋めるので、

@@ -30,6 +30,7 @@ import {
   type PreviewCommand,
   type PreviewHostState,
   type PreviewMarks,
+  parsePreviewDocSeq,
   parsePreviewPartPages,
   unexpected,
 } from '@editor/shared';
@@ -91,7 +92,11 @@ const nav = ref<PreviewHostState>({
 });
 // 子の boot 完了。未完了の間に届いた文書は保留し、ready 受信時に送る。
 const hostReady = ref(false);
-/** 子へ文書を送った回数。e2e が「組み直したか」を見る。 */
+/**
+ * 子へ文書を送った回数で、送った文書の番号(`PREVIEW_MSG_DOC` の `seq`)。子は通知にいま組んでいる
+ * 文書の番号を載せて返すので、これと違う通知は前の文書のものとして捨てる。e2e も「組み直したか」を
+ * これで見る。
+ */
 const docSeq = ref(0);
 
 /** 子へ目印を送る。承認タブの紙面でない・簡易表示のときは送らない。 */
@@ -162,7 +167,7 @@ function postDoc(html: string) {
   docPending = false;
   nav.value = { ...nav.value, ready: false };
   docSeq.value++;
-  postToHost({ type: PREVIEW_MSG_DOC, html, ...reviewFlag() });
+  postToHost({ type: PREVIEW_MSG_DOC, html, seq: docSeq.value, ...reviewFlag() });
 }
 
 function sendDoc() {
@@ -207,8 +212,20 @@ function sendDoc() {
  */
 function onMessage(e: MessageEvent) {
   if (!frame.value || e.source !== frame.value.contentWindow) return;
-  const data = e.data as { type?: unknown; state?: unknown; message?: unknown } | null;
+  const data = e.data as {
+    type?: unknown;
+    state?: unknown;
+    message?: unknown;
+    seq?: unknown;
+  } | null;
   if (!data || typeof data.type !== 'string') return;
+  // 文書についての通知は、最後に送った文書の番号のものだけ受ける(前の文書の `ready`・ページ表・
+  // 押下が、送り直した直後に届いても新しい文書のものと取り違えない)。
+  const aboutDoc =
+    data.type === PREVIEW_MSG_STATE ||
+    data.type === PREVIEW_MSG_PART_CLICK ||
+    data.type === PREVIEW_MSG_PART_PAGES;
+  if (aboutDoc && parsePreviewDocSeq(data.seq) !== docSeq.value) return;
   if (data.type === PREVIEW_MSG_READY) {
     bootTimer = clearTimer(bootTimer);
     hostReady.value = true;

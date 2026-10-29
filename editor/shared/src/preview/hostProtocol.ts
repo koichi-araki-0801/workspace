@@ -18,6 +18,13 @@
 // `event.source === iframe.contentWindow` の**同一性**で行う(`useIframeAutoFit.ts` と同じ)。
 // 運ぶのは文書 HTML(既にアプリ側が持っているもの)とページ番号・倍率の数値だけで、
 // 子から親へ渡る情報に秘密は無い。
+//
+// ── 文書の番号(`seq`) ──
+// 親は文書を送るたびに番号を振り(`PREVIEW_MSG_DOC` の `seq`)、子はいま組んでいる文書の番号を
+// `PREVIEW_MSG_STATE`・`PREVIEW_MSG_PART_PAGES`・`PREVIEW_MSG_PART_CLICK` に載せて返す。親は
+// 自分が最後に送った番号と違うものを捨てる。文書を送り直した直後は、前の文書について子が
+// 送った通知がまだ届きうる(前の文書の `ready: true` で新しい文書へ目印を送る・前の文書の
+// ページ表で移る、の取り違えを防ぐ)。番号の形は `parsePreviewDocSeq` で検査する。
 
 /**
  * ビューアホストページ一式の配信接頭辞(`/api` プレフィックスを含まない — 付与は
@@ -46,9 +53,10 @@ export function previewHostAssetUrl(rel: string): string {
 }
 
 /**
- * 親 → 子: 組版する文書を渡す。本体は `{ type, html, review? }` で、`html` は完成済みの
- * プレビュー文書文字列。`review: true` は承認タブの紙面(目印を描き、`PREVIEW_MSG_MARKS` を
- * 受ける経路)で、そのときだけホストが目印を描く。編集のプレビューは付けない。
+ * 親 → 子: 組版する文書を渡す。本体は `{ type, html, seq, review? }` で、`html` は完成済みの
+ * プレビュー文書文字列、`seq` は文書の番号(冒頭の「文書の番号」)。`review: true` は承認タブの
+ * 紙面(目印を描き、`PREVIEW_MSG_MARKS` を受ける経路)で、そのときだけホストが目印を描く。
+ * 編集のプレビューは付けない。
  */
 export const PREVIEW_MSG_DOC = 'editor:preview-doc';
 
@@ -60,7 +68,7 @@ export const PREVIEW_MSG_CMD = 'editor:preview-cmd';
 /** 子 → 親: ブート完了(以後 `PREVIEW_MSG_DOC` を受け付ける)。 */
 export const PREVIEW_MSG_READY = 'editor:preview-ready';
 
-/** 子 → 親: ページ送り/ズーム状態の通知。 */
+/** 子 → 親: ページ送り/ズーム状態の通知。本体は `{ type, state, seq }`。 */
 export const PREVIEW_MSG_STATE = 'editor:preview-state';
 
 /** 子 → 親: 組版の失敗通知(親はフォールバック表示へ倒す)。 */
@@ -72,12 +80,12 @@ export const PREVIEW_MSG_ERROR = 'editor:preview-error';
  */
 export const PREVIEW_MSG_MARKS = 'editor:preview-marks';
 
-/** 子 → 親: 紙面のパーツが押された。本体は `{ type, part }`(`part` は番号の文字列)。 */
+/** 子 → 親: 紙面のパーツが押された。本体は `{ type, part, seq }`(`part` は番号の文字列)。 */
 export const PREVIEW_MSG_PART_CLICK = 'editor:preview-part-click';
 
 /**
  * 子 → 親: 飾りを描いたあとの、番号 → 物理ページの index(0 始まり)。本体は
- * `{ type, pages }`(`pages` は `parsePreviewPartPages` で検査する)。
+ * `{ type, pages, seq }`(`pages` は `parsePreviewPartPages` で検査する)。
  */
 export const PREVIEW_MSG_PART_PAGES = 'editor:preview-part-pages';
 
@@ -179,4 +187,12 @@ export function parsePreviewPartPages(v: unknown): Record<string, number> | null
     pages[k] = n;
   }
   return pages;
+}
+
+/**
+ * 文書の番号(`seq`。0 以上の安全な整数)を検査する。形が違えば null。子(`previewHost.ts` の
+ * `BOOT_MARKS_PARSER` の `parseDocSeq`)も同じ規則で、同じ答えを返すことをテストで固定する。
+ */
+export function parsePreviewDocSeq(v: unknown): number | null {
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
 }

@@ -17,6 +17,7 @@ import {
   PREVIEW_MSG_MARKS,
   PREVIEW_MSG_PART_CLICK,
   PREVIEW_MSG_PART_PAGES,
+  parsePreviewDocSeq,
   parsePreviewMarks,
   REVIEW_GHOST_ATTR,
   REVIEW_GHOST_TEXT,
@@ -206,6 +207,32 @@ describe('GET /api/preview-host/index.html', () => {
     const accepted = table.filter((v) => parsePreviewMarks(v) !== null).length;
     expect(accepted).toBeGreaterThanOrEqual(4);
     expect(accepted).toBeLessThan(table.length);
+  });
+
+  it('ブートスクリプトの文書の番号の検査は shared の parsePreviewDocSeq と同じ答えを返す', async () => {
+    const { BOOT_MARKS_PARSER } = await import('../src/vivliostyle/previewHost.js');
+    const hostParse = new Function(`${BOOT_MARKS_PARSER}
+return parseDocSeq;`)() as (v: unknown) => unknown;
+    const table: unknown[] = [
+      0,
+      1,
+      42,
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER + 1,
+      -1,
+      1.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      '1',
+      null,
+      undefined,
+      {},
+    ];
+    for (const [i, input] of table.entries()) {
+      expect(hostParse(input), `#${i}`).toEqual(parsePreviewDocSeq(input));
+    }
+    const accepted = table.filter((v) => parsePreviewDocSeq(v) !== null).length;
+    expect(accepted).toBe(4);
   });
 });
 
