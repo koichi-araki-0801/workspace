@@ -220,11 +220,13 @@ function onMessage(e: MessageEvent) {
   } | null;
   if (!data || typeof data.type !== 'string') return;
   // 文書についての通知は、最後に送った文書の番号のものだけ受ける(前の文書の `ready`・ページ表・
-  // 押下が、送り直した直後に届いても新しい文書のものと取り違えない)。
+  // 押下・組版の失敗が、送り直した直後に届いても新しい文書のものと取り違えない)。文書を送る前の
+  // エラー(ビューアの起動の失敗)は、子も番号 0 で送る。
   const aboutDoc =
     data.type === PREVIEW_MSG_STATE ||
     data.type === PREVIEW_MSG_PART_CLICK ||
-    data.type === PREVIEW_MSG_PART_PAGES;
+    data.type === PREVIEW_MSG_PART_PAGES ||
+    data.type === PREVIEW_MSG_ERROR;
   if (aboutDoc && parsePreviewDocSeq(data.seq) !== docSeq.value) return;
   if (data.type === PREVIEW_MSG_READY) {
     bootTimer = clearTimer(bootTimer);

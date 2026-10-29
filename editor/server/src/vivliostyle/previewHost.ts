@@ -215,7 +215,7 @@ const GHOST_TEXT_BY_KIND: Readonly<Record<string, string>> = {
   'rejected-added': REVIEW_GHOST_TEXT.rejectedAdded,
 };
 
-const BOOT_SCRIPT = `(function(){
+export const BOOT_SCRIPT = `(function(){
   // テンプレ JS が window.parent を差し替えても、発信元の検査と送信先が変わらないよう、
   // 文書を読む前のブート時に捕まえておく。
   var PARENT=window.parent;
@@ -480,7 +480,8 @@ const BOOT_SCRIPT = `(function(){
     try{
       if(blobUrl){URL.revokeObjectURL(blobUrl);blobUrl=null;}
       if(errTimer){clearTimeout(errTimer);errTimer=null;}
-      if(viewer&&viewer.cleanup)viewer.cleanup();
+      // core の CoreViewer は cleanup を持たず、前の viewer のリスナーは外れない(バンドルで確認)。
+      // 前の viewer の通知は、各リスナーの先頭で「いまの viewer か」を見て捨てる。
       viewer=null;
       currentPage=1;pageCount=0;atFirst=true;atLast=false;zoom=1;userZoomed=false;ready=false;
       reviewDoc=review===true;marks=null;parts=null;saved=new WeakMap();badges=[];badgeNo=new Map();
@@ -497,32 +498,39 @@ const BOOT_SCRIPT = `(function(){
       // しうる形をしており(bundle 原文の静的確認。resize() は readyState を復元せずに早期
       // return する)、そもそも帳票のページ寸法は @page が決めるため viewport 再レイアウトは
       // 不要。リサイズ追随は自前の zoom フィット(下の resize リスナ → applyFit)で行う。
-      viewer=new V.CoreViewer({viewportElement:vp},
+      var v=new V.CoreViewer({viewportElement:vp},
         {autoResize:false,renderAllPages:true,pageViewMode:V.PageViewMode.SINGLE_PAGE,fitToScreen:false});
-      viewer.addListener('nav',function(p){
+      viewer=v;
+      var mySeq=docSeq;
+      v.addListener('nav',function(p){
+        if(v!==viewer)return;
         if(typeof p.epageCount==='number'&&p.epageCount>0)pageCount=Math.max(1,Math.round(p.epageCount));
         if(typeof p.epage==='number')currentPage=Math.max(1,Math.round(p.epage)+1);
         if(typeof p.first==='boolean')atFirst=p.first;
         if(typeof p.last==='boolean')atLast=p.last;
         applyFit();decorate(false);sendState();
       });
-      viewer.addListener('readystatechange',function(){
-        if(viewer&&viewer.readyState===V.ReadyState.COMPLETE){ready=true;applyFit();decorate(true);sendState();}
+      v.addListener('readystatechange',function(){
+        if(v!==viewer)return;
+        if(v.readyState===V.ReadyState.COMPLETE){ready=true;applyFit();decorate(true);sendState();}
       });
       // 文書ロードの失敗を親へ伝える。core は致命的なロード失敗(例: 内蔵リソースの取得
       // 不能)を 'error' イベントで通知し、readyState は loading のまま**永久に止まる** —
       // 通知しないと「組版済みなのに全ページ hidden + ローダー 30 秒」の黙った劣化になる。
       // ただし 'error' はログ経由の警告(画像 404 等、組版は続行できるもの)でも飛ぶため、
       // 即フォールバックにせず「猶予後も COMPLETE に達していない」場合だけ致命と判定する。
-      viewer.addListener('error',function(e){
-        if(ready||errTimer)return;
+      v.addListener('error',function(e){
+        if(v!==viewer||ready||errTimer)return;
         var msg=String((e&&e.content&&e.content.messages&&e.content.messages[0])||'vivliostyle load error');
-        errTimer=setTimeout(function(){errTimer=null;if(!ready)post(MSG_ERROR,{message:msg});},3000);
+        errTimer=setTimeout(function(){
+          errTimer=null;
+          if(v===viewer&&!ready)post(MSG_ERROR,{message:msg,seq:mySeq});
+        },3000);
       });
-      if(reviewDoc)viewer.loadDocument({url:blobUrl},{userStyleSheet:[{text:GHOST_USER_CSS}]});
-      else viewer.loadDocument({url:blobUrl});
+      if(reviewDoc)v.loadDocument({url:blobUrl},{userStyleSheet:[{text:GHOST_USER_CSS}]});
+      else v.loadDocument({url:blobUrl});
       sendState();
-    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e)});}
+    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e),seq:docSeq});}
   }
   function command(cmd,page,anchor,part){
     if(!viewer)return;
@@ -566,7 +574,7 @@ const BOOT_SCRIPT = `(function(){
           }
         }catch(e){/* 移動失敗は無視(操作不能へ倒さない) */}
       }
-    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e)});}
+    }catch(e){post(MSG_ERROR,{message:String(e&&e.message||e),seq:docSeq});}
   }
   // 親からのメッセージだけを受ける。子から見た parent は 1 つしかないので、これで
   // 発信元は一意に決まる(逆向きの検証は親が event.source の同一性で行う)。
@@ -601,7 +609,8 @@ const BOOT_SCRIPT = `(function(){
     if(pending)return;pending=true;
     requestAnimationFrame(function(){pending=false;applyFit();});
   });
-  if(!V){post(MSG_ERROR,{message:'vivliostyle bundle unavailable'});return;}
+  // 文書を受ける前なので番号は 0(親もまだ文書を送っていない)。
+  if(!V){post(MSG_ERROR,{message:'vivliostyle bundle unavailable',seq:docSeq});return;}
   post(MSG_READY);
 })();`;
 

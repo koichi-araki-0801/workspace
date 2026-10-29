@@ -21,10 +21,11 @@
 //
 // ── 文書の番号(`seq`) ──
 // 親は文書を送るたびに番号を振り(`PREVIEW_MSG_DOC` の `seq`)、子はいま組んでいる文書の番号を
-// `PREVIEW_MSG_STATE`・`PREVIEW_MSG_PART_PAGES`・`PREVIEW_MSG_PART_CLICK` に載せて返す。親は
-// 自分が最後に送った番号と違うものを捨てる。文書を送り直した直後は、前の文書について子が
-// 送った通知がまだ届きうる(前の文書の `ready: true` で新しい文書へ目印を送る・前の文書の
-// ページ表で移る、の取り違えを防ぐ)。番号の形は `parsePreviewDocSeq` で検査する。
+// `PREVIEW_MSG_STATE`・`PREVIEW_MSG_PART_PAGES`・`PREVIEW_MSG_PART_CLICK`・`PREVIEW_MSG_ERROR` に
+// 載せて返す(文書を受ける前の起動の失敗は 0)。親は自分が最後に送った番号と違うものを捨てる。
+// 文書を送り直した直後は、前の文書について子が送った通知がまだ届きうる(前の文書の
+// `ready: true` で新しい文書へ目印を送る・前の文書のページ表で移る・前の文書の失敗で簡易表示へ
+// 倒れる、の取り違えを防ぐ)。番号の形は `parsePreviewDocSeq` で検査する。
 
 /**
  * ビューアホストページ一式の配信接頭辞(`/api` プレフィックスを含まない — 付与は
@@ -71,7 +72,7 @@ export const PREVIEW_MSG_READY = 'editor:preview-ready';
 /** 子 → 親: ページ送り/ズーム状態の通知。本体は `{ type, state, seq }`。 */
 export const PREVIEW_MSG_STATE = 'editor:preview-state';
 
-/** 子 → 親: 組版の失敗通知(親はフォールバック表示へ倒す)。 */
+/** 子 → 親: 組版の失敗通知(親はフォールバック表示へ倒す)。本体は `{ type, message, seq }`。 */
 export const PREVIEW_MSG_ERROR = 'editor:preview-error';
 
 /**

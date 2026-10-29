@@ -129,11 +129,28 @@ describe('PreviewPanel — postMessage クライアント', () => {
   it('子の ERROR 通知で簡易表示へ倒す', async () => {
     const wrapper = mount(PreviewPanel, { props: { html: '<p>doc</p>' }, attachTo: document.body });
     const win = frameWindow(wrapper);
-    deliver({ type: 'editor:preview-error', message: 'boom' }, win);
+    deliver({ type: 'editor:preview-error', message: 'boom', seq: seqOf(wrapper) }, win);
     await flushPromises();
 
     const last = (wrapper.emitted('state') ?? []).at(-1)?.[0] as { vivlioReady: boolean };
     expect(last.vivlioReady).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('前の文書の番号の ERROR は捨て、簡易表示へ倒さない', async () => {
+    const wrapper = mount(PreviewPanel, { props: { html: '<p>doc</p>' }, attachTo: document.body });
+    const win = frameWindow(wrapper);
+    deliver({ type: 'editor:preview-ready' }, win);
+    await flushPromises();
+    await wrapper.setProps({ html: '<p>doc2</p>' });
+    await flushPromises();
+    deliver({ type: 'editor:preview-error', message: '前の文書', seq: seqOf(wrapper) - 1 }, win);
+    deliver({ type: 'editor:preview-error', message: '番号なし' }, win);
+    await flushPromises();
+    const last = (wrapper.emitted('state') ?? []).at(-1)?.[0] as { vivlioReady: boolean };
+    expect(last.vivlioReady).toBe(true);
+    const fb = wrapper.get('iframe[title="プレビュー(簡易表示)"]').element as HTMLIFrameElement;
+    expect(fb.srcdoc).toBe('');
     wrapper.unmount();
   });
 
@@ -190,7 +207,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
     const wrapper = mount(PreviewPanel, { props: { html: '<p>doc</p>' }, attachTo: document.body });
     const win = frameWindow(wrapper);
     const post = vi.spyOn(win, 'postMessage');
-    deliver({ type: 'editor:preview-error', message: 'boom' }, win);
+    deliver({ type: 'editor:preview-error', message: 'boom', seq: seqOf(wrapper) }, win);
     await flushPromises();
 
     await wrapper.setProps({ html: '<p>next</p>' });
@@ -230,8 +247,8 @@ describe('PreviewPanel — postMessage クライアント', () => {
     const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
     const win = frameWindow(wrapper);
     deliver({ type: 'editor:preview-ready' }, win);
-    deliver({ type: 'editor:preview-error', message: 7 }, win); // 非文字列 → 「不明なエラー」
-    deliver({ type: 'editor:preview-error', message: 'again' }, win); // 2 度目は早期 return
+    deliver({ type: 'editor:preview-error', message: 7, seq: seqOf(wrapper) }, win); // 非文字列 → 「不明なエラー」
+    deliver({ type: 'editor:preview-error', message: 'again', seq: seqOf(wrapper) }, win); // 2 度目は早期 return
     await flushPromises();
     const fb = wrapper.get('iframe[title="プレビュー(簡易表示)"]').element as HTMLIFrameElement;
     expect(fb.srcdoc).toBe('<p>a</p>');
@@ -249,7 +266,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
   it('簡易表示中はページ送り等のコマンドも送らない', async () => {
     const wrapper = mount(PreviewPanel, { props: { html: '<p>a</p>' }, attachTo: document.body });
     const win = frameWindow(wrapper);
-    deliver({ type: 'editor:preview-error', message: 'boom' }, win);
+    deliver({ type: 'editor:preview-error', message: 'boom', seq: seqOf(wrapper) }, win);
     await flushPromises();
     const post = vi.spyOn(win, 'postMessage');
     (wrapper.vm as unknown as { prevPage(): void }).prevPage();
@@ -511,7 +528,7 @@ describe('PreviewPanel — postMessage クライアント', () => {
         expect.objectContaining({ type: 'editor:preview-cmd', cmd: 'gotoPart', part: '4' }),
         '*',
       );
-      deliver({ type: 'editor:preview-error', message: 'x' }, win);
+      deliver({ type: 'editor:preview-error', message: 'x', seq: seqOf(wrapper) }, win);
       post.mockClear();
       vm.gotoPart('5');
       expect(post).not.toHaveBeenCalled();

@@ -1,0 +1,141 @@
+// =============================================================================
+// previewHostBoot.test.ts — ビューアホストのブートスクリプトの文書の番号(偽の Vivliostyle で動かす)
+// =============================================================================
+// ブートスクリプトの文字列をそのまま評価し、`Vivliostyle.CoreViewer` を偽物に差し替えて、子が
+// 親へ送る通知の番号を見る。core の `CoreViewer` は `cleanup` を持たず、文書を読み直しても前の
+// viewer のリスナーは外れない(2026-10-29 にバンドルで確認)。前の viewer の通知が新しい文書の
+// 番号で送られないことと、エラーの通知にも番号が載ることを固定する。
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { BOOT_SCRIPT } from '../src/vivliostyle/previewHost.js';
+
+type Msg = { type: string; seq?: unknown; [k: string]: unknown };
+type Listener = (e?: unknown) => void;
+
+class FakeViewer {
+  static all: FakeViewer[] = [];
+  static throwNext = false;
+  readonly listeners: Record<string, Listener> = {};
+  readyState = 'loading';
+  constructor() {
+    if (FakeViewer.throwNext) {
+      FakeViewer.throwNext = false;
+      throw new Error('組版の初期化に失敗');
+    }
+    FakeViewer.all.push(this);
+  }
+  addListener(type: string, fn: Listener) {
+    this.listeners[type] = fn;
+  }
+  loadDocument() {}
+  setOptions() {}
+  getPageSizes() {
+    return [{ width: 400, height: 600 }];
+  }
+  navigateToPage() {}
+}
+
+/** ブートスクリプトを偽の window・document の上で起こす。 */
+function bootHost(opts: { withViewer?: boolean } = {}) {
+  const sent: Msg[] = [];
+  const parent = { postMessage: (m: Msg) => sent.push(m) };
+  const winListeners: Record<string, (e: unknown) => void> = {};
+  const vp = {
+    innerHTML: '',
+    addEventListener() {},
+    querySelectorAll: () => [],
+    querySelector: () => null,
+  };
+  const win = {
+    parent,
+    innerWidth: 800,
+    innerHeight: 600,
+    Vivliostyle:
+      opts.withViewer === false
+        ? undefined
+        : {
+            CoreViewer: FakeViewer,
+            PageViewMode: { SINGLE_PAGE: 'single' },
+            ReadyState: { COMPLETE: 'complete' },
+            Navigation: {},
+          },
+    addEventListener: (type: string, fn: (e: unknown) => void) => {
+      winListeners[type] = fn;
+    },
+  };
+  const doc = { getElementById: () => vp };
+  const url = { createObjectURL: () => 'blob:doc', revokeObjectURL() {} };
+  new Function('window', 'document', 'URL', 'Blob', 'requestAnimationFrame', BOOT_SCRIPT)(
+    win,
+    doc,
+    url,
+    class {},
+    () => 0,
+  );
+  const sendDoc = (seq: number) =>
+    winListeners.message?.({
+      source: parent,
+      data: { type: 'editor:preview-doc', html: '<p>x</p>', seq },
+    });
+  const of = (type: string) => sent.filter((m) => m.type === type);
+  return { sent, sendDoc, of };
+}
+
+beforeEach(() => {
+  FakeViewer.all = [];
+  FakeViewer.throwNext = false;
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('ブートスクリプトの文書の番号', () => {
+  it('文書を読み直したあと、前の viewer の nav・readystatechange は通知を送らない', () => {
+    const host = bootHost();
+    host.sendDoc(1);
+    host.sendDoc(2);
+    const [old, cur] = FakeViewer.all;
+    if (!old || !cur) throw new Error('viewer が 2 つ作られていない');
+    const before = host.sent.length;
+    old.listeners.nav?.({ epage: 2, epageCount: 9, first: false, last: true });
+    old.readyState = 'complete';
+    old.listeners.readystatechange?.();
+    expect(host.sent.slice(before)).toEqual([]);
+    // いまの viewer の通知は、いまの文書の番号で送る。
+    cur.readyState = 'complete';
+    cur.listeners.readystatechange?.();
+    const last = host.of('editor:preview-state').at(-1);
+    expect(last?.seq).toBe(2);
+    expect(last?.state).toMatchObject({ ready: true });
+  });
+
+  it('組版の失敗の通知(猶予のあとの error・読み込みの例外)にも文書の番号を載せる', () => {
+    vi.useFakeTimers();
+    const host = bootHost();
+    host.sendDoc(3);
+    FakeViewer.all[0]?.listeners.error?.({ content: { messages: ['画像が無い'] } });
+    vi.advanceTimersByTime(3000);
+    expect(host.of('editor:preview-error')).toEqual([
+      { type: 'editor:preview-error', message: '画像が無い', seq: 3 },
+    ]);
+    FakeViewer.throwNext = true;
+    host.sendDoc(4);
+    expect(host.of('editor:preview-error').at(-1)).toMatchObject({ seq: 4 });
+  });
+
+  it('前の viewer の error は、文書を読み直したあとに届いても通知しない', () => {
+    vi.useFakeTimers();
+    const host = bootHost();
+    host.sendDoc(5);
+    host.sendDoc(6);
+    FakeViewer.all[0]?.listeners.error?.({ content: { messages: ['前の文書'] } });
+    vi.advanceTimersByTime(3000);
+    expect(host.of('editor:preview-error')).toEqual([]);
+  });
+
+  it('バンドルが無いときのエラーは、文書を受ける前の番号 0 で送る', () => {
+    const host = bootHost({ withViewer: false });
+    expect(host.of('editor:preview-error')).toEqual([
+      { type: 'editor:preview-error', message: 'vivliostyle bundle unavailable', seq: 0 },
+    ]);
+  });
+});
