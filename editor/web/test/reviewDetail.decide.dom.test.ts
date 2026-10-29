@@ -300,7 +300,7 @@ describe('ReviewDetail の判定と選択', () => {
     await buttonIn(row(w, 1), '承認')?.trigger('click');
     await flushPromises();
     expect(toastError).toHaveBeenCalledWith(
-      `申請の差分に無いパーツの判定があります: 変更 1「名前1」, 変更 2「名前2」, zz#9 ほか3件。` +
+      `申請の差分に無いパーツの判定があります: 変更 1「名前1」, 変更 2「名前2」, zz#9（右欄に無いパーツ） ほか3件。` +
         '画面を読み直してください。',
     );
   });

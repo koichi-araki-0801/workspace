@@ -87,7 +87,8 @@ export function finalizeHint(c: DecisionCounts): string {
 
 /**
  * サーバの文言に並ぶパーツのキー(`<アンカー>#<通し番号>`。利用者に読めない)を、右欄の番号と
- * パーツ名(`変更 N「名前」`)へ読み替える。右欄に無いキー(どの行にも当たらない)はそのまま残す。
+ * パーツ名(`変更 N「名前」`)へ読み替える。右欄に無いキー(本文に無い判定・差分に無いパーツ)は、
+ * 番号を持たないので、キーに「（右欄に無いパーツ）」を添える(利用者が右欄を探し回らないように)。
  * 判定の保存・最終確定の 400・409 の文言(shared の `partKeysText` が並べる)に使う。
  */
 export function describePartKeys(
@@ -97,6 +98,6 @@ export function describePartKeys(
   const byKey = new Map(changes.map((c) => [c.partKey, c]));
   return message.replace(/[^\s,、。:：「」]+#\d+/g, (key) => {
     const c = byKey.get(key);
-    return c ? `変更 ${c.no}「${c.name}」` : key;
+    return c ? `変更 ${c.no}「${c.name}」` : `${key}（右欄に無いパーツ）`;
   });
 }
