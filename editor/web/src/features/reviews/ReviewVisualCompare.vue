@@ -217,6 +217,8 @@ function sendGotoPage(index: number): void {
  * 論理ページ(0 始まり。確定版の改ページで数えた index)の先頭へ両面を送る。承認タブの
  * コメント一覧が「行から該当ページへ」に使う。物理ページの番号で送ると溢れた帳票でずれるので、
  * ページの先頭要素のアンカー(`buildCompareDoc` の `pageAnchors`)で送る。
+ * 限界: index は現行版で数えたものなので、右面(申請版)では同じ index のページへ送るだけになる。
+ * 申請でページを足し引きしていれば、右面の行き先は同じ内容のページとは限らない。
  */
 function gotoPage(index: number): void {
   if (!panelsReady()) {
@@ -241,8 +243,11 @@ watch([afterState, beforeState], () => {
 });
 
 // 文書を組み直したら、物理ページの対応を捨てて返り直しを待ち、選択中のパーツへ移り直す。
+// 比べるのは文書の文字列で、PreviewPanel が子へ送り直す条件(`html` が変わったとき)と揃える。
+// computed が新しいオブジェクトを返しても文字列が同じなら子は何も送らず、`ready` も戻らない
+// (追加だけの申請の左面・削除だけの申請の右面は、切り替えても文字列が変わらない)。
 watch(
-  [beforeDoc, afterDoc],
+  [() => beforeDoc.value?.doc, () => afterDoc.value.doc],
   ([b, a], [oldB, oldA]) => {
     if (a !== oldA) {
       afterPartPages.value = null;

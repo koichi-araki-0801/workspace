@@ -51,8 +51,8 @@ const pb = '<div class="pagebreak"></div>';
 const BEFORE = `<p class="a">古い文</p>${pb}<p class="b">B</p>`;
 const AFTER = `<p class="a">新しい文</p>${pb}<p class="b">B</p><p class="c">追加</p>`;
 
-function fixture(): { diff: HtmlDiff; changes: ChangedPart[] } {
-  const diff = buildHtmlDiff(BEFORE, AFTER);
+function fixture(before: string, after: string): { diff: HtmlDiff; changes: ChangedPart[] } {
+  const diff = buildHtmlDiff(before, after);
   return { diff, changes: numberChangedParts(diff) };
 }
 
@@ -72,8 +72,8 @@ function state(over: Record<string, unknown> = {}) {
   };
 }
 
-function setup(over: Record<string, unknown> = {}) {
-  const { diff, changes } = fixture();
+function setup(over: Record<string, unknown> = {}, pair: [string, string] = [BEFORE, AFTER]) {
+  const { diff, changes } = fixture(...pair);
   const wrapper = mount(ReviewVisualCompare, {
     props: {
       diff,
@@ -104,26 +104,66 @@ beforeEach(() => {
 
 describe('ReviewVisualCompare', () => {
   it('承認では文書を作り直さず marks だけ変わる', async () => {
-    const { wrapper, changes, before, after } = setup();
-    const beforeHtml = before?.props.html;
-    const afterHtml = after.props.html;
+    const { wrapper, changes, before, after } = setup({ selectedNo: 1 });
+    await readyAll(before, after);
+    after.emit('part-pages', { '1': 0, '2': 1 });
+    await flushPromises();
     const firstMarks = after.props.marks;
     expect(firstMarks).toEqual({
       states: { '1': 'pending', '2': 'pending' },
-      selected: null,
+      selected: '1',
       visible: true,
     });
+    after.api.gotoPart.mockClear();
 
+    // 組み直していれば、ready が戻るまで変更のあるページは消え、移動は待たされる。
     await wrapper.setProps({ decisions: [dec(changes[0].partKey, 'approved')] });
-    expect(after.props.html).toBe(afterHtml);
-    expect(before?.props.html).toBe(beforeHtml);
     expect(after.props.marks).not.toBe(firstMarks);
     expect(after.props.marks?.states['1']).toBe('approved');
     expect(before?.props.marks?.states['1']).toBe('approved');
+    expect(wrapper.find('[data-changed-pages]').exists()).toBe(true);
+    const vm = wrapper.vm as unknown as { gotoPart: (no: number) => void };
+    vm.gotoPart(2);
+    expect(after.api.gotoPart).toHaveBeenCalledWith('2');
 
     await wrapper.setProps({ selectedNo: 2 });
-    expect(after.props.html).toBe(afterHtml);
     expect(after.props.marks?.selected).toBe('2');
+    expect(wrapper.find('[data-changed-pages]').exists()).toBe(true);
+  });
+
+  it('切り替えても文字列が変わらない面は待たない(追加だけ・削除だけの申請)', async () => {
+    const cases: { pair: [string, string]; changed: 'before' | 'after' }[] = [
+      { pair: ['<p class="a">A</p>', '<p class="a">A</p><p class="c">追加</p>'], changed: 'after' },
+      {
+        pair: ['<p class="a">A</p><p class="c">消す</p>', '<p class="a">A</p>'],
+        changed: 'before',
+      },
+    ];
+    for (const { pair, changed } of cases) {
+      panels.length = 0;
+      const { wrapper, before, after } = setup({ selectedNo: 1 }, pair);
+      await readyAll(before, after);
+      after.emit('part-pages', { '1': 0 });
+      await flushPromises();
+      const unchanged = changed === 'after' ? before : after;
+      const rebuilt = (changed === 'after' ? after : before) as StubPanel;
+      const unchangedHtml = unchanged?.props.html;
+      after.api.gotoPart.mockClear();
+
+      await wrapper.get('[data-highlight-toggle]').trigger('click');
+      await flushPromises();
+      expect(unchanged?.props.html).toBe(unchangedHtml);
+      expect(rebuilt.props.html).not.toContain('cmp-');
+      // 組み直した面の ready だけで移り直す(変わらない面は子から何も来ない)。
+      expect(after.api.gotoPart).not.toHaveBeenCalled();
+      rebuilt.emit('state', state());
+      await flushPromises();
+      expect(after.api.gotoPart).toHaveBeenCalledWith('1');
+      if (changed === 'before') {
+        expect(wrapper.find('[data-changed-pages]').exists()).toBe(true);
+      }
+      wrapper.unmount();
+    }
   });
 
   it('却下で右面の文書だけ作り直す', async () => {
@@ -249,7 +289,7 @@ describe('ReviewVisualCompare', () => {
     expect(before?.api.gotoPart.mock.calls).toEqual([['2'], ['1']]);
   });
 
-  it('gotoPage は各面のページの先頭のアンカーへ送り、組版の前は待つ', async () => {
+  it('gotoPage は同じ index の論理ページの先頭のアンカーへ両面を送り、組版の前は待つ', async () => {
     const { wrapper, before, after } = setup();
     const vm = wrapper.vm as unknown as { gotoPage: (index: number) => void };
     vm.gotoPage(1);
