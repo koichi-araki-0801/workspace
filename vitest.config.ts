@@ -290,6 +290,7 @@ export default defineConfig({
         'editor/web/src/features/reviews/reviewDecisionState.ts',
         'editor/web/src/features/reviews/useReviewDecisions.ts',
         'editor/web/src/features/reviews/ReviewNoticeBar.vue',
+        'editor/web/src/features/reviews/ReviewDecisionBar.vue',
         'editor/web/src/features/reviews/ReviewVisualCompare.vue',
         'editor/web/src/features/reviews/reviewDecisionList.ts',
         'editor/web/src/features/reviews/ReviewDecisionList.vue',

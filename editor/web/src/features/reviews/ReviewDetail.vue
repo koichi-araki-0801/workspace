@@ -662,7 +662,6 @@ watch(
         :css-after="cssAfter"
         :print-only-css="printOnlyCss"
         :truncated="truncated"
-        :hidden-row-count="hiddenRowCount"
         :pdf-generating="pdfGenerating"
         @open-pdf="openPdf"
       />
