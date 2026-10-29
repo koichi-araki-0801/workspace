@@ -151,13 +151,19 @@ describe('sqlserverv8Shim', () => {
   });
 
   // 日本語を含むフォルダ(ユーザー名が日本語の %TEMP% を想定)からでも dlopen できること。
-  it.skipIf(!existsSync(realDriver))('日本語を含むパスへ書き出したドライバを読める', () => {
-    const bytes = readFileSync(realDriver);
-    const dir = createRunDir(join(parent, '山田', 'pie-chart-db'));
-    const file = writeVerifiedDriver(dir, bytes, sha256Hex(bytes));
-    registerDriverPath(file);
-    delete require.cache[shimPath];
-    const driver = require(shimPath) as Record<string, unknown>;
-    expect(typeof driver).toBe('object');
-  });
+  // prebuild は win32-x64 用なので、ファイルがあっても Windows x64 以外(CI の Linux など)では
+  // dlopen できない(invalid ELF header)。
+  const canLoadDriver = process.platform === 'win32' && process.arch === 'x64';
+  it.skipIf(!canLoadDriver || !existsSync(realDriver))(
+    '日本語を含むパスへ書き出したドライバを読める',
+    () => {
+      const bytes = readFileSync(realDriver);
+      const dir = createRunDir(join(parent, '山田', 'pie-chart-db'));
+      const file = writeVerifiedDriver(dir, bytes, sha256Hex(bytes));
+      registerDriverPath(file);
+      delete require.cache[shimPath];
+      const driver = require(shimPath) as Record<string, unknown>;
+      expect(typeof driver).toBe('object');
+    },
+  );
 });
