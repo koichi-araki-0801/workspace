@@ -5,7 +5,7 @@
 // 埋める(設計書 D8)。窓の動かし方とスクロール補正の量をここに切り出し、`ReviewDecisionList.vue`
 // は DOM の測定と `scrollTop` の書き込みだけを持つ。位置が実際に動かないことは e2e で測る。
 
-import { MAX_PART_REJECT_REASON_CHARS } from '@editor/shared';
+import { MAX_PART_REJECT_REASON_CHARS, MAX_REVIEW_REJECT_REASON_CHARS } from '@editor/shared';
 
 // ── 1. 表示窓 ──
 
@@ -76,9 +76,18 @@ export function scrollDelta(
  */
 export const REJECT_REASON_MAX = MAX_PART_REJECT_REASON_CHARS;
 
-/** 却下の理由を送れない訳。送れるなら null。空白だけの理由は空と読む(サーバも trim する)。 */
-export function rejectReasonProblem(text: string): 'empty' | 'tooLong' | null {
+/** 申請ごと却下の理由の上限(UTF-16 単位)。契約(`ReviewRejectBody`)と同じ shared の定数。 */
+export const REQUEST_REJECT_REASON_MAX = MAX_REVIEW_REJECT_REASON_CHARS;
+
+/**
+ * 却下の理由を送れない訳。送れるなら null。空白だけの理由は空と読む(サーバも trim する)。長さは
+ * trim の前で数える(サーバの契約も trim の前の長さに上限を掛ける)。
+ */
+export function rejectReasonProblem(
+  text: string,
+  max: number = REJECT_REASON_MAX,
+): 'empty' | 'tooLong' | null {
   if (!text.trim()) return 'empty';
-  if (text.length > REJECT_REASON_MAX) return 'tooLong';
+  if (text.length > max) return 'tooLong';
   return null;
 }

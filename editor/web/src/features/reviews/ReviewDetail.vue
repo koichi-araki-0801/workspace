@@ -38,6 +38,7 @@ import ReviewDecisionBar from './ReviewDecisionBar.vue';
 import ReviewDecisionList from './ReviewDecisionList.vue';
 import ReviewNoticeBar from './ReviewNoticeBar.vue';
 import ReviewVisualCompare from './ReviewVisualCompare.vue';
+import { REQUEST_REJECT_REASON_MAX, rejectReasonProblem } from './reviewDecisionList';
 import { nextPendingNo } from './reviewDecisionState';
 import type { ReviewChangeRow } from './services/reviewDiffService';
 import { useReviewDecisions } from './useReviewDecisions';
@@ -80,12 +81,23 @@ const {
   updatePartDecisions,
 } = useReviewDiff(() => props.reqId);
 
+/**
+ * 判定の保存に失敗したときの読み直し。ほかの人が先に決着させていた(`REVIEW_ALREADY_DECIDED`)なら、
+ * 読み直した決着を親へ伝える。伝えないと、一覧は次に読み直すまで承認待ちのまま残る。
+ */
+async function reloadAfterDecisionFailure(): Promise<boolean> {
+  const reloaded = await load();
+  const r = review.value;
+  if (reloaded && r && r.status !== 'pending') emit('decided', toReviewMeta(r));
+  return reloaded;
+}
+
 const decisions = useReviewDecisions({
   review,
   diff,
   changes,
   save: updatePartDecisions,
-  reload: load,
+  reload: reloadAfterDecisionFailure,
 });
 const { counts, saving } = decisions;
 
@@ -203,6 +215,10 @@ const SIDE_TABS = [
   { id: 'decisions', label: '変更と判定' },
   { id: 'comments', label: 'コメント' },
 ] as const;
+type SideTab = (typeof SIDE_TABS)[number]['id'];
+// 承認タブは申請カードを複数並べるので、タブと中身の id は申請ごとに分ける。
+const sideTabId = (t: SideTab) => `review-${props.reqId}-tab-${t}`;
+const sidePanelId = (t: SideTab) => `review-${props.reqId}-panel-${t}`;
 
 /**
  * 道具の行の先頭の要素。`ReviewVisualCompare` のページ送りと紙面のチェックがここへ移る。要素が
@@ -392,6 +408,13 @@ const requestRejectOpen = ref(false);
 const requestRejectText = ref('');
 const requestRejectError = ref(false);
 const requestRejectEl = ref<HTMLTextAreaElement | null>(null);
+/** 理由の残りの字数(UTF-16 単位。契約と同じ数え方)。超えると負になり、送れない。 */
+const requestRejectLeft = computed(
+  () => REQUEST_REJECT_REASON_MAX - requestRejectText.value.length,
+);
+const requestRejectTooLong = computed(
+  () => rejectReasonProblem(requestRejectText.value, REQUEST_REJECT_REASON_MAX) === 'tooLong',
+);
 watch(requestRejectText, (v) => {
   if (v.trim()) requestRejectError.value = false;
 });
@@ -409,7 +432,7 @@ function closeRequestReject(): void {
 }
 
 async function submitRequestReject(): Promise<void> {
-  if (busy.value) return;
+  if (busy.value || requestRejectTooLong.value) return;
   // 却下は申請者へ戻す操作 — 理由が残らないと編集者が直しようがないため必須にする。
   const reason = requestRejectText.value.trim();
   if (!reason) {
@@ -430,7 +453,8 @@ async function submitRequestReject(): Promise<void> {
   emitDecided(before, { status, reviewedBy, reviewedAt, comment });
 }
 
-defineExpose({ gotoPage, selectPart, openRequestReject });
+// `canDecide` は承認タブの見出しが「申請ごと却下する…」を出すかに使う(一覧の行の状態は古いことがある)。
+defineExpose({ gotoPage, selectPart, openRequestReject, canDecide });
 
 // ── 6. PDF ──
 
@@ -523,12 +547,23 @@ onMounted(load);
             v-model="requestRejectText"
             rows="2"
             placeholder="直してほしい点を書きます"
-            :aria-invalid="requestRejectError || undefined"
+            :aria-invalid="requestRejectError || requestRejectTooLong || undefined"
             class="w-full rounded-md border bg-background px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            :class="requestRejectError ? 'border-destructive' : 'border-input'"
+            :class="requestRejectError || requestRejectTooLong ? 'border-destructive' : 'border-input'"
           />
           <p v-if="requestRejectError" role="alert" class="text-xs text-destructive">
             理由を入力してください。
+          </p>
+          <p v-if="requestRejectTooLong" role="alert" class="text-xs text-destructive">
+            理由は {{ REQUEST_REJECT_REASON_MAX }} 文字までです（いま
+            {{ requestRejectText.length }} 文字）。
+          </p>
+          <p
+            v-else
+            data-request-reject-count
+            class="text-xs text-muted-foreground"
+          >
+            あと {{ requestRejectLeft }} 文字
           </p>
           <p class="text-xs text-muted-foreground">何も確定せずに申請全体を申請者へ戻します</p>
         </div>
@@ -537,7 +572,7 @@ onMounted(load);
             size="sm"
             variant="outline"
             class="border-destructive/50 text-destructive"
-            :disabled="busy"
+            :disabled="busy || requestRejectTooLong"
             @click="submitRequestReject"
           >
             申請を却下する
@@ -595,8 +630,10 @@ onMounted(load);
               v-for="t in SIDE_TABS"
               :key="t.id"
               type="button"
+              :id="sideTabId(t.id)"
               role="tab"
               :aria-selected="sideTab === t.id"
+              :aria-controls="sidePanelId(t.id)"
               :data-side-tab="t.id"
               class="flex-1 border-b-2 px-3 py-2 text-[12.5px] font-bold"
               :class="
@@ -611,7 +648,13 @@ onMounted(load);
           </div>
           <!-- 右欄の一覧は自分のスクロール容器を持つので、高さの決まった枠に置く。タブを切り替えても
                スクロール位置と書きかけを保つよう、v-show で残す。 -->
-          <div v-show="sideTab === 'decisions'" role="tabpanel" class="min-h-0 flex-1">
+          <div
+            v-show="sideTab === 'decisions'"
+            :id="sidePanelId('decisions')"
+            role="tabpanel"
+            :aria-labelledby="sideTabId('decisions')"
+            class="min-h-0 flex-1"
+          >
             <ReviewDecisionList
               :key="changesKey"
               ref="listRef"
@@ -628,7 +671,9 @@ onMounted(load);
           </div>
           <div
             v-show="sideTab === 'comments'"
+            :id="sidePanelId('comments')"
             role="tabpanel"
+            :aria-labelledby="sideTabId('comments')"
             class="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             <slot name="comments" v-bind="commentSlotProps" />

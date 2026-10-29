@@ -300,7 +300,8 @@ describe('ReviewDecisionList — 行と判定', () => {
     expect(w.text()).not.toContain('まとめて承認');
     expect(row(w, 1).text()).toContain('承認済み');
     expect(row(w, 2).text()).toContain('理由: 表が古い');
-    expect(row(w, 3).text()).toContain('承認待ち');
+    expect(row(w, 3).text()).toContain('未判定');
+    expect(row(w, 3).text()).not.toContain('承認待ち');
   });
 });
 
@@ -339,6 +340,30 @@ describe('ReviewDecisionList — まとめて判定', () => {
     await box.find('textarea').setValue('全体に古い');
     await button(w.find('[data-review-bulk-reject]'), '2 件を却下する').trigger('click');
     expect(w.emitted('reject')).toEqual([[['p#1', 'p#2'], '全体に古い']]);
+  });
+
+  it('チェックを外すと選択から外れる', async () => {
+    const w = mountList();
+    await row(w, 1).find('input[type="checkbox"]').setValue(true);
+    expect(w.text()).toContain('1 件選択中');
+    await row(w, 1).find('input[type="checkbox"]').setValue(false);
+    expect(w.text()).toContain('0 件選択中');
+  });
+
+  it('まとめて却下の理由は空白だけでは送れず、2000 単位を超えても送れない', async () => {
+    const w = mountList();
+    await row(w, 1).find('input[type="checkbox"]').setValue(true);
+    await button(w, 'まとめて却下…').trigger('click');
+    const box = () => w.find('[data-review-bulk-reject]');
+    await button(box(), '1 件を却下する').trigger('click');
+    expect(box().text()).toContain('理由を入力してください。');
+    // 空白だけを入れても、空の注意は消えない(理由を書いたことにならない)。
+    await box().find('textarea').setValue('   ');
+    expect(box().text()).toContain('理由を入力してください。');
+    await box().find('textarea').setValue('あ'.repeat(2001));
+    expect(box().text()).toContain('理由は 2000 文字までです（いま 2001 文字）。');
+    await button(box(), '1 件を却下する').trigger('click');
+    expect(w.emitted('reject')).toBeUndefined();
   });
 
   it('まとめて却下の「取消」で欄を閉じる', async () => {
@@ -400,6 +425,32 @@ describe('ReviewDecisionList — 表示窓', () => {
     expect(nos.at(-1)).toBe(200);
     const top = w.find('[data-review-sentinel="top"]').element as HTMLElement;
     expect(top.style.height).toBe(`${50 * 96}px`);
+  });
+
+  it('境界: 150 件はすべて描いて上から外さず、151 件は最後の 1 行を足すときに先頭の 1 行を外す', async () => {
+    const bottomSel = '[data-review-sentinel="bottom"]';
+    const topSel = '[data-review-sentinel="top"]';
+    const w150 = mountList({ changes: many(150) });
+    await flush();
+    await see(w150, bottomSel);
+    await see(w150, bottomSel);
+    expect(rowNos(w150)).toEqual(Array.from({ length: 150 }, (_, i) => i + 1));
+    expect(observedAll()).not.toContain(w150.find(bottomSel).element);
+    expect(observedAll()).not.toContain(w150.find(topSel).element);
+    w150.unmount();
+
+    FakeIO.instances = [];
+    const w151 = mountList({ changes: many(151) });
+    await flush();
+    await see(w151, bottomSel);
+    await see(w151, bottomSel);
+    expect(rowNos(w151)).toHaveLength(150);
+    expect(rowNos(w151).at(-1)).toBe(150);
+    await see(w151, bottomSel);
+    expect(rowNos(w151)).toEqual(Array.from({ length: 150 }, (_, i) => i + 2));
+    expect((w151.find(topSel).element as HTMLElement).style.height).toBe('96px');
+    expect(observedAll()).toContain(w151.find(topSel).element);
+    expect(observedAll()).not.toContain(w151.find(bottomSel).element);
   });
 
   it('下へ広げて上から外したとき、外した行の実高と見込み高の差だけ scrollTop を戻す', async () => {
@@ -472,6 +523,84 @@ describe('ReviewDecisionList — 表示窓', () => {
     expect(nos.at(-1)).toBe(849);
     expect(nos).toHaveLength(100);
     expect(row(w, 800).element.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it('revealNo を続けて呼ぶと、最後の呼び出しの行だけへ送る(前の呼び出しが後から送らない)', async () => {
+    const w = mountList({ changes: many(1000) });
+    await flush();
+    const vm = w.vm as unknown as { revealNo(no: number): Promise<void> };
+    const first = vm.revealNo(800);
+    const second = vm.revealNo(20);
+    await Promise.all([first, second]);
+    await flush();
+    expect(rowNos(w)[0]).toBe(1);
+    const calls = vi.mocked(Element.prototype.scrollIntoView).mock.contexts as Element[];
+    expect(calls.map((el) => el.getAttribute('data-review-row-no'))).toEqual(['20']);
+    // 送り終えたら、番兵の通知をまた受ける(続けて呼んでも受けないままにならない)。
+    await see(w, '[data-review-sentinel="bottom"]');
+    expect(rowNos(w).at(-1)).toBe(119);
+  });
+
+  it('revealNo の送りの最中に番兵の通知が来ても窓を動かさず、送ったあとに観測し直す', async () => {
+    const w = mountList({ changes: many(1000) });
+    await flush();
+    const vm = w.vm as unknown as { revealNo(no: number): Promise<void> };
+    const bottom = w.find('[data-review-sentinel="bottom"]').element;
+    const io = FakeIO.instances[0];
+    if (!io) throw new Error('IO が無い');
+    const done = vm.revealNo(800);
+    // 送り(nextTick を待つ間)の最中に届いた通知。ここで窓を広げると、送ったあとに scrollTop の
+    // 補正が後から走り、送った行が見える位置からずれる。
+    io.fire(bottom);
+    await done;
+    await flush();
+    expect(rowNos(w)[0]).toBe(750);
+    expect(rowNos(w).at(-1)).toBe(849);
+    expect(row(w, 800).element.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    // 受けなかった通知の代わりに、送ったあとに番兵を観測し直す(まだ見えていれば IO が改めて通知する)。
+    expect(io.observed.has(bottom)).toBe(true);
+  });
+
+  it('知らない番号の revealNo は何もしない', async () => {
+    const w = mountList({ changes: many(10) });
+    await flush();
+    await (w.vm as unknown as { revealNo(no: number): Promise<void> }).revealNo(999);
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('帯の無い読み取り専用(canDecide=false)でも revealNo は余白 0 で送る', async () => {
+    const w = mountList({ changes: many(10), canDecide: false });
+    await flush();
+    expect(w.find('[data-review-band]').exists()).toBe(false);
+    await (w.vm as unknown as { revealNo(no: number): Promise<void> }).revealNo(5);
+    expect((row(w, 5).element as HTMLElement).style.scrollMarginTop).toBe('0px');
+  });
+
+  it('番兵の通知が見えていない・番兵以外・それ以上広げられないときは窓を動かさない', async () => {
+    const w = mountList({ changes: many(60) });
+    await flush();
+    const io = FakeIO.instances[0];
+    if (!io) throw new Error('IO が無い');
+    const notify = (target: Element, isIntersecting: boolean) =>
+      io.cb(
+        [{ target, isIntersecting } as unknown as IntersectionObserverEntry],
+        io as unknown as IntersectionObserver,
+      );
+    const top = w.find('[data-review-sentinel="top"]').element;
+    const bottom = w.find('[data-review-sentinel="bottom"]').element;
+    notify(bottom, false);
+    notify(document.body, true);
+    // 先頭まで描いているので、上の番兵が見えても上へは広げない。
+    notify(top, true);
+    await flush();
+    expect(rowNos(w)).toHaveLength(50);
+    // 末尾まで広げたあとに下の番兵の通知が来ても、それ以上は足さない。
+    notify(bottom, true);
+    await flush();
+    expect(rowNos(w)).toHaveLength(60);
+    notify(bottom, true);
+    await flush();
+    expect(rowNos(w)).toHaveLength(60);
   });
 
   it('窓の中の行を revealNo すると、窓を動かさずに送る', async () => {

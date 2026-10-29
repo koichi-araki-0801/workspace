@@ -18,7 +18,7 @@ import {
 } from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h } from 'vue';
+import { defineComponent, h, nextTick } from 'vue';
 import { confirm } from '@/components/ui/confirm';
 import { toast, toastError } from '@/components/ui/toast';
 import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
@@ -265,6 +265,33 @@ describe('ReviewDetail の判定と選択', () => {
     expect(row(w, 1).find('[data-review-no]').attributes('data-decision')).toBe('approved');
   });
 
+  it('パーツ判定の保存が REVIEW_ALREADY_DECIDED なら、読み直した決着を親へ伝える(一覧をすぐ直す)', async () => {
+    const decidedElsewhere = data({
+      review: { status: 'approved', reviewedBy: 'other', reviewedAt: '2026-10-03T00:00:00.000Z' },
+    });
+    serve(data(), decidedElsewhere);
+    repo.updatePartDecisions.mockResolvedValue(
+      err(appError('conflict', 'この申請は既に承認済みです', { code: REVIEW_ALREADY_DECIDED })),
+    );
+    const w = await mountDetail();
+    await buttonIn(row(w, 1), '承認')?.trigger('click');
+    await flushPromises();
+    expect(buildDiff).toHaveBeenCalledTimes(2);
+    const decided = w.emitted('decided')?.at(-1)?.[0] as ReviewRequestMeta | undefined;
+    expect(decided).toMatchObject({ status: 'approved', reviewedBy: 'other' });
+    expect(decided).not.toHaveProperty('html');
+  });
+
+  it('パーツ判定の保存の失敗で読み直しても、承認待ちのままなら決着を伝えない', async () => {
+    serve(data());
+    repo.updatePartDecisions.mockResolvedValue(err(appError('unexpected', 'x')));
+    const w = await mountDetail();
+    await buttonIn(row(w, 1), '承認')?.trigger('click');
+    await flushPromises();
+    expect(buildDiff).toHaveBeenCalledTimes(2);
+    expect(w.emitted('decided')).toBeUndefined();
+  });
+
   it('次の未判定で右欄の行と紙面のパーツへ移る', async () => {
     serve(data());
     const w = await mountDetail();
@@ -390,6 +417,27 @@ describe('ReviewDetail の申請カード', () => {
     w.unmount();
   });
 
+  it('道具の行は紙面が出たその描画の内に全幅の行へ移る(紙面の上に一度描かれて見えることは無い)', async () => {
+    let resolve!: (v: unknown) => void;
+    buildDiff.mockImplementation(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    const w = mount(ReviewDetail, { props: { reqId: 'r1' }, attachTo: document.body });
+    await flushPromises();
+    expect(w.find('[data-review-card]').exists()).toBe(false);
+    resolve(ok(structuredClone(data())));
+    // マイクロタスクだけを進める(タスクの切れ目 = ブラウザが描く機会を挟まない)。
+    for (let i = 0; i < 10 && !w.find('[data-review-card]').exists(); i++) await nextTick();
+    expect(w.find('[data-review-card]').exists()).toBe(true);
+    // カードが出たのと同じ flush で、もう移っている。
+    expect(w.find('[data-review-tools] [data-page-prev]').exists()).toBe(true);
+    expect(w.find('[data-review-work] [data-page-prev]').exists()).toBe(false);
+    w.unmount();
+  });
+
   it('右欄のタブは「変更と判定｜コメント」で、コメントは slot に番号と名前を渡す', async () => {
     serve(data());
     const seen: Record<string, unknown>[] = [];
@@ -404,6 +452,12 @@ describe('ReviewDetail の申請カード', () => {
     const tabs = w.find('[role="tablist"]').findAll('[role="tab"]');
     expect(tabs.map((t) => t.text())).toEqual(['変更と判定', 'コメント']);
     expect(tabs[0].attributes('aria-selected')).toBe('true');
+    // タブは自分の中身を aria-controls で指し、中身はタブを aria-labelledby で指す。
+    for (const t of tabs) {
+      const panel = w.find(`#${t.attributes('aria-controls')}`);
+      expect(panel.attributes('role')).toBe('tabpanel');
+      expect(panel.attributes('aria-labelledby')).toBe(t.attributes('id'));
+    }
     await tabs[1].trigger('click');
     expect(tabs[1].attributes('aria-selected')).toBe('true');
     expect(w.find('[data-comments-slot]').isVisible()).toBe(true);
@@ -716,6 +770,32 @@ describe('ReviewDetail の申請ごと却下', () => {
     expect(buttonIn(area, '取消')?.attributes('disabled')).toBeDefined();
   });
 
+  it('申請ごと却下の理由は 2,000 単位まで。残りの字数を出し、超えたら送れない', async () => {
+    serve(data());
+    const w = await mountDetail();
+    (w.vm as unknown as { openRequestReject(): void }).openRequestReject();
+    await flushPromises();
+    const area = () => w.find('[data-request-reject]');
+    const count = () => area().find('[data-request-reject-count]').text();
+    expect(count()).toBe('あと 2000 文字');
+    await area().find('textarea').setValue('理由');
+    expect(count()).toBe('あと 1998 文字');
+    await area().find('textarea').setValue('あ'.repeat(2001));
+    expect(area().find('[role="alert"]').text()).toBe(
+      '理由は 2000 文字までです（いま 2001 文字）。',
+    );
+    expect(area().find('textarea').attributes('aria-invalid')).toBe('true');
+    const send = buttonIn(area(), '申請を却下する');
+    expect(send?.attributes('disabled')).toBeDefined();
+    await send?.trigger('click');
+    await flushPromises();
+    expect(repo.rejectReview).not.toHaveBeenCalled();
+    await area().find('textarea').setValue('あ'.repeat(2000));
+    expect(count()).toBe('あと 0 文字');
+    expect(area().find('[role="alert"]').exists()).toBe(false);
+    expect(buttonIn(area(), '申請を却下する')?.attributes('disabled')).toBeUndefined();
+  });
+
   it('取消で理由欄を閉じる', async () => {
     serve(data());
     const w = await mountDetail();
@@ -848,6 +928,29 @@ describe('ReviewDetail の承認後の通知と読み込み', () => {
       'PDFの作成に失敗しました。時間をおいて再度お試しください。',
       'error',
     );
+  });
+
+  it('読み直しで変更の組が変わったら右欄を作り直し(表示窓を先頭へ戻す)、同じ組なら作り直さない', async () => {
+    const decidedErr = err(
+      appError('conflict', 'この申請は既に承認済みです', { code: REVIEW_ALREADY_DECIDED }),
+    );
+    repo.approveReview.mockResolvedValue(decidedErr);
+    const first = allApproved();
+    const smaller = allApproved();
+    smaller.changes = smaller.changes.slice(0, 1);
+    serve(first, first, smaller);
+    const w = await mountDetail();
+    const list = () => w.findComponent({ name: 'ReviewDecisionList' }).vm.$.uid;
+    const original = list();
+    // 同じ組の読み直し: 作り直さない(選択・書きかけ・表示窓を保つ)。
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(list()).toBe(original);
+    // 組が変わった読み直し: 作り直す(表示窓は `initialWindow` から始まる)。
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(list()).not.toBe(original);
+    expect(w.findAll('[data-review-row-no]')).toHaveLength(1);
   });
 
   it('読み直しで変更の組が変わったら、無くなった番号の選択を外す', async () => {

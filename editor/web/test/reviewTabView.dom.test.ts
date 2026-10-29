@@ -15,7 +15,7 @@ import {
 } from '@editor/shared';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { defineComponent, h, reactive, type SlotsType } from 'vue';
+import { computed, defineComponent, h, reactive, type SlotsType } from 'vue';
 import ReviewTabView from '@/features/reviews/ReviewTabView.vue';
 
 const TPL = 'XX01_950037_20240710_交付版';
@@ -52,6 +52,11 @@ const refresh = vi.fn();
 const gotoPage = vi.fn();
 const selectPart = vi.fn();
 const openRequestReject = vi.fn();
+/**
+ * stub の `ReviewDetail` が公開する `canDecide`(本物は読み込んだ申請の状態と権限から決める)。
+ * 申請 id ごとに上書きでき、無ければ承認者かどうかに従う。
+ */
+const canDecideOf = reactive<Record<string, boolean>>({});
 /** stub の `ReviewDetail` が `#comments` へ渡す値(本物は変更の一覧から作る)。 */
 const slotProps = reactive({
   selectedNo: null as number | null,
@@ -131,8 +136,9 @@ const ReviewDetailStub = defineComponent({
   props: { reqId: { type: String, required: true } },
   emits: ['decided', 'select'],
   slots: Object as SlotsType<{ comments: typeof slotProps }>,
-  setup(_, { expose, slots, emit }) {
+  setup(props, { expose, slots, emit }) {
     expose({
+      canDecide: computed(() => canDecideOf[props.reqId] ?? auth.isApprover),
       gotoPage,
       selectPart: (key: string) => {
         selectPart(key);
@@ -201,6 +207,7 @@ beforeEach(() => {
   gotoPage.mockClear();
   selectPart.mockClear();
   openRequestReject.mockClear();
+  for (const k of Object.keys(canDecideOf)) delete canDecideOf[k];
   slotProps.selectedNo = null;
   slotProps.selectedKey = null;
   slotProps.partNumbers = new Map();
@@ -509,8 +516,32 @@ describe('申請の見出し', () => {
     expect(openRequestReject).toHaveBeenCalledTimes(1);
   });
 
+  it('一覧では承認待ちでも、開いた申請が判定できない(先に決着していた)なら出さない', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' })]);
+    const link = () => w.find('[data-review-item="a"] [data-review-reject-link]');
+    expect(link().exists()).toBe(true);
+    // 開いた申請を読み直したら決着済みだった(一覧の行はまだ承認待ち)。
+    canDecideOf.a = false;
+    await flushPromises();
+    expect(link().exists()).toBe(false);
+  });
+
+  it('開閉のボタンは開いた中身を aria-controls で指し、閉じている間は指さない', async () => {
+    route.query = { template: TPL };
+    const w = await mountTab([meta({ id: 'a' }), meta({ id: 'b' })]);
+    const toggle = (id: string) => w.find(`[data-review-item="${id}"] [data-review-toggle]`);
+    const panelId = toggle('a').attributes('aria-controls');
+    expect(panelId).toBeTruthy();
+    const panel = w.find(`#${panelId}`);
+    expect(panel.exists()).toBe(true);
+    expect(panel.find('[data-stub-detail]').exists()).toBe(true);
+    expect(toggle('b').attributes('aria-controls')).toBeUndefined();
+  });
+
   it('決着済みの申請には「申請ごと却下する…」を出さない', async () => {
     route.query = { template: TPL };
+    canDecideOf.a = false;
     const w = await mountTab([meta({ id: 'a', status: 'approved', reviewedBy: 'x' })]);
     await w.find('[data-review-chip="approved"]').trigger('click');
     expect(w.find('[data-stub-detail]').exists()).toBe(true);

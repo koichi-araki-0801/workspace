@@ -158,6 +158,8 @@ const bottomEl = ref<HTMLElement | null>(null);
 let observer: IntersectionObserver | null = null;
 /** 窓を動かして補正を終えるまでは、次の番兵の通知を受けない。 */
 let moving = false;
+/** 送りの途中の `revealNo` の数。0 でない間も番兵の通知を受けない(続けて呼ばれても数で戻す)。 */
+let revealing = 0;
 
 watch(
   () => rows.value.length,
@@ -199,7 +201,7 @@ async function extendUp() {
 }
 
 async function onIntersect(entries: IntersectionObserverEntry[]) {
-  if (moving) return;
+  if (moving || revealing > 0) return;
   const hit = entries.find((e) => e.isIntersecting);
   if (!hit) return;
   moving = true;
@@ -241,20 +243,31 @@ onBeforeUnmount(() => {
   observer = null;
 });
 
-/** 番号 `no` の行を見える位置へ送る。窓の外なら、途中を描かずに窓を `[no-50, no+50)` へ移す。 */
+/**
+ * 番号 `no` の行を見える位置へ送る。窓の外なら、途中を描かずに窓を `[no-50, no+50)` へ移す。
+ * 送り終えるまで番兵の通知は受けない(`revealing`)。受けると、窓を広げたときの `scrollTop` の補正が
+ * 送ったあとに走り、送った行が見える位置からずれる。受けなかった通知の代わりに、送ったあとに
+ * 番兵を観測し直す(まだ見えていれば IO が改めて通知する)。
+ */
 async function revealNo(no: number): Promise<void> {
   const i = rows.value.findIndex((c) => c.no === no);
   if (i < 0) return;
-  if (i < win.value.start || i >= win.value.end) {
-    win.value = windowAround(i, rows.value.length);
+  revealing++;
+  try {
+    if (i < win.value.start || i >= win.value.end) {
+      win.value = windowAround(i, rows.value.length);
+    }
+    await nextTick();
+    const el = scroller.value?.querySelector<HTMLElement>(`[data-review-row-no="${no}"]`);
+    if (!el) return;
+    // sticky の帯の下へ隠れないよう、送る直前の帯の高さを行の上の余白にする(帯は理由欄の開閉で
+    // 高さが変わるので固定値にしない)。
+    el.style.scrollMarginTop = `${band.value?.offsetHeight ?? 0}px`;
+    el.scrollIntoView({ block: 'nearest' });
+  } finally {
+    revealing--;
+    if (revealing === 0) syncObservation();
   }
-  await nextTick();
-  const el = scroller.value?.querySelector<HTMLElement>(`[data-review-row-no="${no}"]`);
-  if (!el) return;
-  // sticky の帯の下へ隠れないよう、送る直前の帯の高さを行の上の余白にする(帯は理由欄の開閉で
-  // 高さが変わるので固定値にしない)。
-  el.style.scrollMarginTop = `${band.value?.offsetHeight ?? 0}px`;
-  el.scrollIntoView({ block: 'nearest' });
 }
 
 defineExpose({ revealNo });

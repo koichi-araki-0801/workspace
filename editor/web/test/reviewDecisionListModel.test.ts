@@ -43,6 +43,15 @@ describe('reviewDecisionList', () => {
       droppedTop: 0,
     });
     expect(growDown({ start: 0, end: 130 }, 130).next).toEqual({ start: 0, end: 130 });
+    // 境界: 150 件は上から外さず、151 件は 1 行だけ外す
+    expect(growDown({ start: 0, end: 100 }, 150)).toEqual({
+      next: { start: 0, end: 150 },
+      droppedTop: 0,
+    });
+    expect(growDown({ start: 0, end: 150 }, 151)).toEqual({
+      next: { start: 1, end: 151 },
+      droppedTop: 1,
+    });
   });
 
   it('上へ広げると 50 行戻し、150 行を超えた分を下から外す。先頭で止まる', () => {

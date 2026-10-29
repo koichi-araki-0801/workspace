@@ -284,7 +284,11 @@ const allFilled = readdirSync(FILLED_DIR)
   .filter((n) => n.endsWith('.html'))
   .map((n) => [n, readFileSync(path.join(FILLED_DIR, n), 'utf8')] as const);
 
-describe('未編集で開いたときは番号を出さない(原文と GrapesJS の直列化の差を番号にしない)', () => {
+// 全体版は canvas への読み込みを 2 回挟むので 1 件で数秒かかり、全件のカバレッジ計測の負荷では
+// 既定の 5 秒を超える(単体では通る。2026-10-29 の全件計測で 8〜10 秒)。
+describe('未編集で開いたときは番号を出さない(原文と GrapesJS の直列化の差を番号にしない)', {
+  timeout: 60_000,
+}, () => {
   it('全体版 3 件と別ファンドの交付版を含む', () => {
     const names = allFilled.map(([n]) => n);
     for (const n of [

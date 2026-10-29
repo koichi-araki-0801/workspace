@@ -156,10 +156,13 @@
     font-feature-settings: "palt" 1;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-    /* アプリの文言の改行規則。紙面(canvas・プレビュー・承認の紙面)は別文書の iframe で、ここは届かない */
+    /* アプリの文言の改行規則。紙面(canvas・プレビュー・承認の紙面)は別文書の iframe で、
+       ここは届かない */
     line-break: strict; /* 句読点・小さい仮名・長音を行頭に置かない */
-    word-break: auto-phrase; /* 文節の切れ目でだけ改行(Chromium 119+。非対応なら無視され禁則だけ効く) */
-    overflow-wrap: break-word; /* 入らない語だけ折る。min-content を変えないので表の列幅が細らない */
+    /* 文節の切れ目でだけ改行(Chromium 119+。非対応なら無視され禁則だけ効く) */
+    word-break: auto-phrase;
+    /* 入らない語だけ折る。min-content を変えないので表の列幅が細らない */
+    overflow-wrap: break-word;
   }
   html {
     color-scheme: light;
@@ -169,7 +172,8 @@
   }
 }
 
-/* ID・パス・コードだけ語の途中でも折る。`anywhere` は min-content を変え、表の列や flex の子が細る。 */
+/* ID・パス・コードだけ語の途中でも折る。`anywhere` は min-content を変え、表の列や flex の子が
+   細る。 */
 .mono,
 [data-break-anywhere] {
   overflow-wrap: anywhere;

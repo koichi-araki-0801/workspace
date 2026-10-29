@@ -46,8 +46,10 @@ const NO_COLOR: Record<PaperDecision, string> = {
   rejected: 'bg-[#c0392b]',
 };
 
+// パーツの判定の状態。「承認待ち」は申請の状態の語なので、判定していないパーツは「未判定」と呼ぶ
+// (判定バーの「次の未判定」と同じ語)。
 const STATUS_LABEL: Record<PaperDecision, string> = {
-  pending: '承認待ち',
+  pending: '未判定',
   approved: '承認済み',
   rejected: '却下済み',
 };

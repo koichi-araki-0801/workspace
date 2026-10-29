@@ -1,25 +1,98 @@
-import { appError, err, ok, type ReviewPartDecision, type ReviewRequest } from '@editor/shared';
+import {
+  appError,
+  err,
+  type HtmlDiff,
+  ok,
+  type ReviewPartDecision,
+  type ReviewRequest,
+} from '@editor/shared';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
+import type { ReviewChangeRow } from '@/features/reviews/services/reviewDiffService';
 import { useReviewDecisions } from '@/features/reviews/useReviewDecisions';
 
 const toastFn = vi.fn();
 vi.mock('@/components/ui/toast', () => ({ toast: (...a: unknown[]) => toastFn(...a) }));
 
-const dec = (k: string, status: string): ReviewPartDecision =>
-  ({ partKey: k, status }) as ReviewPartDecision;
+// ── 1. 型の付いた fixture ──
+
+/** 状態ごとに契約(`ReviewPartDecision`)どおりの判定 1 件。 */
+function dec(partKey: string, status: ReviewPartDecision['status']): ReviewPartDecision {
+  const history: ReviewPartDecision['history'] = [];
+  if (status === 'pending') {
+    return { partKey, status, decidedBy: null, decidedAt: null, comment: null, history };
+  }
+  const decided = { partKey, decidedBy: 'approver1', decidedAt: '2025-01-03T00:00:00.000Z' };
+  return status === 'approved'
+    ? { ...decided, status, comment: null, history }
+    : { ...decided, status, comment: '理由', history };
+}
+
+/** 判定だけを変えた承認待ちの申請。 */
+function reviewOf(partDecisions: ReviewPartDecision[]): ReviewRequest {
+  return {
+    id: 'req-1',
+    templateId: 'XX01_111111_20250101_交付版',
+    attributes: {
+      companyCode: 'XX01',
+      fundCode: '111111',
+      baseDate: '20250101',
+      editionType: '交付版',
+    },
+    origin: 'edit',
+    status: 'pending',
+    submittedBy: 'editor1',
+    submittedAt: '2025-01-02T00:00:00.000Z',
+    reviewedBy: null,
+    reviewedAt: null,
+    comment: null,
+    baseHash: 'h0',
+    html: '<p>x</p>',
+    css: '',
+    partDecisions,
+  };
+}
+
+/** 右欄の 1 行。判定の数え方は `no` と `partKey` だけを見る。 */
+function row(no: number, partKey: string): ReviewChangeRow {
+  return {
+    no,
+    partKey,
+    beforePartKey: partKey,
+    kind: 'changed',
+    beforePage: 0,
+    afterPage: 0,
+    beforeHtml: '',
+    afterHtml: '',
+    rawBeforeHtml: '',
+    rawAfterHtml: '',
+    label: `ページ1・パーツ${no}`,
+    coarse: false,
+    name: `パーツ${no}`,
+    textOps: [],
+  };
+}
+
+/** 変更の無い空の差分。 */
+const EMPTY_DIFF: HtmlDiff = {
+  pages: [],
+  changedPageCount: 0,
+  beforePageCount: 0,
+  afterPageCount: 0,
+  coarse: false,
+  truncated: false,
+};
+
+// ── 2. テスト ──
 
 function setup(saveResult: unknown) {
   const save = vi.fn().mockResolvedValue(saveResult);
   const reload = vi.fn().mockResolvedValue(true);
-  const review = ref({ partDecisions: [dec('a#1', 'rejected')] } as unknown as ReviewRequest);
+  const review = ref<ReviewRequest | null>(reviewOf([dec('a#1', 'rejected')]));
   const d = useReviewDecisions({
     review,
     diff: ref(null),
-    changes: ref([
-      { no: 1, partKey: 'a#1' },
-      { no: 2, partKey: 'b#1' },
-    ] as never),
+    changes: ref([row(1, 'a#1'), row(2, 'b#1')]),
     save,
     reload,
   });
@@ -112,8 +185,8 @@ describe('useReviewDecisions', () => {
 
   it('diff が無ければ判定の過不足は空、あれば最終候補から出す', () => {
     const base = {
-      review: ref(null),
-      changes: ref([]),
+      review: ref<ReviewRequest | null>(null),
+      changes: ref<ReviewChangeRow[]>([]),
       save: vi.fn(),
       reload: vi.fn(),
     };
@@ -122,11 +195,10 @@ describe('useReviewDecisions', () => {
     expect(none.unknownDecisionPartKeys.value).toEqual([]);
     expect(none.duplicateDecisionPartKeys.value).toEqual([]);
 
-    const diff = { pages: [], afterPageCount: 0, beforePageCount: 0 } as never;
     const some = useReviewDecisions({
       ...base,
-      review: ref({ partDecisions: [dec('x#1', 'approved')] } as never),
-      diff: ref(diff),
+      review: ref<ReviewRequest | null>(reviewOf([dec('x#1', 'approved')])),
+      diff: ref<HtmlDiff | null>(EMPTY_DIFF),
     });
     expect(some.unknownDecisionPartKeys.value).toEqual(['x#1']);
     expect(some.pendingPartKeys.value).toEqual([]);
@@ -169,9 +241,9 @@ describe('useReviewDecisions', () => {
   });
 
   it('reload が review を差し替えたら手元の判定が作り直される', async () => {
-    const review = ref({ partDecisions: [dec('a#1', 'rejected')] } as unknown as ReviewRequest);
+    const review = ref<ReviewRequest | null>(reviewOf([dec('a#1', 'rejected')]));
     const reload = vi.fn(async () => {
-      review.value = { partDecisions: [dec('b#1', 'approved')] } as unknown as ReviewRequest;
+      review.value = reviewOf([dec('b#1', 'approved')]);
       return true;
     });
     const d = useReviewDecisions({

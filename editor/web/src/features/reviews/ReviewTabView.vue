@@ -200,6 +200,11 @@ function toggle(id: string) {
 }
 const detailRefs = reactive<Record<string, InstanceType<typeof ReviewDetail> | undefined>>({});
 
+/** 開閉のボタンが `aria-controls` で指す、開いた申請の中身の id。 */
+function panelIdOf(id: string): string {
+  return `review-panel-${id}`;
+}
+
 /** 見出しの「申請ごと却下する…」。理由欄はその申請の `ReviewDetail` が開く。 */
 function openRequestReject(id: string): void {
   detailRefs[id]?.openRequestReject();
@@ -454,6 +459,7 @@ function goEdit() {
             class="flex min-w-0 flex-1 flex-wrap items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-review-toggle
             :aria-expanded="!isOverview && expanded.includes(m.id)"
+            :aria-controls="!isOverview && expanded.includes(m.id) ? panelIdOf(m.id) : undefined"
             @click="isOverview ? openReview(m) : toggle(m.id)"
           >
             <span class="sr-only">
@@ -490,9 +496,11 @@ function goEdit() {
               <template v-if="m.status === 'rejected' && m.comment">・理由: {{ m.comment }}</template>
             </span>
           </button>
-          <!-- 申請ごと却下は例外の操作なので、最終確定から離して見出しの右端に控えめに置く。 -->
+          <!-- 申請ごと却下は例外の操作なので、最終確定から離して見出しの右端に控えめに置く。
+               出すかどうかは一覧の行(`m.status`。読んだ時点の状態)でなく、開いた申請が今
+               判定できるか(`ReviewDetail` の `canDecide`)で決める。 -->
           <button
-            v-if="!isOverview && expanded.includes(m.id) && m.status === 'pending' && auth.isApprover"
+            v-if="!isOverview && expanded.includes(m.id) && detailRefs[m.id]?.canDecide === true"
             type="button"
             class="shrink-0 rounded-sm px-1 py-0.5 text-xs text-destructive underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-review-reject-link
@@ -502,7 +510,11 @@ function goEdit() {
           </button>
         </div>
 
-        <div v-if="!isOverview && expanded.includes(m.id)" class="border-t p-4">
+        <div
+          v-if="!isOverview && expanded.includes(m.id)"
+          :id="panelIdOf(m.id)"
+          class="border-t p-4"
+        >
           <ReviewDetail
             :ref="
               (el) => {

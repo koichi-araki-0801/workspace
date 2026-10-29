@@ -82,6 +82,49 @@ describe('ReviewDecisionBar', () => {
     expect(w.emitted('finalize')).toBeUndefined();
   });
 
+  it('段階は未判定が残る間は 1 段目を太字で示し、済めば緑の枠と ✓ に変わる', async () => {
+    const w = mount(ReviewDecisionBar, { props: base });
+    const judge = () => w.find('[data-step="judge"]');
+    expect(judge().classes()).toContain('font-bold');
+    expect(judge().classes()).not.toContain('border-green-600');
+    await w.setProps({ counts: { total: 4, approved: 3, rejected: 1, pending: 0 } });
+    expect(judge().attributes('data-done')).toBe('true');
+    expect(judge().classes()).toContain('border-green-600');
+    expect(judge().classes()).not.toContain('font-bold');
+    // 2 段目は判定の状態に依らず同じ見た目。
+    expect(w.find('[data-step="finalize"]').text()).toBe('② 最終確定する');
+  });
+
+  it('棒の幅は承認・却下の件数の全件に対する割合(承認=緑・却下=赤の順)', async () => {
+    const w = mount(ReviewDecisionBar, { props: base });
+    const widths = () =>
+      w
+        .findAll('[data-decision-progress] [aria-hidden="true"] > div')
+        .map((d) => [
+          d.classes().find((c) => c.startsWith('bg-')),
+          (d.element as HTMLElement).style.width,
+        ]);
+    expect(widths()).toEqual([
+      ['bg-green-600', '25%'],
+      ['bg-red-600', '25%'],
+    ]);
+    await w.setProps({ counts: { total: 3, approved: 3, rejected: 0, pending: 0 } });
+    expect(widths()).toEqual([
+      ['bg-green-600', '100%'],
+      ['bg-red-600', '0%'],
+    ]);
+  });
+
+  it('同じ文言の理由が 2 つあっても両方並ぶ(行の key が重ならない)', () => {
+    const w = mount(ReviewDecisionBar, {
+      props: { ...base, blockedReasons: ['同じ理由', '同じ理由'] },
+    });
+    expect(w.findAll('[data-finalization-issue]').map((r) => r.text())).toEqual([
+      '同じ理由',
+      '同じ理由',
+    ]);
+  });
+
   it('判定 0 件(total 0)でも棒の幅が NaN にならない', () => {
     const w = mount(ReviewDecisionBar, {
       props: { ...base, counts: { total: 0, approved: 0, rejected: 0, pending: 0 }, nextNo: null },
