@@ -4,7 +4,39 @@
 // ログイン(8 spec に 3 変種)・GrapesJS canvas 初期化待ち・スクリーンショット用の寸法安定待ちは
 // spec ごとにわずかに異なる実装で重複していた。fixtures の運用(ログインID = パスワード)は
 // 全 spec で共通なので、ユーザー名だけ渡せば足りる形にまとめる。
-import { expect, type FrameLocator, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  type FrameLocator,
+  type Locator,
+  type Page,
+  type Response,
+  test,
+} from '@playwright/test';
+import { PREVIEW_MARK_COLORS, type PreviewMarkState } from '../shared/src/index';
+
+/** 編集画面の変更の目印(紙面の丸数字)の class(`EditorView.vue` の `.chg-mark`)。 */
+export const CHANGE_MARK_CLASS = 'chg-mark';
+/** 右ペインの変更の番号の丸の class(`Inspector.vue` の `.no-pill`)。 */
+export const NUMBER_PILL_CLASS = 'no-pill';
+
+/**
+ * 判定の状態の色(shared の `PREVIEW_MARK_COLORS`。紙面の札と右欄の番号)を、`getComputedStyle` が
+ * 返す `rgb(r, g, b)` の形にする。e2e に RGB を直に書くと、色を変えたときに片方だけ残る。
+ */
+export function markColorRgb(state: PreviewMarkState): string {
+  const hex = PREVIEW_MARK_COLORS[state].replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((i) => Number.parseInt(hex.slice(i, i + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/**
+ * 測った値を残す。HTML レポートの annotation と、実行ログ(`console.log`。独立プロセスのログで
+ * 読む)の両方へ同じ文字列を 1 回で出す。
+ */
+export function reportMeasure(type: string, description: string): void {
+  test.info().annotations.push({ type, description });
+  console.log(`[${type}] ${description}`);
+}
 
 /**
  * ログイン(fixtures はログインID = パスワード運用: `admin`/`admin` 等)。`clearSession` は
@@ -192,7 +224,7 @@ export function chipCount(page: Page, status: 'pending' | 'approved' | 'rejected
  * パーツの判定の保存(`POST /api/review-requests/:reqId/part-decisions`)の応答を待つ約束。
  * 押す操作の前に作り、押したあとで待つ(押してから作ると速い応答を取り逃す)。
  */
-export function partDecisionsSaved(page: Page): Promise<unknown> {
+export function partDecisionsSaved(page: Page): Promise<Response> {
   return page.waitForResponse(
     (r) =>
       r.request().method() === 'POST' &&

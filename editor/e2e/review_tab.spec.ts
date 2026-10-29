@@ -16,6 +16,7 @@ import {
   openEditor,
   openReviewDetail,
   pagePartLocator,
+  reportMeasure,
   selectPart,
   submitEditReviewViaApi,
   submitOnce,
@@ -175,6 +176,20 @@ test('承認タブのコメントの行クリックで左右の紙面が該当�
   await addCanvasComment(page, secondPagePart, COMMENT_TEXT);
   await submitOnce(page, SEED_ID);
 
+  // 紙面のホストページの応答を止めておき、紙面がまだ組まれていない間に行を押す(組版を待ってから送る
+  // 経路を必ず通す。止めないと、組版の速さ次第で「すぐ送る」経路に入れ替わる)。
+  let releaseHost: () => void = () => {};
+  const hostHeld = new Promise<void>((resolve) => {
+    releaseHost = resolve;
+  });
+  await page.route(
+    (url) => url.pathname.endsWith('/preview-host/index.html'),
+    async (route) => {
+      await hostHeld;
+      await route.continue();
+    },
+  );
+
   await login(page, 'approver');
   await openReviewDetail(page, SEED_ID);
 
@@ -188,10 +203,14 @@ test('承認タブのコメントの行クリックで左右の紙面が該当�
   const pageIndicator = item.locator('[data-page-indicator]');
   const onSecondPage = /^\s*2 \/ \d+ ページ\s*$/;
 
-  // 区画は開いた直後(=既定で先頭が展開済み)で、紙面の組版が終わっているとは限らない。
-  // 未準備なら `ReviewDetail.pendingIndex` → `ReviewVisualCompare.pendingPageIndex` の待機を、
-  // 準備済みなら即送信の経路を通るが、いずれも収束先は同じ 2 ページ目。
+  // 紙面はまだ組まれていない(ホストページを止めている)。この間に押すと、`ReviewDetail.pendingIndex`
+  // → `ReviewVisualCompare.pendingPageIndex` に送り先を預け、組版が終わってから 2 ページ目へ送る。
+  // 子の文書はまだ読み込まれていないので、子の中を見ずに親の「生成中」の表示で確かめる(子の中を
+  // locator で見ると、読み込みを待ち続けて進まない)。
+  await expect(item.getByText('プレビューを生成中…', { exact: true })).toHaveCount(2);
   await row.click();
+  await expect(pageIndicator).not.toHaveText(onSecondPage);
+  releaseHost();
   await waitForComparePapers(item);
   await expect(pageIndicator).toHaveText(onSecondPage, { timeout: 15_000 });
 
@@ -207,12 +226,20 @@ test('承認タブのコメントの行クリックで左右の紙面が該当�
 // 余白で埋める(`reviewDecisionList.ts`)。窓の上端で行を足す・外すときは `scrollTop` を補い、見えて
 // いる行を動かさない。量は単体テストで見ているので、ここは実ブラウザで位置が動かないことを測る。
 
-/** 追加のパーツが `count` 個ある申請の本文(確定版の末尾にパーツを足す)。 */
-function withAddedParts(base: string, count: number): string {
-  const added = Array.from(
-    { length: count },
-    (_, i) => `<section class="e2e_added_${i}"><p>追加した段落 ${i + 1}</p></section>`,
-  ).join('\n');
+/** 長い段落の文(右欄の行で数行に折り返し、行の高さを不揃いにする)。 */
+const LONG_TEXT = '追加した長い段落です。右欄の行で何行にも折り返すように同じ文を続けます。'.repeat(
+  4,
+);
+
+/**
+ * 追加のパーツが `count` 個ある申請の本文(確定版の末尾にパーツを足す)。`uneven` なら 3 つに 1 つを
+ * 長い段落にして、右欄の行の高さを揃えない(見込み高と実高の差が窓の補正に効く形)。
+ */
+function withAddedParts(base: string, count: number, uneven = false): string {
+  const added = Array.from({ length: count }, (_, i) => {
+    const text = uneven && i % 3 === 1 ? `${LONG_TEXT}(${i + 1})` : `追加した段落 ${i + 1}`;
+    return `<section class="e2e_added_${i}"><p>${text}</p></section>`;
+  }).join('\n');
   expect(base).toContain('</body>');
   return base.replace('</body>', `${added}\n</body>`);
 }
@@ -289,48 +316,67 @@ async function moveWindow(
 const ADDED_PARTS = 210;
 const DRIFT_PX = 2;
 
-test('右欄の表示窓を動かしても見えている行が ±2px で動かない(上から外す・上へ戻す)', async ({
-  page,
-}) => {
-  test.setTimeout(180_000);
-  const base = fs.readFileSync(path.join(E2E_REST_DATA_ROOT, 'filled', `${SEED_ID}.html`), 'utf8');
-  const css = fs.readFileSync(
-    path.join(E2E_REST_DATA_ROOT, 'css', 'XX01_950037_交付版.css'),
-    'utf8',
-  );
-  await login(page, 'editor');
-  await submitEditReviewViaApi(page, {
-    templateId: SEED_ID,
-    html: withAddedParts(base, ADDED_PARTS),
-    css,
+/** 描いている行の高さ(px、小数 1 桁)の種類の数。不揃いの申請で本当に揃っていないことを確かめる。 */
+async function rowHeightKinds(scroller: Locator): Promise<number> {
+  return scroller.evaluate((el) => {
+    const rows = [...el.querySelectorAll<HTMLElement>('[data-review-row-no]')];
+    return new Set(rows.map((r) => r.getBoundingClientRect().height.toFixed(1))).size;
   });
+}
 
-  await login(page, 'approver');
-  await openReviewDetail(page, SEED_ID);
-  const item = page.locator('[data-review-item]').first();
-  const scroller = item.locator('[data-review-scroller]');
-  await expect(item.locator('[data-review-row-no]').first()).toBeVisible({ timeout: 60_000 });
-  // 初めは先頭から 50 行だけを描く。
-  await expect.poll(() => renderedRange(scroller)).toEqual([1, 50]);
-
-  // 下へ進める。150 行を超えると上から外す(先頭の番号が進む)。どの一歩でも目印の行は動かない。
-  const drifts: string[] = [];
-  let dropped = false;
-  for (let step = 0; step < 6 && !dropped; step++) {
-    const { probe, range, drift } = await moveWindow(scroller, 'bottom');
-    drifts.push(
-      `down ${probe.first}-${probe.last}→${range[0]}-${range[1]} drift=${drift.toFixed(2)}`,
+for (const shape of [
+  { name: '行の高さが揃っている', uneven: false },
+  { name: '行の高さが不揃い', uneven: true },
+] as const) {
+  test(`右欄の表示窓を動かしても見えている行が ±2px で動かない(上から外す・上へ戻す・${shape.name})`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const base = fs.readFileSync(
+      path.join(E2E_REST_DATA_ROOT, 'filled', `${SEED_ID}.html`),
+      'utf8',
     );
-    expect(Math.abs(drift), drifts.join(' / ')).toBeLessThanOrEqual(DRIFT_PX);
-    dropped = range[0] > probe.first;
-  }
-  expect(dropped, drifts.join(' / ')).toBe(true);
+    const css = fs.readFileSync(
+      path.join(E2E_REST_DATA_ROOT, 'css', 'XX01_950037_交付版.css'),
+      'utf8',
+    );
+    await login(page, 'editor');
+    await submitEditReviewViaApi(page, {
+      templateId: SEED_ID,
+      html: withAddedParts(base, ADDED_PARTS, shape.uneven),
+      css,
+    });
 
-  // 上へ戻す。窓の先頭より上の行を描き足し、目印の行は動かない。
-  const { probe, range, drift } = await moveWindow(scroller, 'top');
-  drifts.push(`up ${probe.first}-${probe.last}→${range[0]}-${range[1]} drift=${drift.toFixed(2)}`);
-  console.log(`[review-window] ${drifts.join(' / ')}`);
-  test.info().annotations.push({ type: 'review-window', description: drifts.join(' / ') });
-  expect(range[0], drifts.join(' / ')).toBeLessThan(probe.first);
-  expect(Math.abs(drift), drifts.join(' / ')).toBeLessThanOrEqual(DRIFT_PX);
-});
+    await login(page, 'approver');
+    await openReviewDetail(page, SEED_ID);
+    const item = page.locator('[data-review-item]').first();
+    const scroller = item.locator('[data-review-scroller]');
+    await expect(item.locator('[data-review-row-no]').first()).toBeVisible({ timeout: 60_000 });
+    // 初めは先頭から 50 行だけを描く。
+    await expect.poll(() => renderedRange(scroller)).toEqual([1, 50]);
+    // 不揃いの申請では行の高さが揃っていない(長い段落の行が数行に折り返す)。
+    if (shape.uneven) expect(await rowHeightKinds(scroller)).toBeGreaterThan(1);
+
+    // 下へ進める。150 行を超えると上から外す(先頭の番号が進む)。どの一歩でも目印の行は動かない。
+    const drifts: string[] = [];
+    let dropped = false;
+    for (let step = 0; step < 6 && !dropped; step++) {
+      const { probe, range, drift } = await moveWindow(scroller, 'bottom');
+      drifts.push(
+        `down ${probe.first}-${probe.last}→${range[0]}-${range[1]} drift=${drift.toFixed(2)}`,
+      );
+      expect(Math.abs(drift), drifts.join(' / ')).toBeLessThanOrEqual(DRIFT_PX);
+      dropped = range[0] > probe.first;
+    }
+    expect(dropped, drifts.join(' / ')).toBe(true);
+
+    // 上へ戻す。窓の先頭より上の行を描き足し、目印の行は動かない。
+    const { probe, range, drift } = await moveWindow(scroller, 'top');
+    drifts.push(
+      `up ${probe.first}-${probe.last}→${range[0]}-${range[1]} drift=${drift.toFixed(2)}`,
+    );
+    reportMeasure(`review-window ${shape.name}`, drifts.join(' / '));
+    expect(range[0], drifts.join(' / ')).toBeLessThan(probe.first);
+    expect(Math.abs(drift), drifts.join(' / ')).toBeLessThanOrEqual(DRIFT_PX);
+  });
+}

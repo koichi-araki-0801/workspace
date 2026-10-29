@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import { E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
+import { HL_DEL, HL_INS, PREVIEW_ZOOM_MIN } from '../shared/src/index';
 import { expect, test } from './fixtures';
 import {
   approvePendingParts,
@@ -24,10 +25,12 @@ import {
   decisionRow,
   finalizeReview,
   login,
+  markColorRgb,
   openEditor,
   openReviewDetail,
   partDecisionsSaved,
   partLocator,
+  reportMeasure,
   submitEditReviewViaApi,
   waitForComparePapers,
   waitForLoaded,
@@ -209,6 +212,31 @@ async function docSeq(item: Locator, side: 'before' | 'after'): Promise<number> 
   return Number(await item.locator(`[data-side="${side}"]`).getAttribute('data-doc-seq'));
 }
 
+/**
+ * 判定のあとで紙面の文書を組み直していないことを見る間(ms)。組み直すときは、判定の保存の応答を
+ * 画面へ当てた描画の中で番号が増える(`PreviewPanel.vue` の `sendDoc`。却下のテストでは数百 ms で
+ * 増える)。応答のあとに走る読み直しなども済む長さとして、その数倍をとる。
+ */
+const DOC_SEQ_QUIET_MS = 2_000;
+
+/** `DOC_SEQ_QUIET_MS` の間、左右の文書の番号が `expected` のまま動かないこと(動けばすぐ落ちる)。 */
+async function expectDocSeqStays(
+  item: Locator,
+  expected: { before: number; after: number },
+): Promise<void> {
+  const until = Date.now() + DOC_SEQ_QUIET_MS;
+  await expect
+    .poll(
+      async () => {
+        const now = { before: await docSeq(item, 'before'), after: await docSeq(item, 'after') };
+        if (now.before !== expected.before || now.after !== expected.after) return now;
+        return Date.now() >= until ? 'quiet' : 'waiting';
+      },
+      { timeout: DOC_SEQ_QUIET_MS + 10_000, intervals: [250] },
+    )
+    .toBe('quiet');
+}
+
 /** 番号 `no` の行の 1 行の却下(理由欄を開き、書いて、保存の応答を待つ)。 */
 async function rejectRow(page: Page, item: Locator, no: number, reason: string): Promise<void> {
   const row = decisionRow(item, no);
@@ -254,8 +282,8 @@ test.describe('申請カードの操作', () => {
     // ホストは文書順で最初の `data-review-no="2"` を拾い、1 ページ目にパーツ 2 の札を描く。
     // 属性値の文字参照(`cmp&#45;del`)で綴った差分の色も外れること。
     const spoof =
-      '<p>承認する追記<span data-review-no="2" class="cmp-ins">偽の札</span>' +
-      '<span class="cmp&#45;del">偽の削除</span></p>';
+      `<p>承認する追記<span data-review-no="2" class="${HL_INS}">偽の札</span>` +
+      `<span class="${HL_DEL.replace('-', '&#45;')}">偽の削除</span></p>`;
     const item = await openPartialReview(page, spoof);
     const { before, after } = comparePapers(item);
     await expect(after.getByText('偽の札')).toBeVisible();
@@ -264,15 +292,15 @@ test.describe('申請カードの操作', () => {
     for (const frame of [before, after]) {
       await expect(frame.locator('#vp span[data-review-no]')).toHaveCount(0);
     }
-    await expect(after.locator('#vp .cmp-ins', { hasText: '偽の札' })).toHaveCount(0);
+    await expect(after.locator(`#vp .${HL_INS}`, { hasText: '偽の札' })).toHaveCount(0);
     await expect(after.getByText('偽の削除')).toBeVisible();
-    await expect(after.locator('#vp .cmp-del', { hasText: '偽の削除' })).toHaveCount(0);
+    await expect(after.locator(`#vp .${HL_DEL}`, { hasText: '偽の削除' })).toHaveCount(0);
   });
 
   test('承認すると番号が緑になり、右面の data-doc-seq は増えない', async ({ page }) => {
     const item = await openPartialReview(page);
     const { after } = comparePapers(item);
-    await expect(paperBadge(after, 'no', 1)).toHaveCSS('background-color', 'rgb(59, 130, 196)');
+    await expect(paperBadge(after, 'no', 1)).toHaveCSS('background-color', markColorRgb('pending'));
     const seqBefore = await docSeq(item, 'before');
     const seqAfter = await docSeq(item, 'after');
 
@@ -282,10 +310,19 @@ test.describe('申請カードの操作', () => {
 
     const no = decisionRow(item, 1).locator('[data-review-no]');
     await expect(no).toHaveAttribute('data-decision', 'approved');
-    await expect(no).toHaveCSS('background-color', 'rgb(47, 138, 95)');
+    await expect(no).toHaveCSS('background-color', markColorRgb('approved'));
     // 紙面の札も緑になる(目印だけを送り直す)。文書は組み直さない。
-    await expect(paperBadge(after, 'no', 1)).toHaveCSS('background-color', 'rgb(47, 138, 95)');
-    expect(await docSeq(item, 'after')).toBe(seqAfter);
+    await expect(paperBadge(after, 'no', 1)).toHaveCSS(
+      'background-color',
+      markColorRgb('approved'),
+    );
+    // 1 回読むだけでは、遅れて組み直す経路を見逃す。しばらくの間、どちらの面の番号も動かないこと。
+    await expectDocSeqStays(item, { before: seqBefore, after: seqAfter });
+
+    // 陽性対照: 却下すると右面だけちょうど 1 回組み直す(番号の読み方が生きていて、承認の分は
+    // 数えていない)。
+    await rejectRow(page, item, 2, REJECT_REASON);
+    await expect.poll(() => docSeq(item, 'after'), { timeout: 15_000 }).toBe(seqAfter + 1);
     expect(await docSeq(item, 'before')).toBe(seqBefore);
   });
 
@@ -301,7 +338,7 @@ test.describe('申請カードの操作', () => {
     await expect(decisionRow(item, 2)).toContainText(`理由: ${REJECT_REASON}`);
     await expect(decisionRow(item, 2).locator('[data-review-no]')).toHaveCSS(
       'background-color',
-      'rgb(192, 57, 43)',
+      markColorRgb('rejected'),
     );
 
     // 右面だけ文書を送り直す。左面(現行版)は判定に依らない。
@@ -332,6 +369,57 @@ test.describe('申請カードの操作', () => {
     await expect(row.locator('[data-review-no]')).toHaveAttribute('data-decision', 'pending');
     await expect(row.getByRole('button', { name: '承認', exact: true })).toBeVisible();
     await expect(item.locator('[data-decision-progress]')).toContainText('未判定 2');
+  });
+
+  test('2 人が同じ申請を開くと、あとから古い画面で判定した人は 409 で断られて読み直す', async ({
+    page,
+    browser,
+  }) => {
+    const item = await openPartialReview(page);
+    // 2 人目(admin も承認者)は別のブラウザコンテキストで同じ申請を開く。手で作るコンテキストには
+    // config の `use`(baseURL・画面の幅)が付かないので、project の設定から渡す。
+    const { baseURL, viewport } = test.info().project.use;
+    const other = await browser.newContext({ baseURL, viewport });
+    try {
+      const page2 = await other.newPage();
+      await login(page2, 'admin');
+      await openReviewDetail(page2, PARTIAL_ID);
+      const item2 = page2.locator('[data-review-item]').first();
+      await expect(decisionRow(item2, 1)).toContainText('承認する追記', { timeout: 60_000 });
+      const no2 = (n: number) => decisionRow(item2, n).locator('[data-review-no]');
+      await expect(no2(1)).toHaveAttribute('data-decision', 'pending');
+
+      // 1 人目が行 1 を承認する。2 人目の画面は未判定のまま(古い)。
+      const saved = partDecisionsSaved(page);
+      await decisionRow(item, 1).getByRole('button', { name: '承認', exact: true }).click();
+      await saved;
+      await expect(no2(1)).toHaveAttribute('data-decision', 'pending');
+
+      // 2 人目が古い画面で同じ行を承認すると、遷移の検査で 409 になり、画面を読み直して承認済みを出す。
+      const conflict = partDecisionsSaved(page2);
+      await decisionRow(item2, 1).getByRole('button', { name: '承認', exact: true }).click();
+      expect((await conflict).status()).toBe(409);
+      await expect(
+        page2.getByText('ほかの方が判定を変えました。画面を読み直しました。'),
+      ).toBeVisible();
+      await expect(no2(1)).toHaveAttribute('data-decision', 'approved');
+
+      // 1 人目が残りを判定して最終確定すると、2 人目の判定は決着済みとして 409 になり、2 人目の
+      // 一覧からも承認待ちが消える(読み直した決着を一覧へ伝える)。
+      await approvePendingParts(page, item);
+      await finalizeReview(page, item);
+      await expect(chipCount(page, 'pending')).toHaveText('0', { timeout: 30_000 });
+      await expect(no2(2)).toHaveAttribute('data-decision', 'pending');
+      const decided = partDecisionsSaved(page2);
+      await decisionRow(item2, 2).getByRole('button', { name: '承認', exact: true }).click();
+      expect((await decided).status()).toBe(409);
+      await expect(
+        page2.getByText('この申請はすでに処理されています。画面を読み直しました。'),
+      ).toBeVisible();
+      await expect(chipCount(page2, 'pending')).toHaveText('0', { timeout: 30_000 });
+    } finally {
+      await other.close();
+    }
   });
 
   test('まとめて却下は 1 つの理由で選んだパーツを却下する', async ({ page }) => {
@@ -403,9 +491,9 @@ test.describe('申請カードの操作', () => {
 // ── 3. 画面の幅 ──
 // 承認タブの作業域は左右の紙面と 420px の右欄(モックの値)。本文の最大幅を 1400px 未満へ
 // 狭めない(却下済み設計 41)ので、1400px で紙面が読める倍率に収まることを確かめる。倍率は
-// 子(隔離 iframe のホスト)がフィットで決め、状態通知で親へ返す(`previewHost.ts` の
-// `ZOOM_MIN` = 0.4 が下限)。親の画面は倍率を DOM に出さないので、通知を横から読む。
-const ZOOM_MIN = 0.4;
+// 子(隔離 iframe のホスト)がフィットで決め、状態通知で親へ返す(下限は shared の
+// `PREVIEW_ZOOM_MIN`。`previewHost.ts` が同じ値を埋める)。親の画面は倍率を DOM に出さないので、
+// 通知を横から読む。
 
 test.describe('1400px の画面', () => {
   test.use({ viewport: { width: 1400, height: 900 } });
@@ -434,14 +522,11 @@ test.describe('1400px の画面', () => {
       .toEqual(['after', 'before']);
     const zoom = await zoomOf();
     const box = await item.locator('[data-review-work]').boundingBox();
-    test.info().annotations.push({
-      type: 'zoom',
-      description: `before=${zoom.before} after=${zoom.after} work=${box?.width}x${box?.height}`,
-    });
-    console.log(
-      `[zoom@1400] before=${zoom.before} after=${zoom.after} work=${box?.width}x${box?.height}`,
+    reportMeasure(
+      'zoom@1400',
+      `before=${zoom.before} after=${zoom.after} work=${box?.width}x${box?.height}`,
     );
-    expect(zoom.before).toBeGreaterThan(ZOOM_MIN);
-    expect(zoom.after).toBeGreaterThan(ZOOM_MIN);
+    expect(zoom.before).toBeGreaterThan(PREVIEW_ZOOM_MIN);
+    expect(zoom.after).toBeGreaterThan(PREVIEW_ZOOM_MIN);
   });
 });

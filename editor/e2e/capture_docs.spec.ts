@@ -25,6 +25,7 @@ import {
   decisionRow,
   finalizeReview,
   login,
+  markColorRgb,
   openEditor,
   partDecisionsSaved,
   partLocator,
@@ -313,7 +314,7 @@ test('capture review screens (申請 → 承認タブ → 判定 → 編集画�
   );
   await expect
     .poll(() => paperBadge(after, 1).evaluate((el) => getComputedStyle(el).backgroundColor))
-    .toBe('rgb(47, 138, 95)');
+    .toBe(markColorRgb('approved'));
   for (const f of [before, after]) {
     await waitForStableBox(page, f.locator('[data-vivliostyle-page-container]:visible').first());
   }

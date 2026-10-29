@@ -9,11 +9,14 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import {
+  CHANGE_MARK_CLASS,
   commentInput,
   login,
+  NUMBER_PILL_CLASS,
   openEditor as openEditorAt,
   partLocator,
   readDraft,
+  reportMeasure,
   selectPart,
 } from './helpers';
 
@@ -427,7 +430,7 @@ test('文字を変えたパーツに①が付き、押すと修正履歴がそ�
   await mark.click();
   await expect(frame.locator('.gjs-selected')).toContainText('皆様');
   await expect(page.locator('[data-pane-tab="props"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-selected-part] .no-pill')).toHaveText('1');
+  await expect(page.locator(`[data-selected-part] .${NUMBER_PILL_CLASS}`)).toHaveText('1');
   await expect(page.getByRole('button', { name: /^修正履歴 \d+ 件$/ })).toBeVisible();
 });
 
@@ -466,14 +469,15 @@ test('目印は保存内容に載らない', async ({ page }) => {
     timeout: 15_000,
   });
   // 目印は親画面の overlay にあり、canvas の文書には無い。
-  await expect(frame.locator('.chg-mark, [data-change-marker]')).toHaveCount(0);
+  await expect(frame.locator(`.${CHANGE_MARK_CLASS}, [data-change-marker]`)).toHaveCount(0);
   // 下書き(`getHtml` の書き出し)にも端末側の保存にも載らない。
   const draft = await readDraft(page, SEED_ID);
   expect(draft?.html).toContain('皆様');
-  expect(draft?.html).not.toContain('chg-mark');
+  expect(draft?.html).not.toContain(CHANGE_MARK_CLASS);
   expect(draft?.html).not.toContain('data-change-marker');
-  const leakedLocal = await page.evaluate(() =>
-    Object.keys(localStorage).some((k) => (localStorage.getItem(k) ?? '').includes('chg-mark')),
+  const leakedLocal = await page.evaluate(
+    (cls) => Object.keys(localStorage).some((k) => (localStorage.getItem(k) ?? '').includes(cls)),
+    CHANGE_MARK_CLASS,
   );
   expect(leakedLocal).toBe(false);
 });
@@ -484,12 +488,18 @@ interface DiffRun {
 }
 
 /**
+ * 変更の通知を受けた時刻の目印(`useChangeNumbers.ts` の `CHANGE_NOTIFY_MARK`)。アプリは通知の
+ * たびに前の目印を消して打ち直すので、`PerformanceObserver` で打たれるたびに受け取る。
+ */
+const CHANGE_NOTIFY_MARK = 'change-numbers:notify';
+
+/**
  * 番号の計算(worker の `buildHtmlDiff`。Comlink の要求に `path` が載る)の開始・終了の時刻と、
- * 変更の目印が画面に現れた時刻を、ページの `performance.now()` で記録する。アプリの外から測る
- * ので、アプリに計測用のコードを足さない。
+ * 変更の通知の時刻(アプリが打つ `performance.mark`)と、変更の目印が画面に現れた時刻を、ページの
+ * `performance.now()` で記録する。
  */
 async function trackChangeNumberRuns(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+  await page.addInitScript((notifyMark) => {
     if (window.top !== window) return;
     const w = window as unknown as {
       __diffRuns: DiffRun[];
@@ -501,17 +511,12 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
     // 主スレッドの長いタスク(50ms 超)。所要時間の内訳を見る手がかりにする。
     w.__longTasks = [];
     // 変更の通知の時刻。番号の計算の起点(`useChangeNumbers.ts` の `createChangeCheckScheduler` の
-    // `notify`)は、通知を受けると 300ms の待ちを `setTimeout` で張る。その呼び出しを、張った場所
-    // (スタックにそのファイル名が載る)で見分けて時刻を残す。アプリのコードは変えない。
+    // `notify`)が、通知を受けるたびに `performance.mark` で打つ。
     const tn = window as unknown as { __notifyAt: number[] };
     tn.__notifyAt = [];
-    const origSet = window.setTimeout;
-    window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
-      if (delay === 300 && (new Error().stack ?? '').includes('useChangeNumbers')) {
-        tn.__notifyAt.push(performance.now());
-      }
-      return origSet(handler, delay, ...args);
-    }) as typeof window.setTimeout;
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntriesByName(notifyMark, 'mark')) tn.__notifyAt.push(e.startTime);
+    }).observe({ type: 'mark' });
     try {
       new PerformanceObserver((list) => {
         for (const e of list.getEntries()) w.__longTasks.push([e.startTime, e.duration]);
@@ -547,7 +552,7 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
       if (has && !had) w.__markerAt.push(performance.now());
       had = has;
     }).observe(document, { childList: true, subtree: true });
-  });
+  }, CHANGE_NOTIFY_MARK);
 }
 
 async function changeNumberRuns(
@@ -642,8 +647,7 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(編集の�
     `measured(-${CHANGE_CHECK_WAIT_MS}-${CHANGE_NUMBERS_DEBOUNCE_MS})=${Math.round(measured)}ms ` +
     `editWorker=${Math.round(run.end - run.start)}ms ` +
     `longTasks(notify→marker)=${longTasksIn(longTasks, notifyAt, shownAt)}`;
-  console.log(`[change-numbers] ${summary}`);
-  test.info().annotations.push({ type: 'change-numbers', description: summary });
+  reportMeasure('change-numbers', summary);
   expect(measured).toBeLessThan(RECOMPUTE_BUDGET_MS);
 });
 

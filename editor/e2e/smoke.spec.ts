@@ -3,7 +3,7 @@
 // =============================================================================
 import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { partLocator } from './helpers';
+import { markColorRgb, partLocator } from './helpers';
 
 // 各テストはセッション cookie を捨て、古い session が実行間で漏れないようにする。
 test.beforeEach(async ({ context }) => {
@@ -251,7 +251,7 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
   await expect(badge(page, '1')).toHaveCount(1);
   await expect(badge(page, '2')).toHaveCount(1);
   await expect(badge(page, '3')).toHaveCount(0);
-  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(59, 130, 196)');
+  await expect(badge(page, '1')).toHaveCSS('background-color', markColorRgb('pending'));
   expect(await fragmentBoxes(page)).toEqual(before);
   // 札はパーツの断片の左上に重なる(倍率を掛けた座標で数 px の内側)。
   const [b1, p1] = await page.evaluate(() =>
@@ -286,11 +286,11 @@ test('ホストは data-review-no のパーツへ番号札を描き、押すと 
     type: 'editor:preview-marks',
     marks: { states: { '1': 'approved' }, selected: '2', visible: true },
   });
-  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(47, 138, 95)');
+  await expect(badge(page, '1')).toHaveCSS('background-color', markColorRgb('approved'));
   await expect(ownBadges(page, ['no'])).toHaveCount(2);
   await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS(
     'outline-color',
-    'rgb(47, 138, 95)',
+    markColorRgb('approved'),
   );
   expect(await fragmentBoxes(page)).toEqual(before);
 
@@ -387,7 +387,7 @@ for (const [label, css] of [
     );
     await expect(page.locator('#vp [data-review-no="1"]')).toHaveCSS(
       'outline-color',
-      'rgb(59, 130, 196)',
+      markColorRgb('pending'),
     );
   });
 }
@@ -400,10 +400,10 @@ test('文書を送り直すと札を描き直し、前の文書の marks は持�
     type: 'editor:preview-marks',
     marks: { states: { '1': 'approved' }, selected: null, visible: true },
   });
-  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(47, 138, 95)');
+  await expect(badge(page, '1')).toHaveCSS('background-color', markColorRgb('approved'));
   await sendDoc(page, reviewDoc());
   await expect(badge(page, '1')).toHaveCount(1);
-  await expect(badge(page, '1')).toHaveCSS('background-color', 'rgb(59, 130, 196)');
+  await expect(badge(page, '1')).toHaveCSS('background-color', markColorRgb('pending'));
 });
 
 test('wrong credentials show an error and stay on login', async ({ page }) => {
@@ -454,7 +454,7 @@ test('ページの一部が入れ替わって集め直しても、表示を切�
   await openHost(page);
   await sendDoc(page, reviewDoc());
   const part1 = page.locator('#vp [data-review-no="1"]');
-  await expect(part1).toHaveCSS('outline-color', 'rgb(59, 130, 196)');
+  await expect(part1).toHaveCSS('outline-color', markColorRgb('pending'));
   // 組み直しで 2 ページ目の page container だけが入れ替わった形を作る(1 ページ目の断片は残る)。
   await page.evaluate(() => {
     const pc = document.querySelectorAll('#vp [data-vivliostyle-page-container]')[1];
@@ -477,7 +477,7 @@ test('ページ送りでは断片を塗り直さず、marks を受けたとき�
   await openHost(page);
   await sendDoc(page, reviewDoc());
   const part1 = page.locator('#vp [data-review-no="1"]');
-  await expect(part1).toHaveCSS('outline-color', 'rgb(59, 130, 196)');
+  await expect(part1).toHaveCSS('outline-color', markColorRgb('pending'));
   // 塗った値を外から変えておき、ページ送り(nav)で上書きされないことを見る。
   await part1.evaluate((el) =>
     (el as HTMLElement).style.setProperty('outline-color', 'rgb(1, 2, 3)', 'important'),
@@ -499,7 +499,7 @@ test('ページ送りでは断片を塗り直さず、marks を受けたとき�
     type: 'editor:preview-marks',
     marks: { states: {}, selected: null, visible: true },
   });
-  await expect(part1).toHaveCSS('outline-color', 'rgb(59, 130, 196)');
+  await expect(part1).toHaveCSS('outline-color', markColorRgb('pending'));
 });
 
 test('番号の無い札(空き枠の文言・却下の札)は押せる見た目にしない', async ({ page }) => {
