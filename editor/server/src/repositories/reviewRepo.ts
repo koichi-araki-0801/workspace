@@ -6,8 +6,9 @@
 // (`confirmedWrite.ts`)で実ファイル + git へ反映する。これが実ファイル書込の唯一の関所で、
 // ルートは `requireApprover` で施錠する(`reviews.routes.ts`)。各関数は失敗時に `AppError`
 // を throw し、HTTP 変換は中央 `errorHandler` に委ねる(`templateRepo.ts` と同方針)。
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
+  type AppError,
   type ApproveReviewResult,
   anyTemplateFileName,
   applyTemplateAttributes,
@@ -15,8 +16,12 @@ import {
   buildEditReviewedHtml,
   buildHtmlDiff,
   conflict,
+  DOCUMENT_FRAME_MESSAGES,
   duplicateReviewMessage,
   extractReviewParts,
+  findDocumentFrameIssue,
+  findEditingMarkers,
+  findReviewableIssues,
   forbidden,
   type HtmlDiff,
   isAppError,
@@ -28,6 +33,10 @@ import {
   parseTemplateFileName,
   partKeysText,
   REVIEW_ALREADY_DECIDED,
+  REVIEW_BASE_CHANGED,
+  REVIEW_BASE_CHANGED_MESSAGE,
+  REVIEW_NOT_REVIEWABLE,
+  REVIEW_NOT_REVIEWABLE_MESSAGE,
   REVIEW_PART_DECISION_TRANSITION,
   type ReviewDecisionRequest,
   type ReviewOrigin,
@@ -39,6 +48,8 @@ import {
   type SampleData,
   type StoredReviewRequest,
   type SubmitReviewRequest,
+  sameDocumentFrame,
+  stripLeadingBom,
   toReviewMeta,
   toReviewResponse,
   type UpdateReviewPartDecisionsRequest,
@@ -134,11 +145,16 @@ const reviewDiffCache = new Map<string, HtmlDiff>();
 function forgetReview(reqId: string): void {
   reviewDiffCache.delete(reqId);
   decidableKeysCache.delete(reqId);
+  reviewableCache.delete(reqId);
 }
 
 /** (テスト用)いま覚えている申請の id。 */
-export function cachedReviewIds(): { diffs: string[]; keys: string[] } {
-  return { diffs: [...reviewDiffCache.keys()], keys: [...decidableKeysCache.keys()] };
+export function cachedReviewIds(): { diffs: string[]; keys: string[]; reviewable: string[] } {
+  return {
+    diffs: [...reviewDiffCache.keys()],
+    keys: [...decidableKeysCache.keys()],
+    reviewable: [...reviewableCache.keys()],
+  };
 }
 
 /** 古い順に捨てて、`size` 件までに収める。 */
@@ -299,6 +315,105 @@ function confirmedHtmlOf(review: StoredReviewRequest, currentHtml: string): stri
   return buildCreateReviewedHtml(review.html, review.partDecisions ?? []);
 }
 
+// ── 本文の外側の固定と、承認時の検査のやり直し ──
+// 承認画面は body の中だけを見せるので、本文の外側(head・html と body の開始タグ・`</body>` の後ろ)は
+// 受付で基準(確定版・生成物。`baselineTemplateHtml`)とバイト列で同じにさせる(shared の
+// `documentFrame.ts`)。承認では、確定する本文に同じ検査を掛け直す。この検査より前に積まれた申請は
+// 受付の検査を通っていないし、申請の後で基準が変わったときに承認がその変更を黙って巻き戻さないため。
+// 作成経路は受付の原文の検査(`findReviewableIssues`)と往復用の印の検査も掛け直す。sample(DB)と
+// 描画は使わない(DB が落ちても承認は止まらない。描画の重さを承認に入れない)。
+
+/** 基準の無い作成経路の申請の 400。画面の作成経路には必ず生成器の pending がある。 */
+const NO_BASELINE_MESSAGE =
+  'テンプレートの生成結果が無いため申請できません。生成してから申請してください';
+
+/**
+ * 本文の外側の検査の経路ごとの違い。作成経路は Jinja のトークンを読み飛ばし、body の有無は骨格の検査
+ * (`findReviewableIssues` の document)に任せる。編集経路は body の無い断片を止める(断片の先頭の
+ * style・link・meta・base は DOMParser が head へ移し、紙面に出ないまま効く)。
+ */
+const frameOptions = (origin: ReviewOrigin) => ({
+  jinja: origin === 'create',
+  requireBody: origin === 'edit',
+});
+
+/** 受付: 本文の外側が基準と同じで、本文の中に骨格のタグが無いこと(違えば 400)。 */
+function assertDocumentFrame(html: string, baseline: string, origin: ReviewOrigin): void {
+  const issue = findDocumentFrameIssue(html, baseline, frameOptions(origin));
+  if (issue !== null)
+    throw validation(DOCUMENT_FRAME_MESSAGES[issue.code], { code: 'REVIEW_DOCUMENT_FRAME' });
+}
+
+const notReviewable = (cause: unknown): AppError =>
+  conflict(REVIEW_NOT_REVIEWABLE_MESSAGE, { code: REVIEW_NOT_REVIEWABLE, cause });
+
+/**
+ * 確定する本文 `html` が今の受付の検査を通るか。通らなければ 409 の `AppError`、通れば null。
+ * `currentBase` は今の基準(`baselineTemplateHtml`)。
+ *
+ * 外側が今の基準と違うとき、申請時点の基準(`review.baseHtml`)と外側が同じなら、変わったのは基準の
+ * ほうなので `REVIEW_BASE_CHANGED`。申請時点の基準を持たない申請(作成経路の旧申請は `baseHtml: ''`、
+ * 編集経路の古い申請は欠落)と、申請時点の基準とも違う申請は見分けられないので `REVIEW_NOT_REVIEWABLE`
+ * に倒す。
+ */
+function reviewabilityError(
+  review: StoredReviewRequest,
+  html: string,
+  currentBase: string,
+): AppError | null {
+  let issue: ReturnType<typeof findDocumentFrameIssue>;
+  try {
+    issue = findDocumentFrameIssue(html, currentBase, frameOptions(review.origin));
+  } catch (cause) {
+    // 本文の範囲を読めない(body の開始・終了の片方だけなど)。
+    if (!isAppError(cause) || cause.kind !== 'validation') throw cause;
+    return notReviewable(cause);
+  }
+  if (issue?.code === 'frame-changed') {
+    const base = review.baseHtml;
+    const baseChanged = base !== undefined && base !== '' && sameDocumentFrame(html, base);
+    return baseChanged
+      ? conflict(REVIEW_BASE_CHANGED_MESSAGE, { code: REVIEW_BASE_CHANGED })
+      : notReviewable(issue);
+  }
+  if (issue !== null) return notReviewable(issue);
+  if (review.origin === 'create') {
+    const [sourceIssue] = findReviewableIssues(stripLeadingBom(html), { document: true });
+    if (sourceIssue !== undefined) return notReviewable(sourceIssue);
+    // 往復用の印は `applyConfirmedWrite` も 400 で止めるが、判定の段から同じ 409 で知らせる。
+    const [marker] = findEditingMarkers(html);
+    if (marker !== undefined) return notReviewable(marker);
+  }
+  return null;
+}
+
+/** 申請の今の基準。作成経路はテンプレート、編集経路は値入り HTML(確定 → 生成物の順)。 */
+const currentBaseOf = (review: StoredReviewRequest): Promise<string> =>
+  baselineTemplateHtml(review.templateId, targetOfOrigin(review.origin));
+
+/** パーツ判定の検査の結果を覚えておく申請の数(`DECIDABLE_KEYS_CACHE_SIZE` と同じ考え方)。 */
+const REVIEWABLE_CACHE_SIZE = 32;
+const reviewableCache = new Map<string, { baseKey: string; error: AppError | null }>();
+
+/**
+ * パーツ判定の保存の前の検査。却下はまだ確定していないので申請の本文(`review.html`)に掛ける。結果は
+ * 申請 id と今の基準のハッシュで覚える(申請の本文は変わらないので、基準が同じなら答えも同じ。判定の
+ * たびに大きい帳票を読み直すと押下が重くなる)。最終確定は覚えた結果を使わずに計算し直す。
+ */
+async function assertReviewableForDecisions(review: StoredReviewRequest): Promise<void> {
+  const currentBase = await currentBaseOf(review);
+  const baseKey = createHash('sha256').update(currentBase).digest('hex');
+  const hit = reviewableCache.get(review.id);
+  const error =
+    hit !== undefined && hit.baseKey === baseKey
+      ? hit.error
+      : remember(reviewableCache, REVIEWABLE_CACHE_SIZE, review.id, {
+          baseKey,
+          error: reviewabilityError(review, review.html, currentBase),
+        }).error;
+  if (error !== null) throw error;
+}
+
 /**
  * 編集経路の申請は値入り HTML(`filled/`)が既に在ることを要求する。無いまま通すと承認が
  * `filled/` を新規作成し、そこへ作成タブ由来の Jinja 骨組みが書かれる(値入り HTML に Jinja は
@@ -433,19 +548,24 @@ export function createReviewRepo({
       // ために受け取るだけで、見ない・保存しない(承認画面の本文はサーバが描く)。
       assertNoEditingMarkers(req.html, req.templateId);
       const target = targetOfOrigin(req.origin);
-      const baseSnapshot =
+      // CSS の比較元は、承認で上書きされる今のディスクの CSS(無ければ空)。作成経路も同じで、申請者の
+      // CSS を比較元にすると CSS の変更が常に「なし」に見え、同じファンド・版種の値入り文書が共有する
+      // CSS を承認画面に出さずに上書きできる。作成経路の HTML の比較元は下の基準(承認画面の差分は
+      // 使わない。本文の外側の固定と、承認時に「基準が変わった」を見分けるのに使う)。
+      const baseCss = await readTemplateCss(req.templateId);
+      const baseHtml =
         req.origin === 'create'
-          ? { baseHtml: '', baseCss: req.css }
-          : {
-              baseHtml: await readConfirmedHtml(target, anyTemplateFileName(attrs)),
-              baseCss: await readTemplateCss(req.templateId),
-            };
+          ? null
+          : await readConfirmedHtml(target, anyTemplateFileName(attrs));
 
       return withSubmitLock(async () => {
+        const baseline = await baselineTemplateHtml(req.templateId, target);
+        if (req.origin === 'create' && baseline === '') throw validation(NO_BASELINE_MESSAGE);
+        // 本文の外側は承認画面に出ないので、基準とバイト列で同じにさせる。sample(DB)を取る前に止める。
+        assertDocumentFrame(req.html, baseline, req.origin);
         // 作成経路は承認画面の本文をここで描く(`renderCreateReview`)。描画は同期の計算なので、同時に
         // 届いた申請を鎖で直列にし、CPU を申請の数だけ取られないようにする。重複の照合より前に置き、
         // 描けない申請は重複かどうかを見る前に 400 で止める。
-        const baseline = await baselineTemplateHtml(req.templateId, target);
         const rendered =
           req.origin === 'create'
             ? renderCreateReview(
@@ -497,7 +617,8 @@ export function createReviewRepo({
           reviewedAt: null,
           comment: null,
           baseHash: await currentBaseHash(req.templateId, target),
-          ...baseSnapshot,
+          baseHtml: baseHtml ?? baseline,
+          baseCss,
 
           ...(req.changedSummary !== undefined ? { changedSummary: req.changedSummary } : {}),
           html: req.html,
@@ -526,15 +647,22 @@ export function createReviewRepo({
      * 作成経路の承認画面の本文(`renderedHtml`)は申請者本人にも返す(却下理由のパーツ名の解決に使う)。
      * この変更より前の作成経路の申請は本文を持たないので、受付と同じ手順で描いて返す
      * (`renderOldCreateReviewOnce`。申請ごとに直列にする)。
+     *
+     * 作成経路の承認待ちの申請は、CSS の比較元(`baseCss`)に今のディスクの CSS を返す。承認で上書き
+     * されるのはそれで、保存した比較元は申請の後で変わりうる(この変更より前の申請は申請者の CSS を
+     * 保存している)。
      */
     async getReview(reqId, actor) {
       const review = await readReview(reqId);
       if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
       if (!isApprover(actor) && review.submittedBy !== actor.username)
         throw forbidden('この申請を閲覧する権限がありません');
+      let out = review;
       if (review.origin === 'create' && review.renderedHtml === undefined)
-        return toReviewResponse(await renderOldCreateReviewOnce(review, sampleOf));
-      return toReviewResponse(review);
+        out = await renderOldCreateReviewOnce(review, sampleOf);
+      if (review.origin === 'create' && review.status === 'pending')
+        out = { ...out, baseCss: await readTemplateCss(review.templateId) };
+      return toReviewResponse(out);
     },
 
     /**
@@ -556,6 +684,9 @@ export function createReviewRepo({
         }
 
         assertUndecided(review);
+        // 今の受付の検査を通らない申請・申請の後で基準が変わった申請は、判定させずに 409 で知らせる
+        // (最終確定で必ず止まるので、判定を積ませない)。
+        await assertReviewableForDecisions(review);
 
         // 同じキーが 2 回あると、遷移の検査は両方を「今の判定から」と読んで通し、保存は後の
         // ものだけが残る(返り値には両方が載る)。契約(`UpdateReviewPartDecisionsRequest`)でも
@@ -685,12 +816,20 @@ export function createReviewRepo({
         // baseline(確定版の CSS を編集画面が読み込んだ直後の形)は申請に載ったものを使う。どちらかが
         // 欠けても承認は止めない(CSS の転写だけを飛ばす)。'' と見なすと全規則がペアへ誤って写る。
         const cssSource = await pairCssSourceOf(review);
+        // 受付の検査を掛け直す(覚えた結果は使わない)。先に申請の本文に掛ける。確定する本文を組む処理は
+        // 判定の不足を 400 で返すので、後に回すと、未判定が残る古い申請に 409 より先に 400 が出る。
+        const currentBase = await currentBaseOf(review);
+        const unreviewable = reviewabilityError(review, review.html, currentBase);
+        if (unreviewable !== null) throw unreviewable;
         const confirmedHtml = confirmedHtmlOf(
           review,
           review.origin === 'edit'
             ? await readConfirmedHtml(target, anyTemplateFileName(review.attributes))
             : '',
         );
+        // 却下を当てた後の確定する本文にも掛ける(書くのはこちらなので、組んだ結果でも確かめる)。
+        const unreviewableConfirmed = reviewabilityError(review, confirmedHtml, currentBase);
+        if (unreviewableConfirmed !== null) throw unreviewableConfirmed;
 
         const meta = await applyConfirmedWrite({
           kind: 'review-approve',

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 // config を import する前に一時ディレクトリへ向ける。
@@ -43,8 +44,15 @@ d('申請本文の編集用の印(両経路)', () => {
   beforeAll(async () => {
     fs.mkdirSync(path.join(tmp, 'pending'), { recursive: true });
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'pending', `${CREATE_ID}.html`), '<p>{{ fund.name }}</p>');
-    fs.writeFileSync(path.join(tmp, 'filled', `${EDIT_ID}.html`), '<p>日本株式オープン</p>');
+    // 作成経路の基準(生成物)。本文の外側は申請と同じにする(外側は基準とバイト列で比べる)。
+    fs.writeFileSync(
+      path.join(tmp, 'pending', `${CREATE_ID}.html`),
+      '<html><head></head><body><p>{{ fund.name }}</p></body></html>',
+    );
+    fs.writeFileSync(
+      path.join(tmp, 'filled', `${EDIT_ID}.html`),
+      filledDoc('<p>日本株式オープン</p>'),
+    );
     // DB(sproc)は対象外。決定的に失敗する実行面を渡し、開発機の LocalDB へ触れないようにする。
     // helper は動的に取る — 静的 import だと冒頭の env 設定より先に `config.js` が読まれる。
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
@@ -97,7 +105,12 @@ d('申請本文の編集用の印(両経路)', () => {
     );
     expect(created.status).toBe('pending');
     const edited = await reviews.submitReview(
-      { templateId: EDIT_ID, html: '<p>日本株式オープン(改)</p>', css: '', origin: 'edit' },
+      {
+        templateId: EDIT_ID,
+        html: filledDoc('<p>日本株式オープン(改)</p>'),
+        css: '',
+        origin: 'edit',
+      },
       submitter,
     );
     expect(edited.status).toBe('pending');

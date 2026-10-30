@@ -13,6 +13,7 @@ import {
   type Result,
   type ReviewPartDecision,
   type ReviewRequest,
+  reviewResubmitMessage,
   type UpdateReviewPartDecisionsRequest,
 } from '@editor/shared';
 import { type ComputedRef, computed, type Ref, ref, watch } from 'vue';
@@ -69,6 +70,10 @@ export function useReviewDecisions(ctx: {
       toast(`ほかの方が判定を変えました。${tail}`, 'error');
     } else if (error.code === REVIEW_ALREADY_DECIDED) {
       toast(`この申請はすでに処理されています。${tail}`, 'error');
+    } else if (reviewResubmitMessage(error.code) !== null) {
+      // 申請の後で確定版が変わった・今の検査を通らない申請。判定し直しても通らないので、申請し直しを
+      // 求める(サーバと同じ文言。`useReviewDiff` がサーバの文言のトーストを黙らせている)。
+      toast(reviewResubmitMessage(error.code) as string, 'error');
     } else {
       toast('パーツ判定の保存に失敗しました。', 'error');
     }

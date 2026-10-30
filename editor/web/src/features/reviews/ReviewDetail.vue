@@ -21,6 +21,7 @@ import {
   type ReviewRequest,
   type ReviewRequestMeta,
   reviewFinalizationIssues,
+  reviewResubmitMessage,
   toReviewMeta,
 } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
@@ -298,9 +299,16 @@ const canFinalize = computed(
  * 最終確定・申請ごと却下の失敗。ほかの人が先に決着させた(`REVIEW_ALREADY_DECIDED`)ときは
  * 読み直して決着後の画面にし、読み直した決着を親へ伝える(一覧・件数・承認待ちの印を合わせる)。
  * その code は `useReviewDiff` がトーストを黙らせているので、ここで 1 つだけ出す。読み直しに
- * 失敗したら「読み直しました」とは言わない。ほかの失敗は `useAsyncResult` がサーバの文言を出す。
+ * 失敗したら「読み直しました」とは言わない。申請の後で確定版が変わった(`REVIEW_BASE_CHANGED`)・
+ * 今の検査を通らない(`REVIEW_NOT_REVIEWABLE`)ときは、判定し直しても通らないので申請し直しを
+ * 求める文言を出す(読み直しても画面は変わらない)。ほかの失敗は `useAsyncResult` がサーバの文言を出す。
  */
 async function onDecideFailed(code: string | undefined): Promise<void> {
+  const resubmit = reviewResubmitMessage(code);
+  if (resubmit !== null) {
+    toast(resubmit, 'error');
+    return;
+  }
   if (code !== REVIEW_ALREADY_DECIDED) return;
   const reloaded = await load();
   toast(

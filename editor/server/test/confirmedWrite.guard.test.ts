@@ -199,6 +199,23 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
     expect(read(SOURCE)).toBe('<html><script>col.width=1</script><p>本文</p></html>');
   });
 
+  it('承認経路でも `<!x` 宣言の後ろに隠した script は拒否する', async () => {
+    const base = '<!doctype html><html><body><p>本文</p></body></html>';
+    seed(SOURCE, base);
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'template',
+        templateId: SOURCE,
+        html: base.replace('</body>', '{% if false %}<!x{% endif %}<script>evil()</script></body>'),
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toMatchObject({ code: 'TEMPLATE_SCRIPT_IMMUTABLE' });
+    expect(read(SOURCE)).toBe(base);
+  });
+
   it('ペア転写でも実行コードの追加は拒否する(機械転写を実行面の抜け道にしない)', async () => {
     seed(PAIR, '<html><p>ペア側</p></html>');
     await expect(

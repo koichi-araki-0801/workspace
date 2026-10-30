@@ -3,6 +3,7 @@
 // =============================================================================
 // web と `server` の双方で使える、依存なしの純関数を置く(`template.ts` と同方針)。
 
+import { REVIEW_BASE_CHANGED, REVIEW_NOT_REVIEWABLE } from '../errors.js';
 import type {
   ReviewPartDecision,
   ReviewRequest,
@@ -66,6 +67,22 @@ export function formatDateTimeYmdHm(iso: string): string {
   const d = new Date(iso);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/**
+ * 判定・最終確定の 409(`REVIEW_BASE_CHANGED` / `REVIEW_NOT_REVIEWABLE`)の文言。server が返し、
+ * web の承認画面が code で分岐して同じ文を出す。
+ */
+export const REVIEW_BASE_CHANGED_MESSAGE =
+  '申請の後で確定版が変わりました。申請し直してもらってください';
+export const REVIEW_NOT_REVIEWABLE_MESSAGE =
+  'この申請は今の検査を通らないため承認できません。申請し直してもらってください';
+
+/** 申請し直しを求める 409 の code なら、その文言(ほかの code は null)。 */
+export function reviewResubmitMessage(code: string | undefined): string | null {
+  if (code === REVIEW_BASE_CHANGED) return REVIEW_BASE_CHANGED_MESSAGE;
+  if (code === REVIEW_NOT_REVIEWABLE) return REVIEW_NOT_REVIEWABLE_MESSAGE;
+  return null;
 }
 
 /**

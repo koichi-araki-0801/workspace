@@ -208,11 +208,12 @@ describe('reviewDiffService.buildDiff', () => {
     expect(compare.renderTemplateBody as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
 
+    // CSS の比較元(baseCss)が無い応答は空を比較元にする(申請者の CSS を比較元にしない)。
     expect(buildHtmlDiff).toHaveBeenCalledWith(
       '',
       '<section data-part-id="cover">描いた表紙</section>' +
         '<section data-part-id="cost">描いた費用</section>',
-      '.x{}',
+      '',
       '.x{}',
     );
     expect(res.value.afterBodyHtml).not.toContain('偽の表紙');
@@ -223,6 +224,28 @@ describe('reviewDiffService.buildDiff', () => {
       added: 2,
       removed: 0,
     });
+  });
+
+  it('create 経路: CSS の比較元はサーバが返す今の CSS(baseCss)で、HTML の比較元(baseHtml)は使わない', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }]));
+    const { service } = makeService({
+      getReview: ok({
+        ...review('create'),
+        renderedHtml: '<html><body><section data-part-id="cover">表紙</section></body></html>',
+        baseHtml: '<html><body><section data-part-id="cover">{{ 生成物 }}</section></body></html>',
+        baseCss: '.disk{}',
+      }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(buildHtmlDiff).toHaveBeenCalledWith(
+      '',
+      '<section data-part-id="cover">表紙</section>',
+      '.disk{}',
+      '.x{}',
+    );
+    expect(res.value.cssChanged).toBe(true);
   });
 
   it('create 経路: 本文は文字列で切らずに DOM の body から取る(パーサが本文へ移す物も見せる)', async () => {

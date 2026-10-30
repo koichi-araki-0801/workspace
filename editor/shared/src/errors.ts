@@ -31,6 +31,16 @@ export const REVIEW_PART_DECISION_TRANSITION = 'REVIEW_PART_DECISION_TRANSITION'
  * `code`。web の承認画面が組み立てる失敗に付け、読み込みの失敗の汎用の文言の代わりにその理由を出す。
  */
 export const REVIEW_RENDER_ERROR = 'REVIEW_RENDER_ERROR';
+/**
+ * 申請の後で確定版(本文の外側。編集経路の却下の戻し先も)が変わったため、判定・最終確定を
+ * 受け付けない 409 の `code`。承認が後から入った変更を黙って巻き戻さないために止める。
+ */
+export const REVIEW_BASE_CHANGED = 'REVIEW_BASE_CHANGED';
+/**
+ * 申請が今の受付の検査(本文の外側・骨格・承認画面と本番で読みが割れる原文・往復用の印)を通らない
+ * ため、判定・最終確定を受け付けない 409 の `code`。検査を足す前に積まれた申請がここに当たる。
+ */
+export const REVIEW_NOT_REVIEWABLE = 'REVIEW_NOT_REVIEWABLE';
 
 /** `v` が既知の `AppErrorKind` か。外部由来(REST 応答等)の文字列を信用する前に通す。 */
 export function isAppErrorKind(v: unknown): v is AppErrorKind {

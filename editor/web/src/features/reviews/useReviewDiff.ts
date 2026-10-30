@@ -17,6 +17,8 @@ import type {
 import {
   isErr,
   REVIEW_ALREADY_DECIDED,
+  REVIEW_BASE_CHANGED,
+  REVIEW_NOT_REVIEWABLE,
   REVIEW_PART_DECISION_TRANSITION,
   REVIEW_RENDER_ERROR,
 } from '@editor/shared';
@@ -88,7 +90,12 @@ export function useReviewDiff(reqId: () => string) {
    * 判定・最終確定・申請ごと却下の失敗のうち、呼び出し側が読み直して自分の文言で知らせるもの。
    * `useAsyncResult` のトースト(サーバの文言)と二重に出さないよう黙らせる。
    */
-  const DECIDE_QUIET_CODES = [REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION];
+  const DECIDE_QUIET_CODES = [
+    REVIEW_ALREADY_DECIDED,
+    REVIEW_PART_DECISION_TRANSITION,
+    REVIEW_BASE_CHANGED,
+    REVIEW_NOT_REVIEWABLE,
+  ];
   /** 判定・最終確定の文言に並ぶパーツのキーを、右欄の番号とパーツ名へ読み替える。 */
   const describe = (message: string) => describePartKeys(message, changes.value);
 

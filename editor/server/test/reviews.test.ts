@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 // config を import する前に一時ディレクトリへ向ける。
@@ -33,6 +34,8 @@ const d = gitAvailable ? describe : describe.skip;
 
 d('review workflow (reviewRepo)', () => {
   let reviews: import('../src/repositories/reviewRepo.js').ReviewRepo;
+  /** 基準を自動で置かない素のリポジトリ(基準の無い作成経路の 400 を確かめる)。 */
+  let rawReviews: import('../src/repositories/reviewRepo.js').ReviewRepo;
   /** 作成経路の受付が使う sample(テストごとに差し替える)。 */
   const SAMPLE = {
     fund: { name: 'ダミー高利回り債券オープン', cost: '1.25%' },
@@ -54,7 +57,7 @@ d('review workflow (reviewRepo)', () => {
   const approver = { username: 'approver1', role: 'approver' };
 
   /** 編集タブが読む既存の値入り HTML。別ツールが置いた状態を模す。 */
-  const SEEDED_FILLED = '<p>既存の値入り</p>';
+  const SEEDED_FILLED = filledDoc('<p>既存の値入り</p>');
   const filledFile = (templateId: string) => path.join(tmp, 'filled', `${templateId}.html`);
   const seedFilled = (templateId: string) => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
@@ -66,7 +69,7 @@ d('review workflow (reviewRepo)', () => {
   const submit = (templateId: string, html: string, origin: 'edit' | 'create' = 'edit') => {
     if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
     // 作成経路は値入り HTML を送らない(承認画面の本文はサーバが受付で描く)。
-    const body = origin === 'create' ? asDoc(html) : html;
+    const body = origin === 'create' ? asDoc(html) : filledDoc(html);
     return reviews.submitReview({ templateId, html: body, css: '.x{}', origin }, submitter);
   };
   /**
@@ -135,11 +138,35 @@ d('review workflow (reviewRepo)', () => {
     const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
     const deps = createDeps(createOfflineSproc(), createSessionStub());
     // 作成経路の受付は sample で描く。DB は使わないので、差し替えられる取得口を渡す。
-    reviews = createReviewRepo({
+    rawReviews = createReviewRepo({
       noteMaster: deps.noteMaster,
       pairSync: deps.pairSync,
       sampleOf: (templateId) => sampleOf(templateId),
     });
+    // 作成経路の受付は基準(確定テンプレート・生成物)を要る。画面の作成経路には必ず生成器の
+    // pending があるので、基準を置いていない作成経路の申請には、申請と同じ外側で本文が空の生成物を
+    // 置いてから出す(外側を変える申請のテストは、基準を自分で置く)。
+    const { writePending } = await import('../src/files/pendingFiles.js');
+    const { documentFrameOf } = await import('@editor/shared');
+    reviews = {
+      ...rawReviews,
+      async submitReview(req, actor) {
+        const placed = [path.join(tmp, 'templates'), path.join(tmp, 'pending')].some((dir) =>
+          fs.existsSync(path.join(dir, `${req.templateId}.html`)),
+        );
+        if (req.origin === 'create' && !placed) {
+          let frameOnly = req.html;
+          try {
+            const f = documentFrameOf(req.html);
+            frameOnly = f.before + f.after;
+          } catch {
+            // 境界を読めない申請は受付で止まる。基準は申請のまま置く。
+          }
+          await writePending(req.templateId, frameOnly, '');
+        }
+        return rawReviews.submitReview(req, actor);
+      },
+    };
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -429,7 +456,7 @@ d('review workflow (reviewRepo)', () => {
     const meta = await submit(tplId, '<p>値入り本文</p>', 'edit');
     await approveAll(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8')).toBe(
-      '<p>値入り本文</p>',
+      filledDoc('<p>値入り本文</p>'),
     );
     expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
   });
@@ -512,7 +539,7 @@ d('review workflow (reviewRepo)', () => {
   it("origin='edit' の承認は pending を残す", { timeout: 60_000 }, async () => {
     const tplId = 'XX01_181818_20250101_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
-    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    await pendingFiles.writePending(tplId, asDoc('<p>{{ fund.name }} 骨組み</p>'), '.p{}');
     const meta = await submit(tplId, '<p>値入り本文</p>', 'edit');
     await approveAll(meta.id, {}, approver);
 
@@ -523,7 +550,7 @@ d('review workflow (reviewRepo)', () => {
   it("origin='create' の承認は pending を捨てる", { timeout: 60_000 }, async () => {
     const tplId = 'XX01_191919_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
-    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    await pendingFiles.writePending(tplId, asDoc('<p>{{ fund.name }} 骨組み</p>'), '.p{}');
     const meta = await submitApprovedCreate(tplId, '<p>{{ fund.name }} 確定</p>');
 
     await approveAll(meta.id, {}, approver);
@@ -537,7 +564,7 @@ d('review workflow (reviewRepo)', () => {
   }, async () => {
     const tplId = 'XX01_222333_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
-    await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
+    await pendingFiles.writePending(tplId, asDoc('<p>{{ fund.name }} 骨組み</p>'), '.p{}');
     const meta = await submitApprovedCreate(tplId, '<p>{{ fund.name }} 確定</p>');
 
     expect(meta.attributes).toEqual({
@@ -558,7 +585,7 @@ d('review workflow (reviewRepo)', () => {
     const tplId = 'XX01_515151_20250101_交付版';
     seedFilled(tplId);
     const meta = await reviews.submitReview(
-      { templateId: tplId, html: '<p>x</p>', css: '.shared{}', origin: 'edit' },
+      { templateId: tplId, html: filledDoc('<p>x</p>'), css: '.shared{}', origin: 'edit' },
       submitter,
     );
     await approveAll(meta.id, {}, approver);
@@ -576,7 +603,7 @@ d('review workflow (reviewRepo)', () => {
     const tplId = 'XX01_525252_20250101_交付版';
     seedFilled(tplId);
     const meta = await reviews.submitReview(
-      { templateId: tplId, html: '<p>x</p>', css: '.a{}', origin: 'edit' },
+      { templateId: tplId, html: filledDoc('<p>x</p>'), css: '.a{}', origin: 'edit' },
       submitter,
     );
     // 申請後に別の基準日の承認などで CSS が変わった状態を作る。
@@ -595,11 +622,11 @@ d('review workflow (reviewRepo)', () => {
     seedFilled(tplA);
     seedFilled(tplB);
     const a = await reviews.submitReview(
-      { templateId: tplA, html: '<p>a</p>', css: '.from-a{}', origin: 'edit' },
+      { templateId: tplA, html: filledDoc('<p>a</p>'), css: '.from-a{}', origin: 'edit' },
       submitter,
     );
     const b = await reviews.submitReview(
-      { templateId: tplB, html: '<p>b</p>', css: '.from-b{}', origin: 'edit' },
+      { templateId: tplB, html: filledDoc('<p>b</p>'), css: '.from-b{}', origin: 'edit' },
       submitter,
     );
     const rb = await approveAll(b.id, {}, approver);
@@ -625,7 +652,10 @@ d('review workflow (reviewRepo)', () => {
       css = '.x{}',
     ) => {
       if (!fs.existsSync(filledFile(templateId))) seedFilled(templateId);
-      return reviews.submitReview({ templateId, html, css, origin: 'edit' }, actor);
+      return reviews.submitReview(
+        { templateId, html: filledDoc(html), css, origin: 'edit' },
+        actor,
+      );
     };
     const pendingOf = async (templateId: string) =>
       (await reviews.listReviews({ status: 'pending' }, approver)).filter(
@@ -1407,6 +1437,7 @@ d('review workflow (reviewRepo)', () => {
       expect(got.renderedHtml).toContain('全体の本文');
     });
 
+    let rejectRow = 0;
     const LIMIT =
       /^描画の量が上限を超えたため、承認画面に全体を表示できません。テンプレートを確かめてください$/;
     it.each([
@@ -1431,11 +1462,6 @@ d('review workflow (reviewRepo)', () => {
         /^テンプレートの骨格（<html>・<head>・<body>）の外や <head> の中に本文や差し込みを置いているため/,
       ],
       [
-        'head の title の差し替え',
-        '<html><head><title>本番だけ</title></head><body><p>x</p></body></html>',
-        /^<head> の中の <meta>・<title>・<style>・<link> は変更できません/,
-      ],
-      [
         '評価の量(SUBMIT_RENDER_WORK)',
         // 繰り返しは 1,000 回(上限 10 万の内)、出力は約 100 万字(上限の内)で、長い値を出す評価の量
         // (約 100 万)だけが受付の上限(80 万)を超える。
@@ -1455,11 +1481,26 @@ d('review workflow (reviewRepo)', () => {
       ],
     ])('受付で 400: %s', async (_label, html, message) => {
       const before = (await reviews.listReviews({}, approver)).length;
-      await expect(create('XX01_730010_交付版', html)).rejects.toMatchObject({
+      // 行ごとに別の id にする(基準は申請と同じ外側で置かれるので、外側の固定より後ろの検査を見る)。
+      const templateId = `XX01_7301${String(rejectRow++).padStart(2, '0')}_交付版`;
+      await expect(create(templateId, html)).rejects.toMatchObject({
         kind: 'validation',
         message: expect.stringMatching(message),
       });
       expect((await reviews.listReviews({}, approver)).length).toBe(before);
+    });
+
+    it('受付で 400: head の title の差し替え(本文の外側は基準とバイト列で同じにする)', async () => {
+      seedTemplate('XX01_730120_交付版', '<html><head><title>t</title></head><body></body></html>');
+      await expect(
+        create(
+          'XX01_730120_交付版',
+          '<html><head><title>本番だけ</title></head><body><p>x</p></body></html>',
+        ),
+      ).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringMatching(/^本文（<body> の中）の外側（<head> の中身、/),
+      });
     });
 
     it('sample を取れないときは申請を受け付けない', async () => {
@@ -1609,6 +1650,381 @@ d('review workflow (reviewRepo)', () => {
           expect(calls).toHaveLength(2);
         },
       );
+    });
+  });
+
+  // ── 本文の外側の固定と、承認時の検査のやり直し(run-2 の 2・3・4) ──
+  // 承認画面は body の中だけを見せる。本文の外側(head・html と body の開始タグ・`</body>` の後ろ)は
+  // 受付で基準とバイト列で同じにさせ、承認でも確定する本文に同じ検査を掛け直す(この検査より前に
+  // 積まれた申請は受付の検査を通っていない)。
+  describe('本文の外側の固定と、承認時の検査のやり直し', () => {
+    const reviewDir = (id: string) => path.join(tmp, 'reviews', id);
+    const DOC =
+      '<!doctype html>\n<html lang="ja"><head><meta charset="utf-8"><title>t</title></head>\n' +
+      '<body>\n<section data-part-id="a">本文A</section>\n' +
+      '<section data-part-id="b">本文B</section>\n</body>\n</html>\n';
+    const TPL = DOC.replace('本文A', '{{ fund.name }}');
+    const seedFilledDoc = (tplId: string, html: string) => {
+      fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
+      fs.writeFileSync(filledFile(tplId), html, 'utf8');
+    };
+    const seedTemplateDoc = (tplId: string, html: string) => {
+      fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'templates', `${tplId}.html`), html, 'utf8');
+    };
+    const editSubmit = (tplId: string, html: string) =>
+      reviews.submitReview({ templateId: tplId, html, css: '.x{}', origin: 'edit' }, submitter);
+    const createSubmit = (tplId: string, html: string, css = '.x{}') =>
+      reviews.submitReview({ templateId: tplId, html, css, origin: 'create' }, submitter);
+    const decide = (reqId: string, decisions: Record<string, 'approved' | 'rejected'>) =>
+      reviews.updatePartDecisions(
+        reqId,
+        {
+          decisions: Object.entries(decisions).map(([partKey, status]) =>
+            status === 'approved' ? { partKey, status } : { partKey, status, comment: '戻す' },
+          ),
+        },
+        approver,
+      );
+    const undo = (reqId: string, partKey: string) =>
+      reviews.updatePartDecisions(reqId, { decisions: [{ partKey, status: 'pending' }] }, approver);
+    /** この変更より前の作成経路の申請の形にする(申請時点の基準を持たず、CSS の比較元は申請者の CSS)。 */
+    const makeOldCreate = (reqId: string, body?: string) => {
+      fs.writeFileSync(path.join(reviewDir(reqId), 'base.html'), '', 'utf8');
+      fs.writeFileSync(path.join(reviewDir(reqId), 'base.css'), '.x{}', 'utf8');
+      if (body !== undefined) fs.writeFileSync(path.join(reviewDir(reqId), 'body.html'), body);
+    };
+    const NOT_REVIEWABLE = {
+      kind: 'conflict',
+      code: 'REVIEW_NOT_REVIEWABLE',
+      message: 'この申請は今の検査を通らないため承認できません。申請し直してもらってください',
+    };
+    const BASE_CHANGED = {
+      kind: 'conflict',
+      code: 'REVIEW_BASE_CHANGED',
+      message: '申請の後で確定版が変わりました。申請し直してもらってください',
+    };
+
+    describe('受付: 本文の外側は基準と同じ・本文の中に骨格のタグを置かない(両経路)', () => {
+      it.each([
+        ['head に style を足す', DOC.replace('</head>', '<style>p{display:none}</style></head>')],
+        [
+          '本文の中に <body style> を書く',
+          DOC.replace('本文B', '本文B</section><body style="x"><p>'),
+        ],
+        ['本文の中に <html class> を書く', DOC.replace('本文B', '本文B<html class="x">')],
+        [
+          '<svg><style> の中に <body style> を書く',
+          DOC.replace('本文B', '本文B<svg><style><body style="display:none"></style></svg>'),
+        ],
+        [
+          '<svg><title> の中に <html class> を書く',
+          DOC.replace('本文B', '本文B<svg><title><html class="x"></title></svg>'),
+        ],
+        [
+          '<math><style> の中に <body style> を書く',
+          DOC.replace('本文B', '本文B<math><style><body style="display:none"></style></math>'),
+        ],
+        ['</head> と <body> の間に要素を置く', DOC.replace('</head>\n', '</head>\n<p>間</p>')],
+        ['</body> の後ろに要素を置く', DOC.replace('</body>\n', '</body>\n<p>後ろ</p>')],
+      ])('編集経路: %s → 400', async (_, html) => {
+        const tplId = 'XX01_740001_20250101_交付版';
+        seedFilledDoc(tplId, DOC);
+        await expect(editSubmit(tplId, html)).rejects.toMatchObject({ kind: 'validation' });
+      });
+
+      it('編集経路: 本文の中の骨格のタグは専用の文言で止める(script の文字列の </body> では止めない)', async () => {
+        const tplId = 'XX01_740002_20250101_交付版';
+        seedFilledDoc(tplId, DOC);
+        await expect(
+          editSubmit(tplId, DOC.replace('本文B', '本文B<html class="x">')),
+        ).rejects.toMatchObject({
+          kind: 'validation',
+          message: expect.stringContaining('</head>・</body>・</html>'),
+        });
+        const meta = await editSubmit(
+          tplId,
+          DOC.replace('本文B', '本文B<!-- </body><body> --><span title="<body>">x</span>'),
+        );
+        expect(meta.status).toBe('pending');
+      });
+
+      it('編集経路: body の無い申請は 400(断片の先頭の style は head へ移って紙面に出ない)', async () => {
+        const tplId = 'XX01_740006_20250101_交付版';
+        seedFilledDoc(tplId, DOC);
+        await expect(
+          editSubmit(tplId, '<style>p{display:none}</style><p>x</p>'),
+        ).rejects.toMatchObject({
+          kind: 'validation',
+          message: expect.stringContaining('本文（<body>）の無い HTML は申請できません'),
+        });
+      });
+
+      it('作成経路: 外来要素の中の <body style> も 400', async () => {
+        const tplId = 'XX01_740007_交付版';
+        seedTemplateDoc(tplId, TPL);
+        await expect(
+          createSubmit(
+            tplId,
+            TPL.replace('本文B', '本文B<svg><title><body style="display:none"></title></svg>'),
+          ),
+        ).rejects.toMatchObject({ kind: 'validation' });
+      });
+
+      it('作成経路: body に style を足すと 400', async () => {
+        const tplId = 'XX01_740003_交付版';
+        seedTemplateDoc(tplId, TPL);
+        await expect(
+          createSubmit(tplId, TPL.replace('<body>', '<body style="background:red">')),
+        ).rejects.toMatchObject({ kind: 'validation', message: expect.stringContaining('外側') });
+      });
+
+      it('基準の無い作成経路は 400「生成してから申請してください」', async () => {
+        const tplId = 'XX01_740004_交付版';
+        await expect(
+          rawReviews.submitReview(
+            { templateId: tplId, html: TPL, css: '', origin: 'create' },
+            submitter,
+          ),
+        ).rejects.toMatchObject({
+          kind: 'validation',
+          message: expect.stringContaining('生成してから申請してください'),
+        });
+      });
+
+      it('BOM 付き・CRLF の確定ファイルが基準でも、LF の申請を止めない(承認も通る)', {
+        timeout: 60_000,
+      }, async () => {
+        const tplId = 'XX01_740005_20250101_交付版';
+        seedFilledDoc(tplId, `﻿${DOC.replace(/\n/g, '\r\n')}`);
+        const meta = await editSubmit(tplId, DOC.replace('本文A', '本文A2'));
+        await decide(meta.id, { 'a#1': 'approved' });
+        await reviews.approveReview(meta.id, {}, approver);
+        expect(fs.readFileSync(filledFile(tplId), 'utf8')).toContain('本文A2');
+      });
+    });
+
+    describe('承認: 確定する本文に受付の検査を掛け直す', () => {
+      it('古い作成経路の申請(本文の外側が違う)は、判定も最終確定も 409 REVIEW_NOT_REVIEWABLE', async () => {
+        const tplId = 'XX01_740010_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const old = TPL.replace('<body>', '<body style="background:red">');
+        const fresh = await createSubmit(tplId, TPL);
+        makeOldCreate(fresh.id, old);
+        await expect(decide(fresh.id, { 'a#1': 'approved' })).rejects.toMatchObject(NOT_REVIEWABLE);
+        // 判定がこの検査を入れる前に済んでいた申請も、最終確定で止める。
+        const meta = await createSubmit(tplId, TPL.replace('本文A', '本文A2'));
+        await decide(meta.id, { 'a#1': 'approved', 'b#1': 'approved' });
+        makeOldCreate(meta.id, old);
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+        expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(TPL);
+      });
+
+      it('古い作成経路の申請で、承認画面と本番で読みが割れる原文は 409 REVIEW_NOT_REVIEWABLE', async () => {
+        const tplId = 'XX01_740011_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const meta = await createSubmit(tplId, TPL);
+        makeOldCreate(meta.id, TPL.replace('本文B', '{%- if x %}本文B{% endif %}'));
+        await expect(decide(meta.id, { 'a#1': 'approved' })).rejects.toMatchObject(NOT_REVIEWABLE);
+      });
+
+      it('古い作成経路の申請で、往復用の印が残った本文は 409 REVIEW_NOT_REVIEWABLE', async () => {
+        const tplId = 'XX01_740012_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const meta = await createSubmit(tplId, TPL);
+        await decide(meta.id, { 'a#1': 'approved', 'b#1': 'approved' });
+        makeOldCreate(
+          meta.id,
+          TPL.replace('本文B', '<span class="jinja-chip" data-jinja="e3sgeCB9fQ==">x</span>'),
+        );
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+      });
+
+      it('最終確定は申請の本文に先に掛ける(未判定が残る古い申請も、却下したパーツの中の違反も 409)', async () => {
+        const tplId = 'XX01_740013_交付版';
+        seedTemplateDoc(tplId, TPL);
+        // 未判定が残る古い申請: 「未判定」の 400 より先に 409 を返す(応答をそろえる)。
+        const undecided = await createSubmit(tplId, TPL);
+        makeOldCreate(undecided.id, TPL.replace('<body>', '<body style="background:red">'));
+        await expect(reviews.approveReview(undecided.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+        // 却下したパーツの中にだけ違反がある古い申請も、申請の本文で止める。
+        const meta = await createSubmit(tplId, TPL.replace('本文A', '本文A2'));
+        await decide(meta.id, { 'a#1': 'approved', 'b#1': 'rejected' });
+        const bad = TPL.replace('本文A', '本文A2').replace('本文B', '{%- if x %}本文B{% endif %}');
+        fs.writeFileSync(path.join(reviewDir(meta.id), 'body.html'), bad, 'utf8');
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+        expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(TPL);
+      });
+
+      it.each([
+        [
+          '<svg><style> の中の <body style>',
+          '<svg><style><body style="display:none"></style></svg>',
+        ],
+        ['<svg><title> の中の <html class>', '<svg><title><html class="x"></title></svg>'],
+        [
+          '<math><style> の中の <body style>',
+          '<math><style><body style="display:none"></style></math>',
+        ],
+      ])(
+        '編集経路: 外来要素の中の %s を持つ古い申請は 409 REVIEW_NOT_REVIEWABLE',
+        {
+          timeout: 60_000,
+        },
+        async (_, tag) => {
+          const tplId = 'XX01_740018_20250101_交付版';
+          seedFilledDoc(tplId, DOC);
+          const meta = await editSubmit(tplId, DOC.replace('本文A', `本文A${Date.now()}`));
+          await decide(meta.id, { 'a#1': 'approved' });
+          const body = fs.readFileSync(path.join(reviewDir(meta.id), 'body.html'), 'utf8');
+          fs.writeFileSync(
+            path.join(reviewDir(meta.id), 'body.html'),
+            body.replace('本文B', `本文B${tag}`),
+            'utf8',
+          );
+          await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+            NOT_REVIEWABLE,
+          );
+          expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(DOC);
+        },
+      );
+
+      it('編集経路: body の無い古い申請は 409 REVIEW_NOT_REVIEWABLE', async () => {
+        const tplId = 'XX01_740019_20250101_交付版';
+        seedFilledDoc(tplId, DOC);
+        const meta = await editSubmit(tplId, DOC.replace('本文A', '本文A2'));
+        fs.writeFileSync(
+          path.join(reviewDir(meta.id), 'body.html'),
+          '<style>p{display:none}</style><p>x</p>',
+          'utf8',
+        );
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+      });
+
+      it('承認した側のパーツに違反があれば 409(覚えた判定の結果を使わずに計算し直す)', async () => {
+        const tplId = 'XX01_740014_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const meta = await createSubmit(tplId, TPL);
+        await decide(meta.id, { 'a#1': 'approved', 'b#1': 'approved' });
+        const bad = TPL.replace('本文B', '{%- if x %}本文B{% endif %}');
+        fs.writeFileSync(path.join(reviewDir(meta.id), 'body.html'), bad, 'utf8');
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+      });
+
+      it('作成経路: 申請の後で基準の外側が変わったら、判定も最終確定も 409 REVIEW_BASE_CHANGED', async () => {
+        const tplId = 'XX01_740015_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const meta = await createSubmit(tplId, TPL);
+        await decide(meta.id, { 'a#1': 'approved', 'b#1': 'approved' });
+        seedTemplateDoc(tplId, TPL.replace('<title>t</title>', '<title>u</title>'));
+        await expect(undo(meta.id, 'b#1')).rejects.toMatchObject(BASE_CHANGED);
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          BASE_CHANGED,
+        );
+        // 基準が戻れば判定できる(覚えた結果は基準のハッシュごとに分かれる)。
+        seedTemplateDoc(tplId, TPL);
+        await undo(meta.id, 'b#1');
+      });
+
+      it('編集経路: 申請の後で確定版の外側が変わったら 409 REVIEW_BASE_CHANGED、古い申請は NOT_REVIEWABLE', async () => {
+        const tplId = 'XX01_740016_20250101_交付版';
+        seedFilledDoc(tplId, DOC);
+        const meta = await editSubmit(tplId, DOC.replace('本文A', '本文A2'));
+        await decide(meta.id, { 'a#1': 'approved' });
+        seedFilledDoc(tplId, DOC.replace('<title>t</title>', '<title>u</title>'));
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          BASE_CHANGED,
+        );
+        // 申請の本文の外側が申請時点の確定版とも違う(この検査より前の申請)なら NOT_REVIEWABLE。
+        fs.writeFileSync(
+          path.join(reviewDir(meta.id), 'body.html'),
+          DOC.replace('本文A', '本文A2').replace('<body>', '<body style="x">'),
+          'utf8',
+        );
+        await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject(
+          NOT_REVIEWABLE,
+        );
+      });
+
+      it('sample(DB)が取れなくても、正常な作成経路の申請は判定・承認できる', {
+        timeout: 60_000,
+      }, async () => {
+        const tplId = 'XX01_740017_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const meta = await createSubmit(tplId, TPL.replace('本文B', '本文B2'));
+        const saved = sampleOf;
+        sampleOf = async () => {
+          throw new Error('DB 不在');
+        };
+        try {
+          await decide(meta.id, { 'a#1': 'approved', 'b#1': 'approved' });
+          await reviews.approveReview(meta.id, {}, approver);
+        } finally {
+          sampleOf = saved;
+        }
+        expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toContain(
+          '本文B2',
+        );
+      });
+    });
+
+    describe('作成経路の CSS の比較元は、承認で上書きされる今のディスクの CSS', () => {
+      const cssFile = (tplId: string) => path.join(tmp, 'css', `${tplId}.css`);
+
+      it('受付は今の CSS を比較元に保存し、承認待ちの取得は今のディスクの CSS を返す', async () => {
+        const tplId = 'XX01_740020_交付版';
+        seedTemplateDoc(tplId, TPL);
+        fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
+        fs.writeFileSync(cssFile(tplId), '.disk{}', 'utf8');
+        const meta = await createSubmit(tplId, TPL, '.submitted{}');
+        expect(fs.readFileSync(path.join(reviewDir(meta.id), 'base.css'), 'utf8')).toBe('.disk{}');
+        fs.writeFileSync(cssFile(tplId), '.disk2{}', 'utf8');
+        const got = await reviews.getReview(meta.id, approver);
+        expect(got.css).toBe('.submitted{}');
+        expect(got.baseCss).toBe('.disk2{}');
+      });
+
+      it('CSS の無いテンプレートは空を比較元にする', async () => {
+        const tplId = 'XX01_740021_交付版';
+        seedTemplateDoc(tplId, TPL);
+        const meta = await createSubmit(tplId, TPL, '.submitted{}');
+        expect((await reviews.getReview(meta.id, approver)).baseCss).toBe('');
+      });
+
+      it('旧形式(比較元 = 申請者の CSS)で保存された承認待ちの申請も、今のディスクの CSS を返す', async () => {
+        const tplId = 'XX01_740022_交付版';
+        seedTemplateDoc(tplId, TPL);
+        fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
+        fs.writeFileSync(cssFile(tplId), '.disk{}', 'utf8');
+        const meta = await createSubmit(tplId, TPL);
+        makeOldCreate(meta.id);
+        const got = await reviews.getReview(meta.id, approver);
+        expect(got.css).toBe('.x{}');
+        expect(got.baseCss).toBe('.disk{}');
+      });
+
+      it('決着した作成経路の申請は保存した比較元を返す', { timeout: 60_000 }, async () => {
+        const tplId = 'XX01_740023_交付版';
+        seedTemplateDoc(tplId, TPL);
+        fs.mkdirSync(path.join(tmp, 'css'), { recursive: true });
+        fs.writeFileSync(cssFile(tplId), '.disk{}', 'utf8');
+        const meta = await createSubmit(tplId, TPL, '.submitted{}');
+        await decide(meta.id, { 'a#1': 'approved', 'b#1': 'approved' });
+        await reviews.approveReview(meta.id, {}, approver);
+        expect((await reviews.getReview(meta.id, approver)).baseCss).toBe('.disk{}');
+      });
     });
   });
 });

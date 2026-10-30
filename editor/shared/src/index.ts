@@ -296,6 +296,8 @@ export * from './domain/user.js';
 export * from './errors.js';
 // チップの原文を運ぶ base64(作成タブの往復と改ページの判定が読む)。
 export * from './html/base64Utf8.js';
+// 本文の外側(head・html と body の開始タグ)の固定。両経路の受付と承認が使う。
+export * from './html/documentFrame.js';
 // HTML の字句解析の小さな部品と raw text の終わり探し。タグを読む走査器 7 本が共有する。
 export * from './html/htmlLex.js';
 // パーツの HTML の比較用の正規形(承認後のペア同期の「直していない」の判定)。

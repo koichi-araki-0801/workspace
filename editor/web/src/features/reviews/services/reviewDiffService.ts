@@ -185,6 +185,9 @@ export function createReviewDiffService(
       // (`assemblePreviewDocument`)を通さない生の本文を差分と紙面へ渡し、CSS は紙面の文書を組む段
       // (`reviewCompareDocs.ts`)で付ける。手元で描き直すこともしない(コンパイルを伴わない)。
       // before(現行版)= 既存編集なら現公開版、作成(新規)や取得できない(初回確定前など)なら空。
+      // 作成経路の CSS の比較元は、サーバが返す承認で上書きされる今の CSS(`baseCss`。無ければ空)。
+      // 申請者の CSS を比較元にすると、CSS の変更が常に「なし」に見える。作成経路の `baseHtml` は
+      // 申請時点の基準(Jinja の原文)で、描いた本文と比べる物ではないので before にしない。
       if (review.origin === 'create' && review.renderedHtml === undefined)
         return err(
           conflict(review.renderError ?? CREATE_RENDER_MISSING, { code: REVIEW_RENDER_ERROR }),
@@ -192,7 +195,7 @@ export function createReviewDiffService(
       const pairRes =
         review.origin === 'create' && review.renderedHtml !== undefined
           ? ok({
-              before: { html: '', css: review.css },
+              before: { html: '', css: review.baseCss ?? '' },
               after: { html: renderedBody(review.renderedHtml), css: review.css },
             })
           : await renderReviewPair(compare, {
@@ -207,7 +210,7 @@ export function createReviewDiffService(
       const pair = pairRes.value;
       const after = pair.after;
       const before =
-        review.baseHtml !== undefined && review.baseCss !== undefined
+        review.origin === 'edit' && review.baseHtml !== undefined && review.baseCss !== undefined
           ? {
               ...pair.before,
               html: review.baseHtml,

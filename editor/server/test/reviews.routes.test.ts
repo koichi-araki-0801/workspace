@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 // config を import する前に一時ディレクトリへ向ける(reviews.test.ts と同方針)。
@@ -73,7 +74,7 @@ d('review workflow (HTTP routes)', () => {
   });
 
   /** 編集タブが読む既存の値入り HTML。別ツールが置いた状態を模す。 */
-  const SEEDED_FILLED = '<p>既存の値入り</p>';
+  const SEEDED_FILLED = filledDoc('<p>既存の値入り</p>');
   const filledFile = (templateId: string) => path.join(tmp, 'filled', `${templateId}.html`);
 
   // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
@@ -87,7 +88,7 @@ d('review workflow (HTTP routes)', () => {
       headers,
       payload: {
         templateId,
-        html,
+        html: filledDoc(html),
         css: '.x{}',
         origin: 'edit',
       },
@@ -313,7 +314,13 @@ d('review workflow (HTTP routes)', () => {
       method: 'POST',
       url: '/review-requests',
       headers: asUser('editor1', 'editor'),
-      payload: { templateId, html: '<p>x</p>', css: '.x{}', cssBaseline: '.x{}', origin: 'edit' },
+      payload: {
+        templateId,
+        html: filledDoc('<p>x</p>'),
+        css: '.x{}',
+        cssBaseline: '.x{}',
+        origin: 'edit',
+      },
     });
     expect(sub.statusCode).toBe(200);
     const reqId = sub.json().id;

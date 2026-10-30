@@ -621,14 +621,23 @@ export const ReviewRequest = ReviewRequestMeta.extend({
     description:
       '作成経路の古い申請で、承認画面の本文を描けないときの理由(このとき renderedHtml は無い)',
   }),
-  baseHtml: z.string().optional().meta({
-    description:
-      '申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
-  }),
-  baseCss: z.string().optional().meta({
-    description:
-      '申請時点の比較元CSS。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
-  }),
+  baseHtml: z
+    .string()
+    .optional()
+    .meta({
+      description:
+        '申請時点の比較元HTML。編集経路は申請時点の値入り HTML、作成経路は申請時点の基準(確定テンプレート' +
+        'または生成物。承認画面の差分には使わず、承認時に「基準が変わった」を見分けるのに使う。旧作成経路は' +
+        '空)。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+    }),
+  baseCss: z
+    .string()
+    .optional()
+    .meta({
+      description:
+        '比較元CSS(承認で上書きされる CSS)。作成経路の承認待ちは取得のたびに今のディスクの CSS を返す。' +
+        '旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+    }),
 }).meta({ id: 'ReviewRequest' });
 
 /**

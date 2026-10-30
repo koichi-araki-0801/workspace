@@ -44,8 +44,8 @@
 //
 // ── ほかの走査器と 1 本にしない理由 ──
 // 同じ理由で、PDF 経路(`vivliostyle/inlineCss.ts`)や申請の関所(`@editor/shared` の
-// `editingMarkers.ts`)の走査器とも共通化しない。ここは描画前の Jinja を読み、コメントの中まで
-// 走査し、raw text は `script` / `style` だけ、タグ内の Jinja を読み飛ばし、作業量の予算で打ち切った
+// `editingMarkers.ts`)の走査器とも共通化しない。ここは描画前の Jinja を読み、コメントと `<!` の宣言の
+// 中まで走査し、raw text は `script` / `style` だけ、タグ内の Jinja を読み飛ばし、作業量の予算で打ち切った
 // ら拒否する。どれもほかの走査器とは違う倒し方である(設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。
 // 共有するのは、ブラウザと同じ答えになるべき部品だけ: `@editor/shared` の `html/htmlLex.ts`(空白・
 // 英字・タグ名の終わり)と `html/rawText.ts` の `findRawTextEnd`(予算は `scanned` でここが数える)。
@@ -544,7 +544,8 @@ function rawTextEnd(lower: string, name: string, from: number, budget: ScanBudge
 
 /**
  * 開始タグだけを順に取り出す簡易走査。**HTML パーサではない**(整形式でない入力でも
- * 止まらず、拾いすぎる方へ倒れる)。終了タグ・コメント・doctype は読み飛ばす。
+ * 止まらず、拾いすぎる方へ倒れる)。終了タグは読み飛ばす。コメントと `<!` の宣言(doctype・
+ * `<![CDATA[` など)は読み飛ばさず、中身を続けて走査する(描画前の Jinja が区切りを消せるため)。
  */
 function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generator<ParsedTag> {
   const len = text.length;
@@ -574,9 +575,11 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
         i = lt + 4;
         continue;
       }
-      // doctype 等の markup declaration は `>` まで。
-      const end = text.indexOf('>', lt) + 1 || len;
-      i = end <= lt ? len : end;
+      // doctype などの宣言(`<!x …>`・`<![CDATA[`)も、`>` まで読み飛ばさずに `<!` の直後から
+      // 走査を続ける。コメントと同じく、宣言の `>` は Jinja が出し分けられる:
+      // `{% if false %}<!x{% endif %}<script>…</script>` は字面では宣言の中だが、描画後は素の
+      // `<script>` になる。拾いすぎても基準側に同じだけ現れる(`<!doctype html>` は単位を作らない)。
+      i = lt + 2;
       continue;
     }
     if (!isAsciiAlpha(next)) {

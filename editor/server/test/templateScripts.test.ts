@@ -799,6 +799,51 @@ describe('raw text 要素の内側は必ず単位化される', () => {
   });
 });
 
+// ── コメント以外の `<!` 宣言の中も読む ──
+// 旧版は doctype などの宣言を `>` まで読み飛ばしていた。描画前の Jinja は宣言の `>` を条件分岐で
+// 消せる(`{% if false %}<!x{% endif %}`)ので、字面で宣言の中に見える `<script>` が描画後は素で残る。
+describe('`<!` 宣言の中を読み飛ばさない', () => {
+  const doc = (body: string) => `<html><body><p>本文</p>${body}</body></html>`;
+  const base = doc('');
+
+  it('`<!x` の後ろに隠した script を拒否する', () => {
+    expect(accepted(base, doc('{% if false %}<!x{% endif %}<script>evil()</script>'))).toBe(false);
+    expect(collectExecutableUnits('<!x<script>evil()</script>')).toHaveLength(1);
+  });
+
+  it('`<!x` の後ろに隠した style の外部参照と iframe を拒否する', () => {
+    expect(
+      accepted(base, doc('{% if false %}<!x{% endif %}<style>@import url(//evil/x.css);</style>')),
+    ).toBe(false);
+    expect(
+      accepted(base, doc('{% if false %}<!x{% endif %}<iframe src="//evil/x"></iframe>')),
+    ).toBe(false);
+  });
+
+  it('`<![CDATA[` の中に隠した script を拒否する', () => {
+    expect(accepted(base, doc('<![CDATA[<script>evil()</script>]]>'))).toBe(false);
+  });
+
+  it('fixture 全 8 本とパーツの単位は、宣言を取り除いた本文と同じ(doctype は単位を作らない)', () => {
+    const fixtures = path.resolve(__dirname, '../../fixtures');
+    const decl = /<!(?!--)[^>]*>/g;
+    const sources = [
+      ...['templates', 'filled'].flatMap((dir) =>
+        readdirSync(path.join(fixtures, dir)).map((f) =>
+          readFileSync(path.join(fixtures, dir, f), 'utf8'),
+        ),
+      ),
+      ...(
+        JSON.parse(readFileSync(path.join(fixtures, 'parts.json'), 'utf8')) as { content: string }[]
+      ).map((p) => p.content),
+    ];
+    expect(sources.filter((s) => /<!doctype/i.test(s)).length).toBeGreaterThanOrEqual(8);
+    for (const src of sources) {
+      expect(collectExecutableUnits(src)).toEqual(collectExecutableUnits(src.replace(decl, '')));
+    }
+  });
+});
+
 // ── 走査の端(壊れた入力で単位列が欠落・混入しない)──
 // これまでの節は「実行面を隠す入力」を主に見てきた。ここは走査そのものが壊れて
 // (単位が消える/紛れ込む)いないかを、退避属性・タグ走査・URL scheme の端で確かめる。

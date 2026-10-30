@@ -123,7 +123,15 @@ type State =
 /** 骨格の検査と head の原文に使う字句の出来事。 */
 type LexEvent =
   | { t: 'start' | 'end'; name: string; at: number; end: number }
-  | { t: 'rawEnd'; name: string; end: number }
+  | {
+      t: 'rawEnd';
+      name: string;
+      /** 中身の範囲 `[start, end)`。 */
+      start: number;
+      end: number;
+      /** 外来要素(svg・math)の中で開いたか。そこでは中身がマークアップとして読まれる。 */
+      foreign: boolean;
+    }
   | { t: 'comment' | 'doctype'; at: number }
   | { t: 'text'; at: number }
   | { t: 'token'; at: number };
@@ -152,6 +160,8 @@ function lex(src: string, tokens: readonly JinjaToken[]): LexResult {
   let tagAt = 0;
   /** raw text・RCDATA の要素の名前と、中身の地の文の `<` の位置(閉じタグの `<` を除く)。 */
   let raw = '';
+  let rawStart = 0;
+  let rawForeign = false;
   let rawLt: number[] = [];
   /** RCDATA・raw text の中身で、直前の地の文が `<` か `</` に英字の続く読みかけか。 */
   let rawPending = false;
@@ -171,6 +181,8 @@ function lex(src: string, tokens: readonly JinjaToken[]): LexResult {
     if (!selfClosing && (RAW_TEXT.has(name) || RCDATA.has(name))) {
       st = 'RAW';
       raw = name;
+      rawStart = end;
+      rawForeign = foreignDepth > 0;
       rawLt = [];
       rawPending = false;
       return;
@@ -185,7 +197,7 @@ function lex(src: string, tokens: readonly JinjaToken[]): LexResult {
 
   const finishRaw = (closeAt: number) => {
     if (raw !== 'script') for (const at of rawLt) issues.push({ code: 'raw-markup', at });
-    events.push({ t: 'rawEnd', name: raw, end: closeAt });
+    events.push({ t: 'rawEnd', name: raw, start: rawStart, end: closeAt, foreign: rawForeign });
   };
 
   let i = 0;
@@ -485,6 +497,63 @@ export function findReviewableIssues(src: string, opts: { document: boolean }): 
     if (at !== null) issues.push({ code: 'skeleton', at });
   }
   return issues.sort((a, b) => a.at - b.at);
+}
+
+/** 骨格のタグの字面(`<html` `</body` など。名前の後ろはタグ名の終わり)。 */
+const SKELETON_TAG_RE = /<\/?(?:html|head|body)(?=[\s/>]|$)/i;
+
+/** `src` の `[from, to)` にある骨格のタグの字面の最初の位置(無ければ null)。 */
+function skeletonTagIn(src: string, from: number, to: number): number | null {
+  const m = SKELETON_TAG_RE.exec(src.slice(from, to));
+  return m === null ? null : from + m.index;
+}
+
+/**
+ * 本文の範囲 `[from, to)` の中にある骨格のタグ(`<html` `<head` `<body` の開始タグと `</head>`
+ * `</body>` `</html>`)の最初の位置(無ければ null)。数え方は骨格の検査(制約 6。`skeletonIssue` の
+ * 本文の中の判定)と同じ字句の規則で、コメント・raw text・属性値の中は数えない(script の文字列の
+ * `"</body>"` で止めない)。ただし外来要素(svg・math)の中の raw text・RCDATA の中身は、マークアップ
+ * として読まれるので字面で探す。本文で最初に svg・math が開いた後ろの raw text・RCDATA は、閉じタグの
+ * 後でもすべてそう扱う(ブラウザが無視する閉じタグを見分けられないため)。`jinja` は Jinja の
+ * トークンを読み飛ばすか(作成経路の原文)。値入り HTML(編集経路)は Jinja で描かないので、`{{` も
+ * 地の文として読む。
+ *
+ * 承認画面は DOM の body だけを見せる。本文の中に `<body style>` や `<html class>` を書くと、
+ * ブラウザは既存の要素へ属性を足すので、承認画面に出ない変更が本番に出る。
+ */
+export function findSkeletonTagInBody(
+  src: string,
+  range: { from: number; to: number },
+  opts: { jinja: boolean },
+): number | null {
+  let tokens: readonly JinjaToken[] = [];
+  if (opts.jinja) {
+    const lexed = lexJinja(src);
+    if (lexed.ok) tokens = lexed.tokens;
+  }
+  const { events } = lex(src, tokens);
+  /** 本文で svg・math が開いたか。開いた後ろの raw text・RCDATA は、閉じた後でも外来要素の中と読む。 */
+  let foreignOpened = false;
+  for (const e of events) {
+    if (e.t === 'start' && FOREIGN.has(e.name) && e.at >= range.from) foreignOpened = true;
+    if (e.t === 'rawEnd') {
+      // 外来要素の中の style・title などは普通の要素で、中身はマークアップとして読まれる。ブラウザは
+      // そこの `<body>`・`<html>` で外来要素を抜け、既存の body・html へ属性を足す。字句の状態機械
+      // (`lex`)の raw text の扱いは制約 3 と結び付いているので変えず、ここで中身を探し直す。
+      // 外来要素の深さ(`foreign`)だけでは足りない。`lex` は木構築をしないので、ブラウザが無視する
+      // 閉じタグ(`<svg><foreignObject><div></svg>` の `</svg>`)でも深さを戻す。本文で最初に svg・math が
+      // 開いた後ろは、すべて外来要素の中として探す(止めすぎる側に倒す)。
+      if (!(e.foreign || foreignOpened) || e.end <= range.from || e.start >= range.to) continue;
+      const at = skeletonTagIn(src, Math.max(e.start, range.from), Math.min(e.end, range.to));
+      if (at !== null) return at;
+      continue;
+    }
+    if (e.t !== 'start' && e.t !== 'end') continue;
+    if (e.at < range.from) continue;
+    if (e.at >= range.to) break;
+    if (SKELETON_ELEMENTS.has(e.name)) return e.at;
+  }
+  return null;
 }
 
 /**

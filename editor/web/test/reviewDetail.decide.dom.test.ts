@@ -677,6 +677,23 @@ describe('ReviewDetail の最終確定', () => {
     expect(repo.approveReview).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['REVIEW_BASE_CHANGED', '申請の後で確定版が変わりました。申請し直してもらってください'],
+    [
+      'REVIEW_NOT_REVIEWABLE',
+      'この申請は今の検査を通らないため承認できません。申請し直してもらってください',
+    ],
+  ])('最終確定が %s の 409 なら、申請し直しを求める文言を 1 つだけ出す', async (code, text) => {
+    repo.approveReview.mockResolvedValue(err(appError('conflict', 'サーバの文言', { code })));
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(toast).mock.calls).toEqual([[text, 'error']]);
+    expect(vi.mocked(toastError)).not.toHaveBeenCalled();
+    expect(w.emitted('decided')).toBeUndefined();
+  });
+
   it('最終確定のほかの失敗は今の文言のまま', async () => {
     repo.approveReview.mockResolvedValue(
       err(appError('internal', '承認の反映に失敗しました。時間をおいて再度お試しください。')),

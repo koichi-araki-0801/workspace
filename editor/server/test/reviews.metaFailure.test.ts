@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 // config を import する前に一時ディレクトリへ向ける。
@@ -61,9 +62,13 @@ d('review approve — meta 更新の部分失敗', () => {
   // 変わったパーツ(`p#1`)の判定が揃わないと最終確定できないので、申請と同時に承認しておく。
   const submit = async (templateId: string, html: string) => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'filled', `${templateId}.html`), '<p>既存の値入り</p>', 'utf8');
+    fs.writeFileSync(
+      path.join(tmp, 'filled', `${templateId}.html`),
+      filledDoc('<p>既存の値入り</p>'),
+      'utf8',
+    );
     const meta = await reviews.submitReview(
-      { templateId, html, css: '.x{}', origin: 'edit' },
+      { templateId, html: filledDoc(html), css: '.x{}', origin: 'edit' },
       submitter,
     );
     await reviews.updatePartDecisions(

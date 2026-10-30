@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   duplicateReviewMessage,
   formatDateTimeYmdHm,
+  REVIEW_BASE_CHANGED_MESSAGE,
+  REVIEW_NOT_REVIEWABLE_MESSAGE,
+  reviewResubmitMessage,
   toReviewMeta,
   toReviewResponse,
 } from '../src/domain/review.js';
@@ -199,5 +202,14 @@ describe('toReviewMeta / toReviewResponse — 承認画面の本文', () => {
     const res = toReviewResponse(stored);
     expect(res.renderedHtml).toBe('<p>描いた本文</p>');
     expect(res).not.toHaveProperty('cssBaseline');
+  });
+});
+
+describe('reviewResubmitMessage', () => {
+  it('申請し直しを求める 409 の code だけに文言を返す', () => {
+    expect(reviewResubmitMessage('REVIEW_BASE_CHANGED')).toBe(REVIEW_BASE_CHANGED_MESSAGE);
+    expect(reviewResubmitMessage('REVIEW_NOT_REVIEWABLE')).toBe(REVIEW_NOT_REVIEWABLE_MESSAGE);
+    expect(reviewResubmitMessage('REVIEW_ALREADY_DECIDED')).toBeNull();
+    expect(reviewResubmitMessage(undefined)).toBeNull();
   });
 });

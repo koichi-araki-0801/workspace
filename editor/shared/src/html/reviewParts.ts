@@ -225,6 +225,35 @@ function bodyRangeOf(html: string, tokens: readonly HtmlToken[]): BodyRange {
   return { from: start.end, to: end.start };
 }
 
+/**
+ * 文書の本文の範囲(最初の `<body …>` の直後から、最後の `</body>` の手前まで)。タグの読み方は
+ * `extractBodyUnits` と同じ走査器(コメント・raw text・引用符付きの属性値の中は数えない)。body の
+ * 無い断片は入力全体(`hasBody: false`)。開始・終了の片方だけ、終了が開始より前の入力は `validation`。
+ *
+ * `extractBodyUnits` と違い、body が 2 つ以上あっても止めない(外側だけを決める)。本文の中の
+ * 2 個目の `<body>` は、呼び手(`documentFrame.ts`)が骨格のタグとして別の文言で止める。
+ */
+export function documentBodyRange(html: string): { from: number; to: number; hasBody: boolean } {
+  if (html.length > MAX_REVIEW_PART_SCAN_CHARS) {
+    throw validation(
+      `承認対象のHTMLが大きすぎます(${html.length}文字 > 上限${MAX_REVIEW_PART_SCAN_CHARS})`,
+    );
+  }
+  const tokens = tokenizeHtml(html);
+  const isBody = (token: HtmlToken, kind: HtmlToken['kind']) =>
+    token.kind === kind && token.name === 'body';
+  const start = tokens.find((token) => isBody(token, 'start'));
+  let end: HtmlToken | undefined;
+  for (let i = tokens.length - 1; i >= 0 && end === undefined; i--) {
+    if (isBody(tokens[i] as HtmlToken, 'end')) end = tokens[i];
+  }
+  if (start === undefined && end === undefined) return { from: 0, to: html.length, hasBody: false };
+  if (start === undefined || end === undefined || end.start < start.end) {
+    throw validation('HTMLのbody境界を確認できません');
+  }
+  return { from: start.end, to: end.start, hasBody: true };
+}
+
 /** 開始タグの属性を属性名から取得する。重複時は先に現れた値を使用する。 */
 function attributesOf(html: string, token: HtmlToken): Map<string, string | null> {
   const attributes = new Map<string, string | null>();

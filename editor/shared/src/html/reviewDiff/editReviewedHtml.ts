@@ -15,7 +15,7 @@
 // ときだけ対応するとみなす。合わなければ書かずに 409 を返す(申請し直してもらう)。
 /// <reference lib="dom" />
 
-import { conflict, validation } from '../../errors.js';
+import { conflict, REVIEW_BASE_CHANGED, validation } from '../../errors.js';
 import {
   type BodyUnitRange,
   type CreateReviewPartDecision,
@@ -157,7 +157,7 @@ export function buildEditReviewedHtml(
     throw conflict(
       '申請の後に現行版が変わったため、却下したパーツを申請時点の版へ戻して確定できません。' +
         '最新の現行版から申請し直してください。',
-      { code: 'REVIEW_BASE_CHANGED' },
+      { code: REVIEW_BASE_CHANGED },
     );
   }
 

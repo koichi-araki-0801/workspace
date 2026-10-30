@@ -169,6 +169,20 @@ describe('useReviewDecisions', () => {
     expect(toastFn).toHaveBeenCalledWith(text, 'error');
   });
 
+  it.each([
+    ['REVIEW_BASE_CHANGED', '申請の後で確定版が変わりました。申請し直してもらってください'],
+    [
+      'REVIEW_NOT_REVIEWABLE',
+      'この申請は今の検査を通らないため承認できません。申請し直してもらってください',
+    ],
+  ])('code が %s の 409 は、申請し直しを求める文言を出す', async (code, text) => {
+    const { d, reload } = setup(err(appError('conflict', 'x', { code })));
+    expect(await d.approve(['a#1'])).toBe(false);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(toastFn).toHaveBeenCalledWith(text, 'error');
+    expect(toastFn).not.toHaveBeenCalledWith('パーツ判定の保存に失敗しました。', 'error');
+  });
+
   it('code の無い 409 は保存の失敗として扱う', async () => {
     const { d, reload } = setup(err(appError('conflict', 'x')));
     expect(await d.approve(['a#1'])).toBe(false);

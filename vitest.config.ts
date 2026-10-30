@@ -69,6 +69,8 @@ export default defineConfig({
         'editor/shared/src/jinja/reviewableSource.ts',
         'editor/shared/src/jinja/revealExpr.ts',
         'editor/shared/src/jinja/createReviewRender.ts',
+        // 本文の外側の固定(両経路の受付と承認)。緩むと、承認画面に出ない head や body の属性を通す。
+        'editor/shared/src/html/documentFrame.ts',
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/partHtmlCompare.ts',
         'editor/shared/src/html/rawText.ts',

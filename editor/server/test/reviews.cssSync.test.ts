@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 
 /**
  * `readTemplateCss` の呼び出しごとの結果の予定(先頭から消費し、空なら本物を読む)。'fail' は
@@ -72,14 +73,14 @@ d('承認とペアの CSS 転写', () => {
   it('値入り HTML の承認で変わった CSS 規則が全体版の CSS へ写る', {
     timeout: 60_000,
   }, async () => {
-    put('filled', 'XX01_580000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'XX01_580000_20240710_全体版.html', '<p>全体</p>');
+    put('filled', 'XX01_580000_20240710_交付版.html', filledDoc('<p>交付</p>'));
+    put('filled', 'XX01_580000_20240710_全体版.html', filledDoc('<p>全体</p>'));
     put('css', 'XX01_580000_交付版.css', '.a{color:red}\n.b{color:blue}');
     put('css', 'XX01_580000_全体版.css', '.a{color:red}\n.b{color:navy}');
     const meta = await reviews.submitReview(
       {
         templateId: 'XX01_580000_20240710_交付版',
-        html: '<p>交付</p>',
+        html: filledDoc('<p>交付</p>'),
         css: '.a{color:green}\n.b{color:blue}',
         cssBaseline: '.a{color:red}\n.b{color:blue}',
         origin: 'edit',
@@ -96,14 +97,14 @@ d('承認とペアの CSS 転写', () => {
   it('承認の直前の CSS を読めなくても承認は成立し、CSS の転写だけを飛ばす', {
     timeout: 60_000,
   }, async () => {
-    put('filled', 'XX01_581000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'XX01_581000_20240710_全体版.html', '<p>全体</p>');
+    put('filled', 'XX01_581000_20240710_交付版.html', filledDoc('<p>交付</p>'));
+    put('filled', 'XX01_581000_20240710_全体版.html', filledDoc('<p>全体</p>'));
     put('css', 'XX01_581000_交付版.css', '.a{color:red}');
     put('css', 'XX01_581000_全体版.css', '.a{color:red}');
     const meta = await reviews.submitReview(
       {
         templateId: 'XX01_581000_20240710_交付版',
-        html: '<p>交付</p>',
+        html: filledDoc('<p>交付</p>'),
         css: '.a{color:green}',
         cssBaseline: '.a{color:red}',
         origin: 'edit',
@@ -128,12 +129,12 @@ d('承認とペアの CSS 転写', () => {
   it('baseline は申請本体として保存して承認で読み、一覧のメタにも単件の取得にも載せない', {
     timeout: 60_000,
   }, async () => {
-    put('filled', 'XX01_582000_20240710_交付版.html', '<p>交付</p>');
+    put('filled', 'XX01_582000_20240710_交付版.html', filledDoc('<p>交付</p>'));
     put('css', 'XX01_582000_交付版.css', '.a{color:red}');
     const meta = await reviews.submitReview(
       {
         templateId: 'XX01_582000_20240710_交付版',
-        html: '<p>交付</p>',
+        html: filledDoc('<p>交付</p>'),
         css: '.a{color:green;}',
         cssBaseline: '.a{color:red;}',
         origin: 'edit',
@@ -154,14 +155,14 @@ d('承認とペアの CSS 転写', () => {
   }, async () => {
     const { logger } = await import('../src/logger.js');
     const warn = vi.spyOn(logger, 'warn');
-    put('filled', 'XX01_583000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'XX01_583000_20240710_全体版.html', '<p>全体</p>');
+    put('filled', 'XX01_583000_20240710_交付版.html', filledDoc('<p>交付</p>'));
+    put('filled', 'XX01_583000_20240710_全体版.html', filledDoc('<p>全体</p>'));
     put('css', 'XX01_583000_交付版.css', '.a{color:red}');
     put('css', 'XX01_583000_全体版.css', '.a{color:red}');
     const meta = await reviews.submitReview(
       {
         templateId: 'XX01_583000_20240710_交付版',
-        html: '<p>交付</p>',
+        html: filledDoc('<p>交付</p>'),
         css: '.a{color:green}',
         origin: 'edit',
       },
@@ -195,14 +196,14 @@ d('承認とペアの CSS 転写', () => {
   }, async () => {
     // 並びの中の重複(.a, .a)は展開しないので、編集画面の書き出し(.a が 2 つ)のキーと合わない。
     const raw = '.a, .a{color:red}\n.c{color:red}\n';
-    put('filled', 'XX01_584000_20240710_交付版.html', '<p>交付</p>');
-    put('filled', 'XX01_584000_20240710_全体版.html', '<p>全体</p>');
+    put('filled', 'XX01_584000_20240710_交付版.html', filledDoc('<p>交付</p>'));
+    put('filled', 'XX01_584000_20240710_全体版.html', filledDoc('<p>全体</p>'));
     put('css', 'XX01_584000_交付版.css', raw);
     put('css', 'XX01_584000_全体版.css', raw);
     const meta = await reviews.submitReview(
       {
         templateId: 'XX01_584000_20240710_交付版',
-        html: '<p>交付</p>',
+        html: filledDoc('<p>交付</p>'),
         css: '.a{color:red}\n.a{color:blue}\n.c{color:red}\n',
         cssBaseline: '.a{color:red}\n.a{color:red}\n.c{color:red}\n',
         origin: 'edit',
