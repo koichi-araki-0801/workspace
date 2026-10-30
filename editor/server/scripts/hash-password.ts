@@ -5,6 +5,10 @@
  * time to (re)generate `server/db/seed/管理ユーザー.sql` with 0x VARBINARY
  * literals. Idempotent INSERT (IF NOT EXISTS on ログインID).
  *
+ * `管理ユーザー.sql` はリポジトリに置かない(`editor/.gitignore`)。以前は admin のハッシュを追跡して
+ * いて、生成せずに流すと既知のパスワードの管理者ができた。同じ事故を作らせないため、短い・
+ * ログインIDと同じ・既知のパスワードは書き出さずに止める(`seedPasswordProblem`)。
+ *
  * Usage:
  *   tsx server/scripts/hash-password.ts <ログインID> <パスワード> [表示名] [ロール] [出力先.sql]
  *   tsx server/scripts/hash-password.ts admin 'S3cret!' 管理者 admin
@@ -15,7 +19,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hashPassword } from '../src/auth/password.js';
+import { hashPassword, seedPasswordProblem } from '../src/auth/password.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +29,11 @@ if (!loginId || !password) {
   console.error(
     'usage: tsx hash-password.ts <ログインID> <パスワード> [表示名] [ロール] [出力先.sql]',
   );
+  process.exit(1);
+}
+const weak = seedPasswordProblem(loginId, password);
+if (weak) {
+  console.error(`[hash-password] ${weak}`);
   process.exit(1);
 }
 if (!['admin', 'approver', 'editor', 'viewer'].includes(role)) {

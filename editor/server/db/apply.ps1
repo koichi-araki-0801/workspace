@@ -15,6 +15,9 @@
 #
 #  管理ユーザー seed は事前に生成しておく(平文を SQL に残さないため):
 #    corepack pnpm --filter server exec tsx scripts/hash-password.ts <id> <pw> <表示名> admin
+#  seed/管理ユーザー.sql はリポジトリに置かない(git は無視する)。以前はパスワードが admin の
+#  ハッシュを追跡しており、生成せずに流すと既知のパスワードの管理者ができた。seed を流すときに
+#  このファイルが無ければ、何も流す前に止める。
 # =============================================================================
 param(
   [Parameter(Mandatory = $true)][string]$Server,
@@ -28,6 +31,10 @@ function Invoke-SqlFile([System.IO.FileInfo]$file) {
   Write-Host "[apply] $($file.Directory.Name)/$($file.Name)"
   & sqlcmd -S $Server -d $Database -E -b -f 65001 -i $file.FullName
   if ($LASTEXITCODE -ne 0) { throw "sqlcmd failed: $($file.Name)" }
+}
+
+if (-not $SkipSeed -and -not (Test-Path -LiteralPath (Join-Path $root 'seed\管理ユーザー.sql'))) {
+  throw '管理ユーザーの seed がありません。先に hash-password.ts で作ってください(手順は server\db\README.md)。seed を流さないなら -SkipSeed を付けてください。'
 }
 
 $dirs = if ($SkipSeed) { @('ddl', 'sproc') } else { @('ddl', 'sproc', 'seed') }

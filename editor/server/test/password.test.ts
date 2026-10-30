@@ -5,7 +5,12 @@
 // (同期版はイベントループを塞ぐため復活させない)。(2) 一時パスワードは推測不能で、
 // ログインID から導出されない — 導出すると ID を知る者が未活性アカウントへ入れてしまう。
 import { describe, expect, it } from 'vitest';
-import { generateTemporaryPassword, hashPassword, verifyPassword } from '../src/auth/password.js';
+import {
+  generateTemporaryPassword,
+  hashPassword,
+  seedPasswordProblem,
+  verifyPassword,
+} from '../src/auth/password.js';
 
 // 既定の 12 万回反復は 1 件 100ms 規模なので、単体テストでは反復数を絞って回す
 // (反復数は行ごとに保存され検証時も同じ値を使うため、機能的な差は無い)。
@@ -61,5 +66,24 @@ describe('generateTemporaryPassword', () => {
   it('never repeats across calls (CSPRNG, not a derived constant)', () => {
     const issued = new Set(Array.from({ length: 200 }, () => generateTemporaryPassword()));
     expect(issued.size).toBe(200);
+  });
+});
+
+describe('seedPasswordProblem', () => {
+  // 管理ユーザーの seed を作る `hash-password.ts` が使う。以前はパスワードが admin のハッシュを
+  // リポジトリに置いていたので、同じ既知の値で作り直させない。
+  it.each([
+    ['admin', 'admin'],
+    ['admin', 'Admin'],
+    ['root', 'password'],
+    ['tanaka', 'TANAKA'],
+    ['admin', 'short7!'],
+    ['admin', '        '],
+  ])('ログインID=%s・パスワード=%s は拒む', (loginId, password) => {
+    expect(seedPasswordProblem(loginId, password)).not.toBeNull();
+  });
+
+  it('長さが足りてログインIDとも既知の値とも違えば通す', () => {
+    expect(seedPasswordProblem('admin', 'Kq7#mZ2p')).toBeNull();
   });
 });

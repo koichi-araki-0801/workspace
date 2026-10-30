@@ -140,13 +140,15 @@ test('offline は ci:offline (Pester) を起動する', () => {
 });
 
 test('classifyChanges: editor のパッチ・scripts の .ps1 / .bat は editor と offline の両方', () => {
-  // `ci:offline` がパッチと init-data-repo の Pester を走らせる。editor 領域だけに落ちると
+  // `ci:offline` がパッチ・init-data-repo・DB 適用の Pester を走らせる。editor 領域だけに落ちると
   // vitest / e2e は PowerShell を実行しないので、Pester が一度も走らない。
   for (const p of [
     'editor/patches/example/apply.ps1',
     'editor/patches/example/apply.Tests.ps1',
     'editor/scripts/init-data-repo.ps1',
     'editor/scripts/init-data-repo.bat',
+    'editor/server/db/apply.ps1',
+    'editor/server/db/apply.Tests.ps1',
   ]) {
     assert.deepEqual(classifyChanges([p]).areas, ['editor', 'offline'], p);
   }

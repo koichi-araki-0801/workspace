@@ -12,6 +12,7 @@
 // 併せて到達回数そのものを `loginRateLimit.ts` が絞る(CPU 予算の上限を決める)。
 import { pbkdf2, randomBytes, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { PASSWORD_MIN_LENGTH } from '@editor/shared';
 
 const pbkdf2Async = promisify(pbkdf2);
 
@@ -74,4 +75,23 @@ export async function verifyPassword(
   if (!hash || !salt || !iterations) return false;
   const candidate = await pbkdf2Async(password, salt, iterations, hash.length, DIGEST);
   return candidate.length === hash.length && timingSafeEqual(candidate, hash);
+}
+
+/**
+ * 公開されている、または推測の容易な初期パスワード。以前リポジトリに置いていた管理ユーザーの seed は
+ * `admin` のハッシュだったので、同じ値で作り直させない。
+ */
+const KNOWN_SEED_PASSWORDS = new Set(['admin', 'password']);
+
+/**
+ * 管理ユーザーの seed(`scripts/hash-password.ts`)に使えないパスワードなら理由を返す。長さは画面の
+ * 変更と同じ `PASSWORD_MIN_LENGTH` を空白を除いて測り、ログインIDと同じもの・既知の値は大小を問わず拒む。
+ */
+export function seedPasswordProblem(loginId: string, password: string): string | null {
+  if (password.trim().length < PASSWORD_MIN_LENGTH)
+    return `パスワードは ${PASSWORD_MIN_LENGTH} 文字以上にしてください`;
+  const lower = password.toLowerCase();
+  if (lower === loginId.toLowerCase()) return 'ログインIDと同じパスワードは使えません';
+  if (KNOWN_SEED_PASSWORDS.has(lower)) return '推測されやすいパスワードは使えません';
+  return null;
 }
