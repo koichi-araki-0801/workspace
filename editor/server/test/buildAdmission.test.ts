@@ -142,16 +142,18 @@ describe('withBuildSlot with poolSize <= 0 (spawn fallback)', () => {
       started += 1;
       await head.promise;
       return 'a';
-    });
+    }, 'user-a');
     const b = withBuildSlot(async () => {
       started += 1;
       return 'b';
-    });
+    }, 'user-b');
     await tick();
     // 2 本目は行列(`VIVLIO_BUILD_MAX_QUEUE=1`)で待っており、まだ何も準備していない。
     expect(started).toBe(1);
     // 3 本目は満杯なので即断る(プール経路と同じ文言)。
-    await expect(withBuildSlot(async () => 'c')).rejects.toThrow(BUILD_QUEUE_FULL_MESSAGE);
+    await expect(withBuildSlot(async () => 'c', 'user-c')).rejects.toThrow(
+      BUILD_QUEUE_FULL_MESSAGE,
+    );
     expect(started).toBe(1);
 
     head.resolve();

@@ -507,6 +507,14 @@ export const config = {
   vivliostyle: {
     /** ライブプレビューサーバのライフサイクル(`previewManager.ts` 参照)。 */
     preview: {
+      /**
+       * 外部向けライブプレビュー API(`/api/preview` と `/api/preview/:id*`)を開くか。既定は
+       * off(404)。viewer は文書の `<script src>` を自分の head に作り直して app のオリジンで
+       * 動かすため、他人の作った zip や誘われた URL を開くだけで、開いた人のセッションで
+       * 文書の script が動く。SPA と e2e はこの経路を使わない(画面内プレビューは
+       * `/api/preview-host/*` で、この設定の対象外)。
+       */
+      enabled: envFlag('VIVLIO_PREVIEW_ENABLED', process.env.VIVLIO_PREVIEW_ENABLED) ?? false,
       /** Vite preview サーバの loopback bind。Fastify がここへ proxy する。 */
       host: process.env.VIVLIO_PREVIEW_HOST ?? '127.0.0.1',
       /** proxy トラフィックがこのミリ秒数だけ無いと preview セッションを自動 close する。 */

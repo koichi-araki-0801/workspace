@@ -13,6 +13,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 // 中継の許可リストだけを見るテストで、認証は本題ではない(`vivliostyleRoutes` の
 // `requireAuth` を no-op にする)。config を import する前に設定する。
 process.env.AUTH_REQUIRED = 'false';
+// 外部向けライブプレビューは既定 off(404)。中継の許可リストを見るため有効にする。
+process.env.VIVLIO_PREVIEW_ENABLED = 'true';
 
 /** 上流(実 Vite の代役)が受け取った `req.url`。空のままなら 1 件も転送されていない。 */
 const upstreamHits: string[] = [];

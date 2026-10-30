@@ -8,6 +8,7 @@ import { DOC_DIR } from '@editor/shared';
 import { config } from '../config.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { BuildAdmissionGate } from './buildAdmission.js';
+import { PerUserBuildGate } from './buildUserQuota.js';
 import { buildWorkerPool, killProcessTree } from './buildWorkerServer.js';
 import { stageDocAssets } from './docAssets.js';
 import { collectDocumentAssetRefs } from './docRefs.js';
@@ -24,6 +25,9 @@ import { makeWorkDir } from './workDir.js';
 /** PDF 生成失敗時に投げる Error の前置き(原因は cause として stderr/timeout を連結する)。 */
 const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
 
+/** PDF 出力の人ごとの受付(プロセスで 1 つ。`withBuildSlot` を見よ)。 */
+const PER_USER_GATE = new PerUserBuildGate();
+
 /**
  * ワーカー枠を確保してから `fn` を走らせる。`fn` は受け取った `runBuild` で 1 回だけ組版する。
  *
@@ -36,12 +40,29 @@ const PDF_BUILD_FAILED = 'PDFの生成に失敗しました';
  * (計測 ~11s)をプロセス使い回しで 1 度きりにする。`config.vivliostyle.build.poolSize <= 0` の
  * ときは「ジョブ毎 spawn」(`runBuildWorkerSpawn`)へフォールバックする(安全弁)。
  * フォールバックも `SPAWN_FALLBACK_GATE` で受付制御を受ける(`buildAdmission.ts`)。
+ *
+ * 共有の枠の手前で、`user`(ログイン ID。無認証モードは `@local`)ごとの上限
+ * (実行中 1・待ち 1。`buildUserQuota.ts`)を掛ける。ここに置くのは、ビルド・結合・
+ * プロジェクト・プレビューの展開のすべてと、プール経路・フォールバックの両方が通る層だから。
  */
 export function withBuildSlot<T>(
   fn: (runBuild: (buildOptions: unknown) => Promise<void>) => Promise<T>,
+  user: string,
 ): Promise<T> {
-  if (config.vivliostyle.build.poolSize <= 0) return withSpawnFallbackSlot(fn);
-  return buildWorkerPool.withSlot(fn);
+  return PER_USER_GATE.run(user, () =>
+    config.vivliostyle.build.poolSize <= 0
+      ? withSpawnFallbackSlot(fn)
+      : buildWorkerPool.withSlot(fn),
+  );
+}
+
+/**
+ * `user` の PDF 出力の実行中と待ちの合計。上限と、どの終わり方でも数が戻ることをテストから
+ * 確かめるために公開する。
+ * @public
+ */
+export function buildLoadOf(user: string): number {
+  return PER_USER_GATE.load(user);
 }
 
 /**
@@ -164,7 +185,7 @@ interface BuildInlineInput {
  * レンダリング済み HTML(+ 任意の CSS)から `@vivliostyle/cli` で PDF を生成する。
  * CSS は vivliostyle へ渡す前に HTML へインライン展開する。
  */
-export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
+export async function buildInlinePdf(input: BuildInlineInput, user: string): Promise<Buffer> {
   // リクエスト CSS は入口で 1 回だけ付け替える(`requestCss.ts`)。検査は付け替え後の CSS に
   // 対して行う — 実際に文書へ入る形を見る(fail closed)。
   const doc = { ...input, css: rebaseRequestCss(input.css) };
@@ -173,7 +194,7 @@ export async function buildInlinePdf(input: BuildInlineInput): Promise<Buffer> {
   // 枠の確保より前に置くのは、拒否すべき入力を行列へ並ばせないため(同期の文字列検査で、
   // 資源は 1 つも握らない)。
   assertNoDocumentExternalRefs(doc.html, doc.css, 'build.inline');
-  return withBuildSlot((runBuild) => buildInlineInSlot(doc, runBuild));
+  return withBuildSlot((runBuild) => buildInlineInSlot(doc, runBuild), user);
 }
 
 /** 枠を確保した状態で inline ビルドを行う(資源の確保はすべてこの中)。 */
@@ -306,10 +327,13 @@ export async function buildProjectInSlot(
  * 実体化は `mergeInput.ts` が担い、ビルド自体は既存の `buildProjectInSlot`(config 経路)へ
  * 委譲する — worker/daemon は build オプションを無検査で CLI へ渡すため変更不要。
  */
-export async function buildMergedPdf(input: {
-  documents: MergeDocument[];
-  size?: string;
-}): Promise<Buffer> {
+export async function buildMergedPdf(
+  input: {
+    documents: MergeDocument[];
+    size?: string;
+  },
+  user: string,
+): Promise<Buffer> {
   // 文書ごとのリクエスト CSS を入口で 1 回だけ付け替える(`requestCss.ts`)。
   const documents = input.documents.map((d) => ({ ...d, css: rebaseRequestCss(d.css) }));
   // 結合は文書毎に実体化されるので、実体化の**前**に全文書を検査する
@@ -330,7 +354,7 @@ export async function buildMergedPdf(input: {
     } finally {
       await cleanupProject(dir);
     }
-  });
+  }, user);
 }
 
 /**

@@ -1,7 +1,7 @@
 ---
 audience: spec
 title: Editor 仕様一覧（画面項目 / 入出力 / DB / テスト）
-version: "2.6"
+version: "2.7"
 rev:
   - 1.0 | 2026-08-02 | 初版
   - 1.1 | 2026-08-15 | 実装との突合（ロール approver・REST ルート全列挙・sproc 7 本・注記マスタ）
@@ -20,6 +20,7 @@ rev:
   - 2.4 | 2026-10-29 | 作成経路の申請は Jinja 原文のパーツを読めない（パーツ識別子に Jinja がある）と 400（API 38）
   - 2.5 | 2026-10-29 | 作成経路の申請は値入り HTML（filledHtml）が無い・原文と値入りのパーツの構造が合わないときも 400（API 38）
   - 2.6 | 2026-10-29 | 作成経路の申請で filledHtml が空のときの 400 の文言を分ける（API 38）
+  - 2.7 | 2026-10-30 | PDF 出力の人ごとの上限（503 BUILD_BUSY_USER）、外部向けライブプレビュー API の既定無効と admin の例外の撤去（REST の表 25〜31）
 ---
 
 対象: 運報自動化 Editor（rest モード: REST + SQL Server）／ 版 2.6 ／ 出典: editor/ 実装コード・DDL・テスト
@@ -75,13 +76,13 @@ rev:
 | 22 | `POST` | `/templates/:templateId/part-history` | editor | RecordPartChangeRequest | 204（パーツ変更の記録） |
 | 23 | `GET` | `/templates/:templateId/notes` | ○ | templateId | パーツ単位メモ一覧 |
 | 24 | `PUT` | `/templates/:templateId/notes` | editor | SaveNoteRequest（pathKey, content。空文字＝削除） | 204 |
-| 25 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc（受け付けるが無視する）） | PDF（vivliostyle） |
-| 26 | `POST` | `/build/project` | editor | プロジェクト zip | PDF |
-| 27 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents = html/css の配列, size?） | PDF（複数文書を結合・通しページ番号） |
-| 28 | `GET` | `/preview` | ○ | — | 稼働中プレビューセッション一覧（自分の分のみ） |
-| 29 | `POST` | `/preview` | editor | inline JSON（html, css）またはプロジェクト zip | プレビューセッション開始 |
-| 30 | `GET` | `/preview/:id`（`/*` 配下を含む） | ○ | id | プレビュー（reverse proxy） |
-| 31 | `DELETE` | `/preview/:id` | editor | id | 204（セッション終了） |
+| 25 | `POST` | `/build` | ○ | BuildInlineRequest（html, css, size, singleDoc（受け付けるが無視する）） | PDF（vivliostyle）。同じ利用者の PDF 出力（25〜27 と 29 の zip の展開）が実行中 1 件・待ち 1 件を超えたら 503（code BUILD_BUSY_USER「前の PDF の出力が終わってから、もう一度出してください」） |
+| 26 | `POST` | `/build/project` | editor | プロジェクト zip | PDF。人ごとの上限は 25 と同じ |
+| 27 | `POST` | `/build/merge` | ○ | BuildMergeRequest（documents = html/css の配列, size?） | PDF（複数文書を結合・通しページ番号）。人ごとの上限は 25 と同じ |
+| 28 | `GET` | `/preview` | ○ | — | 稼働中プレビューセッション一覧（自分の分のみ）。既定は無効で、設定 VIVLIO_PREVIEW_ENABLED が真のときだけ使える（無効なら 404）。本人のセッションだけを扱い、admin にも例外は無い |
+| 29 | `POST` | `/preview` | editor | inline JSON（html, css）またはプロジェクト zip | プレビューセッション開始。既定は無効で、設定 VIVLIO_PREVIEW_ENABLED が真のときだけ使える（無効なら 404）。本人のセッションだけを扱い、admin にも例外は無い。zip の展開は 25 の人ごとの上限に数える |
+| 30 | `GET` | `/preview/:id`（`/*` 配下を含む） | ○ | id | プレビュー（reverse proxy）。既定は無効で、設定 VIVLIO_PREVIEW_ENABLED が真のときだけ使える（無効なら 404）。本人のセッションだけを扱い、admin にも例外は無い |
+| 31 | `DELETE` | `/preview/:id` | editor | id | 204（セッション終了）。既定は無効で、設定 VIVLIO_PREVIEW_ENABLED が真のときだけ使える（無効なら 404）。本人のセッションだけを扱い、admin にも例外は無い |
 | 32 | `GET` | `/history/edit` | ○ | — | 編集履歴一覧 |
 | 33 | `GET` | `/history/pdf` | ○ | — | PDF出力履歴一覧 |
 | 34 | `POST` | `/history/pdf` | ○ | RecordPdfExportRequest | 204（PDF 出力の記録） |

@@ -110,7 +110,7 @@ afterAll(() => {
 
 describe('buildInlinePdf — 作業フォルダの形', () => {
   it('文書は doc/index.html、参照された資産は doc/ の兄弟に置き、CLI へは configData で渡す', async () => {
-    await build.buildInlinePdf({ html: HTML });
+    await build.buildInlinePdf({ html: HTML }, 'tester');
     expect(runs).toHaveLength(1);
     const [run] = runs;
     // 単一入力(`input`)はエントリの親(doc/)を配信ルートにするので使わない。
@@ -138,12 +138,12 @@ describe('buildInlinePdf — 作業フォルダの形', () => {
   });
 
   it('会社フォルダの画像も参照の綴りで images/ の 1 段下に置く(実フォルダは XXAM)', async () => {
-    await build.buildInlinePdf({ html: HTML });
+    await build.buildInlinePdf({ html: HTML }, 'tester');
     expect(runs[0].files).toContain('images/xxam/qr.svg');
   });
 
   it('実体のある <link> は残し、実体の無い文書直下基準の <link> は落とし、JS は展開する', async () => {
-    await build.buildInlinePdf({ html: HTML });
+    await build.buildInlinePdf({ html: HTML }, 'tester');
     const doc = runs[0].docs['doc/index.html'];
     expect(doc).toContain('<link rel="stylesheet" href="../css/A_1_交付版.css">');
     expect(doc).not.toContain('href="css/x.css"');
@@ -152,17 +152,20 @@ describe('buildInlinePdf — 作業フォルダの形', () => {
   });
 
   it('リクエスト CSS は doc/ から見た形へ付け替えて埋め、その参照先も置く', async () => {
-    await build.buildInlinePdf({
-      html: '<html><head></head><body>x</body></html>',
-      css: '@font-face{font-family:G;src:url(fonts/G.woff2)}',
-    });
+    await build.buildInlinePdf(
+      {
+        html: '<html><head></head><body>x</body></html>',
+        css: '@font-face{font-family:G;src:url(fonts/G.woff2)}',
+      },
+      'tester',
+    );
     const [run] = runs;
     expect(run.docs['doc/index.html']).toContain('url("../css/fonts/G.woff2")');
     expect(run.files).toContain('css/fonts/G.woff2');
   });
 
   it('size は config に載せ、singleDoc は CLI へ渡さない(entry 1 本の config は既に単一文書)', async () => {
-    await build.buildInlinePdf({ html: HTML, size: 'B5', singleDoc: true });
+    await build.buildInlinePdf({ html: HTML, size: 'B5', singleDoc: true }, 'tester');
     const [run] = runs;
     expect((run.options.configData as { size?: string }).size).toBe('B5');
     expect(run.options).not.toHaveProperty('singleDoc');
@@ -179,7 +182,10 @@ describe('buildProjectInSlot — zip の PDF の singleDoc', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doclayout-project-'));
     try {
       fs.writeFileSync(path.join(dir, 'index.html'), HTML);
-      await build.withBuildSlot((run) => build.buildProjectInSlot({ dir, ...input }, run));
+      await build.withBuildSlot(
+        (run) => build.buildProjectInSlot({ dir, ...input }, run),
+        'tester',
+      );
       return runs[runs.length - 1].options;
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -240,7 +246,7 @@ describe('結合 — doc/doc-NNN.html', () => {
   });
 
   it('buildMergedPdf は configData の entry を doc/ 配下で渡す', async () => {
-    await build.buildMergedPdf({ documents: [{ html: HTML, css: '' }] });
+    await build.buildMergedPdf({ documents: [{ html: HTML, css: '' }] }, 'tester');
     const [run] = runs;
     expect((run.options.configData as { entry: string[] }).entry).toEqual(['doc/doc-000.html']);
     expect(run.files).toEqual(expect.arrayContaining(['doc/doc-000.html', 'css/A_1_交付版.css']));

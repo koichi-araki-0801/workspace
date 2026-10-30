@@ -92,7 +92,9 @@ afterAll(() => {
 describe('作業フォルダの後始末', () => {
   it('inline build で egress の予約に失敗しても作業フォルダを残さない', async () => {
     reserve.fail = true;
-    await expect(build.buildInlinePdf({ html: '<p>x</p>' })).rejects.toThrow('port pick failed');
+    await expect(build.buildInlinePdf({ html: '<p>x</p>' }, 'tester')).rejects.toThrow(
+      'port pick failed',
+    );
     expect(leftovers('vivlio-inline-')).toEqual([]);
   });
 
@@ -106,7 +108,7 @@ describe('作業フォルダの後始末', () => {
 
 describe('ページサイズの既定は A4', () => {
   it('結合 build で size を省くと config の size は A4', async () => {
-    await build.buildMergedPdf({ documents: [{ html: '<p>x</p>', css: '' }] });
+    await build.buildMergedPdf({ documents: [{ html: '<p>x</p>', css: '' }] }, 'tester');
     expect((runs[0].options.configData as { size?: string }).size).toBe('A4');
   });
 
@@ -153,11 +155,13 @@ describe('buildProjectInSlot — config の置き場', () => {
     try {
       fs.mkdirSync(cwd);
       fs.writeFileSync(path.join(cwd, 'index.html'), '<p>x</p>');
-      await build.withBuildSlot((run) =>
-        build.buildProjectInSlot(
-          { dir, cwd, config: { entry: 'index.html', base: '/vivliostyle' } },
-          run,
-        ),
+      await build.withBuildSlot(
+        (run) =>
+          build.buildProjectInSlot(
+            { dir, cwd, config: { entry: 'index.html', base: '/vivliostyle' } },
+            run,
+          ),
+        'tester',
       );
       const options = runs[runs.length - 1].options;
       expect(options.cwd).toBe(cwd);

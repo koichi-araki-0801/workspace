@@ -142,6 +142,10 @@ export default defineConfig({
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // プール非経由(`poolSize <= 0`)のフォールバックにも同じ受付制御を効かせる層。
         'editor/server/src/vivliostyle/buildAdmission.ts',
+        // PDF 出力の人ごとの上限。1 人で共有の枠を埋めさせない層なので対象へ入れる。
+        'editor/server/src/vivliostyle/buildUserQuota.ts',
+        // ビルド用ワーカーがブラウザへ WebRTC の UDP を止めるフラグを必ず渡す層(起動前の関所)。
+        'editor/server/scripts/browserLaunchGuard.mjs',
         // 資源上限の層。上限そのものと、上限を守るための
         // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
         'editor/server/src/files/atomic.ts',

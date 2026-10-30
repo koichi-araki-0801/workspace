@@ -35,6 +35,25 @@ const ERR_403_EDITOR = { '403': err('編集者権限が必要 (viewer は不可�
 const ERR_404 = { '404': err('対象が存在しない (kind=not_found)') };
 const ERR_409 = { '409': err('競合 (kind=conflict)') };
 const ERR_500 = { '500': err('サーバ内部エラー (kind=unexpected)') };
+/** PDF 出力の人ごとの上限(実行中 1・待ち 1)を超えたときの 503。 */
+const ERR_503_BUILD_BUSY_USER = {
+  '503': err(
+    '同じ利用者の PDF 出力が実行中 1 件・待ち 1 件を超えた ' +
+      '(kind=unexpected, code=BUILD_BUSY_USER)。前の出力が終わってから再実行する',
+  ),
+};
+
+/**
+ * 外部向けライブプレビュー(`/preview` と `/preview/{id}*`)の前置き。既定は無効で、
+ * サーバの設定 `VIVLIO_PREVIEW_ENABLED` を真にしたときだけ使える。
+ */
+const PREVIEW_DISABLED_NOTE =
+  '**既定は無効**で、サーバの設定 `VIVLIO_PREVIEW_ENABLED` が真のときだけ使える' +
+  '(無効のときは認証より前に 404)。セッションは作成した利用者だけが参照・停止でき、' +
+  'admin にも例外は無い。';
+const ERR_404_PREVIEW = {
+  '404': err('対象が存在しない・他人のセッション・プレビューが無効 (kind=not_found)'),
+};
 
 /** 204 No Content レスポンス。 */
 const noContent = (description: string) => ({ description });
@@ -129,8 +148,10 @@ function externalRefContract(requestCssRule: string, scriptRule: string): string
     scriptRule,
     'なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ',
     '中継される(それ以外は宛先が loopback でも 502 で落ちる)。',
-    'ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**(WebRTC の UDP 等)は',
-    'この中継を通らない — そこは残余リスクとして残る。',
+    'ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**はこの中継を通らない。',
+    'WebRTC はプロキシを通らない UDP を使わない設定',
+    '(`--webrtc-ip-handling-policy=disable_non_proxied_udp`)でブラウザを起動する。',
+    'それ以外の HTTP 以外の経路は残余リスクとして残る。',
     '\n\n',
   ].join('');
 }
@@ -788,6 +809,7 @@ export function buildOpenApiDocument() {
             ...ERR_400,
             ...ERR_401,
             ...ERR_500,
+            ...ERR_503_BUILD_BUSY_USER,
           },
         },
       },
@@ -813,6 +835,7 @@ export function buildOpenApiDocument() {
             ...ERR_403_EDITOR,
             '413': err('プロジェクトが大きすぎる (kind=validation)'),
             ...ERR_500,
+            ...ERR_503_BUILD_BUSY_USER,
           },
         },
       },
@@ -834,6 +857,7 @@ export function buildOpenApiDocument() {
             ...ERR_401,
             '413': err('リクエストが大きすぎる (kind=validation)'),
             ...ERR_500,
+            ...ERR_503_BUILD_BUSY_USER,
           },
         },
       },
@@ -842,15 +866,19 @@ export function buildOpenApiDocument() {
           tags: ['vivliostyle'],
           summary: '稼働中のプレビューセッション一覧(自分が作成した分のみ)',
           operationId: 'listPreviews',
-          description:
-            'セッションは作成した利用者に紐づく。admin 以外は自分が作成したセッションだけが返る。',
-          responses: { '200': json('セッション一覧', s.PreviewSessionList), ...ERR_401 },
+          description: `${PREVIEW_DISABLED_NOTE}自分が作成したセッションだけが返る。`,
+          responses: {
+            '200': json('セッション一覧', s.PreviewSessionList),
+            ...ERR_401,
+            '404': err('プレビューが無効 (kind=not_found)'),
+          },
         },
         post: {
           tags: ['vivliostyle'],
           summary: 'ライブプレビューを起動 (inline JSON または project zip)',
           operationId: 'startPreview',
           description:
+            PREVIEW_DISABLED_NOTE +
             'inline は `application/json` (BuildInlineRequest)、project は `application/zip`。' +
             '返却 `url` (`/api/preview/{id}/`) を同一オリジンで開くと vivliostyle ビューアが表示される。' +
             '\n\nzip 経路の受入条件と任意クエリ(`entry` `size` `singleDoc`)は `POST /build/project` と' +
@@ -862,8 +890,13 @@ export function buildOpenApiDocument() {
             ...ERR_400,
             ...ERR_401,
             ...ERR_403_EDITOR,
+            '404': err('プレビューが無効 (kind=not_found)'),
             '413': err('プロジェクト zip が大きすぎる (zip 経路のみ。kind=validation)'),
             ...ERR_500,
+            '503': err(
+              'zip の展開が、同じ利用者の PDF 出力の上限(実行中 1 件・待ち 1 件)を超えた ' +
+                '(zip 経路のみ。kind=unexpected, code=BUILD_BUSY_USER)',
+            ),
           },
         },
       },
@@ -872,21 +905,25 @@ export function buildOpenApiDocument() {
           tags: ['vivliostyle'],
           summary: 'プレビューセッションのメタを取得',
           operationId: 'getPreview',
-          description: '他人が作成したセッションは 404(存在を漏らさないため 403 にしない)。',
+          description: `${PREVIEW_DISABLED_NOTE}他人が作成したセッションは 404(存在を漏らさないため 403 にしない)。`,
           requestParams: { path: z.object({ id: z.string() }) },
-          responses: { '200': json('セッション', s.PreviewSession), ...ERR_401, ...ERR_404 },
+          responses: {
+            '200': json('セッション', s.PreviewSession),
+            ...ERR_401,
+            ...ERR_404_PREVIEW,
+          },
         },
         delete: {
           tags: ['vivliostyle'],
           summary: 'プレビューセッションを停止',
           operationId: 'stopPreview',
-          description: '他人が作成したセッションは 404(停止も作業ディレクトリ削除も起きない)。',
+          description: `${PREVIEW_DISABLED_NOTE}他人が作成したセッションは 404(停止も作業ディレクトリ削除も起きない)。`,
           requestParams: { path: z.object({ id: z.string() }) },
           responses: {
             '204': noContent('停止完了'),
             ...ERR_401,
             ...ERR_403_EDITOR,
-            ...ERR_404,
+            ...ERR_404_PREVIEW,
           },
         },
       },
@@ -896,6 +933,7 @@ export function buildOpenApiDocument() {
           summary: 'プレビュー資産の中継(リバースプロキシ)',
           operationId: 'proxyPreviewAsset',
           description: [
+            PREVIEW_DISABLED_NOTE,
             'プレビューセッションのビューアと文書を同一オリジンで配信する中継。',
             '**GET / HEAD のみ**を受け付ける(他メソッドは 404)。',
             '中継されるのは次の 2 系統だけで、それ以外はすべて 404 になり上流へは到達しない:',
@@ -913,7 +951,8 @@ export function buildOpenApiDocument() {
             '200': { description: '上流プレビューサーバの応答をそのまま返す' },
             ...ERR_401,
             '404': err(
-              'セッションが無い / 他人のセッション / 配信対象外のパス (kind=not_found)。' +
+              'セッションが無い / 他人のセッション / 配信対象外のパス / プレビューが無効 ' +
+                '(kind=not_found)。' +
                 '配信対象外のパスと存在しないセッションは区別しない。',
             ),
             '502': err('プレビューサーバに接続できない (kind=network)'),

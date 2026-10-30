@@ -20,6 +20,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-route-guards-'));
 process.env.DATA_ROOT = tmp;
 process.env.AUTH_REQUIRED = 'true';
 process.env.AUTH_FAILURE_FLOOR_MS = '0';
+// 外部向けライブプレビューは既定 off で、ガードより前に 404 を返す。ここはガードの実挙動を
+// 全ルートで見るので有効にする(off の 404 は `previewRoutes.enabled.test.ts` が見る)。
+process.env.VIVLIO_PREVIEW_ENABLED = 'true';
 
 // セッションは cookie `editor.sid=<role>` を「そのロールのユーザ」とみなす最小の偽装。
 // 実 DB へは降りないので、ここで観測できるのは preHandler の判定だけになる。

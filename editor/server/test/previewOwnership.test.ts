@@ -19,11 +19,12 @@ import {
 } from '../src/vivliostyle/previewManager.js';
 
 const TTL = 1000;
-const ALICE: PreviewActor = { loginId: 'alice', isAdmin: false };
-const BOB: PreviewActor = { loginId: 'bob', isAdmin: false };
-const ADMIN: PreviewActor = { loginId: 'root', isAdmin: true };
+const ALICE: PreviewActor = { loginId: 'alice' };
+const BOB: PreviewActor = { loginId: 'bob' };
+/** 管理者のログイン ID。主体はロールを持たないので、他人と同じ扱いになる。 */
+const ADMIN: PreviewActor = { loginId: 'root' };
 /** ローカルモード(`requireAuth=false`)のセンチネル。ルートの `actorOf` と同じ値。 */
-const LOCAL: PreviewActor = { loginId: '@local', isAdmin: true };
+const LOCAL: PreviewActor = { loginId: '@local' };
 
 function makeManager(maxSessions = 3) {
   const handles: Array<PreviewServerHandle & { close: ReturnType<typeof vi.fn> }> = [];
@@ -61,7 +62,7 @@ describe('PreviewManager の所有者検査', () => {
     await startAs(mgr, BOB);
     expect(mgr.list(ALICE)).toHaveLength(1);
     expect(mgr.list(BOB)).toHaveLength(1);
-    expect(mgr.list(ADMIN)).toHaveLength(2);
+    expect(mgr.list(ADMIN)).toHaveLength(0);
     await mgr.disposeAll();
   });
 
@@ -84,12 +85,18 @@ describe('PreviewManager の所有者検査', () => {
     await mgr.disposeAll();
   });
 
-  it('admin は他人のセッションも見えるし止められる', async () => {
-    const { mgr } = makeManager();
+  it('admin でも他人のセッションは見えないし止められない', async () => {
+    // viewer は文書の `<script src>` を app のオリジンで動かす。管理者に他人のセッションを
+    // 開ける例外があると、URL で誘うだけで管理者のセッションで文書の script が動く。
+    const { mgr, handles } = makeManager();
     const a = await startAs(mgr, ALICE);
-    expect(mgr.get(a.id, ADMIN)).toBeDefined();
-    expect(await mgr.stop(a.id, ADMIN)).toBe(true);
-    expect(existsSync(a.dir)).toBe(false);
+    expect(mgr.get(a.id, ADMIN)).toBeUndefined();
+    expect(mgr.resolveFor(a.id, ADMIN)).toBeUndefined();
+    expect(mgr.list(ADMIN)).toEqual([]);
+    expect(await mgr.stop(a.id, ADMIN)).toBe(false);
+    expect(existsSync(a.dir)).toBe(true);
+    expect(handles[0].close).not.toHaveBeenCalled();
+    await mgr.disposeAll();
   });
 
   it('TTL 失効と容量超過の退避は所有者に関係なく効く(資源管理は認可判定ではない)', async () => {
@@ -107,7 +114,8 @@ describe('PreviewManager の所有者検査', () => {
 
     // TTL 失効も同じく所有者を問わない。
     await vi.advanceTimersByTimeAsync(TTL);
-    expect(mgr.list(ADMIN)).toHaveLength(0);
+    expect(mgr.list(ALICE)).toHaveLength(0);
+    expect(mgr.list(BOB)).toHaveLength(0);
   });
 
   it('ローカルモードのセンチネル actor は全一致する(意図的な素通しを契約として固定する)', async () => {

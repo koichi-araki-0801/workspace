@@ -7,6 +7,8 @@
 // の担保でもある。
 
 import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
   conflict,
   DOC_DIR,
   EXTERNAL_REF_MESSAGE,
@@ -37,7 +39,9 @@ export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をお�
 
 /**
  * ビルド API(`path`)へ JSON を POST して PDF の Blob を受ける。HTTP エラーは `PDF_ERROR_MSG`
- * の conflict にする。通信自体の失敗(fetch の reject)は呼び出し側の catch に任せる。
+ * の conflict にする。ただし人ごとの上限の 503(`BUILD_BUSY_USER`)だけは、利用者が次に
+ * することが違う(前の出力を待つ)ので、その文言を出す。通信自体の失敗(fetch の reject)は
+ * 呼び出し側の catch に任せる。
  */
 export async function postBuild(path: string, body: unknown): Promise<Result<Blob>> {
   const res = await fetch(apiUrl(path), {
@@ -45,8 +49,28 @@ export async function postBuild(path: string, body: unknown): Promise<Result<Blo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
+  if (!res.ok) {
+    const cause = `HTTP ${res.status}`;
+    if (await isBuildBusyUser(res)) {
+      return err(conflict(BUILD_BUSY_USER_MESSAGE, { cause, code: BUILD_BUSY_USER }));
+    }
+    return err(conflict(PDF_ERROR_MSG, { cause }));
+  }
   return ok(await res.blob());
+}
+
+/**
+ * 応答が人ごとの上限の 503 か。文言は応答の本文を使わず shared の定数で出す(code だけを
+ * 見る)。本文が読めない・JSON でないときは、ほかの失敗と同じ扱いにする。
+ */
+async function isBuildBusyUser(res: Response): Promise<boolean> {
+  if (res.status !== 503) return false;
+  try {
+    const body = (await res.json()) as { code?: unknown } | null;
+    return body?.code === BUILD_BUSY_USER;
+  } catch {
+    return false;
+  }
 }
 
 /**

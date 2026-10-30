@@ -64,10 +64,10 @@ export interface PreviewSpec {
 /**
  * プレビュー操作の主体。所有者検査(IDOR)にだけ使うので、監査ログ用の `actorFromReq`
  * (未認証を `anonymous` へ潰す)は流用しない — 認可判定で未認証を 1 つの名前へ畳むのは危険。
+ * ロールは持たない(管理者にも他人のセッションを開ける例外を作らない。`owned` を見よ)。
  */
 export interface PreviewActor {
   loginId: string;
-  isAdmin: boolean;
 }
 
 /** spec に対しプレビューサーバを起動する。テストが実ブラウザを避けられるよう注入する。 */
@@ -190,11 +190,15 @@ export class PreviewManager {
   /**
    * 所有者検査を通したセッションを引く。**不一致は「セッションが無い」と同じ扱い**にして、
    * ルートが一律 404 を返せるようにする(403 は存在オラクルになる)。
+   *
+   * 管理者の例外は置かない。viewer は文書の `<script src>` を app のオリジンで動かすので、
+   * 管理者が他人のセッションを開けると、URL で誘うだけで管理者のセッションで文書の script が
+   * 動く。資源の後始末(TTL・退避・終了)は所有者を問わない `stopInternal` が担う。
    */
   private owned(id: string, actor: PreviewActor): Session | undefined {
     const s = this.sessions.get(id);
     if (!s) return undefined;
-    return s.owner === actor.loginId || actor.isAdmin ? s : undefined;
+    return s.owner === actor.loginId ? s : undefined;
   }
 
   /** プロキシが必要とする port + docBase。不明・他人のセッションなら undefined。 */
@@ -208,9 +212,7 @@ export class PreviewManager {
   }
 
   list(actor: PreviewActor): PreviewSessionMeta[] {
-    return [...this.sessions.values()]
-      .filter((s) => actor.isAdmin || s.owner === actor.loginId)
-      .map((s) => s.meta);
+    return [...this.sessions.values()].filter((s) => s.owner === actor.loginId).map((s) => s.meta);
   }
 
   /** アクセス時にアイドル TTL を更新する(プロキシが呼ぶ)。不明なら false。 */

@@ -117,6 +117,25 @@ describe('openapi document', () => {
     expect(paths[toOpenApiPath(apiPaths.previewById)].delete.responses['403']).toBeTruthy();
   });
 
+  it('PDF の 4 経路に人ごとの上限の 503、プレビューに既定無効と 404 を書く', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
+    const paths = doc.paths as any;
+    for (const p of ['/build', '/build/project', '/build/merge', '/preview']) {
+      expect(paths[p].post.responses['503'].description).toContain('BUILD_BUSY_USER');
+    }
+    const previewOps = [
+      paths['/preview'].get,
+      paths['/preview'].post,
+      paths[toOpenApiPath(apiPaths.previewById)].get,
+      paths[toOpenApiPath(apiPaths.previewById)].delete,
+      paths[`${toOpenApiPath(apiPaths.previewById)}/{path}`].get,
+    ];
+    for (const op of previewOps) {
+      expect(op.description).toContain('VIVLIO_PREVIEW_ENABLED');
+      expect(op.responses['404'].description).toContain('無効');
+    }
+  });
+
   it('describes external <script src> as inlined on /build and /build/merge', () => {
     // biome-ignore lint/suspicious/noExplicitAny: traversing the generated doc
     const paths = doc.paths as any;

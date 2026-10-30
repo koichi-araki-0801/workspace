@@ -41,6 +41,14 @@ export const REVIEW_BASE_CHANGED = 'REVIEW_BASE_CHANGED';
  * ため、判定・最終確定を受け付けない 409 の `code`。検査を足す前に積まれた申請がここに当たる。
  */
 export const REVIEW_NOT_REVIEWABLE = 'REVIEW_NOT_REVIEWABLE';
+/**
+ * 同じ人の PDF 出力(ビルド・結合・プロジェクト・プレビューの展開)が「実行中 1・待ち 1」を
+ * 超えたときの 503 の `code`。共有の枠(全員で数台)を 1 人で埋めさせないため
+ * (`server/src/vivliostyle/buildUserQuota.ts`)。web の PDF 出力の画面は code を見て文言を出す。
+ */
+export const BUILD_BUSY_USER = 'BUILD_BUSY_USER';
+/** `BUILD_BUSY_USER` の文言。server が返し、web が同じ文を出す。 */
+export const BUILD_BUSY_USER_MESSAGE = '前の PDF の出力が終わってから、もう一度出してください';
 
 /** `v` が既知の `AppErrorKind` か。外部由来(REST 応答等)の文字列を信用する前に通す。 */
 export function isAppErrorKind(v: unknown): v is AppErrorKind {

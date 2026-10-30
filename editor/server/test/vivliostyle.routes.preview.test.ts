@@ -33,32 +33,48 @@ process.env.AUDIT_DB = 'false';
 process.env.LOG_DIR = path.join(TEST_TMP_DIR, 'logs');
 // build/preview の HTTP 契約が本題で、認証は本テストの対象外(requireAuth を no-op にする)。
 process.env.AUTH_REQUIRED = 'false';
+// 外部向けライブプレビューは既定 off(404)。ここはその HTTP 契約を見るので有効にする。
+process.env.VIVLIO_PREVIEW_ENABLED = 'true';
 
 // build 系 3 関数はテストごとに失敗させたいことがある(`auditedRethrow` の failure 分岐 =
 // 監査ログを outcome=failure で記録する経路が、成功応答だけでは一度も踏まれない)。
 // `generate.routes.test.ts` の `sprocFails` と同じ流儀でフラグを介して切り替える。
-const buildFail = { inline: false, project: false, merge: false };
+const buildFail = { inline: false, project: false, merge: false, busy: false };
+/** 人ごとの上限で数える主体として、各経路が build 層へ渡した値(呼ばれた順)。 */
+const buildUsers: { via: string; user: unknown }[] = [];
 
-vi.mock('../src/vivliostyle/build.js', () => ({
-  withBuildSlot: async (fn: (run: (o: unknown) => Promise<void>) => Promise<unknown>) =>
-    fn(async () => {}),
-  buildProjectInSlot: async () => {
-    if (buildFail.project) throw new Error('project build failed(テストの意図的失敗)');
-    return Buffer.from('%PDF-1.4 project');
-  },
-  buildInlinePdf: async () => {
-    if (buildFail.inline) throw new Error('inline build failed(テストの意図的失敗)');
-    return Buffer.from('%PDF-1.4 inline');
-  },
-  buildMergedPdf: async () => {
-    if (buildFail.merge) throw new Error('merge build failed(テストの意図的失敗)');
-    return Buffer.from('%PDF-1.4 merged');
-  },
-  prepareInlineDoc: async () => ({
-    dir: TEST_TMP_DIR,
-    config: { entry: ['doc/index.html'], base: '/vivliostyle' },
-  }),
-}));
+vi.mock('../src/vivliostyle/build.js', async () => {
+  const { buildBusyUserError } = await import('../src/vivliostyle/buildUserQuota.js');
+  return {
+    withBuildSlot: async (
+      fn: (run: (o: unknown) => Promise<void>) => Promise<unknown>,
+      user: unknown,
+    ) => {
+      buildUsers.push({ via: 'withBuildSlot', user });
+      if (buildFail.busy) throw buildBusyUserError();
+      return fn(async () => {});
+    },
+    buildProjectInSlot: async () => {
+      if (buildFail.project) throw new Error('project build failed(テストの意図的失敗)');
+      return Buffer.from('%PDF-1.4 project');
+    },
+    buildInlinePdf: async (_input: unknown, user: unknown) => {
+      buildUsers.push({ via: 'buildInlinePdf', user });
+      if (buildFail.busy) throw buildBusyUserError();
+      if (buildFail.inline) throw new Error('inline build failed(テストの意図的失敗)');
+      return Buffer.from('%PDF-1.4 inline');
+    },
+    buildMergedPdf: async (_input: unknown, user: unknown) => {
+      buildUsers.push({ via: 'buildMergedPdf', user });
+      if (buildFail.merge) throw new Error('merge build failed(テストの意図的失敗)');
+      return Buffer.from('%PDF-1.4 merged');
+    },
+    prepareInlineDoc: async () => ({
+      dir: TEST_TMP_DIR,
+      config: { entry: ['doc/index.html'], base: '/vivliostyle' },
+    }),
+  };
+});
 
 /**
  * 起動中セッション。`meta` は `PreviewSessionMeta`(`previewManager.ts` の公開契約
@@ -208,6 +224,59 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
       expect(res.statusCode).toBeGreaterThanOrEqual(500);
     } finally {
       buildFail.project = false;
+    }
+  });
+
+  it('PDF の 4 経路(ビルド・結合・プロジェクト・プレビューの展開)が人ごとの数の主体を渡す', async () => {
+    buildUsers.length = 0;
+    await app.inject({ method: 'POST', url: '/build', payload: { html: '<p>x</p>', css: '' } });
+    await app.inject({
+      method: 'POST',
+      url: '/build/merge',
+      payload: { documents: [{ html: '<p>a</p>', css: '' }] },
+    });
+    for (const url of ['/build/project', '/preview']) {
+      await app.inject({
+        method: 'POST',
+        url,
+        headers: { 'content-type': 'application/zip' },
+        payload: zip,
+      });
+    }
+    // 無認証モードの主体は `@local`(認証ありはログイン ID。`previewRoutes.enabled.test.ts`)。
+    expect(buildUsers).toEqual([
+      { via: 'buildInlinePdf', user: '@local' },
+      { via: 'buildMergedPdf', user: '@local' },
+      { via: 'withBuildSlot', user: '@local' },
+      { via: 'withBuildSlot', user: '@local' },
+    ]);
+  });
+
+  it('人ごとの上限を超えたら 503 / BUILD_BUSY_USER と、そのまま出せる文言を返す', async () => {
+    const { BUILD_BUSY_USER, BUILD_BUSY_USER_MESSAGE } = await import('@editor/shared');
+    buildFail.busy = true;
+    try {
+      const inline = await app.inject({
+        method: 'POST',
+        url: '/build',
+        payload: { html: '<p>x</p>', css: '' },
+      });
+      const project = await app.inject({
+        method: 'POST',
+        url: '/build/project',
+        headers: { 'content-type': 'application/zip' },
+        payload: zip,
+      });
+      for (const res of [inline, project]) {
+        expect(res.statusCode).toBe(503);
+        expect(res.json()).toEqual({
+          kind: 'unexpected',
+          message: BUILD_BUSY_USER_MESSAGE,
+          code: BUILD_BUSY_USER,
+        });
+      }
+    } finally {
+      buildFail.busy = false;
     }
   });
 

@@ -1,4 +1,10 @@
-import { EXTERNAL_REF_MESSAGE, isErr, isOk } from '@editor/shared';
+import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
+  EXTERNAL_REF_MESSAGE,
+  isErr,
+  isOk,
+} from '@editor/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CROP_MARKS_CSS } from '@/lib/cropMarks';
 import { assemblePreviewDocument } from '@/lib/nunjucksRender';
@@ -249,5 +255,43 @@ describe('postBuild', () => {
       expect(res.error.message).toBe(PDF_ERROR_MSG);
       expect(res.error.cause).toBe('HTTP 500');
     }
+  });
+
+  it('人ごとの上限の 503(BUILD_BUSY_USER)は、その文言と code を返す', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              kind: 'unexpected',
+              message: BUILD_BUSY_USER_MESSAGE,
+              code: BUILD_BUSY_USER,
+            }),
+            { status: 503, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    );
+    const res = await postBuild('/build', {});
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(BUILD_BUSY_USER_MESSAGE);
+      expect(res.error.code).toBe(BUILD_BUSY_USER);
+      expect(res.error.cause).toBe('HTTP 503');
+    }
+  });
+
+  it.each([
+    ['ほかの code の 503', { status: 503, body: '{"code":"OTHER","message":"x"}' }],
+    ['JSON でない 503', { status: 503, body: 'Service Unavailable' }],
+    ['BUILD_BUSY_USER でも 500', { status: 500, body: '{"code":"BUILD_BUSY_USER"}' }],
+  ])('%s は今までどおり PDF_ERROR_MSG', async (_label, { status, body }) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status })),
+    );
+    const res = await postBuild('/build', {});
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
   });
 });

@@ -1,4 +1,6 @@
 import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
   err,
   type HistoryRepository,
   isErr,
@@ -383,6 +385,28 @@ describe('TemplatePreviewService.renderPdf', () => {
       expect(res.error.message).toBe(PDF_ERROR_MSG);
       expect(res.error.cause).toBe('HTTP 500');
     }
+  });
+
+  it('人ごとの上限の 503 は、PDF 出力の画面(PreviewView.exportPdf)へその文言で返す', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              kind: 'unexpected',
+              message: BUILD_BUSY_USER_MESSAGE,
+              code: BUILD_BUSY_USER,
+            }),
+            { status: 503 },
+          ),
+      ),
+    );
+    const svc = createTemplatePreviewService({} as TemplateRepository, history);
+    const res = await svc.renderPdf('<p>hi</p>', '', {}, false);
+    vi.unstubAllGlobals();
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toBe(BUILD_BUSY_USER_MESSAGE);
   });
 
   it('returns a PDF blob when the server responds ok', async () => {

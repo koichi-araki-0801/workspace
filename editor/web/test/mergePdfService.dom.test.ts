@@ -1,4 +1,6 @@
 import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
   err,
   type HistoryRepository,
   isErr,
@@ -210,6 +212,30 @@ describe('MergePdfService.renderMergedPdf', () => {
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
     if (isErr(res)) expect(res.error.cause).toBe('HTTP 500');
+    expect(recordPdfExport).not.toHaveBeenCalled();
+  });
+
+  it('人ごとの上限の 503 は、結合 PDF の画面へその文言で返す(履歴は記録しない)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              kind: 'unexpected',
+              message: BUILD_BUSY_USER_MESSAGE,
+              code: BUILD_BUSY_USER,
+            }),
+            { status: 503 },
+          ),
+      ),
+    );
+    const { repo, recordPdfExport } = historyOf();
+    const svc = createMergePdfService(templatesOf(), repo);
+    const res = await svc.renderMergedPdf(['t1']);
+    vi.unstubAllGlobals();
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) expect(res.error.message).toBe(BUILD_BUSY_USER_MESSAGE);
     expect(recordPdfExport).not.toHaveBeenCalled();
   });
 

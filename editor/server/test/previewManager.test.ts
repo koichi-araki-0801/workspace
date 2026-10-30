@@ -14,7 +14,7 @@ import {
 const TTL = 1000;
 
 /** 既定の操作主体。所有者検査そのものは `previewOwnership.test.ts` が受け持つ。 */
-const OWNER: PreviewActor = { loginId: 'editor1', isAdmin: false };
+const OWNER: PreviewActor = { loginId: 'editor1' };
 
 function fakeHandle(port: number): PreviewServerHandle & { close: ReturnType<typeof vi.fn> } {
   return { port, close: vi.fn(async () => {}) };

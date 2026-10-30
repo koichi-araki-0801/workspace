@@ -70,8 +70,10 @@
 //   3. そもそも資格情報が言えるのは「**そのブラウザ**が資格情報を持つ」ことだけで、粒度は
 //      ブラウザ単位 = 中継を分ける案と同じ。得るものが無い分、単純な方を採る。
 //
-// 残余リスク: 遮断は HTTP プロキシ 1 本で実現しており、HTTP/HTTPS 以外(WebRTC の UDP 等)は
-// この中継を通らない。OpenAPI の記述もその粒度に揃えてある。
+// HTTP/HTTPS 以外はこの中継を通らない。WebRTC の UDP(ICE・STUN)は、ビルド用ワーカーが
+// ブラウザへ `--webrtc-ip-handling-policy=disable_non_proxied_udp` を必ず渡して止める
+// (`browserLaunchGuard.mjs`)。それ以外の非 HTTP の経路は残余リスクで、OpenAPI の記述も
+// その粒度に揃えてある。
 
 import http from 'node:http';
 import net, { type AddressInfo } from 'node:net';

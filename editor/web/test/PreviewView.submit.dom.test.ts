@@ -3,7 +3,15 @@
 // =============================================================================
 // 確認ダイアログを閉じた後の変更概要の計算は長引きうる(数十秒)。その間に申請ボタンが押せると、
 // 同じ編集が 2 件の承認待ちとして出てしまう。
-import { conflict, err, notFound, ok, type Template } from '@editor/shared';
+import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
+  conflict,
+  err,
+  notFound,
+  ok,
+  type Template,
+} from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,8 +19,9 @@ import { REPOS_KEY } from '@/api/repositories';
 import PreviewView from '@/features/preview/PreviewView.vue';
 import { useEditorSessionStore } from '@/stores/editorSession';
 
-const { loadForPreview, computeChangedSummary, route } = vi.hoisted(() => ({
+const { loadForPreview, computeChangedSummary, route, renderPdf } = vi.hoisted(() => ({
   loadForPreview: vi.fn(),
+  renderPdf: vi.fn(),
   computeChangedSummary: vi.fn(),
   route: { query: {} as Record<string, string> },
 }));
@@ -32,7 +41,7 @@ vi.mock('@/features/preview/services/templatePreviewService', async (importOrigi
     ...mod,
     useTemplatePreviewService: () => ({
       loadForPreview,
-      renderPdf: vi.fn(),
+      renderPdf,
       recordPdfExport: vi.fn(),
     }),
   };
@@ -199,5 +208,23 @@ describe('確定保存の申請', () => {
       expect(body).not.toHaveProperty('filledHtml');
       expect(body.html).toBe('<p>x</p>');
     }
+  });
+});
+
+describe('PDF 出力', () => {
+  it('人ごとの上限(BUILD_BUSY_USER)で断られたら、その文言を toast に出す', async () => {
+    vi.mocked(toastError).mockClear();
+    stubLoad();
+    renderPdf.mockResolvedValue(
+      err(conflict(BUILD_BUSY_USER_MESSAGE, { code: BUILD_BUSY_USER, cause: 'HTTP 503' })),
+    );
+    const { w } = await mountView();
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('PDF出力'))
+      ?.trigger('click');
+    await flushPromises();
+    expect(renderPdf).toHaveBeenCalledTimes(1);
+    expect(toastError).toHaveBeenCalledWith(BUILD_BUSY_USER_MESSAGE);
   });
 });
