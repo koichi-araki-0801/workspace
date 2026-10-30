@@ -161,7 +161,8 @@ describe('findDocumentFrameIssue: 本文の外側は基準と同じでなけれ�
     for (const dir of ['templates', 'filled']) {
       for (const f of fs.readdirSync(path.join(fixtures, dir))) {
         const src = fs.readFileSync(path.join(fixtures, dir, f), 'utf8');
-        expect(findDocumentFrameIssue(src, src, { jinja: dir === 'templates' }), f).toBeNull();
+        const opts = { jinja: dir === 'templates', requireBody: dir === 'filled' };
+        expect(findDocumentFrameIssue(src, src, opts), f).toBeNull();
         n++;
       }
     }
