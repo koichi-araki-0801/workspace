@@ -9,8 +9,8 @@
 // (`sandbox="allow-scripts"`・same-origin なし)と対で初めて成立する。
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { isAppError } from '@editor/shared';
-import { describe, expect, it } from 'vitest';
+import { InertJinjaJudge, isAppError } from '@editor/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assertTemplateScriptsUnchanged,
   collectExecutableUnits,
@@ -563,6 +563,110 @@ describe('文脈ごとの規則は正当な編集を拒否しない', () => {
 
   it('テキストの位置に不活性でない文を足すと拒否する', () => {
     expect(accepted(tpl, tpl.replace('地の文', '{% set x %}地の文{% endset %}'))).toBe(false);
+  });
+});
+
+// namespace で合計を出す書き方は、帳票で正当に使う。束ねた名前のメンバを出すだけなら `<` は
+// 生まれないので通し、束ねた名前をそのまま出す形(`<Namespace {…}>`)だけを止める。
+describe('namespace を使う本文', () => {
+  const sum =
+    '{% set ns = namespace(total=0) %}{% for d in ds %}' +
+    '{% set ns.total = ns.total + d.amount %}{% endfor %}<p>合計 {{ ns.total }}</p>';
+  const tpl = `<html><body><p>地の文</p>${sum}</body></html>`;
+  const plain = '<html><body><p>地の文</p></body></html>';
+
+  it('両側にあり、地の文だけを編集すると通る', () => {
+    expect(accepted(tpl, tpl.replace('地の文', '書き直した地の文'))).toBe(true);
+  });
+
+  it('作成タブで新しく足しても通る', () => {
+    expect(accepted(plain, tpl)).toBe(true);
+    expect(collectExecutableUnits(tpl).filter((u) => u.startsWith('jinja'))).toEqual([]);
+  });
+
+  it('束ねた名前をそのまま出す形を足すと拒否する', () => {
+    expect(accepted(tpl, tpl.replace('地の文', '{{ ns }}'))).toBe(false);
+  });
+
+  it('テキストの位置の外で束ねた名前も数える', () => {
+    const base = '<html><body><p title="{% set ns = namespace() %}">x</p></body></html>';
+    expect(accepted(base, base.replace('x</p>', 'x</p>{{ ns }}'))).toBe(false);
+    expect(accepted(base, base.replace('x</p>', 'x</p>{{ ns.a }}'))).toBe(true);
+  });
+
+  it('基準にある読めない set が束ねた名前は、メンバを引いても足せない', () => {
+    const base = '<html><body>{% set m = ns if c else 1 %}<p>x</p></body></html>';
+    expect(accepted(base, base.replace('<p>x</p>', '<p>{{ m.a }}</p>'))).toBe(false);
+  });
+
+  it('チップに畳んだ側で束ねた名前も数える', () => {
+    const base = `<html><body>${opaque('{% set ns = namespace() %}')}<p>x</p></body></html>`;
+    expect(accepted(base, base.replace('<p>x</p>', '<p>{{ ns }}</p>'))).toBe(false);
+  });
+});
+
+// 判定の途中の想定外の例外(深い入れ子の RangeError など)で 500 を返さず、拒否(403)に倒す。
+describe('Jinja の判定は想定外の例外でも fail closed', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('深さ 1000 の括弧の式を足しても例外にならず拒否する', () => {
+    const base = '<html><body><p>x</p></body></html>';
+    const sub = base.replace('x', `{{ ${'('.repeat(1000)}1${')'.repeat(1000)} }}`);
+    expect(() => collectExecutableUnits(sub)).not.toThrow();
+    expect(accepted(base, sub)).toBe(false);
+  });
+
+  it('判定器が例外を投げても TEMPLATE_SCRIPT_IMMUTABLE(forbidden)になる', () => {
+    vi.spyOn(InertJinjaJudge.prototype, 'isInert').mockImplementation(() => {
+      throw new Error('想定外');
+    });
+    const tpl = '<html><body><p>{{ fund.name }}</p></body></html>';
+    let caught: unknown;
+    try {
+      assertTemplateScriptsUnchanged(tpl, tpl, CTX);
+    } catch (e) {
+      caught = e;
+    }
+    expect(isAppError(caught)).toBe(true);
+    expect(caught).toMatchObject({ kind: 'forbidden', code: 'TEMPLATE_SCRIPT_IMMUTABLE' });
+  });
+
+  it('例外の名前と文言を cause に残し、「検査できない」の文言で拒否する', () => {
+    vi.spyOn(InertJinjaJudge.prototype, 'isInert').mockImplementation(() => {
+      throw new RangeError('想定外');
+    });
+    const tpl = '<html><body><p>{{ fund.name }}</p></body></html>';
+    let caught: unknown;
+    try {
+      assertTemplateScriptsUnchanged(tpl, tpl, CTX);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toMatchObject({
+      kind: 'forbidden',
+      code: 'TEMPLATE_SCRIPT_IMMUTABLE',
+      cause: { scanError: { name: 'RangeError', message: '想定外' } },
+    });
+    const message = (caught as { message: string }).message;
+    expect(message).toContain('検査できませんでした');
+    expect(message).not.toContain('実行コード・外部参照は編集できません');
+    expect(message).toContain(`テンプレート=${CTX.templateId}`);
+  });
+
+  it('走査の上限で打ち切ったときも「検査できない」の文言で拒否する', () => {
+    let html = '<script>evil()</script>';
+    for (let i = 0; i < 12; i++) html = opaque(html);
+    let caught: unknown;
+    try {
+      assertTemplateScriptsUnchanged('', html, CTX);
+    } catch (e) {
+      caught = e;
+    }
+    const e = caught as { message: string; cause: Record<string, unknown> };
+    expect(e.message).toContain('検査できませんでした');
+    expect(e.cause.scanError).toBeUndefined();
   });
 });
 

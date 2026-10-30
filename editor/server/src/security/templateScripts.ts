@@ -57,7 +57,7 @@
 // 参照を描画で生む(`{{ "<"|safe }}script>`・`href="{{ 'java' + 'script:x' }}"`・
 // `style="background:{{ u }}(//evil/x)"`)。そこで走査器が返すタグと本文の範囲を使い、Jinja の
 // トークン(区切りは `@editor/shared` の `lexJinja`)を文脈で分けて単位にする(`pushJinjaUnits`)。
-// タグの中と CSS の中は形を問わず固定し、テキストの位置だけを許可リスト(`isInertJinjaToken`)で
+// タグの中と CSS の中は形を問わず固定し、テキストの位置だけを許可リスト(`InertJinjaJudge`)で
 // 判定する。危ない形を数え上げないのは、許可リストで書く上の方針と同じ理由である。走査器は
 // 増やさない。足したのは走査器の返す範囲でトークンを分ける処理だけである。
 
@@ -67,9 +67,9 @@ import {
   findExternalRefsInCss,
   findRawTextEnd,
   forbidden,
+  InertJinjaJudge,
   isAsciiAlpha,
   isHtmlSpace,
-  isInertJinjaToken,
   isTagNameEnd,
   type JinjaToken,
   jinjaCloserOf,
@@ -757,6 +757,11 @@ interface PositionedUnit {
   at: number;
   seq: number;
   unit: string;
+  /**
+   * テキストの位置のトークンで、判定を文書の走査の後へ回したもの。束ねた名前(`set ns = namespace()`)
+   * は文書全体(チップの中を含む)から集めてから判定するので、この間 `unit` は空のまま置く。
+   */
+  pending?: JinjaToken;
 }
 
 /** タグの範囲。値の中の Jinja を、どの属性の中にあるかで単位にするために持つ。 */
@@ -799,8 +804,8 @@ function followsLt(text: string, at: number): boolean {
  *   (`'javascript'` は許可した文字だけだが、後ろの地の `:` とつながる。CSS の `{{ u }}(` も同じ)。
  *   タグに直接ある断片は `jinja-attr:` として積んであるので、ここでは積まない。
  * - `script` の本文: 本文ごと `script:` の単位に入っているので積まない。
- * - テキストの位置(地の文・コメントの中・`title` / `textarea` の中): `isInertJinjaToken` が
- *   不活性と言えないものを単位にする。直前(空白を飛ばす)が `<` か、トークンの中にタグらしい `<`
+ * - テキストの位置(地の文・コメントの中・`title` / `textarea` の中): `InertJinjaJudge` が
+ *   不活性と言えないものを単位にする(判定は `collectExecutableUnits` が文書の走査の後で行う)。直前(空白を飛ばす)が `<` か、トークンの中にタグらしい `<`
  *   があれば、形を問わず単位にする。GrapesJS は地の文の `<` を `&lt;` で書き出すので、正当な編集
  *   からこの形は生まれない。
  *
@@ -814,6 +819,7 @@ function pushJinjaUnits(
   bodies: readonly BodySpan[],
   out: PositionedUnit[],
   budget: ScanBudget,
+  seen: JinjaToken[],
 ): void {
   budget.remaining -= text.length;
   const lexed = lexJinja(text);
@@ -821,6 +827,8 @@ function pushJinjaUnits(
     out.push({ at: 0, seq: out.length, unit: JINJA_LEX_ERROR_UNIT });
     return;
   }
+  // 束ねた名前は文脈を問わず集める(属性値・CSS・script の本文の `set` も。拾いすぎる側)。
+  for (const tok of lexed.tokens) seen.push(tok);
   // タグ・本文の範囲は文書の順に並び、互いに重ならない。トークンも先頭の位置の順なので、
   // 2 本の添字を進めるだけで分類でき、全体で線形に収まる。
   let ti = 0;
@@ -846,8 +854,8 @@ function pushJinjaUnits(
     // 描画でトークンが消えると飲み込まれた側が素で残るので、どちらも形を問わず単位にする。
     if (followsLt(text, s) || TAG_LIKE_LT_RE.test(tok.source)) {
       out.push({ at: s, seq: out.length, unit: `jinja-tag-open:${collapse(tok.source)}` });
-    } else if (!isInertJinjaToken(tok)) {
-      out.push({ at: s, seq: out.length, unit: `jinja:${collapse(tok.source)}` });
+    } else {
+      out.push({ at: s, seq: out.length, unit: '', pending: tok });
     }
   }
   for (const span of tags) flushTagJinjaUnits(span, out);
@@ -901,6 +909,7 @@ function collectInto(
   out: PositionedUnit[],
   depth: number,
   budget: ScanBudget,
+  seen: JinjaToken[],
   jinja = true,
 ): void {
   // depth は「チップ復号の入れ子」と「<style> 本文の再走査」の両方を数える。閉じない
@@ -958,10 +967,8 @@ function collectInto(
       // 直す。直さないと本文の中の単位が文書の先頭のほうへずれ、`<style>` より前のパーツを
       // 足し・消し・並べ替えるだけで単位の並びが変わって、正当な編集が拒否される。
       const nested: PositionedUnit[] = [];
-      collectInto(body, nested, depth + 1, budget, false);
-      for (const n of nested) {
-        out.push({ at: n.at + tag.contentAt, seq: out.length, unit: n.unit });
-      }
+      collectInto(body, nested, depth + 1, budget, seen, false);
+      for (const n of nested) out.push({ ...n, at: n.at + tag.contentAt, seq: out.length });
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {
@@ -1008,7 +1015,9 @@ function collectInto(
       out.push({ at: tag.at, seq: out.length, unit: `jinja-attr:${tag.name}|${collapse(j)}` });
     }
   }
-  if (jinja && budget.remaining > 0) pushJinjaUnits(text, tagSpans, bodySpans, out, budget);
+  if (jinja && budget.remaining > 0) {
+    pushJinjaUnits(text, tagSpans, bodySpans, out, budget, seen);
+  }
   if (depth >= MAX_DECODE_DEPTH) {
     if (payloads.length > 0) budget.truncated = true;
     return;
@@ -1016,20 +1025,54 @@ function collectInto(
   for (const p of payloads) {
     if (budget.remaining <= 0) return;
     const nested: PositionedUnit[] = [];
-    collectInto(p.decoded, nested, depth + 1, budget);
-    for (const n of nested) out.push({ at: p.at, seq: out.length, unit: n.unit });
+    collectInto(p.decoded, nested, depth + 1, budget, seen);
+    for (const n of nested) out.push({ ...n, at: p.at, seq: out.length });
   }
 }
 
 /**
  * HTML から能動コンテンツ面を順序どおりに取り出す。`data-opaque` 等の退避属性は復号済みの
  * 実体に対して走査するので、チップへ畳んだ状態で提出しても同じ結果になる。
+ *
+ * 走査・判定の想定外の例外(深い入れ子の RangeError、評価器の検査の漏れなど)は、走査を打ち切った
+ * ときと同じ `scan-incomplete` の単位だけを返す。照合はこの単位を見ると必ず拒否する(fail closed)。
+ * 理由が何であれ中身を確かめられなかったことに変わりはなく、確かめられない本文を通す分岐を作らない
+ * (`externalRefs.ts` の `assertNoJsonExternalRefs` と同じ扱い)。
  */
 export function collectExecutableUnits(html: string): string[] {
+  return scanUnits(html).units;
+}
+
+/** 走査の結果。想定外の例外で打ち切ったときは、その名前と文言をログ用に持つ。 */
+interface UnitScan {
+  units: string[];
+  scanError?: { name: string; message: string };
+}
+
+/** ログに載せる例外の文言の長さの上限(例外の文言に本文の断片が入っても、ログを膨らませない)。 */
+const MAX_SCAN_ERROR_MESSAGE = 200;
+
+function scanUnits(html: string): UnitScan {
+  try {
+    return { units: collectUnits(html) };
+  } catch (e) {
+    const name = e instanceof Error ? e.name : typeof e;
+    const message = (e instanceof Error ? e.message : String(e)).slice(0, MAX_SCAN_ERROR_MESSAGE);
+    return { units: [SCAN_INCOMPLETE_UNIT], scanError: { name, message } };
+  }
+}
+
+function collectUnits(html: string): string[] {
   const out: PositionedUnit[] = [];
   const budget: ScanBudget = { remaining: MAX_SCAN_BYTES, truncated: false };
-  collectInto(html, out, 0, budget);
-  const units = out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
+  const seen: JinjaToken[] = [];
+  collectInto(html, out, 0, budget, seen);
+  const judge = new InertJinjaJudge(seen);
+  const units: string[] = [];
+  for (const u of out.sort((a, b) => a.at - b.at || a.seq - b.seq)) {
+    if (u.pending === undefined) units.push(u.unit);
+    else if (!judge.isInert(u.pending)) units.push(`jinja:${collapse(u.pending.source)}`);
+  }
   // 予算切れは `scanOpenTags` の途中打ち切りも含むので、残量で判定する。
   if (budget.truncated || budget.remaining <= 0) units.push(SCAN_INCOMPLETE_UNIT);
   return units;
@@ -1053,6 +1096,15 @@ const JINJA_IMMUTABLE_MESSAGE =
   '差し込み（Jinja）の書き方のうち、承認で中身を確かめられないもの（タグや書式の中の差し込み・' +
   '{% set %}・{% include %}・文字列を出す式など）は追加・変更できません。変更が必要なら開発者へ' +
   '依頼してください';
+
+/**
+ * 走査を打ち切った(上限・想定外の例外)ときの文言。照合できなかったのであって、実行コードを
+ * 変えたと決まったわけではないので、「編集できません」の文言と分ける(`externalRefs.ts` の
+ * 「検査できないファイルは受け取れません」と同じ考え方)。
+ */
+const SCAN_INCOMPLETE_MESSAGE =
+  '実行コードの変更の有無を検査できませんでした(検査できない本文は受け取れません)。' +
+  '本文の入れ子や量を減らしてから送信し、それでも直らないときは開発者へ連絡してください';
 
 const isJinjaUnit = (u: string): boolean => u.startsWith('jinja');
 
@@ -1083,19 +1135,28 @@ export function assertTemplateScriptsUnchanged(
   submittedHtml: string,
   context: { templateId: string; where: string },
 ): void {
-  const before = collectExecutableUnits(baselineHtml);
-  const after = collectExecutableUnits(submittedHtml);
-  if (unitsEqual(before, after) && !after.includes(SCAN_INCOMPLETE_UNIT)) return;
+  const baseline = scanUnits(baselineHtml);
+  const submitted = scanUnits(submittedHtml);
+  const before = baseline.units;
+  const after = submitted.units;
+  const incomplete = before.includes(SCAN_INCOMPLETE_UNIT) || after.includes(SCAN_INCOMPLETE_UNIT);
+  if (unitsEqual(before, after) && !incomplete) return;
   const jinjaOnly =
-    !after.includes(SCAN_INCOMPLETE_UNIT) &&
+    !incomplete &&
     unitsEqual(
       before.filter((u) => !isJinjaUnit(u)),
       after.filter((u) => !isJinjaUnit(u)),
     );
-  const message = jinjaOnly ? JINJA_IMMUTABLE_MESSAGE : SCRIPT_IMMUTABLE_MESSAGE;
+  const message = incomplete
+    ? SCAN_INCOMPLETE_MESSAGE
+    : jinjaOnly
+      ? JINJA_IMMUTABLE_MESSAGE
+      : SCRIPT_IMMUTABLE_MESSAGE;
+  const scanError = submitted.scanError ?? baseline.scanError;
   throw forbidden(
     `${message} (テンプレート=${context.templateId})`,
-    // 差分の中身はユーザーへ出さない(攻撃者への手掛かりになる)。ログにだけ残す。
+    // 差分の中身はユーザーへ出さない(攻撃者への手掛かりになる)。ログにだけ残す。走査の想定外の
+    // 例外は名前と文言を残す(拒否に倒しても、何が起きたかを後から追えるように)。
     {
       code: 'TEMPLATE_SCRIPT_IMMUTABLE',
       cause: {
@@ -1104,6 +1165,7 @@ export function assertTemplateScriptsUnchanged(
         submittedUnits: after.length,
         baselineKinds: countKinds(before),
         submittedKinds: countKinds(after),
+        ...(scanError === undefined ? {} : { scanError }),
       },
     },
   );
