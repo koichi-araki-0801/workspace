@@ -7,9 +7,8 @@
 // `buildCreateReviewedHtml`)。両者が食い違うと、画面で押した判定が 400 で拒まれる。
 // 画面と同じ呼び方(`createReviewDiffService` の `buildDiff`、比較元はサーバが保存する空の本文と
 // 申請の CSS、差分は worker と同じ linkedom の実装)で、テスト用の全 fixture(Jinja 原文
-// `fixtures/templates/` と値入り `fixtures/filled/`、CSS `fixtures/css/`)の行のキーを、並びと重複まで
-// 比べる。値入りの本文が無い申請(`renderReviewPair` の経路)は、描画の代わりに値入りの fixture の
-// 本文を返す。
+// `fixtures/templates/`、CSS `fixtures/css/`)の行のキーを、並びと重複まで比べる。承認画面の本文は
+// サーバが受付で描くもの(`renderPlainFilled` の reveal。共通サンプルに版種を被せた値)を使う。
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -17,15 +16,13 @@ import {
   extractReviewParts,
   ok,
   type ReviewRequest,
+  renderPlainFilled,
   sampleCommon,
 } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { CompareService } from '@/features/compare/services/compareService';
 import { createReviewDiffService } from '@/features/reviews/services/reviewDiffService';
-import { assemblePreviewDocument } from '@/lib/nunjucksRender';
-import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorkerImpl } from '@/workers/htmlWorkerImpl';
-import { renderJinja } from './helpers/renderJinja';
 
 // jsdom では Worker を起こせないので、worker の中身(linkedom の実装)を直接呼ぶ。
 vi.mock('@/workers', () => ({
@@ -44,8 +41,15 @@ const cssOf = (n: string) => {
   return read('css', `${company}_${fund}_${edition}.css`);
 };
 
+/** サーバが受付で描く承認画面の本文(全部の枝を描く)。 */
+function renderedOf(n: string): string {
+  const edition = n.replace(/\.html$/, '').split('_')[3] ?? '';
+  const sample = applyTemplateAttributes(sampleCommon, { editionType: edition });
+  return renderPlainFilled(read('templates', n), sample, { reveal: true }).html;
+}
+
 /** サーバが保存する作成経路の申請(比較元は空の本文と申請の CSS)。 */
-function createReview(n: string, withFilled: boolean): ReviewRequest {
+function createReview(n: string): ReviewRequest {
   const css = cssOf(n);
   return {
     id: `req-${n}`,
@@ -61,18 +65,16 @@ function createReview(n: string, withFilled: boolean): ReviewRequest {
     baseHash: null,
     html: read('templates', n),
     css,
-    ...(withFilled ? { filledHtml: read('filled', n) } : {}),
+    renderedHtml: renderedOf(n),
     baseHtml: '',
     baseCss: css,
   };
 }
 
-async function screenKeys(n: string, withFilled: boolean): Promise<string[]> {
-  const reviews = { getReview: vi.fn().mockResolvedValue(ok(createReview(n, withFilled))) };
+async function screenKeys(n: string): Promise<string[]> {
+  const reviews = { getReview: vi.fn().mockResolvedValue(ok(createReview(n))) };
   const compare = {
-    renderTemplateBody: vi
-      .fn()
-      .mockResolvedValue(ok({ html: getBodyInner(read('filled', n)), css: cssOf(n) })),
+    renderTemplateBody: vi.fn(),
     renderVersionHtml: vi.fn(),
   } as unknown as CompareService;
   const parts = { listParts: vi.fn().mockResolvedValue(ok([])) };
@@ -84,47 +86,25 @@ async function screenKeys(n: string, withFilled: boolean): Promise<string[]> {
   const res = await service.buildDiff(`req-${n}`);
   if (!res.ok) throw new Error(res.error.message);
   expect(res.value.truncated).toBe(false);
-  if (!withFilled) expect(compare.renderTemplateBody).toHaveBeenCalledTimes(1);
+  // 作成経路は手元で描き直さない(サーバが描いた本文だけを見せる)。
+  expect(compare.renderTemplateBody).not.toHaveBeenCalled();
   return [...res.value.changes].sort((a, b) => a.no - b.no).map((c) => c.partKey);
 }
 
 describe('作成経路の申請の判定のキー', () => {
-  it('Jinja 原文と値入りの組が 1 件以上ある', () => {
+  it('Jinja 原文が 1 件以上ある', () => {
     expect(names.length).toBeGreaterThan(0);
-    for (const n of names) expect(readdirSync(path.join(FIXTURES, 'filled'))).toContain(n);
   });
 
   it.each(names)(
-    '%s: 右欄の行のキー(番号順) = Jinja 原文のパーツのキー(並び・重複まで)',
+    '%s: 右欄の行のキー(番号順) = Jinja 原文のパーツのキー = サーバの描画結果のパーツのキー',
     async (n) => {
       const source = extractReviewParts(read('templates', n)).map((p) => p.partKey);
       expect(source.length).toBeGreaterThan(0);
-      expect(extractReviewParts(read('filled', n)).map((p) => p.partKey)).toEqual(source);
-      expect(await screenKeys(n, true)).toEqual(source);
-      expect(await screenKeys(n, false)).toEqual(source);
+      // サーバの受付は、描画結果と原文のパーツのキーの並びが同じことを確かめてから保存する。
+      expect(extractReviewParts(renderedOf(n)).map((p) => p.partKey)).toEqual(source);
+      expect(await screenKeys(n)).toEqual(source);
     },
     30_000,
-  );
-
-  // 申請の受付(サーバの `assertCreateReviewable`)は、原文と値入り HTML のパーツの構造を
-  // `extractReviewParts` で比べる。画面が送る値入り HTML は、プレビューの画面
-  // (`templatePreviewService.ts` の `loadForPreview`)が原文を共通サンプルで描画して文書に組んだもの。
-  it.each(names)(
-    '%s: 画面が送る形の値入り HTML でも、受付が原文とパーツの構造を同じと見る',
-    (n) => {
-      const source = read('templates', n);
-      const [company, fund, , edition] = n.replace(/\.html$/, '').split('_');
-      const sample = applyTemplateAttributes(sampleCommon, {
-        companyCode: company ?? '',
-        fundCode: fund ?? '',
-        editionType: edition ?? '',
-      });
-      const rendered = renderJinja(source, sample);
-      expect(rendered.error).toBeNull();
-      const filledHtml = assemblePreviewDocument(rendered.html, cssOf(n));
-      expect(extractReviewParts(filledHtml).map((p) => p.partKey)).toEqual(
-        extractReviewParts(source).map((p) => p.partKey),
-      );
-    },
   );
 });

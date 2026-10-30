@@ -31,8 +31,9 @@ export function normalizeReviewPartDecisions<T extends ReviewRequestMeta | Revie
 }
 
 /**
- * 申請から本体(html/css/filledHtml/cssBaseline/baseHtml/baseCss)を剥がした軽量メタを返す
- * (一覧 API・meta.json 用)。
+ * 申請から本体(html/css/renderedHtml/cssBaseline/baseHtml/baseCss)と、読むたびに決まる
+ * `renderError` を剥がした軽量メタを返す(一覧 API・meta.json 用)。`renderedHtml` は本文 1 本分の
+ * 大きさなので `reviews/<id>/rendered.html` に置き、メタには書かない。
  * `ReviewRequest` は `ReviewRequestMeta` に本体系フィールドを足した定義(`schemas.ts`)なので、
  * 本体系フィールドを増やしたらここへも追記が要る。剥がす処理を各所に複製すると追記漏れの
  * 実装が型エラーなしで本文をメタ/一覧へ混入させる(肥大化・漏えい)ため、本関数へ集約する。
@@ -41,7 +42,8 @@ export function toReviewMeta(r: StoredReviewRequest): ReviewRequestMeta {
   const {
     html: _h,
     css: _c,
-    filledHtml: _f,
+    renderedHtml: _r,
+    renderError: _e,
     cssBaseline: _baseline,
     baseHtml: _baseHtml,
     baseCss: _baseCss,

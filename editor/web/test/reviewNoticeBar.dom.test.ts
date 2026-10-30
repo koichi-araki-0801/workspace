@@ -111,4 +111,58 @@ describe('ReviewNoticeBar', () => {
     expect(w.text()).toContain('このテンプレートの書式設定も変更されています');
     expect(w.text()).not.toContain('このファンドの');
   });
+
+  // ── 作成経路の描画の注意(サーバが受付で全部の枝を描いた本文) ──
+
+  it('値を計算できない差し込みの件数を 1 項目として数え、原文の文字のまま表示していることを出す', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, unrendered: 3 } });
+    expect(w.find('summary').text()).toContain('1 件');
+    expect(w.find('[data-notice-unrendered]').text()).toContain(
+      '承認画面で値を計算できない差し込みが 3 件あり、原文の文字のまま表示しています',
+    );
+  });
+
+  it('HTML として出す差し込み(|safe)を文字のまま表示したことを出す', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, escapedSafe: 2 } });
+    expect(w.find('[data-notice-escaped-safe]').text()).toContain(
+      'HTML として出す差し込み（|safe）の一部を、文字のまま表示しています',
+    );
+    expect(w.find('[data-notice-escaped-safe]').text()).toContain(
+      'HTML として出す差し込みは、本番の値で中身が変わります',
+    );
+    expect(w.find('summary').text()).toContain('1 件');
+  });
+
+  it('全部の枝を描いたことは、ほかの注意が無くても常に 1 文で出す(件数には数えない)', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, allBranches: true } });
+    expect(w.find('details').exists()).toBe(true);
+    expect(w.find('[data-notice-branches]').text()).toContain(
+      '分岐（{% if %}）はすべての枝を表示しています',
+    );
+    expect(w.find('summary').text()).not.toContain('件');
+  });
+
+  it('全部の枝の 1 文は、ほかの注意と同じ 1 行の集約に並ぶ', () => {
+    const w = mount(ReviewNoticeBar, {
+      props: { ...noneProps, allBranches: true, unrendered: 1, escapedSafe: 1, cssChanged: true },
+    });
+    expect(w.findAll('details')[0]?.find('[data-notice-branches]').exists()).toBe(true);
+    expect(w.find('summary').text()).toContain('3 件');
+  });
+
+  it('申請者の CSS が文字を生むときは、右欄に出ないことを 1 項目として出す', () => {
+    const w = mount(ReviewNoticeBar, { props: { ...noneProps, cssGeneratedText: true } });
+    expect(w.find('summary').text()).toContain('1 件');
+    expect(w.find('[data-notice-css-text]').text()).toContain(
+      'CSS が文字を生んでいます（content・quotes・list-style など）。右欄の文字の差分には出ません',
+    );
+  });
+
+  it('件数が 0 なら描画の注意の項目は出さない', () => {
+    const w = mount(ReviewNoticeBar, {
+      props: { ...noneProps, allBranches: true, unrendered: 0, escapedSafe: 0 },
+    });
+    expect(w.find('[data-notice-unrendered]').exists()).toBe(false);
+    expect(w.find('[data-notice-escaped-safe]').exists()).toBe(false);
+  });
 });

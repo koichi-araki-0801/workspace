@@ -130,4 +130,39 @@ describe('作成経路の申請の確認', () => {
     stub(ORIGINAL, '<body><p>x</p></body>');
     expect(await submitAndReadDescription()).not.toContain(LOSS);
   });
+
+  // 承認画面はサーバが全部の枝を描き、値を計算できない差し込みを原文の文字で見せる。申請者が見ている
+  // プレビュー(nunjucks)との違いを、申請の前に件数で知らせる(申請は続けられる)。
+  const UNRENDERED = '承認画面では、値を計算できない差し込み';
+
+  it('値を計算できない差し込みがあれば、件数を説明に足す', async () => {
+    routeQuery.created = '1';
+    // `fund` が sample に無いので `fund.name` も値で描けない(本番は描画に失敗する)。
+    const body = '<body><p>{{ x|nosuch }}</p>{% include "a.html" %}<p>{{ fund.name }}</p></body>';
+    stub(body, body);
+    expect(await submitAndReadDescription()).toContain(
+      `${UNRENDERED} 3 件を原文のまま表示します。`,
+    );
+  });
+
+  it('無ければ足さない', async () => {
+    routeQuery.created = '1';
+    const body = '<body>{% if a %}<p>{{ title }}</p>{% endif %}</body>';
+    stub(body, body);
+    expect(await submitAndReadDescription()).not.toContain(UNRENDERED);
+  });
+
+  it('Jinja として読めない本文でも確認は出す(件数は足さない。受付が理由を返す)', async () => {
+    routeQuery.created = '1';
+    stub('<body></body>', '<body>{% if a %}</body>');
+    const d = await submitAndReadDescription();
+    expect(d).toContain('精査者');
+    expect(d).not.toContain(UNRENDERED);
+  });
+
+  it('編集経路では数えない', async () => {
+    const body = '<body><p>{{ x|nosuch }}</p></body>';
+    stub(body, body);
+    expect(await submitAndReadDescription()).not.toContain(UNRENDERED);
+  });
 });

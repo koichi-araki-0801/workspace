@@ -49,7 +49,14 @@ d('申請本文の編集用の印(両経路)', () => {
     // helper は動的に取る — 静的 import だと冒頭の env 設定より先に `config.js` が読まれる。
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createDeps } = await import('../src/deps.js');
-    reviews = createDeps(createOfflineSproc(), createSessionStub()).reviews;
+    const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
+    const deps = createDeps(createOfflineSproc(), createSessionStub());
+    // 作成経路の受付は sample で描く。DB は使わないので、固定の値を返す取得口を渡す。
+    reviews = createReviewRepo({
+      noteMaster: deps.noteMaster,
+      pairSync: deps.pairSync,
+      sampleOf: async () => ({ fund: { name: '日本株式オープン' } }),
+    });
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -64,21 +71,25 @@ d('申請本文の編集用の印(両経路)', () => {
     ).rejects.toMatchObject({ kind: 'validation', message: expect.stringContaining('編集用の印') });
   });
 
-  it('filledHtml(プレビュー文書)に印があっても拒否する', async () => {
-    await expect(
-      reviews.submitReview(
-        { templateId: EDIT_ID, html: '<p>値</p>', filledHtml: CHIP, css: '', origin: 'edit' },
-        submitter,
-      ),
-    ).rejects.toMatchObject({ kind: 'validation' });
+  it('filledHtml は使わないので、印のある filledHtml を付けても受付は html だけで判定する', async () => {
+    const created = await reviews.submitReview(
+      {
+        templateId: CREATE_ID,
+        html: '<html><head></head><body><p>{{ fund.name }} 別</p></body></html>',
+        filledHtml: CHIP,
+        css: '',
+        origin: 'create',
+      },
+      submitter,
+    );
+    expect(created.status).toBe('pending');
   });
 
   it('印の無い申請は両経路とも通る', async () => {
     const created = await reviews.submitReview(
       {
         templateId: CREATE_ID,
-        html: '<p>{{ fund.name }}</p>',
-        filledHtml: '<p>日本株式オープン</p>',
+        html: '<html><head></head><body><p>{{ fund.name }}</p></body></html>',
         css: '',
         origin: 'create',
       },

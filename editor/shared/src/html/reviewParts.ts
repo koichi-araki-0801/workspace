@@ -465,29 +465,20 @@ export interface CreateReviewPartDecision {
 }
 
 /**
- * create申請のJinja原文へ、値入りHTMLで行ったパーツ判定を適用する。
+ * create申請のJinja原文へ、承認画面で行ったパーツ判定を適用する。
  *
- * 原文と値入りHTMLのパーツキー・順序が一致するときだけ処理し、承認済みパーツは原文の
+ * 承認画面はサーバが受付で原文から描いた本文(`renderedHtml`)を見せ、受付で描画結果と原文の
+ * パーツのキーの並びが同じことを確かめている(server の `reviewRepo.ts`)。ここで照合するのは
+ * 「判定のキーが原文のキーの中にある」「原文の全キーに判定がある」だけ。承認済みパーツは原文の
  * まま残し、却下済みパーツのouterHTML範囲だけを削除する。DOMで再直列化しないため、
  * Jinja、改ページ、コメント、style、空白など判定対象外の文字列は変更しない。
  */
 export function buildCreateReviewedHtml(
   sourceHtml: string,
-  filledHtml: string,
   decisions: readonly CreateReviewPartDecision[],
 ): string {
   const sourceParts = extractReviewParts(sourceHtml);
-  const filledParts = extractReviewParts(filledHtml);
-
   const sourceKeys = sourceParts.map((part) => part.partKey);
-  const filledKeys = filledParts.map((part) => part.partKey);
-
-  if (
-    sourceKeys.length !== filledKeys.length ||
-    sourceKeys.some((partKey, index) => partKey !== filledKeys[index])
-  ) {
-    throw validation('Jinja原文と値入りHTMLのパーツ構造が一致しません');
-  }
 
   const decisionByPartKey = new Map<string, CreateReviewPartDecision>();
 

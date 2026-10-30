@@ -37,6 +37,7 @@ import PreviewPanel from './PreviewPanel.vue';
 import {
   cssBaselineNotice,
   jinjaBlockLossNotice,
+  unrenderedNotice,
   useTemplatePreviewService,
 } from './services/templatePreviewService';
 
@@ -61,8 +62,7 @@ const hasDraft = ref(false);
 // 本文が値入り HTML(Jinja を持たない)か。PDF 出力で隔離描画を通すかの判断に使う。
 const isFilled = ref(false);
 // トンボ(トリムマーク)の ON/OFF。画面内トグルのみで保持し, 初期は ON。表示用の `displayDoc`
-// と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持し,
-// 申請の記入済みインスタンス(`filledHtml`)には一時設定を混入させない。
+// と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持する。
 const cropMarks = ref(true);
 // プレビュー表示用ドキュメント。`previewDoc`(ベース)へトンボ CSS を後段注入する。トグル変更で
 // `PreviewPanel`(`watch(() => props.html, render)`)が再描画し即反映される。
@@ -157,9 +157,9 @@ onMounted(async () => {
 const origin = computed<ReviewOrigin>(() => routeOrigin(route.query));
 
 /**
- * 作成経路は描画したプレビュー(`previewDoc`)を申請の値入り HTML として送り、サーバは原文と
- * パーツの構造を比べる。描画の前・描画の失敗で空のまま送ると申請が 400 になるので、描けるまで
- * 申請させない。編集経路は値入り HTML を要らないので今のまま。
+ * 作成経路は、申請者が自分の申請する姿をプレビューで見てから申請する。描画の前・描画の失敗で本文が
+ * 空のうちは申請させない(承認画面の本文はサーバが原文から描くので、プレビューは送らない)。編集経路は
+ * 値入り HTML そのものを申請するので今のまま。
  */
 const SUBMIT_WAIT_HINT = 'プレビューの描画が終わってから申請できます';
 const SUBMIT_FAILED_HINT = 'プレビューを描けないため申請できません。テンプレートを確かめてください';
@@ -175,15 +175,18 @@ const submitBlockedHint = computed(() =>
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
   if (!template.value || submitting.value || waitingPreview.value) return;
-  // 作成経路だけ、範囲の印の両消しで黙って消えた Jinja のブロックを確認の説明で知らせる。
-  const loss =
-    origin.value === 'create' ? jinjaBlockLossNotice(template.value.html, restoredHtml.value) : null;
+  // 作成経路だけ、範囲の印の両消しで黙って消えた Jinja のブロックと、承認画面で原文のまま見せる
+  // 差し込みの件数を確認の説明で知らせる。
+  const created = origin.value === 'create';
+  const loss = created ? jinjaBlockLossNotice(template.value.html, restoredHtml.value) : null;
+  const unrendered = created ? unrenderedNotice(restoredHtml.value, sample.value) : null;
   const proceed = await confirm({
     title: '確定保存を申請しますか？',
     description:
       '編集内容を精査者(承認者)へ申請します。承認後に本番テンプレートへ反映されます。' +
       'この時点では実ファイルは変更されません。' +
-      (loss ?? ''),
+      (loss ?? '') +
+      (unrendered ?? ''),
     confirmLabel: '申請する',
   });
   if (!proceed || submitting.value) return;
@@ -202,8 +205,6 @@ async function submitForReview() {
         templateId: props.id,
         html: restoredHtml.value,
         css: css.value,
-        // レンダリング済みドキュメントを、申請の記入済みレポートインスタンスとして保持する。
-        filledHtml: previewDoc.value,
         ...(cssBaseline.value !== null ? { cssBaseline: cssBaseline.value } : {}),
         origin: origin.value,
         ...(changedSummary ? { changedSummary } : {}),

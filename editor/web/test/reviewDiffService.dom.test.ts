@@ -183,19 +183,19 @@ describe('reviewDiffService.buildDiff', () => {
     expect(res.ok && res.value.diff).toBe(d);
   });
 
-  it('create 経路: 保存済みの値入り本文を使い、before は空で全パーツを added にする', async () => {
+  it('create 経路: サーバが描いた本文(renderedHtml)を組み立てずに使い、before は空で全パーツを added にする', async () => {
     buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }, { status: 'added' }]));
 
-    const createReview: ReviewRequest = {
+    // 古い画面・古いサーバの名残の値入り HTML(偽の文言)が応答に混ざっていても読まない。
+    const createReview = {
       ...review('create'),
-      filledHtml:
-        '<!doctype html><html><head>' +
-        '<style data-preview-css="">.x{}</style>' +
-        '</head><body>' +
-        '<section data-part-id="cover">値入り表紙</section>' +
-        '<section data-part-id="cost">値入り費用</section>' +
+      renderedHtml:
+        '<!doctype html><html><head><title>t</title></head><body>' +
+        '<section data-part-id="cover">描いた表紙</section>' +
+        '<section data-part-id="cost">描いた費用</section>' +
         '</body></html>',
-    };
+      filledHtml: '<body><section data-part-id="cover">偽の表紙</section></body>',
+    } as ReviewRequest;
 
     const { service, compare } = makeService({
       getReview: ok(createReview),
@@ -210,11 +210,12 @@ describe('reviewDiffService.buildDiff', () => {
 
     expect(buildHtmlDiff).toHaveBeenCalledWith(
       '',
-      '<section data-part-id="cover">値入り表紙</section>' +
-        '<section data-part-id="cost">値入り費用</section>',
+      '<section data-part-id="cover">描いた表紙</section>' +
+        '<section data-part-id="cost">描いた費用</section>',
       '.x{}',
       '.x{}',
     );
+    expect(res.value.afterBodyHtml).not.toContain('偽の表紙');
 
     expect(res.value.summary).toEqual({
       total: 2,
@@ -222,6 +223,94 @@ describe('reviewDiffService.buildDiff', () => {
       added: 2,
       removed: 0,
     });
+  });
+
+  it('create 経路: 本文は文字列で切らずに DOM の body から取る(パーサが本文へ移す物も見せる)', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }]));
+    const renderedHtml =
+      '<html><head><title>t</title><p>移る段落</p></head><body><p>本文</p></body></html>';
+    const { service } = makeService({ getReview: ok({ ...review('create'), renderedHtml }) });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    const after = buildHtmlDiff.mock.calls[0]?.[1] as string;
+    expect(after).toContain('移る段落');
+    expect(after).toContain('本文');
+    expect(after).not.toContain('<title>');
+  });
+
+  it.each([
+    ['CSS の欄', { css: 'p::after{content:"本番だけ"}' }, '<html><body><p>x</p></body></html>'],
+    [
+      '本文の <style>',
+      {},
+      '<html><body><style>p::after{content:"x"}</style><p>x</p></body></html>',
+    ],
+    ['style 属性', {}, '<html><body><p style="--x:&quot;x&quot;">x</p></body></html>'],
+  ])(
+    '申請者の CSS(%s)が文字を生むなら cssGeneratedText を立てる',
+    async (_l, over, renderedHtml) => {
+      buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'added' }]));
+      const { service } = makeService({
+        getReview: ok({ ...review('create'), ...over, renderedHtml }),
+      });
+      const res = await service.buildDiff('req-1');
+      expect(res.ok && res.value.cssGeneratedText).toBe(true);
+    },
+  );
+
+  it('font-family だけの CSS では cssGeneratedText を立てない(編集経路も同じ判定)', async () => {
+    buildHtmlDiff.mockResolvedValue(diffPage([{ status: 'changed' }]));
+    const { service } = makeService({
+      renderTemplateBody: ok({ html: '<p>x</p>', css: "body{font-family:'Yu Mincho',serif}" }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok && res.value.cssGeneratedText).toBe(false);
+  });
+
+  it('create 経路: サーバが描けなかった申請(renderError)は差分を作らず、その文言で失敗を返す', async () => {
+    const { service, compare } = makeService({
+      getReview: ok({ ...review('create'), renderError: '申請し直してもらってください' }),
+    });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.message).toBe('申請し直してもらってください');
+    expect(buildHtmlDiff).not.toHaveBeenCalled();
+    expect(compare.renderTemplateBody as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it('create 経路: 描いた本文が無ければ(応答の欠け)、手元で描き直さずに失敗を返す', async () => {
+    const { service, compare } = makeService({ getReview: ok(review('create')) });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(false);
+    expect(compare.renderTemplateBody as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it('右欄の文字の差分の安全網: 作成経路でも、@media screen で隠したパーツの文字が追加として並ぶ', async () => {
+    // 本物の差分で組む(パーツの区切りと右欄の文字は、ここが要)。
+    const { createHtmlApi } = await import('@/workers/htmlApi');
+    const api = createHtmlApi();
+    buildHtmlDiff.mockImplementation((b: string, a: string, cb?: string, ca?: string) =>
+      api.buildHtmlDiff(b, a, cb, ca),
+    );
+    const renderedHtml =
+      '<html><head></head><body>' +
+      '<style>@media screen { .x { display:none } }</style>' +
+      '<section data-part-id="a">見える文言</section>' +
+      '<section data-part-id="b" class="x">隠した文言</section>' +
+      '</body></html>';
+    const { service } = makeService({ getReview: ok({ ...review('create'), renderedHtml }) });
+    const res = await service.buildDiff('req-1');
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const added = res.value.changes
+      .flatMap((c) => c.textOps)
+      .filter((o) => o.type === 'ins')
+      .map((o) => o.text)
+      .join('');
+    expect(added).toContain('見える文言');
+    expect(added).toContain('隠した文言');
+    expect(res.value.changes.every((c) => c.textOps.every((o) => o.type !== 'del'))).toBe(true);
   });
 
   it('現行版が取得できなくても before 空で画面は出す(edit・baseline err)', async () => {

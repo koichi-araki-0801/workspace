@@ -33,6 +33,23 @@ const d = gitAvailable ? describe : describe.skip;
 
 d('review workflow (reviewRepo)', () => {
   let reviews: import('../src/repositories/reviewRepo.js').ReviewRepo;
+  /** 作成経路の受付が使う sample(テストごとに差し替える)。 */
+  const SAMPLE = {
+    fund: { name: 'ダミー高利回り債券オープン', cost: '1.25%' },
+    rows: [1, 2],
+    big: { rows: Array.from({ length: 1000 }, (_, i) => i), s: 'x'.repeat(1000) },
+  };
+  /**
+   * 作成経路の本文を文書の骨格(`<html><head></head><body>…</body></html>`)に入れる。受付は文書の
+   * 骨格の外に本文を置かせない(shared の `reviewableSource.ts` の制約 6)。
+   */
+  const asDoc = (html: string) =>
+    /^\s*(<!doctype|<html)/i.test(html)
+      ? html
+      : html.startsWith('<body>')
+        ? `<html><head></head>${html}</html>`
+        : `<html><head></head><body>${html}</body></html>`;
+  let sampleOf: (templateId: string) => Promise<Record<string, unknown>> = async () => SAMPLE;
   const submitter = { username: 'editor1', role: 'editor' };
   const approver = { username: 'approver1', role: 'approver' };
 
@@ -48,9 +65,9 @@ d('review workflow (reviewRepo)', () => {
   // 承認が `filled/` へ Jinja 骨組みを書いてしまう)。既定の origin に合わせて種を撒く。
   const submit = (templateId: string, html: string, origin: 'edit' | 'create' = 'edit') => {
     if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
-    // 作成経路は値入り HTML が要る(受付で原文とパーツの構造を比べる)。原文と同じ構造で足りる。
-    const filled = origin === 'create' ? { filledHtml: html } : {};
-    return reviews.submitReview({ templateId, html, css: '.x{}', origin, ...filled }, submitter);
+    // 作成経路は値入り HTML を送らない(承認画面の本文はサーバが受付で描く)。
+    const body = origin === 'create' ? asDoc(html) : html;
+    return reviews.submitReview({ templateId, html: body, css: '.x{}', origin }, submitter);
   };
   /**
    * edit 申請の変更パーツを全部承認する(判定の揃わない edit 申請は確定できない)。最終確定が
@@ -80,21 +97,16 @@ d('review workflow (reviewRepo)', () => {
     return reviews.approveReview(reqId, decision, actor);
   };
   /**
-   * create申請へ値入りHTMLを添付し、単一パーツを承認済みにする。
-   * createの最終確定は値入りHTML上の判定をJinja原文へ反映するため、承認テストで使用する。
+   * create申請を出し、単一パーツを承認済みにする。最終確定は承認画面での判定を Jinja 原文へ
+   * 反映するため、承認テストで使用する。
    */
-  const submitApprovedCreate = async (
-    templateId: string,
-    sourceHtml: string,
-    filledHtml: string,
-  ) => {
+  const submitApprovedCreate = async (templateId: string, sourceHtml: string) => {
     const meta = await reviews.submitReview(
       {
         templateId,
-        html: sourceHtml,
+        html: asDoc(sourceHtml),
         css: '.x{}',
         origin: 'create',
-        filledHtml,
       },
       submitter,
     );
@@ -120,7 +132,14 @@ d('review workflow (reviewRepo)', () => {
     // helper は動的に取る — 静的 import だと冒頭の env 設定より先に `config.js` が読まれる。
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createDeps } = await import('../src/deps.js');
-    reviews = createDeps(createOfflineSproc(), createSessionStub()).reviews;
+    const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
+    const deps = createDeps(createOfflineSproc(), createSessionStub());
+    // 作成経路の受付は sample で描く。DB は使わないので、差し替えられる取得口を渡す。
+    reviews = createReviewRepo({
+      noteMaster: deps.noteMaster,
+      pairSync: deps.pairSync,
+      sampleOf: (templateId) => sampleOf(templateId),
+    });
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -380,24 +399,6 @@ d('review workflow (reviewRepo)', () => {
     expect(fs.existsSync(filledFile(tplId))).toBe(false);
   });
 
-  it("origin='create' は値入り HTML がなければ最終確定できない", async () => {
-    // 受付は値入り HTML の無い申請を止めるので、受付の検査より前に保存された申請を模す
-    // (受付を通して保存された値入り HTML を消す)。
-    const tplId = 'XX01_212122_交付版';
-    const meta = await submit(tplId, '<p>{{ fund.name }}</p>', 'create');
-    fs.rmSync(path.join(tmp, 'reviews', meta.id, 'filled.html'));
-
-    await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
-      kind: 'validation',
-      message: '作成タブの最終確定には値入りHTMLが必要です',
-    });
-
-    expect(fs.existsSync(path.join(tmp, 'templates', `${tplId}.html`))).toBe(false);
-
-    const pending = await reviews.getReview(meta.id, approver);
-    expect(pending.status).toBe('pending');
-  });
-
   // ── 承認の書込先は申請の `origin` で決まる ──
   // 編集タブ(edit)は値入り HTML、テンプレート作成タブ(create)は Jinja スケルトンを
   // 確定させる。取り違えると編集タブの実値が Jinja を上書きする(またはその逆)。
@@ -437,15 +438,11 @@ d('review workflow (reviewRepo)', () => {
     timeout: 60_000,
   }, async () => {
     const tplId = 'XX01_171717_交付版';
-    const meta = await submitApprovedCreate(
-      tplId,
-      '<p>{{ fund.name }}</p>',
-      '<p>ダミー高利回り債券オープン</p>',
-    );
+    const meta = await submitApprovedCreate(tplId, '<p>{{ fund.name }}</p>');
 
     await approveAll(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
-      '<p>{{ fund.name }}</p>',
+      asDoc('<p>{{ fund.name }}</p>'),
     );
     expect(fs.existsSync(path.join(tmp, 'filled', `${tplId}.html`))).toBe(false);
   });
@@ -460,20 +457,12 @@ d('review workflow (reviewRepo)', () => {
       '<div class="pagebreak"></div>' +
       '<section data-part-id="rejected">費用 {{ fund.cost }}</section>' +
       '</body>';
-    const filledHtml =
-      '<body>' +
-      '<section data-part-id="approved">ダミー高利回り債券オープン</section>' +
-      '<div class="pagebreak"></div>' +
-      '<section data-part-id="rejected">費用 1.25%</section>' +
-      '</body>';
-
     const meta = await reviews.submitReview(
       {
         templateId: tplId,
-        html: sourceHtml,
+        html: asDoc(sourceHtml),
         css: '.x{}',
         origin: 'create',
-        filledHtml,
       },
       submitter,
     );
@@ -535,11 +524,7 @@ d('review workflow (reviewRepo)', () => {
     const tplId = 'XX01_191919_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
-    const meta = await submitApprovedCreate(
-      tplId,
-      '<p>{{ fund.name }} 確定</p>',
-      '<p>ダミー高利回り債券オープン 確定</p>',
-    );
+    const meta = await submitApprovedCreate(tplId, '<p>{{ fund.name }} 確定</p>');
 
     await approveAll(meta.id, {}, approver);
 
@@ -553,11 +538,7 @@ d('review workflow (reviewRepo)', () => {
     const tplId = 'XX01_222333_交付版';
     const pendingFiles = await import('../src/files/pendingFiles.js');
     await pendingFiles.writePending(tplId, '<p>{{ fund.name }} 骨組み</p>', '.p{}');
-    const meta = await submitApprovedCreate(
-      tplId,
-      '<p>{{ fund.name }} 確定</p>',
-      '<p>ダミー高利回り債券オープン 確定</p>',
-    );
+    const meta = await submitApprovedCreate(tplId, '<p>{{ fund.name }} 確定</p>');
 
     expect(meta.attributes).toEqual({
       companyCode: 'XX01',
@@ -566,7 +547,7 @@ d('review workflow (reviewRepo)', () => {
     });
     await approveAll(meta.id, {}, approver);
     expect(fs.readFileSync(path.join(tmp, 'templates', `${tplId}.html`), 'utf8')).toBe(
-      '<p>{{ fund.name }} 確定</p>',
+      asDoc('<p>{{ fund.name }} 確定</p>'),
     );
     expect(fs.existsSync(path.join(tmp, 'pending', `${tplId}.html`))).toBe(false);
   });
@@ -834,10 +815,11 @@ d('review workflow (reviewRepo)', () => {
         reviews.submitReview(
           {
             templateId: 'XX01_720014_交付版',
-            html: '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+            html: asDoc(
+              '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+            ),
             css: '.x{}',
             origin: 'create',
-            filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
           },
           submitter,
         ),
@@ -847,42 +829,7 @@ d('review workflow (reviewRepo)', () => {
       });
     });
 
-    it('作成経路で値入り HTML の無い申請・原文と値入りのパーツの構造が合わない申請は、受付で 400 にする', async () => {
-      const html = '<body><section data-part-id="s">{{ fund.name }}</section></body>';
-      const submitCreate = (templateId: string, filledHtml?: string) =>
-        reviews.submitReview(
-          {
-            templateId,
-            html,
-            css: '.x{}',
-            origin: 'create',
-            ...(filledHtml === undefined ? {} : { filledHtml }),
-          },
-          submitter,
-        );
-      await expect(submitCreate('XX01_720016_交付版')).rejects.toMatchObject({
-        kind: 'validation',
-        message: '作成タブの最終確定には値入りHTMLが必要です',
-      });
-      // 値入り HTML が空(画面のプレビューの描画が終わる前・描画の失敗)は、構造の不一致と分けて返す。
-      for (const empty of ['', '  \n']) {
-        await expect(submitCreate('XX01_720018_交付版', empty)).rejects.toMatchObject({
-          kind: 'validation',
-          message: 'プレビューの描画が終わってから申請してください',
-        });
-      }
-      await expect(
-        submitCreate(
-          'XX01_720017_交付版',
-          '<body><section data-part-id="t">ダミー</section></body>',
-        ),
-      ).rejects.toMatchObject({
-        kind: 'validation',
-        message: 'Jinja原文と値入りHTMLのパーツ構造が一致しません',
-      });
-    });
-
-    it('作成経路の受付の検査は、テスト用の全 fixture(Jinja 原文と値入りの組)を拒まない', async () => {
+    it('作成経路の受付の検査は、テスト用の全 fixture を値入り HTML 無しで拒まない', async () => {
       const fixtures = path.resolve(__dirname, '../../fixtures');
       const names = fs
         .readdirSync(path.join(fixtures, 'templates'))
@@ -901,11 +848,13 @@ d('review workflow (reviewRepo)', () => {
             html: source,
             css: '.x{}',
             origin: 'create',
-            filledHtml: fs.readFileSync(path.join(fixtures, 'filled', n), 'utf8'),
           },
           { username: `fixture-${n}`, role: 'editor' },
         );
         expect(meta.status, n).toBe('pending');
+        const got = await reviews.getReview(meta.id, approver);
+        expect(got.renderedHtml, n).toBeTruthy();
+        expect(fs.existsSync(path.join(tmp, 'reviews', meta.id, 'rendered.html')), n).toBe(true);
       }
     }, 60_000);
 
@@ -914,10 +863,11 @@ d('review workflow (reviewRepo)', () => {
         reviews.submitReview(
           {
             templateId: 'XX01_720015_交付版',
-            html: '<body><section data-part-id="s">{{ fund.name }}</section><!-- 閉じない</body>',
+            html: asDoc(
+              '<body><section data-part-id="s">{{ fund.name }}</section><!-- 閉じない</body>',
+            ),
             css: '.x{}',
             origin: 'create',
-            filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
           },
           submitter,
         ),
@@ -930,16 +880,15 @@ d('review workflow (reviewRepo)', () => {
       const meta = await reviews.submitReview(
         {
           templateId: tplId,
-          html: '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+          html: asDoc('<body><section data-part-id="s">{{ fund.name }}</section></body>'),
           css: '.x{}',
           origin: 'create',
-          filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
         },
         submitter,
       );
       fs.writeFileSync(
         path.join(tmp, 'reviews', meta.id, 'body.html'),
-        '<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>',
+        asDoc('<body><section data-part-id="{{ fund.code }}">{{ fund.name }}</section></body>'),
         'utf8',
       );
       for (let i = 0; i < 2; i++) {
@@ -989,10 +938,9 @@ d('review workflow (reviewRepo)', () => {
       const meta = await reviews.submitReview(
         {
           templateId: tplId,
-          html: '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+          html: asDoc('<body><section data-part-id="s">{{ fund.name }}</section></body>'),
           css: '.x{}',
           origin: 'create',
-          filledHtml: '<body><section data-part-id="s">ダミー</section></body>',
         },
         submitter,
       );
@@ -1360,6 +1308,307 @@ d('review workflow (reviewRepo)', () => {
           message: expect.stringContaining('申請し直してください'),
         });
       });
+    });
+  });
+
+  // ── 作成経路の承認画面の本文 ──
+  // 承認画面は、サーバが受付で Jinja 原文から描いた本文(`renderedHtml`)だけを見せる。申請者が
+  // 送る値入り HTML(`filledHtml`)は受け取って捨てる(確定する原文と別の物を見せられないように)。
+  describe('作成経路の承認画面の本文(サーバが受付で描く)', () => {
+    const reviewDir = (id: string) => path.join(tmp, 'reviews', id);
+    const create = (templateId: string, html: string, extra: { filledHtml?: string } = {}) =>
+      reviews.submitReview(
+        { templateId, html: asDoc(html), css: '.x{}', origin: 'create', ...extra },
+        submitter,
+      );
+    const withSample = async <T>(
+      impl: (templateId: string) => Promise<Record<string, unknown>>,
+      run: () => Promise<T>,
+    ): Promise<T> => {
+      const saved = sampleOf;
+      sampleOf = impl;
+      try {
+        return await run();
+      } finally {
+        sampleOf = saved;
+      }
+    };
+    const offline = async (): Promise<Record<string, unknown>> => {
+      throw new Error('DB 不在');
+    };
+    /**
+     * 生成済みのテンプレートとして置く。作成タブは生成物を直して申請するので、テンプレの JavaScript の
+     * 不変の照合(描けない差し込みを新しく足すと拒否)の基準になる。
+     */
+    const seedTemplate = (templateId: string, html: string) => {
+      fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, 'templates', `${templateId}.html`), asDoc(html), 'utf8');
+    };
+
+    it('攻撃の回帰: html は本物・filledHtml は偽でも、承認画面は html から描いた本文だけを返す', async () => {
+      const html = '<body><section data-part-id="fee">信託報酬 {{ fund.cost }}</section></body>';
+      const fake = '<body><section data-part-id="fee">信託報酬 0.01%(偽の文言)</section></body>';
+      const meta = await create('XX01_730001_交付版', html, { filledHtml: fake });
+      const got = await reviews.getReview(meta.id, approver);
+      expect(got.renderedHtml).toContain('信託報酬 1.25%');
+      expect(got.renderedHtml).not.toContain('偽の文言');
+      expect(got).not.toHaveProperty('filledHtml');
+      expect(JSON.stringify(got)).not.toContain('偽の文言');
+      expect(fs.existsSync(path.join(reviewDir(meta.id), 'filled.html'))).toBe(false);
+    });
+
+    it('renderedHtml は meta.json と一覧に出ず、申請者本人の getReview でも返る(注意の件数はメタ)', async () => {
+      const html =
+        '<body><section data-part-id="s">{{ fund.name|nosuch }}{% include "a.html" %}' +
+        '{{ note|safe }}</section></body>';
+      seedTemplate('XX01_730002_交付版', html);
+      const meta = await withSample(
+        async () => ({ ...SAMPLE, note: '<script>x()</script>' }),
+        () => create('XX01_730002_交付版', html),
+      );
+      const raw = fs.readFileSync(path.join(reviewDir(meta.id), 'meta.json'), 'utf8');
+      expect(raw).not.toContain('renderedHtml');
+      const stored = JSON.parse(raw) as { renderNotes: unknown };
+      expect(stored.renderNotes).toEqual({
+        unrendered: 2,
+        escapedSafe: 1,
+        unrenderedSources: ['{{ fund.name|nosuch }}', '{% include "a.html" %}'],
+      });
+      const listed = (await reviews.listReviews({}, approver)).find((m) => m.id === meta.id);
+      expect(listed).toBeDefined();
+      expect(listed).not.toHaveProperty('renderedHtml');
+      const own = await reviews.getReview(meta.id, submitter);
+      expect(own.renderedHtml).toContain('{{ fund.name|nosuch }}');
+      expect(own.renderedHtml).toContain('&lt;script&gt;');
+      expect(own.renderNotes?.unrendered).toBe(2);
+    });
+
+    it('注意に載せる原文は長さの上限で切る', async () => {
+      const long = `{{ x|nosuch("${'a'.repeat(300)}") }}`;
+      seedTemplate('XX01_730003_交付版', `<body><p>${long}</p></body>`);
+      const meta = await create('XX01_730003_交付版', `<body><p>${long}</p></body>`);
+      const got = await reviews.getReview(meta.id, approver);
+      expect(got.renderNotes?.unrenderedSources[0]?.length).toBeLessThanOrEqual(200);
+    });
+
+    it('値入り HTML が無くても空でも通る', async () => {
+      const html = '<body><section data-part-id="s">{{ fund.name }}</section></body>';
+      expect((await create('XX01_730004_交付版', html)).status).toBe('pending');
+      expect((await create('XX01_730005_交付版', html, { filledHtml: '' })).status).toBe('pending');
+    });
+
+    it('全部の枝を描くので、本文直下に枝ごとのパーツがある原文が通り、どの枝も承認画面に見える', async () => {
+      const html =
+        '<body>{% if report.editionType == "交付版" %}<section data-part-id="a">交付の本文</section>' +
+        '{% else %}<section data-part-id="b">全体の本文</section>{% endif %}</body>';
+      const meta = await create('XX01_730006_交付版', html);
+      const got = await reviews.getReview(meta.id, approver);
+      expect(got.renderedHtml).toContain('交付の本文');
+      expect(got.renderedHtml).toContain('全体の本文');
+    });
+
+    const LIMIT =
+      /^描画の量が上限を超えたため、承認画面に全体を表示できません。テンプレートを確かめてください$/;
+    it.each([
+      [
+        'Jinja を読めない',
+        '<body><section data-part-id="s">{% if x %}</section></body>',
+        /^Jinja の書き方を読めないため申請できません（位置 \d+）$/,
+      ],
+      [
+        'タグ・コメントの途中の差し込み',
+        '<body>{% if c %}<!--{% endif %}<section data-part-id="s">隠す</section>{% if c %}-->{% endif %}</body>',
+        /^Jinja の差し込み・分岐・コメントを、タグ・コメント・<style> などの途中に置いているため、承認画面で正しく表示できません。外へ出してください（位置 \d+）$/,
+      ],
+      [
+        '分岐の中の set',
+        '<body>{% if c %}{% set t = fund.name %}{% endif %}<p>{{ t }}</p></body>',
+        /^Jinja の分岐・繰り返し（\{% if %\}・\{% for %\}）の中では \{% set %\} を使えません。/,
+      ],
+      [
+        '骨格の外の本文',
+        '<html><head><p>本番だけ</p></head><body><p>x</p></body></html>',
+        /^テンプレートの骨格（<html>・<head>・<body>）の外や <head> の中に本文や差し込みを置いているため/,
+      ],
+      [
+        'head の title の差し替え',
+        '<html><head><title>本番だけ</title></head><body><p>x</p></body></html>',
+        /^<head> の中の <meta>・<title>・<style>・<link> は変更できません/,
+      ],
+      [
+        '評価の量(SUBMIT_RENDER_WORK)',
+        // 繰り返しは 1,000 回(上限 10 万の内)、出力は約 100 万字(上限の内)で、長い値を出す評価の量
+        // (約 100 万)だけが受付の上限(80 万)を超える。
+        '<body><p>{% for i in big.rows %}{{ big.s }}{% endfor %}</p></body>',
+        LIMIT,
+      ],
+      [
+        '出力の上限',
+        // 1,000 × 2 回 × 2,100 字で約 420 万字(上限 4 Mi 字を超える)。
+        `<body><p>{% for i in big.rows %}{% for j in rows %}${'x'.repeat(2100)}{% endfor %}{% endfor %}</p></body>`,
+        LIMIT,
+      ],
+      [
+        '描画結果とのパーツの構造の不一致',
+        '<body>{% for r in rows %}<section data-part-id="s">{{ r }}</section>{% endfor %}</body>',
+        /^Jinja原文と描画結果のパーツ構造が一致しません$/,
+      ],
+    ])('受付で 400: %s', async (_label, html, message) => {
+      const before = (await reviews.listReviews({}, approver)).length;
+      await expect(create('XX01_730010_交付版', html)).rejects.toMatchObject({
+        kind: 'validation',
+        message: expect.stringMatching(message),
+      });
+      expect((await reviews.listReviews({}, approver)).length).toBe(before);
+    });
+
+    it('sample を取れないときは申請を受け付けない', async () => {
+      await withSample(offline, async () => {
+        await expect(
+          create('XX01_730011_交付版', '<body><p>{{ fund.name }}</p></body>'),
+        ).rejects.toMatchObject({
+          kind: 'unexpected',
+          message:
+            'サンプルデータを取得できないため申請を受け付けられません。時間をおいて再度お試しください',
+        });
+      });
+    });
+
+    it('古い申請(rendered.html が無い)は getReview で描いて返し、ファイルを書かない', async () => {
+      const meta = await create(
+        'XX01_730012_交付版',
+        '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+      );
+      const rendered = path.join(reviewDir(meta.id), 'rendered.html');
+      fs.rmSync(rendered);
+      const got = await reviews.getReview(meta.id, approver);
+      expect(got.renderedHtml).toContain('ダミー高利回り債券オープン');
+      expect(got.renderError).toBeUndefined();
+      expect(fs.existsSync(rendered)).toBe(false);
+    });
+
+    it('古い申請で描けない形(枝またぎ・構造の不一致)は、400 ではなく renderError で知らせる', async () => {
+      const meta = await create(
+        'XX01_730013_交付版',
+        '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+      );
+      fs.rmSync(path.join(reviewDir(meta.id), 'rendered.html'));
+      for (const body of [
+        '<body>{% if c %}<!--{% endif %}<section data-part-id="s">x</section>{% if c %}-->{% endif %}</body>',
+        '<body>{% for r in rows %}<section data-part-id="s">{{ r }}</section>{% endfor %}</body>',
+      ]) {
+        fs.writeFileSync(path.join(reviewDir(meta.id), 'body.html'), asDoc(body), 'utf8');
+        const got = await reviews.getReview(meta.id, approver);
+        expect(got.renderedHtml).toBeUndefined();
+        expect(got.renderError).toBe(
+          'この申請は承認画面で表示できません。申請し直してもらってください',
+        );
+      }
+      // sample を取れないのは一時的な失敗なので、申請し直しではなく時間をおくよう知らせる。
+      await withSample(offline, async () => {
+        const got = await reviews.getReview(meta.id, approver);
+        expect(got.renderError).toContain('時間をおいて');
+      });
+    });
+
+    it('打ち切られない上限に近い帳票(約 305 万字)は、受付の描画の上限(SUBMIT_RENDER_WORK)の内で通る', {
+      timeout: 120_000,
+    }, async () => {
+      const fixtures = path.resolve(__dirname, '../../fixtures');
+      const name = 'XX01_950037_20240710_全体版';
+      const src = fs.readFileSync(path.join(fixtures, 'templates', `${name}.html`), 'utf8');
+      const open = src.indexOf('<body>') + '<body>'.length;
+      const close = src.lastIndexOf('</body>');
+      const inner = src.slice(open, close);
+      const big =
+        src.slice(0, open) + inner.repeat(Math.floor(3_050_000 / inner.length)) + src.slice(close);
+      expect(big.length).toBeGreaterThan(3_000_000);
+      const templateId = 'XX01_950037_全体版';
+      seedTemplate(templateId, big);
+      const real = JSON.parse(
+        fs.readFileSync(path.join(fixtures, 'sample', '950037.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      const meta = await withSample(
+        async () => real,
+        () => create(templateId, big),
+      );
+      const got = await reviews.getReview(meta.id, approver);
+      expect(got.renderedHtml?.length).toBeGreaterThan(big.length);
+    });
+
+    it('古い申請の描き直しは受付の鎖を待たず、同じ申請を同時に開いても 1 回だけ描く', async () => {
+      const old = await create(
+        'XX01_730016_交付版',
+        '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+      );
+      fs.rmSync(path.join(reviewDir(old.id), 'rendered.html'));
+      let releaseSubmit = () => {};
+      const submitGate = new Promise<void>((r) => {
+        releaseSubmit = r;
+      });
+      let releaseOld = () => {};
+      const oldGate = new Promise<void>((r) => {
+        releaseOld = r;
+      });
+      const calls: string[] = [];
+      await withSample(
+        async (templateId) => {
+          calls.push(templateId);
+          if (templateId === 'XX01_730017_交付版') await submitGate;
+          if (templateId === 'XX01_730016_交付版') await oldGate;
+          return SAMPLE;
+        },
+        async () => {
+          // 受付の鎖を sample の取得で塞いだまま、古い申請を 2 回同時に開く。
+          const pending = create(
+            'XX01_730017_交付版',
+            '<body><section data-part-id="s">{{ fund.name }}</section></body>',
+          );
+          try {
+            await new Promise((r) => setTimeout(r, 50));
+            const both = Promise.all([
+              reviews.getReview(old.id, approver),
+              reviews.getReview(old.id, approver),
+            ]);
+            await new Promise((r) => setTimeout(r, 50));
+            releaseOld();
+            const [a, b] = await both;
+            expect(a.renderedHtml).toContain('ダミー高利回り債券オープン');
+            expect(b.renderedHtml).toBe(a.renderedHtml);
+            expect(calls.filter((c) => c === 'XX01_730016_交付版')).toHaveLength(1);
+          } finally {
+            releaseOld();
+            releaseSubmit();
+            await pending;
+          }
+        },
+      );
+    });
+
+    it('同時の申請 2 件で、受付の描画が直列になる', async () => {
+      let release = () => {};
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const calls: string[] = [];
+      await withSample(
+        async (templateId) => {
+          calls.push(templateId);
+          if (calls.length === 1) await gate;
+          return SAMPLE;
+        },
+        async () => {
+          const html = '<body><section data-part-id="s">{{ fund.name }}</section></body>';
+          const a = create('XX01_730014_交付版', html);
+          const b = create('XX01_730015_交付版', html);
+          await new Promise((r) => setTimeout(r, 100));
+          // 先に鎖へ入った申請が sample を待つ間、もう 1 件は鎖の外で待つ(描画へ進まない)。
+          expect(calls).toHaveLength(1);
+          release();
+          await Promise.all([a, b]);
+          expect(calls).toHaveLength(2);
+        },
+      );
     });
   });
 });

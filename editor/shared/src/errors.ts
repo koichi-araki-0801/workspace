@@ -26,6 +26,11 @@ export type AppErrorKind = (typeof APP_ERROR_KINDS)[number];
 export const REVIEW_ALREADY_DECIDED = 'REVIEW_ALREADY_DECIDED';
 /** パーツ判定の遷移が許されない(ほかの人が先に判定した)409 の `code`。 */
 export const REVIEW_PART_DECISION_TRANSITION = 'REVIEW_PART_DECISION_TRANSITION';
+/**
+ * 作成経路の申請を承認画面に出せない(サーバが本文を描けなかった・描いた本文が応答に無い)ときの
+ * `code`。web の承認画面が組み立てる失敗に付け、読み込みの失敗の汎用の文言の代わりにその理由を出す。
+ */
+export const REVIEW_RENDER_ERROR = 'REVIEW_RENDER_ERROR';
 
 /** `v` が既知の `AppErrorKind` か。外部由来(REST 応答等)の文字列を信用する前に通す。 */
 export function isAppErrorKind(v: unknown): v is AppErrorKind {

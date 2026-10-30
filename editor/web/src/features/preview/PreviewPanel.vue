@@ -187,7 +187,7 @@ function sendDoc() {
   // 子は opaque オリジンでサブリソース要求にセッション cookie が付かない(SameSite=Lax)。
   // テンプレ JS・フォントは**親のここで**文書へ埋めてから渡す(`previewSelfContain.ts`)。
   // 失敗時は原文のまま送る = 認証オフ環境なら子の相対参照が今までどおり解決される。
-  // 加工は表示境界限定で、申請へ保存される `previewDoc`/`filledHtml` には触れない。
+  // 加工は表示境界限定で、`previewDoc`(PDF 出力にも使う)には触れない。
   void selfContainPreviewDoc(props.html, undefined, { companyCode: props.companyCode ?? null })
     .catch(() => props.html)
     .then((html) => {

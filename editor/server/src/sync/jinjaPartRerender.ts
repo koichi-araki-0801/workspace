@@ -188,7 +188,11 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
     ops.push({ start: part.start, end: part.end, text: next, seq: ops.length });
     rerendered.push(part.key);
     if (diagnostics.missing.length > 0 || diagnostics.unsupported.length > 0)
-      blanks.push({ partKey: part.key, ...diagnostics });
+      blanks.push({
+        partKey: part.key,
+        missing: diagnostics.missing,
+        unsupported: diagnostics.unsupported,
+      });
   }
   const html = ops.length > 0 ? applyOps(input.sourceHtml, ops) : input.sourceHtml;
   return { html, rerendered, edited, blanks };

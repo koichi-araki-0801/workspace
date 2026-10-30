@@ -76,7 +76,9 @@ const {
   truncated,
   cssChanged,
   printOnlyCss,
+  cssGeneratedText,
   loadError,
+  renderErrorMessage,
   loading,
   deciding,
   load,
@@ -360,7 +362,7 @@ async function finalize(): Promise<void> {
  * 決着を親へ伝える。読み直した申請が決着済みならそれを、読み直しに失敗して承認待ちのまま
  * なら決着前の申請へ決着の内容を重ねたものを使う。承認・却下はサーバで成立しているので、
  * 承認待ちのまま伝えると一覧に決着済みの申請が承認待ちとして残り、ボタンも押せたままになる。
- * `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)は
+ * `review` は本体(html/css/renderedHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)は
  * メタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
  */
 function emitDecided(
@@ -469,9 +471,9 @@ const pdfGenerating = ref(false);
 
 /**
  * 通知バーの「PDF を開いて確認」— 申請版 1 文書を既存の PDF 出力経路(`PreviewView` の
- * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は申請の記入済み
- * インスタンス(`review.filledHtml`)、無ければ diff 由来の申請版本文(`afterBodyHtml` +
- * `cssAfter`)。値の差込は申請側で済んでいるため `sample` は空でよい。新しい PDF
+ * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は紙面と同じ申請版の本文
+ * (`afterBodyHtml` + `cssAfter`。作成経路はサーバが受付で原文から描いた本文、編集経路は申請の
+ * 値入り HTML)。申請者が送った値入り HTML は使わない。値の差込は済んでいるため `sample` は空でよい。新しい PDF
  * 生成経路・独自 fetch はここでは作らない。
  *
  * ダウンロードは `PreviewView.exportPdf` と同じアンカー download 方式を使う
@@ -483,12 +485,10 @@ async function openPdf() {
   if (!review.value) return;
   pdfGenerating.value = true;
   try {
-    // 記入済みインスタンスは描画済みの文書なので描画を通さない(理由は
-    // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
-    // `filledHtml` が空文字の申請(描画中・描画失敗のまま申請)は diff 由来の申請版本文へ倒す。
-    // これも `renderTemplateBody` がサンプル値で描画した後の HTML なので、同じく描画を通さない
-    // (もう一度通すと、本文中の `{{` に見える文字が空の値で消える)。
-    const html = review.value.filledHtml || afterBodyHtml.value;
+    // 申請版の本文は描画済み(または値入り)なので描画を通さない(理由は
+    // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所。もう一度通すと、
+    // 本文中の `{{` に見える文字(作成経路で原文のまま見せた差し込みを含む)が空の値で消える)。
+    const html = afterBodyHtml.value;
     const res = await preview.renderPdf(
       html,
       cssAfter.value,
@@ -528,7 +528,7 @@ onMounted(load);
       <Loader2 class="h-4 w-4 animate-spin" /> 前後プレビューを生成中…
     </p>
     <p v-else-if="loadError && !review" class="text-sm text-destructive">
-      申請の読み込みに失敗しました。時間をおいて再度お試しください。
+      {{ renderErrorMessage ?? '申請の読み込みに失敗しました。時間をおいて再度お試しください。' }}
     </p>
 
     <section
@@ -612,7 +612,8 @@ onMounted(load);
         class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2"
       >
         <div ref="toolsEl" class="flex min-w-0 flex-1 basis-[28rem]" />
-        <!-- 技術的警告(truncated / printOnlyCss / cssChanged)は 1 つの通知へ集約。 -->
+        <!-- 技術的警告(truncated / printOnlyCss / cssChanged と、作成経路の描画の注意)は 1 つの
+             通知へ集約。作成経路の紙面はサーバが全部の枝を描いた本文なので、常にそのことを添える。 -->
         <ReviewNoticeBar
           class="basis-full"
           :css-changed="cssChanged"
@@ -621,6 +622,10 @@ onMounted(load);
           :css-after="cssAfter"
           :print-only-css="printOnlyCss"
           :truncated="truncated"
+          :unrendered="review?.origin === 'create' ? (review.renderNotes?.unrendered ?? 0) : 0"
+          :escaped-safe="review?.origin === 'create' ? (review.renderNotes?.escapedSafe ?? 0) : 0"
+          :all-branches="review?.origin === 'create'"
+          :css-generated-text="cssGeneratedText"
           :pdf-generating="pdfGenerating"
           @open-pdf="openPdf"
         />

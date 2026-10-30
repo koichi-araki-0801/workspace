@@ -85,13 +85,14 @@ export function useRejectedReasons(ctx: {
     );
     if (rejected.length === 0) return;
 
-    // canvas に無いキー(却下した追加・キーのずれ)だけ、名前のために本文を 1 回取る。
+    // canvas に無いキー(却下した追加・キーのずれ)だけ、名前のために本文を 1 回取る。作成経路は
+    // サーバが描いた承認画面の本文(`renderedHtml`。承認者が見て判定した本文)から名前を取る。
     const onCanvas = ctx.canvasKeys();
     const missing = new Set(rejected.map((d) => d.partKey).filter((k) => !onCanvas.has(k)));
     let names = new Map<string, string>();
     if (missing.size > 0) {
       const body = await ctx.reviews.getReview(latest.id);
-      if (isOk(body)) names = namesFromBody(body.value.filledHtml || body.value.html, missing);
+      if (isOk(body)) names = namesFromBody(body.value.renderedHtml || body.value.html, missing);
       else {
         logError(body.error);
         names = new Map([...missing].map((k) => [k, UNKNOWN_PART_NAME]));

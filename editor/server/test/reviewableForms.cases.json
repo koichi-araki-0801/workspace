@@ -1,0 +1,883 @@
+[
+  {
+    "id": "probe/A1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-{% if false %}-{% endif %}<p>本番だけの文言</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe/A2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{% if false %}x{% endif %}><p>本番だけの文言</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe/A3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!{% if false %}-- {% endif %}><p>本番だけの文言</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe/A4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-{% for i in [] %}-{% endfor %}<p>本番だけの文言</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe/B1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}{% set t = \"承認画面の文言\" %}{% endif %}<p>{{ t|default(\"本番だけの文言\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe/B2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if true %}{% set t = \"信託報酬 1.0 本番だけ\" %}{% else %}{% set t = \"信託報酬 0.1\" %}{% endif %}<p>{{ t }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe/C1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p title={% if false %}\"{% endif %}>本番だけの文言<span title=\"\">x</span></p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "probe/C2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><style>.a{}</style{% if false %}x{% endif %}><p>本番だけの文言</p></style></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "probe/D1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<noscript>{% endif %}<p>本番だけの文言</p></noscript></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "probe/D2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<iframe>{% endif %}<p>本番だけの文言</p></iframe></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "probe/E1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- {{ \"-->\" }}<p>本番だけの文言</p> --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "probe/E2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-\n{%- if false -%}\n-\n{%- endif -%}\n<p>本番だけ</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe2/head",
+    "src": "<html><head><p>本番だけの文言</p></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe2/afterBody",
+    "src": "<html><head></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body><p>本番だけの文言</p></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "probe2/emptyValue",
+    "src": "<html><head></head><body><section data-part-id=\"s\"><!-{{ fund.nosuch }}-<p>本番だけの文言</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "K1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-{% if false %}-{% endif %}<p>本番だけ</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{#- c -#}\n><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{%- set a = 1 -%}\n><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{% set a = 1 %}\n><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{# c #}\n><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T5",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{%- raw -%}{%- endraw -%}\n><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T6",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-- x --{% if true %}\n{% endif %}\n><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "T7",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><\n{%- if true -%}\n!-- 承認だけ -->{% endif %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "承認だけ",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "F1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><svg>{% if false %}<style><!--</style>{% endif %}</svg><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "F2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><math>{% if false %}<title><!--</title>{% endif %}</math><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "F3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><svg>{% if false %}<textarea><!--</textarea>{% endif %}</svg><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "N1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<noscript><!--</noscript>{% endif %}<p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "N2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><noscript><!--</noscript><p>本番だけ</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "I1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<iframe>{% endif %}<p>本番だけ</p></iframe></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "Q1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<?{% endif %}本番だけ></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "R1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}{% raw %}<!--{% endraw %}{% endif %}<p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "TP1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<template>{% endif %}<p>本番だけ</p></template></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "CD1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><svg><desc>{% if false %}<![CDATA[ x >{% endif %}</desc></svg><p>本番だけ</p> ]]></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases2/A1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if true %}{% set a = \"信託報酬 1.0 本番だけ\" %}{% else %}{% set a = \"信託報酬 0.1\" %}{% endif %}{% set t = a %}<p>{{ t }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases2/A2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if true %}{% set a = \"信託報酬 1.0 本番だけ\" %}{% else %}{% set a = \"信託報酬 0.1\" %}{% endif %}{% for x in [a] %}<p>{{ x }}</p>{% endfor %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases2/A3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set ns = namespace(v=\"信託報酬 0.1\") %}{% set al = ns %}{% if true %}{% set al.v = \"信託報酬 1.0 本番だけ\" %}{% else %}{% set al.v = \"信託報酬 0.1\" %}{% endif %}<p>{{ ns.v }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set ns = namespace(v=\"信託報酬 0.1\") %}本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases2/A4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set ns = namespace(v=\"x\") %}{% if true %}{% set a = \"信託報酬 1.0 本番だけ\" %}{% else %}{% set a = \"信託報酬 0.1\" %}{% endif %}{% set ns.v = a %}<p>{{ ns.v }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set ns = namespace(v=\"信託報酬 0.1\") %}本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases2/A5",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if true %}{% set k = 1 %}{% else %}{% set k = 2 %}{% endif %}{% set t = [\"信託報酬 0.1\", \"信託報酬 1.0 本番だけ\"][k] %}<p>{{ t }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "F4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><svg>{% if false %}<title><!--</title>{% endif %}</svg><p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "F5",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if false %}<svg><style><!--</style></svg>{% endif %}<p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H1",
+    "src": "<html><head><p>本番だけ</p></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H2",
+    "src": "<html><head></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body><p>本番だけ</p></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H3",
+    "src": "<html><head></head><p>本番だけ</p><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H4",
+    "src": "<p>本番だけ</p><html><head></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H5",
+    "src": "<html><head></head><!--><body><p>本番だけ</p><!-- --><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H6",
+    "src": "<html><head x'></head><body><p>本番だけ</p>'><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "H7",
+    "src": "<html><head></head><body><!---><p>本番だけ</p><!-- --><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H8",
+    "src": "<html><head></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section><!-- --!></body><p>本番だけ</p><!-- --></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H9",
+    "src": "<html><head><style>section::after{content:\"本番だけ\"}</style></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "cases4/0",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ [] or \"本番だけ\" }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases4/1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ {} or \"本番だけ\" }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": true
+  },
+  {
+    "id": "cases4/2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ \"\" or \"本番だけ\" }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases4/3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ 0.0 or \"本番だけ\" }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases4/4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ []|default(\"本番だけ\", true) }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases4/5",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ [\"承認\", \"本番だけ\"][-1] }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "cases4/6",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ [1, 2]|length > 1 and \"本番だけ\" }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/0",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.name.length|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.list.length|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.name[\"length\"]|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.obj.hasOwnProperty|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.name.constructor|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/5",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.nul|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "c5/6",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.flag|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "c5/7",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.empty|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "c5/8",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.num|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "c5/9",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.missing|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/10",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.list.0|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "c5/11",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.list[\"0\"]|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c5/12",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><p>{{ fund.obj.items|default(\"本番だけ\") }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "data": {
+      "fund": {
+        "name": "F",
+        "list": [1, 2],
+        "obj": {
+          "a": 1
+        },
+        "nul": null,
+        "flag": false,
+        "num": 0,
+        "empty": ""
+      }
+    },
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "S1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}{% if false %}<svg>{% endif %}<script>/*<!--*/</script>{% if false %}</svg>{% endif %}<p>本番だけ</p><!-- --></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}<script>/*<!--*/</script></section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "c6head/0",
+    "src": "<html><head><title>t</title><base href=\"https://evil.example/\"><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "HEAD_CHANGED",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "c6head/1",
+    "src": "<html><head><title>t</title><base href=\"../other/\"><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "HEAD_CHANGED",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "c6head/2",
+    "src": "<html><head><title>t</title><meta http-equiv=\"refresh\" content=\"0;url=https://evil.example/\"><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "HEAD_CHANGED",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "c6head/3",
+    "src": "<html><head><title>t</title><link rel=\"alternate stylesheet\" href=\"css/a.css\"><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "HEAD_CHANGED",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "c6head/4",
+    "src": "<html><head><title>t</title><link rel=\"preload\" as=\"style\" href=\"css/a.css\"><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "HEAD_CHANGED",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "c6head/5",
+    "src": "<html><head><title>t</title><title>本番だけ</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title><link rel=\"stylesheet\" href=\"css/a.css\"></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "pf/A2x",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if true %}{% set a = \"1.0 本番だけ\" %}{% endif %}{% set t = a %}{{ t }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "pf/P3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\"><!-{{ fund.nosuch }}-<p>本番だけ</p>--></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "L1",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% for x in [\"本番だけ\"] %}<p>{{ x }}</p>{% endfor %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "L2",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% for x in [\"信託報酬\", \"本番だけ\"] %}<p>{{ x }}</p>{% endfor %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "L3",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set t = \"本番だけ\" %}<p>{{ t }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "L4",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set t = \"本番だけ\" %}<p title=\"{{ t }}\">x</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": false,
+    "prodShows": false
+  },
+  {
+    "id": "L5",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% for i in range(1) %}<p>本番だけ</p>{% endfor %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "L6",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set xs = [\"本番だけ\"] %}{% for x in xs %}<p>{{ x }}</p>{% endfor %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "L7",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% for a, b in [[\"x\", \"本番だけ\"]] %}<p>{{ b }}</p>{% endfor %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "L8",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% if \"本番だけ\" %}<p>ok</p>{% endif %}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": false
+  },
+  {
+    "id": "A6",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set a = \"本番だけ\" %}{% set t = a %}<p>{{ t }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "A7",
+    "src": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set ns = namespace(v=\"本番だけ\") %}{% set ns.v = \"本番だけ\" %}<p>{{ ns.v }}</p></section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">{% set ns = namespace(v=\"信託報酬 0.1\") %}本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": true
+  },
+  {
+    "id": "H10",
+    "src": "<html><head><title>t</title><title>本番だけ</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "base": "<html><head><title>t</title></head><body><section data-part-id=\"s\">本文 {{ fund.name }}</section></body></html>",
+    "mark": "本番だけ",
+    "gatePass": true,
+    "prodShows": false
+  }
+]

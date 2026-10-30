@@ -95,6 +95,18 @@ describe('TemplatePreviewService.loadForPreview', () => {
     }
   });
 
+  it('申請の確認の件数に使う sample は、サーバの受付と同じく版種を被せたもの', async () => {
+    const templates = {
+      getTemplate: vi.fn(async () => ok(tpl)),
+      getSampleData: vi.fn(async () => ok({ sample: { report: { term: '第1期' } }, warnings: [] })),
+      getDraft: vi.fn(async () => ok(null)),
+    } as unknown as TemplateRepository;
+    const res = await createTemplatePreviewService(templates, history).loadForPreview('t1');
+    expect(isOk(res) && res.value.sample).toMatchObject({
+      report: { term: '第1期', editionType: 'kr' },
+    });
+  });
+
   it('restores the draft body when an autosaved draft exists', async () => {
     const templates = draftRepos('<p>draft</p>');
     const svc = createTemplatePreviewService(templates, history, ownerOf(true));

@@ -7,6 +7,8 @@
 // 現行版・申請版とも `compareService` の素の sample 描画に揃え、見せかけ差分を避ける。
 import {
   type ChangedPart,
+  conflict,
+  err,
   type HtmlDiff,
   isErr,
   numberChangedParts,
@@ -14,6 +16,7 @@ import {
   type PartRepository,
   partDisplayName,
   partNameOfHtml,
+  REVIEW_RENDER_ERROR,
   type Result,
   type ReviewRepository,
   type ReviewRequest,
@@ -34,8 +37,11 @@ import {
 } from '@/features/compare/services/compareService';
 import { defaultHtmlParser } from '@/lib/htmlParser';
 import { loadPartNameMap, partNameOf } from '@/lib/partNames';
-import { getBodyInner } from '@/lib/templateDoc';
 import { htmlWorker } from '@/workers';
+import { cssMakesText } from './cssGeneratedText';
+
+/** 作成経路の申請で、サーバが描いた本文が応答に無いときの文言(古いサーバ・応答の欠け)。 */
+const CREATE_RENDER_MISSING = '承認画面の本文を受け取れませんでした。画面を読み直してください';
 
 /** 承認画面の 1 変更パーツ行(番号つきの `ChangedPart` に表示名と本文語句差分を足したもの)。 */
 export interface ReviewChangeRow extends ChangedPart {
@@ -89,6 +95,11 @@ interface ReviewDiffData {
    * 出す。関門ではない。
    */
   printOnlyCss: boolean;
+  /**
+   * 申請者の CSS(CSS の欄・本文の `<style>`・`style` 属性)が文字を生むか(`content`・`quotes`・
+   * `list-style` などの文字列)。紙面にだけ出て右欄の文字の差分に出ないので、注意の帯で知らせる。
+   */
+  cssGeneratedText: boolean;
 }
 
 /** CSS の実質的な差分判定。空白差(整形・改行)は差分と見なさない。 */
@@ -134,6 +145,24 @@ function collectPaneStyleText(afterHtml: string, fundCss: string): string {
   return parts.join('\n');
 }
 
+/** 本文の `<style>` の中身と `style` 属性の値(申請者の CSS)。 */
+function bodyStyleSources(html: string): string[] {
+  if (!html.trim()) return [];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return [
+    ...Array.from(doc.querySelectorAll('style'), (el) => el.textContent ?? ''),
+    ...Array.from(doc.querySelectorAll('[style]'), (el) => el.getAttribute('style') ?? ''),
+  ];
+}
+
+/**
+ * 作成経路の承認画面の本文。サーバが描いた文書を `DOMParser` で読んだ body から取る(文字列で
+ * `<body>` を切らない)。パーサが head から本文へ移す物(head に書いた段落など)も、承認画面に出す。
+ */
+function renderedBody(renderedHtml: string): string {
+  return new DOMParser().parseFromString(renderedHtml, 'text/html').body.innerHTML;
+}
+
 interface ReviewDiffService {
   /** 申請 1 件を読み、現行版と diff してパーツ行を組み立てる。 */
   buildDiff(reqId: string): Promise<Result<ReviewDiffData>>;
@@ -150,16 +179,21 @@ export function createReviewDiffService(
       if (isErr(revRes)) return revRes;
       const review = revRes.value;
 
-      // after(申請版)は申請本文そのもの。作成タブ由来なら素の sample で描画する。
+      // after(申請版)は、編集経路は申請本文そのもの、作成経路はサーバが受付で Jinja 原文から描いた
+      // 本文(`renderedHtml`。全部の枝を描き、描けない差し込みは原文の文字)。申請者が送った値入り
+      // HTML は使わない(確定する原文と別の物を見せられるため)。どちらも組み立て
+      // (`assemblePreviewDocument`)を通さない生の本文を差分と紙面へ渡し、CSS は紙面の文書を組む段
+      // (`reviewCompareDocs.ts`)で付ける。手元で描き直すこともしない(コンパイルを伴わない)。
       // before(現行版)= 既存編集なら現公開版、作成(新規)や取得できない(初回確定前など)なら空。
+      if (review.origin === 'create' && review.renderedHtml === undefined)
+        return err(
+          conflict(review.renderError ?? CREATE_RENDER_MISSING, { code: REVIEW_RENDER_ERROR }),
+        );
       const pairRes =
-        review.origin === 'create' && review.filledHtml
+        review.origin === 'create' && review.renderedHtml !== undefined
           ? ok({
               before: { html: '', css: review.css },
-              after: {
-                html: getBodyInner(review.filledHtml),
-                css: review.css,
-              },
+              after: { html: renderedBody(review.renderedHtml), css: review.css },
             })
           : await renderReviewPair(compare, {
               templateId: review.templateId,
@@ -215,6 +249,7 @@ export function createReviewDiffService(
         truncated: diff.truncated,
         cssChanged: normalizeCssForCompare(before.css) !== normalizeCssForCompare(after.css),
         printOnlyCss: hasPrintOnlyRules(collectPaneStyleText(after.html, after.css)),
+        cssGeneratedText: [after.css, ...bodyStyleSources(after.html)].some(cssMakesText),
       });
     },
   };

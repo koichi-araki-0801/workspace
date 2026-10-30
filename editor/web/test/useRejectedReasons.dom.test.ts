@@ -139,7 +139,7 @@ describe('useRejectedReasons', () => {
       [meta({ id: 'r1', partDecisions: [rejected('p#1', '既存'), rejected('p#2', '追加')] })],
       {
         html: '<p>使わない</p>',
-        filledHtml: '<p>一つ目</p><p>二つ目の段落</p>',
+        renderedHtml: '<p>一つ目</p><p>二つ目の段落</p>',
       },
     );
     const r = setup(reviews, ['p#1']);

@@ -11,6 +11,7 @@ import {
   isErr,
   ok,
   type Result,
+  renderPlainFilled,
   type SampleData,
   type Template,
   type TemplateRepository,
@@ -90,6 +91,22 @@ export function jinjaBlockLossNotice(original: string, restored: string): string
   const after = countJinjaBlockOpens(restored);
   if (before === null || after === null || after >= before) return null;
   return JINJA_BLOCK_LOSS_MSG(before - after);
+}
+
+/**
+ * 作成経路の申請の確認に足す一文。承認画面はサーバが受付で全部の枝を描き(`renderPlainFilled` の
+ * reveal)、値を計算できない差し込みを原文の文字で見せる。申請者が見ているプレビュー(nunjucks)とは
+ * 違う姿になるので、その件数を手元の同じ描き方で数えて知らせる(申請は続けられる)。無い・Jinja として
+ * 読めない(受付が理由を返す)ときは null。
+ */
+export function unrenderedNotice(html: string, sample: SampleData): string | null {
+  let n: number;
+  try {
+    n = renderPlainFilled(html, sample, { reveal: true }).diagnostics.unrenderedCount;
+  } catch {
+    return null;
+  }
+  return n > 0 ? `承認画面では、値を計算できない差し込み ${n} 件を原文のまま表示します。` : null;
 }
 
 interface TemplatePreviewService {

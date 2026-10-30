@@ -211,6 +211,19 @@ function findNameLayer(ctx: JinjaCtx, name: string, budget: JinjaBudget): JinjaC
   return null;
 }
 
+/**
+ * 名前を内側の層から外側へたどって引く(`findNameLayer` の公開の形)。承認画面の描画
+ * (`revealExpr.ts`)が、評価器の式の意味を使わずに名前だけを引くのに使う。
+ */
+export function lookupJinjaName(
+  ctx: JinjaCtx,
+  name: string,
+  budget: JinjaBudget,
+): { found: boolean; value: unknown } {
+  const layer = findNameLayer(ctx, name, budget);
+  return layer === null ? { found: false, value: undefined } : { found: true, value: layer[name] };
+}
+
 /** `obj` から own property だけを引く。prototype と function 値には決して届かない。 */
 function lookupMember(obj: unknown, key: string | number): unknown {
   if (obj === null || obj === undefined) return undefined;
@@ -260,23 +273,32 @@ const MAX_RANGE = 100_000;
  */
 const MAX_WORK = 2_000_000;
 
-/** 評価の仕事の量を数える。描画器は 1 回の描画につき 1 つを作り、すべての式で共有する。 */
+/**
+ * 評価の仕事の量を数える。描画器は 1 回の描画につき 1 つを作り、すべての式で共有する。
+ * 上限は既定で `MAX_WORK`。server の申請の受付は、同期の計算で要求を止める時間を短くするため、
+ * より小さい上限を渡す(`reviewRepo.ts` の `SUBMIT_RENDER_WORK`)。
+ */
 export class JinjaBudget {
   private used = 0;
+  private readonly max: number;
+
+  constructor(max: number = MAX_WORK) {
+    this.max = max;
+  }
 
   charge(units: number): void {
     this.used += units;
-    if (this.used > MAX_WORK) throw new JinjaExprError('評価の量が上限を超えました');
+    if (this.used > this.max) throw new JinjaExprError('評価の量が上限を超えました');
   }
 
   /** 残りの量。入れ子をたどる処理は、これを超えてたどらない。 */
   get remaining(): number {
-    return Math.max(0, MAX_WORK - this.used);
+    return Math.max(0, this.max - this.used);
   }
 
   /** 使い切ったか。描画器はこれを見て以後の繰り返しを展開しない(式ごとに失敗させ続けない)。 */
   get exhausted(): boolean {
-    return this.used > MAX_WORK;
+    return this.used > this.max;
   }
 }
 

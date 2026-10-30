@@ -768,4 +768,40 @@ d('pairSyncService', () => {
       expect(read('templates', 'XX01_630000_全体版')).toContain('{{ fund.name }}の注記');
     });
   });
+
+  // ── `<style>` の中に Jinja があるテンプレートのペア転写 ──
+  // テンプレの JavaScript の不変の照合は、`<style>` の中の Jinja を形を問わず単位にする。転写先の
+  // 基準にある分は通り、承認した側にだけある分を写すと転写が失敗する(承認は成立したまま)。
+  describe('<style> の中に Jinja があるテンプレート', () => {
+    const STYLE = '<style>.x{width:{{ w }}px}</style>';
+    const opts = { css: { before: '', baseline: '' } };
+
+    it('両版の基準にある `<style>` の Jinja は、承認で直したパーツと一緒に写る', {
+      timeout: 60_000,
+    }, async () => {
+      put('templates', 'XX01_640000_交付版', doc(part('a', `${STYLE}旧`)));
+      put('templates', 'XX01_640000_全体版', doc(part('a', `${STYLE}旧`)));
+      await svc.syncPairAfterConfirm('XX01_640000_交付版', 'approver1', 'template', opts);
+      put('templates', 'XX01_640000_交付版', doc(part('a', `${STYLE}新`)));
+      const r = await svc.syncPairAfterConfirm('XX01_640000_交付版', 'approver1', 'template', opts);
+      expect(r?.error).toBeNull();
+      expect(r?.applied).toEqual(['a#1']);
+      expect(read('templates', 'XX01_640000_全体版')).toContain(`${STYLE}新`);
+    });
+
+    it('承認した側にだけある `<style>` の Jinja を写すと、転写は失敗して写し先は変わらない', {
+      timeout: 60_000,
+    }, async () => {
+      // 交付版は別のパーツ(カタログに無いので写さない)に `<style>` の Jinja を持ち、承認でそれを
+      // パーツ a へ移した(交付版の中では単位の数も並びも変わらない)。
+      put('templates', 'XX01_650000_交付版', doc(part('a', '旧'), part('b', STYLE)));
+      put('templates', 'XX01_650000_全体版', doc(part('a', '旧')));
+      await svc.syncPairAfterConfirm('XX01_650000_交付版', 'approver1', 'template', opts);
+      put('templates', 'XX01_650000_交付版', doc(part('a', `${STYLE}新`), part('b', 'b')));
+      const r = await svc.syncPairAfterConfirm('XX01_650000_交付版', 'approver1', 'template', opts);
+      expect(r?.applied ?? []).not.toContain('a#1');
+      expect(r?.error).toEqual(expect.any(String));
+      expect(read('templates', 'XX01_650000_全体版')).toBe(doc(part('a', '旧')));
+    });
+  });
 });

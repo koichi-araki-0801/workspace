@@ -559,6 +559,26 @@ export const ReviewChangedSummary = z
   })
   .meta({ id: 'ReviewChangedSummary' });
 
+/** `ReviewRenderNotes.unrenderedSources` に載せる原文の件数と 1 件の長さの上限。 */
+export const MAX_RENDER_NOTE_SOURCES = 20;
+export const MAX_RENDER_NOTE_SOURCE_CHARS = 200;
+
+/**
+ * 作成経路の承認画面の描画(サーバが受付で描く)の注意。承認画面の注意の帯が件数を出す。
+ * `unrendered` は値を計算できず原文の文字のまま見せた差し込みの数、`escapedSafe` は HTML として
+ * 出す差し込み(`|safe`)のうち文字のまま見せたものの数。
+ */
+export const ReviewRenderNotes = z
+  .object({
+    unrendered: z.number().int().min(0),
+    escapedSafe: z.number().int().min(0),
+    unrenderedSources: z
+      .array(z.string().max(MAX_RENDER_NOTE_SOURCE_CHARS))
+      .max(MAX_RENDER_NOTE_SOURCES)
+      .meta({ description: '原文の文字のまま見せた差し込みの先頭の原文(長いものは切る)' }),
+  })
+  .meta({ id: 'ReviewRenderNotes' });
+
 /** 確定保存申請のメタ(本体 html/css を除く軽量行)。申請一覧の表示に使う。 */
 export const ReviewRequestMeta = z
   .object({
@@ -578,6 +598,9 @@ export const ReviewRequestMeta = z
       description:
         'パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う',
     }),
+    renderNotes: ReviewRenderNotes.optional().meta({
+      description: '作成経路の承認画面の描画の注意(サーバが受付で描いたときの件数)',
+    }),
   })
   .meta({ id: 'ReviewRequestMeta' });
 
@@ -585,7 +608,19 @@ export const ReviewRequestMeta = z
 export const ReviewRequest = ReviewRequestMeta.extend({
   html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
   css: z.string(),
-  filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
+  renderedHtml: z
+    .string()
+    .max(MAX_DOCUMENT_HTML_CHARS)
+    .optional()
+    .meta({
+      description:
+        '作成経路の承認画面に見せる本文。サーバが受付で html から描いたもの(全部の枝を描き、' +
+        '描けない差し込みは原文の文字で出す)。申請者が送る値入り HTML は使わない',
+    }),
+  renderError: z.string().optional().meta({
+    description:
+      '作成経路の古い申請で、承認画面の本文を描けないときの理由(このとき renderedHtml は無い)',
+  }),
   baseHtml: z.string().optional().meta({
     description:
       '申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
@@ -606,7 +641,10 @@ export const SubmitReviewBody = z
     templateId: TemplateId,
     html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
-    filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
+    filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional().meta({
+      description:
+        '互換のため受理し、使わない(古い画面が送る値入り HTML。承認画面はサーバが html から描く)',
+    }),
     cssBaseline: z.string().max(MAX_DOCUMENT_CSS_CHARS).optional().meta({
       description:
         '確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす',

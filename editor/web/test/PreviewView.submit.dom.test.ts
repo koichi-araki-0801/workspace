@@ -185,4 +185,19 @@ describe('確定保存の申請', () => {
     const clear2 = await submitWith(err(conflict('他の競合', { code: 'OTHER' })));
     expect(clear2).not.toHaveBeenCalled();
   });
+
+  it('値入り HTML(filledHtml)を送らない(承認画面の本文はサーバが原文から描く)', async () => {
+    for (const query of [{ created: '1' }, {}]) {
+      route.query = query;
+      stubLoad();
+      computeChangedSummary.mockResolvedValue(null);
+      const { w, reviews } = await mountView();
+      await submitButton(w)?.trigger('click');
+      await flushPromises();
+      expect(reviews.submitReview).toHaveBeenCalledTimes(1);
+      const body = reviews.submitReview.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(body).not.toHaveProperty('filledHtml');
+      expect(body.html).toBe('<p>x</p>');
+    }
+  });
 });

@@ -64,6 +64,7 @@ d('承認とペアの CSS 転写', () => {
     reviews = createReviewRepo({
       pairSync,
       noteMaster: { reflectNoteMasterAfterConfirm: async () => null } as never,
+      sampleOf: async () => ({}),
     });
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));

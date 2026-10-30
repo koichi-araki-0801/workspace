@@ -3287,6 +3287,7 @@
             "maxLength": 1048576
           },
           "filledHtml": {
+            "description": "互換のため受理し、使わない(古い画面が送る値入り HTML。承認画面はサーバが html から描く)",
             "type": "string",
             "maxLength": 4194304
           },
@@ -4576,6 +4577,10 @@
             "items": {
               "$ref": "#/components/schemas/ReviewPartDecision"
             }
+          },
+          "renderNotes": {
+            "description": "作成経路の承認画面の描画の注意(サーバが受付で描いたときの件数)",
+            "$ref": "#/components/schemas/ReviewRenderNotes"
           }
         },
         "required": [
@@ -4768,6 +4773,36 @@
           "rejected"
         ]
       },
+      "ReviewRenderNotes": {
+        "type": "object",
+        "properties": {
+          "unrendered": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "escapedSafe": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "unrenderedSources": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "原文の文字のまま見せた差し込みの先頭の原文(長いものは切る)"
+          }
+        },
+        "required": [
+          "unrendered",
+          "escapedSafe",
+          "unrenderedSources"
+        ],
+        "additionalProperties": false
+      },
       "ReviewRequest": {
         "type": "object",
         "properties": {
@@ -4836,6 +4871,10 @@
               "$ref": "#/components/schemas/ReviewPartDecision"
             }
           },
+          "renderNotes": {
+            "description": "作成経路の承認画面の描画の注意(サーバが受付で描いたときの件数)",
+            "$ref": "#/components/schemas/ReviewRenderNotes"
+          },
           "html": {
             "type": "string",
             "description": "確定保存しようとしている生 Jinja2 HTML"
@@ -4843,8 +4882,13 @@
           "css": {
             "type": "string"
           },
-          "filledHtml": {
-            "description": "値差込済みの成果物(任意)",
+          "renderedHtml": {
+            "description": "作成経路の承認画面に見せる本文。サーバが受付で html から描いたもの(全部の枝を描き、描けない差し込みは原文の文字で出す)。申請者が送る値入り HTML は使わない",
+            "type": "string",
+            "maxLength": 4194304
+          },
+          "renderError": {
+            "description": "作成経路の古い申請で、承認画面の本文を描けないときの理由(このとき renderedHtml は無い)",
             "type": "string"
           },
           "baseHtml": {

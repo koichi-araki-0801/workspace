@@ -2,7 +2,12 @@
 // review.test.ts — 承認ワークフローのスキーマ拡張(保留・変更概要)の検証
 // =============================================================================
 import { describe, expect, it } from 'vitest';
-import { duplicateReviewMessage, formatDateTimeYmdHm } from '../src/domain/review.js';
+import {
+  duplicateReviewMessage,
+  formatDateTimeYmdHm,
+  toReviewMeta,
+  toReviewResponse,
+} from '../src/domain/review.js';
 import {
   MAX_PART_REJECT_REASON_CHARS,
   MAX_REVIEW_PART_KEY_CHARS,
@@ -167,5 +172,32 @@ describe('ReviewRejectBody(申請ごと却下)', () => {
     expect(ok(`${'あ'.repeat(2000)} `)).toBe(false);
     expect(ok(' 　\n')).toBe(false);
     expect(ReviewRejectBody.safeParse({}).success).toBe(false);
+  });
+});
+
+describe('toReviewMeta / toReviewResponse — 承認画面の本文', () => {
+  const stored = {
+    ...(baseMeta as unknown as ReturnType<typeof ReviewRequestMeta.parse>),
+    origin: 'create' as const,
+    html: '<p>{{ x }}</p>',
+    css: '',
+    renderedHtml: '<p>描いた本文</p>',
+    renderError: '描けない',
+    renderNotes: { unrendered: 1, escapedSafe: 0, unrenderedSources: ['{{ x|f }}'] },
+    cssBaseline: '.a{}',
+  };
+
+  it('メタ(meta.json・一覧)は renderedHtml と renderError を持たず、renderNotes は持つ', () => {
+    const meta = toReviewMeta(stored);
+    expect(meta).not.toHaveProperty('renderedHtml');
+    expect(meta).not.toHaveProperty('renderError');
+    expect(meta).not.toHaveProperty('html');
+    expect(meta.renderNotes).toEqual(stored.renderNotes);
+  });
+
+  it('単件の応答は renderedHtml を返し、cssBaseline を剥がす', () => {
+    const res = toReviewResponse(stored);
+    expect(res.renderedHtml).toBe('<p>描いた本文</p>');
+    expect(res).not.toHaveProperty('cssBaseline');
   });
 });

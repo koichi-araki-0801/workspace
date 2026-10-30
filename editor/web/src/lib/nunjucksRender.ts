@@ -47,7 +47,8 @@ export function assemblePreviewDocument(
   // CSS は DOMPurify を通らないため `</style>` 脱出は `appendPreviewStyle` の中で潰す。
   // 本文 CSS は `css/<テンプレ>.css` の位置の CSS として書かれている(相対 url() は css/ 基準)。
   // `<style>` へ埋め込むと文書(`doc/`)基準になるので、ここで 1 回だけ付け替える。HTML 側の
-  // `<style>` は触らない — 申請の filledHtml を本文として再入させる経路があり、触ると二重になる。
+  // `<style>` は触らない(設計正典の却下済み設計「HTML の `<style>` / `style` 属性も付け替える」。
+  // 理由だった申請の値入り HTML の再入の経路は 2026-10-30 に無くなった。付け替えるかは改めて判断する)。
   appendPreviewStyle(root, formatCss(rebaseCssForDoc(css)), {
     'data-preview-css': '',
   });

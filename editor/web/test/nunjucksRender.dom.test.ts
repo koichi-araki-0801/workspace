@@ -169,18 +169,18 @@ describe('assemblePreviewDocument — サニタイズ後の復活を許さない
     expect(styles[1].hasAttribute('data-extra-css')).toBe(true);
   });
 
-  it('本文 CSS の相対 url() を文書基準へ 1 回だけ付け替える(filledHtml 経由の再入でも HTML 側は触らない)', () => {
+  it('本文 CSS の相対 url() を文書基準へ 1 回だけ付け替える(組み立て済み文書を通し直しても HTML 側は触らない)', () => {
     const css = '@font-face{font-family:a;src:url(fonts/a.woff2)}';
     const once = assemblePreviewDocument('<p>x</p>', css);
     expect(once).toContain('../css/fonts/a.woff2');
     expect(once).not.toContain('url(fonts/a.woff2)');
-    // 申請の filledHtml(= 上の出力)を本文として再度組み立てても、HTML 側の <style> は触らない。
+    // 組み立て済みの文書(= 上の出力)を本文として再度組み立てても、HTML 側の <style> は触らない。
     const again = assemblePreviewDocument(once, css);
     expect(again.match(/\.\.\/css\/fonts\/a\.woff2/g)).toHaveLength(2);
     expect(again).not.toContain('css/css/');
   });
 
-  it('組み立て済み文書を再度通しても構造が壊れない(filledHtml 経由の再入)', () => {
+  it('組み立て済み文書を再度通しても構造が壊れない', () => {
     const once = assemblePreviewDocument('<p>x</p>', '.a{color:red}');
     const twice = assemblePreviewDocument(once, '.b{color:blue}');
     const doc = parse(twice);

@@ -65,6 +65,10 @@ export default defineConfig({
         // 不変ゲートがテキストの位置の Jinja を通すかの判定。緩むと描画で生まれる実行面が
         // 承認を経ずに確定テンプレートへ入る。
         'editor/shared/src/jinja/inertJinja.ts',
+        // 作成経路の受付の検査と承認画面の値の描き方。緩むと、承認画面に出ず本番だけに出る本文を通す。
+        'editor/shared/src/jinja/reviewableSource.ts',
+        'editor/shared/src/jinja/revealExpr.ts',
+        'editor/shared/src/jinja/createReviewRender.ts',
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/partHtmlCompare.ts',
         'editor/shared/src/html/rawText.ts',
@@ -288,6 +292,7 @@ export default defineConfig({
         'editor/web/src/features/compare/CompareSideSelector.vue',
         'editor/web/src/features/templates/components/CreateFundSelect.vue',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
+        'editor/web/src/features/reviews/services/cssGeneratedText.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
         'editor/web/src/features/reviews/reviewPartMaps.ts',
         'editor/web/src/lib/partNames.ts',
