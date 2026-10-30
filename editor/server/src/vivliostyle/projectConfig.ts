@@ -22,6 +22,7 @@
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { validation } from '@editor/shared';
+import { isValidPageSize } from '@editor/shared/schemas';
 import { envPositiveNumber } from '../config.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import { safeEntryPath, URI_SCHEME_RE } from './projectInput.js';
@@ -342,6 +343,7 @@ export function parseProjectConfig(
   for (const key of ['title', 'author', 'language', 'readingProgression', 'size'] as const) {
     if (parsed[key] !== undefined) out[key] = assertText(parsed[key], key);
   }
+  if (out.size !== undefined && !isValidPageSize(out.size)) throw validation('size の値が不正です');
   if (parsed.copyAsset !== undefined) {
     if (!isPlainObject(parsed.copyAsset)) throw validation('copyAsset の値が不正です');
     for (const key of Object.keys(parsed.copyAsset)) {

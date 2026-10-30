@@ -14,7 +14,7 @@
 // ⚠ そのパーサの登録は**この plugin の中**でしか行わない(ルートインスタンスへ戻すと
 // 全ルートへ伝播し、`bodyLimit` の効かない 64MB バッファが任意の POST で開く)。
 import { apiPaths, notFound, validation } from '@editor/shared';
-import { BuildInlineRequest, BuildMergeRequest } from '@editor/shared/schemas';
+import { BuildInlineRequest, BuildMergeRequest, isValidPageSize } from '@editor/shared/schemas';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
 import { config } from '../config.js';
@@ -93,9 +93,11 @@ function projectOptions(
 } {
   const q = request.query as Record<string, unknown>;
   const entry = typeof q.entry === 'string' && q.entry !== '' ? q.entry : undefined;
+  const size = typeof q.size === 'string' ? q.size : undefined;
+  if (size !== undefined && !isValidPageSize(size)) throw validation(`不正な size です: ${size}`);
   return {
     entry: entry === undefined ? undefined : safeProjectEntry(root, entry),
-    size: typeof q.size === 'string' ? q.size : undefined,
+    size,
     singleDoc: q.singleDoc === 'true',
   };
 }

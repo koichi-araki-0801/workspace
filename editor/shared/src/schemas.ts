@@ -1099,6 +1099,27 @@ export const SaveDraftRequest = z
   })
   .meta({ id: 'SaveDraftRequest' });
 
+/**
+ * ページサイズの許可リスト。vivliostyle CLI は `size` をビューア用スタイルシートの
+ * `@page{size:...}` へエスケープ無しで埋め込むので、字面を用紙名か「幅,高さ」に限る。
+ * 用紙名は CLI が preset として示す 10 種だけにする(core はほかの名前も読むが、CLI の契約の外)。
+ * 寸法は 0 で始めない(0 の寸法と `0297mm` のような書き方を通さない。小数は 1 以上になる)。
+ */
+const PAGE_SIZE_RE =
+  /^(?:A[345]|B[45]|JIS-B[45]|letter|legal|ledger|[1-9]\d{0,3}(?:\.\d{1,3})?(?:mm|cm|in|pt|pc|px|Q),[1-9]\d{0,3}(?:\.\d{1,3})?(?:mm|cm|in|pt|pc|px|Q))$/i;
+
+export function isValidPageSize(size: string): boolean {
+  return PAGE_SIZE_RE.test(size);
+}
+
+const PageSize = z
+  .string()
+  .refine(
+    isValidPageSize,
+    'ページサイズは用紙名(A4 など)か「幅,高さ」(210mm,297mm など)で指定します',
+  )
+  .meta({ description: 'ページサイズ (既定 A4)。用紙名か「幅,高さ」', example: 'A4' });
+
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z
   .object({
@@ -1108,7 +1129,7 @@ export const BuildInlineRequest = z
       .max(MAX_DOCUMENT_HTML_CHARS)
       .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
-    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+    size: PageSize.optional(),
     singleDoc: z.boolean().optional().meta({
       description:
         '受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)',
@@ -1139,7 +1160,7 @@ export const BuildMergeRequest = z
       .min(1)
       .max(30)
       .meta({ description: '結合する文書。配列順に連結し通しページ番号を振る' }),
-    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+    size: PageSize.optional(),
   })
   .meta({ id: 'BuildMergeRequest' });
 

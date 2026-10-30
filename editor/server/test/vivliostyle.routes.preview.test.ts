@@ -263,6 +263,16 @@ describe('vivliostyle build/preview の HTTP 契約', () => {
     expect(res.json()).toMatchObject({ mode: 'project' });
   });
 
+  it('POST /preview(zip): 許可リスト外の ?size= は 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/preview?size=${encodeURIComponent('A4;}body{color:red}')}`,
+      headers: { 'content-type': 'application/zip' },
+      payload: zip,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('POST /preview(zip): config があれば singleDoc を起動へ渡さず、無ければ渡す', async () => {
     const { previewManager } = await import('../src/vivliostyle/previewServer.js');
     const start = vi.mocked(previewManager.start);
