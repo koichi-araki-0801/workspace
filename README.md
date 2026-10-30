@@ -53,6 +53,7 @@ Node 非依存の python-tools リポジトリへ分離済み）。
 | `editor/scripts/init-data-repo.bat` | テンプレ版管理用 data リポジトリを初期化 |
 | `editor/scripts/setup-lan-https.bat` | LAN 公開用の自己署名 TLS 証明書（PFX/cer）を生成 |
 | `editor/scripts/setup-lan-firewall.bat` | LAN 公開ポート（TCP 24680）の受信許可ルールを登録（要管理者） |
+| `editor/scripts/measure-review-gates.bat` | 本番のテンプレート（templates/・pending/）とパーツカタログで、作成経路の受付の検査と script 不変ゲートの誤検知を数える（読み取りだけ。結果は `bk\measure-<日時>\`） |
 | `editor/server/db/apply.bat` | SQL Server へ DDL/sproc/seed を適用 |
 | `docs/_build/build_all.bat` | `docs/<project>/src/` の原稿から閲覧用 HTML（手引き/設計の 2 冊）を一括生成 |
 
