@@ -7,6 +7,8 @@
 // 誤って拒否しない」ことの回帰に絞る。承認者は実行結果しか見ないので、この照合が破れても
 // 承認者は気づけない — ただし単独で承認の防壁になるわけではなく、承認画面の隔離
 // (`sandbox="allow-scripts"`・same-origin なし)と対で初めて成立する。
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { isAppError } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
@@ -30,6 +32,14 @@ describe('走査の作業量が入力長に対して線形に収まる(DoS)', ()
   });
   it('タグ内の `{{` 反復で閉じ記号を末尾まで探し続けない(jinjaEnd の予算)', () => {
     const html = `<div ${'{{ '.repeat(200_000)}>`;
+    expect(Array.isArray(collectExecutableUnits(html))).toBe(true);
+  });
+  it('1 つのタグに直接置いた多数の Jinja を、トークンごとに先頭から探し直さない', () => {
+    const html = `<a ${'{{a}}'.repeat(800_000)}>`;
+    expect(Array.isArray(collectExecutableUnits(html))).toBe(true);
+  });
+  it('1 つのタグの多数の属性値の Jinja を、トークンごとに先頭から探し直さない', () => {
+    const html = `<a ${'b="{{a}}" '.repeat(300_000)}>`;
     expect(Array.isArray(collectExecutableUnits(html))).toBe(true);
   });
 });
@@ -309,9 +319,21 @@ describe('Jinja トークンを前置した URL', () => {
     expect(accepted('<a href="/x">x</a>', evil)).toBe(false);
   });
 
-  it('値全体が Jinja の普通の URL は単位を作らない(誤検知しない)', () => {
-    expect(collectExecutableUnits('<a href="{{ fund.url }}">x</a>')).toEqual([]);
-    expect(collectExecutableUnits('<img src="{{ logo }}/a.png">')).toEqual([]);
+  // 属性値の中の Jinja は描画で任意の文字列になるので、形を問わず単位にする。URL の
+  // スキームの判定では閉じられない(`'javascript'` と後ろの地の `:` がつながる)ため。
+  it('両側に同じ値の中の Jinja があれば通る(誤検知しない)', () => {
+    const base = '<p>前</p><a href="{{ fund.url }}">x</a><img src="{{ logo }}/a.png">';
+    expect(accepted(base, base.replace('<p>前</p>', '<p>書き直した</p>'))).toBe(true);
+  });
+
+  it('値の中の Jinja を変えると拒否する', () => {
+    expect(collectExecutableUnits('<a href="{{ fund.url }}">x</a>')).toEqual([
+      'jinja-val:a.href|{{ fund.url }}',
+    ]);
+    expect(accepted('<a href="{{ fund.url }}">x</a>', '<a href="{{ fund.other_url }}">x</a>')).toBe(
+      false,
+    );
+    expect(accepted('<img src="{{ logo }}/a.png">', '<img src="{{ evil }}/a.png">')).toBe(false);
   });
 });
 
@@ -410,6 +432,211 @@ describe('描画前テンプレ特有の隠し方(木構築パーサでは消え
   });
 });
 
+// テキスト中の出力式は描画時に任意の文字列を出せる。字面に `<`+英字が現れなくても、
+// 描画後にタグが生まれれば実行面が増える。
+describe('テキスト中の出力式が描画時に生むマークアップ', () => {
+  it.each([
+    ['safe で < を出す script', '{{ "<"|safe }}script>fetch("//evil/")</script>'],
+    ['safe で < を出す onerror', '{{ "<"|safe }}img src=x onerror=fetch("//evil/")>'],
+    [
+      'set した < を出力する script',
+      '{% set lt = "<" %}{{ lt|safe }}script>fetch("//evil/")</script>',
+    ],
+  ])('%s を拒否する', (_label, payload) => {
+    const evil = BASE.replace('</body>', `${payload}</body>`);
+    expect(accepted(BASE, evil)).toBe(false);
+  });
+});
+
+// ── 描画で生まれる実行面(文脈ごとの規則)──
+// 走査器は「`<` の直後が英字」の字面しか見ない。下の表の形は、どれも走査器の字面の規則だけでは
+// 単位にならず、描画後は実行面になる。
+describe('描画で生まれる実行面を単位にする', () => {
+  const base = '<html><body><h1>x</h1></body></html>';
+  const add = (payload: string) => base.replace('</body>', `${payload}</body>`);
+
+  it.each([
+    ['safe で < を出す', '{{ "<"|safe }}script>evil()</script>'],
+    ['< の直後の Jinja コメント', '<{# c #}script>evil()</script>'],
+    ['< の直後の空の if', '<{% if true %}{% endif %}script>evil()</script>'],
+    ['< と空白の後ろの空白を刈る if', '< {%- if true %}{% endif %}script>evil()</script>'],
+    ['< の直後の出力式', '<{{ "script" }}>evil()</script>'],
+    ['raw で包んだ <', '{% raw %}<{% endraw %}script>evil()</script>'],
+    ['反復で < を出す', '{% for lt in ["<"] %}{{ lt|safe }}script>evil(){% endfor %}</script>'],
+    ['ブロックの set で < を束ねる', '{% set lt %}<{% endset %}{{ lt }}script>evil()</script>'],
+    ['値の中の文字列の連結で javascript:', `<a href="{{ 'java' + 'script:evil()' }}">x</a>`],
+    ['値の中の default で javascript:', `<a href="{{ x|default('javascript:evil()') }}">x</a>`],
+    [
+      'style 属性の綴りを Jinja コメントで割る',
+      '<div style="background:ur{# #}l(//evil/x)">x</div>',
+    ],
+    ['include', '{% include "other.html" %}'],
+    ['タグ名に挟んだ出力式', '<scr{{ "" }}ipt>evil()</script>'],
+    ['@import の綴りを Jinja コメントで割る', '<style>@imp{# #}ort url(//evil/x)</style>'],
+    ['値の中の Jinja とつながる javascript:', `<a href="{{ 'javascript' }}:alert(1)">x</a>`],
+    ['style 属性の関数名を Jinja で作る', '<div style="background:{{ u }}(//evil/x)">x</div>'],
+    ['<style> の中の出力式', '<style>{{ x }}</style>'],
+    // テキストの位置のトークンの中に `<` があると、走査器はそこからタグを読み、後ろの実行面を
+    // 属性として飲み込む。描画でトークンが消えると、飲み込まれた側が素で残る。
+    ['Jinja コメントの中のタグが script を飲み込む', '{# <b title=#}<script>evil()</script>'],
+    [
+      'Jinja コメントの中の引用符付きの値が script を飲み込む',
+      '{# <b title="#}<script>evil()</script>">',
+    ],
+    ['if の比較の < がタグに見える', '{% if a <b %}<script>evil()</script>{% endif %}'],
+    ['set の比較の < がタグに見える', '{% set x = a <b %}<script>evil()</script>'],
+    ['出力式の比較の < がタグに見える', '{{ a <b }}<script>evil()</script>'],
+    [
+      'elif の比較の < がタグに見える',
+      '{% if c %}{% elif a <b %}<script>evil()</script>{% endif %}',
+    ],
+    ['for の対象の < がタグに見える', '{% for x in a <b %}<script>evil()</script>{% endfor %}'],
+  ])('%s を拒否する', (_label, payload) => {
+    const evil = add(payload);
+    expect(collectExecutableUnits(evil)).not.toEqual(collectExecutableUnits(base));
+    expect(accepted(base, evil)).toBe(false);
+  });
+
+  it('class の値の中の Jinja の差し替えを拒否する', () => {
+    expect(accepted(add('<p class="{{ x }}">a</p>'), add('<p class="{{ y }}">a</p>'))).toBe(false);
+  });
+
+  it('Jinja コメントで割った CSS の綴りは、コメントを消した形でも外部参照を拾う', () => {
+    expect(collectExecutableUnits('<div style="background:ur{# #}l(//evil/x)">x</div>')).toContain(
+      'css-ref:url(//evil/x)',
+    );
+  });
+
+  it('字句の読めない Jinja は両側にあれば通り、提出側だけなら拒否する', () => {
+    const broken = add('<p>{{ 閉じない</p>');
+    expect(collectExecutableUnits(broken)).toContain('jinja-lex-error');
+    expect(accepted(broken, broken.replace('<h1>x</h1>', '<h1>y</h1>'))).toBe(true);
+    expect(accepted(base, broken)).toBe(false);
+  });
+});
+
+describe('文脈ごとの規則は正当な編集を拒否しない', () => {
+  it('属性の並び順だけを変えても、値の中の Jinja の単位は動かない', () => {
+    const base = '<p>a</p><img src="{{ a }}" alt="{{ b }}" style="width:{{ w }}px">';
+    const reordered = '<p>a</p><img style="width:{{ w }}px" alt="{{ b }}" src="{{ a }}">';
+    expect(accepted(base, reordered)).toBe(true);
+  });
+
+  it('同じ属性の中のトークンの並びを入れ替えると拒否する', () => {
+    expect(accepted('<a href="{{ a }}{{ b }}">x</a>', '<a href="{{ b }}{{ a }}">x</a>')).toBe(
+      false,
+    );
+  });
+
+  it('fixture のテンプレートの Jinja の単位は data-rank の値だけで、パーツは単位を作らない', () => {
+    const fixtures = path.resolve(__dirname, '../../fixtures');
+    for (const f of readdirSync(path.join(fixtures, 'templates'))) {
+      const units = collectExecutableUnits(
+        readFileSync(path.join(fixtures, 'templates', f), 'utf8'),
+      ).filter((u) => u.startsWith('jinja'));
+      expect(units).toEqual(['jinja-val:tr.data-rank|{{ loop.index }}']);
+    }
+    const parts = JSON.parse(readFileSync(path.join(fixtures, 'parts.json'), 'utf8')) as {
+      content: string;
+    }[];
+    for (const p of parts) {
+      expect(collectExecutableUnits(p.content).filter((u) => u.startsWith('jinja'))).toEqual([]);
+    }
+  });
+
+  const tpl = [
+    '<html><head><style>.a{width:{{ w }}px}</style></head><body>',
+    '<p class="lead">地の文</p>',
+    '<a href="{{ fund.url }}">リンク</a>',
+    '{% for h in holdings %}<tr data-rank="{{ loop.index }}"><td>{{ h.name }}</td></tr>{% endfor %}',
+    '<div>{{ note|safe }}</div>',
+    '</body></html>',
+  ].join('\n');
+
+  it('両側に同じ Jinja があり、地の文だけを編集すると通る', () => {
+    expect(accepted(tpl, tpl.replace('地の文', '書き直した地の文'))).toBe(true);
+  });
+
+  it('テキストの位置に不活性な値の参照を足しても通る', () => {
+    expect(accepted(tpl, tpl.replace('地の文', '{{ fund.name }}の地の文'))).toBe(true);
+  });
+
+  it('テキストの位置に不活性でない文を足すと拒否する', () => {
+    expect(accepted(tpl, tpl.replace('地の文', '{% set x %}地の文{% endset %}'))).toBe(false);
+  });
+});
+
+// `<style>` の本文の再走査で積む単位は、本文を起点にした位置のままだと文書の先頭のほうへずれる。
+// 基準と提出で同じだけずれる間は表に出ないが、`<style>` より前を編集すると並びが変わる。
+describe('<style> の本文の単位は文書の位置で並べる', () => {
+  const tpl = [
+    '<html><body>',
+    '<section id="a">前のパーツ</section>',
+    '<p onclick="keep()">x</p>',
+    '<svg><style>.pad{color:red;width:1px}<img src=x onerror="kept()"></style></svg>',
+    '</body></html>',
+  ].join('');
+
+  it('<style> より前のパーツを消しても通る', () => {
+    expect(accepted(tpl, tpl.replace('<section id="a">前のパーツ</section>', ''))).toBe(true);
+  });
+
+  it('<style> より前にパーツを足しても通る', () => {
+    expect(
+      accepted(tpl, tpl.replace('<html><body>', '<html><body><section id="b">足した</section>')),
+    ).toBe(true);
+  });
+
+  it('<style> より前のパーツを並べ替えても通る', () => {
+    const two = tpl.replace('<section id="a">', '<section id="z">z</section><section id="a">');
+    const swapped = two.replace(
+      '<section id="z">z</section><section id="a">前のパーツ</section>',
+      '<section id="a">前のパーツ</section><section id="z">z</section>',
+    );
+    expect(accepted(two, swapped)).toBe(true);
+  });
+
+  it('<style> の中の単位は <style> より前の単位の後ろに並ぶ', () => {
+    const html = '<i>pad</i><p onclick="b()">x</p><svg><style><img onerror="a()"></style></svg>';
+    expect(collectExecutableUnits(html)).toEqual(['attr:p.onclick=b()', 'attr:img.onerror=a()']);
+  });
+});
+
+describe('拒否の文言は違いの種類で分ける', () => {
+  const base = '<html><body><script>col.width=1</script><p>本文</p></body></html>';
+  const errorOf = (submitted: string) => {
+    try {
+      assertTemplateScriptsUnchanged(base, submitted, CTX);
+    } catch (e) {
+      if (isAppError(e)) return e;
+    }
+    throw new Error('拒否されなかった');
+  };
+
+  it('違いが Jinja の単位だけなら、差し込みの書き方の文言を返す', () => {
+    const e = errorOf(base.replace('<p>本文</p>', '<p>{% include "x" %}</p>'));
+    expect(e.code).toBe('TEMPLATE_SCRIPT_IMMUTABLE');
+    expect(e.kind).toBe('forbidden');
+    expect(e.message).toContain('差し込み（Jinja）の書き方');
+    expect(e.message).toContain(`テンプレート=${CTX.templateId}`);
+  });
+
+  it('script の違いなら、今の文言を返す', () => {
+    const e = errorOf(base.replace('col.width=1', 'evil()'));
+    expect(e.code).toBe('TEMPLATE_SCRIPT_IMMUTABLE');
+    expect(e.message).toContain('実行コード・外部参照は編集できません');
+    expect(e.message).not.toContain('差し込み（Jinja）');
+  });
+
+  it('ログの cause に単位の種類ごとの数を残す', () => {
+    const e = errorOf(base.replace('<p>本文</p>', '<p>{% include "x" %}</p>'));
+    expect(e.cause).toMatchObject({
+      baselineKinds: { script: 1 },
+      submittedKinds: { script: 1, jinja: 1 },
+    });
+  });
+});
+
 describe('raw text の終了タグは直後の文字まで見る', () => {
   it('</scriptx> は終了タグではない(末尾のコードが単位へ入る)', () => {
     // JS エンジンは `init() < /scriptx>/ ; evil()` と読むので `evil()` が走る。
@@ -499,8 +726,13 @@ describe('走査の端(壊れた入力で単位列が欠落・混入しない)',
     expect(units('<a href="mailto:a@b.example">x</a>')).toEqual([]);
     expect(units('<a href="data:image/png;base64,AAAA">x</a>')).toEqual([]);
     expect(units('<a href="data:text/html,<script>a()</script>">x</a>').length).toBe(1);
-    expect(units('<a href="{% if x %}javascript:{% endif %}a()">x</a>').length).toBe(1);
-    expect(units('<a href="{# c #}#top">x</a>')).toEqual([]);
+    expect(
+      units('<a href="{% if x %}javascript:{% endif %}a()">x</a>').some((u) =>
+        u.startsWith('url:'),
+      ),
+    ).toBe(true);
+    // 値の中の Jinja はコメントでも固定する(`ur{# #}l(` のように綴りを割る形があるため)。
+    expect(units('<a href="{# c #}#top">x</a>')).toEqual(['jinja-val:a.href|{# c #}']);
   });
 
   it('<style> の非不活性属性は単位に入る(media は不活性)', () => {

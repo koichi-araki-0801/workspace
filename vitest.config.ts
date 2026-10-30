@@ -62,6 +62,9 @@ export default defineConfig({
         'editor/shared/src/jinja/fillRender.ts',
         'editor/shared/src/jinja/safeMarkup.ts',
         'editor/shared/src/jinja/containsJinja.ts',
+        // 不変ゲートがテキストの位置の Jinja を通すかの判定。緩むと描画で生まれる実行面が
+        // 承認を経ずに確定テンプレートへ入る。
+        'editor/shared/src/jinja/inertJinja.ts',
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/partHtmlCompare.ts',
         'editor/shared/src/html/rawText.ts',
