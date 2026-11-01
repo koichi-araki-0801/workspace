@@ -57,7 +57,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   const options: Record<string, string | boolean> = {};
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
-    if (!token.startsWith('--')) continue;
+    if (!token.startsWith('--')) {
+      continue;
+    }
     const key = token.slice(2);
     const next = rest[index + 1];
     if (!next || next.startsWith('--')) {
@@ -105,9 +107,13 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
 /** 認識できないフラグを stderr へ警告する(コマンド未知の場合は表が無いので何もしない)。 */
 function warnUnknownFlags(command: string, options: Record<string, string | boolean>): void {
   const known = KNOWN_FLAGS[command];
-  if (known === undefined) return;
+  if (known === undefined) {
+    return;
+  }
   const unknown = Object.keys(options).filter((key) => !known.includes(key));
-  if (unknown.length === 0) return;
+  if (unknown.length === 0) {
+    return;
+  }
   console.warn(
     `[pie-chart] ${command} が知らないフラグを無視しました: ${unknown.map((k) => `--${k}`).join(', ')}` +
       `${known.length > 0 ? ` (使えるのは ${known.map((k) => `--${k}`).join(' / ')})` : ''}`,
@@ -125,7 +131,9 @@ function buildRenderOverrides(options: Record<string, string | boolean>): Partia
   // 隣の `--stroke-ratio` が形式を検査しているのに、ここだけ `typeof` で素通ししていた。
   // 入口と出口(`assertConfigValues`)の両方で検証する — 入口だけだと別の入口が生えたときに
   // 漏れ、出口だけだとエラーが「SVG を書く瞬間」に出て原因が遠い。
-  if (typeof fw === 'string') overrides.fontWeight = assertFontWeight('--font-weight', fw);
+  if (typeof fw === 'string') {
+    overrides.fontWeight = assertFontWeight('--font-weight', fw);
+  }
   const sr = options['stroke-ratio'];
   if (typeof sr === 'string') {
     const ratio = Number(sr);
@@ -201,14 +209,18 @@ function buildResolveOpts(options: Record<string, string | boolean>): OneInput {
   if (provided.length > 1) {
     throw new Error(`Conflicting input sources (specify only one): ${provided.join(', ')}.`);
   }
-  if (sample !== undefined) return { kind: 'sample', sample };
+  if (sample !== undefined) {
+    return { kind: 'sample', sample };
+  }
   if (dataFile !== undefined) {
     return {
       kind: 'data',
       data: extractDataItems(readJsonFile(dataFile), `--data-file "${dataFile}"`),
     };
   }
-  if (dataJson !== undefined) return { kind: 'dataJson', dataJson };
+  if (dataJson !== undefined) {
+    return { kind: 'dataJson', dataJson };
+  }
   if (hasSprocArgs(sprocRaw)) {
     return {
       kind: 'sproc',
@@ -340,8 +352,12 @@ async function dbCheck(options: Record<string, string | boolean>): Promise<void>
     connect: database !== undefined,
     conn: { server, database },
   });
-  for (const line of lines) console.log(formatDbCheckLine(line));
-  if (!ok) process.exitCode = 1;
+  for (const line of lines) {
+    console.log(formatDbCheckLine(line));
+  }
+  if (!ok) {
+    process.exitCode = 1;
+  }
 }
 
 async function main(): Promise<void> {

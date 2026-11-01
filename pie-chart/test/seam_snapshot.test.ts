@@ -84,7 +84,9 @@ describe('seamSnapshot / seamRestore', () => {
 
     expect(placements[0]).toBe(p); // 参照 identity (別オブジェクトへの差し替えではない)
     for (const [key, policy] of Object.entries(PLACEMENT_SEAM_POLICY)) {
-      if (policy !== 'snapshot') continue;
+      if (policy !== 'snapshot') {
+        continue;
+      }
       expect((p as any)[key], `restore 後の ${key}`).toEqual((original as any)[key]);
     }
   });

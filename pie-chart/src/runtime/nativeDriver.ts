@@ -91,9 +91,13 @@ export function sweepStaleRunDirs(
   const removed: string[] = [];
   for (const name of names) {
     const m = RUN_DIR_RE.exec(name);
-    if (!m) continue;
+    if (!m) {
+      continue;
+    }
     const pid = Number(m[1]);
-    if (pid === process.pid || isAlive(pid)) continue;
+    if (pid === process.pid || isAlive(pid)) {
+      continue;
+    }
     const dir = path.join(parent, name);
     try {
       fs.rmSync(dir, RM_OPTIONS);

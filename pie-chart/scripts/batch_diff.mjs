@@ -58,11 +58,15 @@ if (missing.length === 0 && extra.length === 0 && changed.length === 0) {
   process.exit(0);
 }
 
-if (missing.length > 0)
+if (missing.length > 0) {
   console.error(`[batch:diff] 欠落 (${missing.length}): ${missing.join(', ')}`);
-if (extra.length > 0) console.error(`[batch:diff] 追加 (${extra.length}): ${extra.join(', ')}`);
-if (changed.length > 0)
+}
+if (extra.length > 0) {
+  console.error(`[batch:diff] 追加 (${extra.length}): ${extra.join(', ')}`);
+}
+if (changed.length > 0) {
   console.error(`[batch:diff] 差分 (${changed.length}): ${changed.join(', ')}`);
+}
 console.error(
   '[batch:diff] NG — 出力が baseline と一致しません (意図的な場合は `pnpm run baseline:accept` で baseline を更新)',
 );

@@ -112,11 +112,19 @@ function samePath(a: string, b: string): boolean {
  * 要求の値をそのまま接続文字列や `EXEC` 文へ入れない。ドライバを読み込む前に済ませる。
  */
 function revalidateRequest(req: ChildRequest): { connectionString: string; proc: string } {
-  if (req.mode === 'load') return { connectionString: '', proc: '' };
-  if (!req.conn) throw new DbStageError('child', `${req.mode} request without a connection.`);
+  if (req.mode === 'load') {
+    return { connectionString: '', proc: '' };
+  }
+  if (!req.conn) {
+    throw new DbStageError('child', `${req.mode} request without a connection.`);
+  }
   const connectionString = connectionStringFor(resolveConnTarget(req.conn));
-  if (req.mode === 'connect') return { connectionString, proc: '' };
-  if (req.proc.trim() === '') throw new DbStageError('child', 'fetch request without a procedure.');
+  if (req.mode === 'connect') {
+    return { connectionString, proc: '' };
+  }
+  if (req.proc.trim() === '') {
+    throw new DbStageError('child', 'fetch request without a procedure.');
+  }
   return { connectionString, proc: resolveSprocName(req.proc) };
 }
 
@@ -175,12 +183,16 @@ export async function handleChildRequest(
           'antivirus software, may be blocking DLLs written to %TEMP%)',
       );
     }
-    if (req.mode === 'load') return { ok: true, items: [] };
+    if (req.mode === 'load') {
+      return { ok: true, items: [] };
+    }
     if (req.mode === 'connect') {
       await checkConnection(driver, connectionString, req.timeoutMs);
       return { ok: true, items: [] };
     }
-    if (!req.args) throw new DbStageError('child', 'fetch request without procedure arguments.');
+    if (!req.args) {
+      throw new DbStageError('child', 'fetch request without procedure arguments.');
+    }
     const items = await callSprocItems(driver, {
       connectionString,
       proc,
@@ -197,9 +209,13 @@ export async function handleChildRequest(
 /** 子が受け取った要求の形を検査する(親以外が `__db-fetch` を呼んでも暴走させない)。 */
 export function parseChildRequest(text: string): ChildRequest {
   const v = JSON.parse(text) as Record<string, unknown>;
-  if (typeof v.mode !== 'string' || !MODES.has(v.mode)) throw new Error('invalid mode.');
+  if (typeof v.mode !== 'string' || !MODES.has(v.mode)) {
+    throw new Error('invalid mode.');
+  }
   for (const key of ['driverPath', 'proc'] as const) {
-    if (typeof v[key] !== 'string') throw new Error(`invalid ${key}.`);
+    if (typeof v[key] !== 'string') {
+      throw new Error(`invalid ${key}.`);
+    }
   }
   const conn = v.conn as Record<string, unknown> | undefined;
   if (conn !== undefined) {
@@ -214,7 +230,9 @@ export function parseChildRequest(text: string): ChildRequest {
   } else if (v.mode !== 'load') {
     throw new Error('invalid conn.');
   }
-  if (typeof v.timeoutMs !== 'number' || !(v.timeoutMs > 0)) throw new Error('invalid timeoutMs.');
+  if (typeof v.timeoutMs !== 'number' || !(v.timeoutMs > 0)) {
+    throw new Error('invalid timeoutMs.');
+  }
   const args = v.args as Record<string, unknown> | null;
   if (
     args !== null &&
@@ -260,7 +278,9 @@ export function parseChildResponse(stdout: string): ChildResponse {
     .split(/\r?\n/)
     .reverse()
     .find((l) => l.startsWith(RESPONSE_MARKER));
-  if (line === undefined) throw new Error('no response line from the DB helper process.');
+  if (line === undefined) {
+    throw new Error('no response line from the DB helper process.');
+  }
   const v = JSON.parse(line.slice(RESPONSE_MARKER.length)) as Record<string, unknown>;
   if (v.ok === true && Array.isArray(v.items)) {
     return { ok: true, items: v.items as Array<[string, number]> };
@@ -286,9 +306,13 @@ export interface ParentDeps {
 /** SIGINT / SIGBREAK(Ctrl+C / Ctrl+Break)に handler を付け、外す関数を返す。 */
 export function onInterruptSignals(handler: () => void): () => void {
   const signals: NodeJS.Signals[] = ['SIGINT', 'SIGBREAK'];
-  for (const s of signals) process.on(s, handler);
+  for (const s of signals) {
+    process.on(s, handler);
+  }
   return () => {
-    for (const s of signals) process.off(s, handler);
+    for (const s of signals) {
+      process.off(s, handler);
+    }
   };
 }
 
@@ -337,7 +361,9 @@ export async function runDbHelper(
       const child = deps.spawn(deps.execPath, ['__db-fetch']);
       // 子が早く死ぬと `stdin.end()` が EPIPE を出す。結果は子の `close` / `error` で決めるので、
       // 流れの `error` は握りつぶす(未処理だと `finally` に届く前に親が落ちる)。
-      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.on('error', () => {});
+      for (const stream of [child.stdin, child.stdout, child.stderr]) {
+        stream?.on('error', () => {});
+      }
       let out = '';
       let err = '';
       let timedOut = false;
@@ -398,10 +424,14 @@ export async function runDbHelper(
       const request: ChildRequest = { ...req, driverPath };
       child.stdin?.end(JSON.stringify(request));
     });
-    if (!response.ok) throw new DbStageError(response.stage, response.message);
+    if (!response.ok) {
+      throw new DbStageError(response.stage, response.message);
+    }
     return { items: response.items, runDir };
   } finally {
     const failure = removeRunDir(runDir);
-    if (failure) deps.warn(`[db] could not remove ${runDir}: ${failure}`);
+    if (failure) {
+      deps.warn(`[db] could not remove ${runDir}: ${failure}`);
+    }
   }
 }

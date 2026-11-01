@@ -123,9 +123,13 @@ export function topBandSonohokaZone(item: {
   name: string;
   midAngle?: number;
 }): TopBandSonohokaZone {
-  if (!isOtherCategory(item.name)) return null;
+  if (!isOtherCategory(item.name)) {
+    return null;
+  }
   const norm = normalizeAngle(item.midAngle ?? 0);
-  if (angleInBand(norm, 90, TOP_BAND_HALF_WIDTH_DEG)) return 'core';
+  if (angleInBand(norm, 90, TOP_BAND_HALF_WIDTH_DEG)) {
+    return 'core';
+  }
   // 左拡張帯は wrap (0°/360°) を跨がないので素の比較で安全。
   if (
     norm > 90 + TOP_BAND_HALF_WIDTH_DEG &&
@@ -259,7 +263,9 @@ export function computeInsideOptions(
   cfg: PieLayoutConfig,
 ): Record<number, InsideOption | null> {
   const empty = { 1: null, 3: null, 5: null, 7: null } as Record<number, InsideOption | null>;
-  if (cfg.insideSliceEnabled === false) return empty;
+  if (cfg.insideSliceEnabled === false) {
+    return empty;
+  }
   // 「二分割」型の優勢スライス (右半分) は、自然 fit の成否に依らず rank① 内側配置を強制し、右半径中点・
   // 縦中央 (cfg.pieRadius/2, 0) へ置く。優勢ほど重心が中心寄りで角隅 fit が落ち外側へ出る (例 59.9%) のを
   // 防ぎ、同名ラベルの配置型を内側中央へ揃える。優勢は ≥50% (>180°) で当該点は確実にスライス深部。
@@ -296,7 +302,9 @@ export function computeInsideOptions(
           isDominant,
           anchor,
         );
-        if (fit.fits) return { form, fit };
+        if (fit.fits) {
+          return { form, fit };
+        }
       }
     }
     return null;
@@ -316,12 +324,20 @@ export function outsideFormForRank(
   rank: number,
 ): LabelForm {
   const sx0 = cfg.nameCondenseSteps[0] ?? 0.7;
-  if (rank === 2) return buildForm(item, cfg, 2, 2, 1, false);
-  if (rank === 4) return buildForm(item, cfg, 4, 2, sx0, false);
-  if (rank === 6) return buildForm(item, cfg, 6, 1, 1, false);
+  if (rank === 2) {
+    return buildForm(item, cfg, 2, 2, 1, false);
+  }
+  if (rank === 4) {
+    return buildForm(item, cfg, 4, 2, sx0, false);
+  }
+  if (rank === 6) {
+    return buildForm(item, cfg, 6, 1, 1, false);
+  }
   // `loneTopSliverLeader` (12時直左の極小・左 L 字逃がし) は 2 行原寸で細くし、上左の空白へ収める。
   // 1 行だと幅が viewBox 左端に達して左へ動かせず、leader が「その他」と分離できない。
-  if (rank >= 9 && item.loneTopSliverLeader) return buildForm(item, cfg, 9, 2, 1, false);
+  if (rank >= 9 && item.loneTopSliverLeader) {
+    return buildForm(item, cfg, 9, 2, 1, false);
+  }
   return buildForm(item, cfg, rank, 1, sx0, false); // 8 / 9
 }
 
@@ -358,7 +374,9 @@ function topBandSonohokaRight(
   opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
   const zone = topBandSonohokaZone(item);
-  if (!zone) return null;
+  if (!zone) {
+    return null;
+  }
   const anchorX = item.anchorX;
   const anchorY = item.anchorY;
   if (zone === 'leftExt' || item.topRightRejected) {
@@ -447,7 +465,9 @@ function topRightEscapeIf(
   form: LabelForm,
   opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
-  if (!flag) return null;
+  if (!flag) {
+    return null;
+  }
   return topRightLiftedRimDraft(item, cfg, form, opts);
 }
 
@@ -462,7 +482,9 @@ function bottomCenterBelow(
   cfg: PieLayoutConfig,
   opts: { allowSegmentNudge: boolean },
 ): PlacementDraft | null {
-  if (!item.bottomCenterBelow) return null;
+  if (!item.bottomCenterBelow) {
+    return null;
+  }
   const clearance = radialFraction(cfg, 0.012, 0.12);
   const textY = -(cfg.pieRadius + clearance); // baseline=top → 箱上端
   // X は slice 中心角の anchorX に合わせる (真下 ±BOTTOM_CENTER_HALF_DEG ゲートで |anchorX| は
@@ -507,19 +529,27 @@ export function buildOutsideRimDraft(
   const bottomCenter = bottomCenterBelow(item, cfg, {
     allowSegmentNudge: false,
   });
-  if (bottomCenter) return bottomCenter;
+  if (bottomCenter) {
+    return bottomCenter;
+  }
   const right = topBandSonohokaRight(item, cfg, form, {
     allowSegmentNudge: false,
   });
-  if (right) return right;
+  if (right) {
+    return right;
+  }
   const clusterRight = topRightEscapeIf(item.clusterTopBandBottom, item, cfg, form, {
     allowSegmentNudge: false,
   });
-  if (clusterRight) return clusterRight;
+  if (clusterRight) {
+    return clusterRight;
+  }
   const smallRight = topRightEscapeIf(item.topBandSmallRight, item, cfg, form, {
     allowSegmentNudge: false,
   });
-  if (smallRight) return smallRight;
+  if (smallRight) {
+    return smallRight;
+  }
   const rad = degToRad(item.midAngle);
   // 密集側のラベルだけ半径を少し増やして円から離す (横方向に押し出し leader を延ばす)。
   const denseFactor = item.denseSideOutsidePush ? cfg.denseSideOutsideRadiusFactor : 1;
@@ -554,15 +584,21 @@ export function buildOutsideLeaderDraft(
   const right = topBandSonohokaRight(item, cfg, form, {
     allowSegmentNudge: true,
   });
-  if (right) return right;
+  if (right) {
+    return right;
+  }
   const smallRight = topRightEscapeIf(item.topBandSmallRight, item, cfg, form, {
     allowSegmentNudge: true,
   });
-  if (smallRight) return smallRight;
+  if (smallRight) {
+    return smallRight;
+  }
   // `loneTopSliverLeader` (例 world_bond_idx_asset「外国債券先物」0.2%) は 12時直上 (≈92°) の極小で、
   // 放射 leader だと中心至近で真上へ伸び、隣接する「その他」の右逃がし riser と平行に重なる。スライスの
   // 自側 (左) へ短い L 字 leader (縦に抜けて左へ折れる) で逃がし、「その他」(右) と扇形に分離させる。
-  if (item.loneTopSliverLeader) return topLiftedRimLeft(item, cfg, form);
+  if (item.loneTopSliverLeader) {
+    return topLiftedRimLeft(item, cfg, form);
+  }
   const rad = degToRad(item.midAngle);
   const cosA = Math.cos(rad);
   const sinA = Math.sin(rad);

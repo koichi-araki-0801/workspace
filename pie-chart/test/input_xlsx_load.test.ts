@@ -36,10 +36,14 @@ async function writeSheet(
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet(sheetName);
   rows.forEach((cells, index) => {
-    if (cells === null) return;
+    if (cells === null) {
+      return;
+    }
     const row = ws.getRow(index + 1);
     cells.forEach((value, col) => {
-      if (value === null) return;
+      if (value === null) {
+        return;
+      }
       row.getCell(col + 1).value = value as ExcelJS.CellValue;
     });
   });
@@ -203,8 +207,11 @@ describe('xlsx の圧縮後サイズ上限', () => {
         /limit 16.*PIE_MAX_XLSX_BYTES/s,
       );
     } finally {
-      if (previous === undefined) delete process.env.PIE_MAX_XLSX_BYTES;
-      else process.env.PIE_MAX_XLSX_BYTES = previous;
+      if (previous === undefined) {
+        delete process.env.PIE_MAX_XLSX_BYTES;
+      } else {
+        process.env.PIE_MAX_XLSX_BYTES = previous;
+      }
       vi.resetModules();
     }
   });

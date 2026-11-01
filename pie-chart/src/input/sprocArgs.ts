@@ -68,8 +68,12 @@ export function normalizeSprocArgs(raw: RawSprocArgs): SprocArgs {
 
 function checkText(flag: string, raw: string): string {
   const text = raw.trim();
-  if (text === '') throw new Error(`${flag} is empty.`);
-  if (CONTROL_CHAR_RE.test(text)) throw new Error(`${flag} contains a control character.`);
+  if (text === '') {
+    throw new Error(`${flag} is empty.`);
+  }
+  if (CONTROL_CHAR_RE.test(text)) {
+    throw new Error(`${flag} contains a control character.`);
+  }
   if (text.length > MAX_SPROC_TEXT_CHARS) {
     throw new Error(`${flag} is ${text.length} characters (limit ${MAX_SPROC_TEXT_CHARS}).`);
   }
@@ -80,7 +84,9 @@ function checkText(flag: string, raw: string): string {
 export function normalizeBaseDate(raw: string): string {
   const text = raw.trim();
   const m = ISO_DATE_RE.exec(text) ?? COMPACT_DATE_RE.exec(text);
-  if (!m) throw new Error(`--base-date must be YYYY-MM-DD or YYYYMMDD (got "${raw}").`);
+  if (!m) {
+    throw new Error(`--base-date must be YYYY-MM-DD or YYYYMMDD (got "${raw}").`);
+  }
   const year = Number(m[1]);
   const month = Number(m[2]);
   const day = Number(m[3]);

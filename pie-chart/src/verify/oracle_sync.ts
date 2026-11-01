@@ -39,7 +39,9 @@ export function assertOracleSync(): void {
   const cfg = createPieLayoutConfig();
   const mismatches: string[] = [];
   const checkConst = (name: string, body: number, oracle: number) => {
-    if (body !== oracle) mismatches.push(`${name}: body=${body} oracle=${oracle}`);
+    if (body !== oracle) {
+      mismatches.push(`${name}: body=${body} oracle=${oracle}`);
+    }
   };
   checkConst('charWidthFactor', cfg.charWidthFactor, CHAR_WIDTH_FACTOR);
   checkConst('lineHeightFactor', cfg.lineHeightFactor, LINE_HEIGHT_FACTOR);

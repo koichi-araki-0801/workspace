@@ -29,19 +29,25 @@ function parseLeaders(svg: string): { name: string; points: Pt[] }[] {
   while ((gm = groupRe.exec(svg)) !== null) {
     const name = gm[1].match(/\bdata-name="([^"]*)"/)?.[1] ?? '';
     const leaderM = gm[2].match(/<path d="([^"]+)" fill="none"[^>]*>/);
-    if (!leaderM) continue;
+    if (!leaderM) {
+      continue;
+    }
     const points: Pt[] = [];
     for (const cmd of leaderM[1].matchAll(/[ML]([\d.\-]+),([\d.\-]+)/g)) {
       points.push({ x: parseFloat(cmd[1]), y: parseFloat(cmd[2]) });
     }
-    if (points.length >= 2) out.push({ name, points });
+    if (points.length >= 2) {
+      out.push({ name, points });
+    }
   }
   return out;
 }
 
 function parsePie(svg: string): { cx: number; cy: number; r: number } {
   const m = svg.match(/<path d="M([\d.\-]+),([\d.\-]+) L[\d.\-]+,[\d.\-]+ A([\d.\-]+),/);
-  if (!m) throw new Error('pie geometry not found');
+  if (!m) {
+    throw new Error('pie geometry not found');
+  }
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
@@ -56,10 +62,18 @@ function segmentsIntersect(a: Pt, b: Pt, c: Pt, d: Pt, tolerance = 0.5): boolean
   const d2 = cross(c, d, b);
   const d3 = cross(a, b, c);
   const d4 = cross(a, b, d);
-  if (Math.abs(d1) <= tolerance) return false;
-  if (Math.abs(d2) <= tolerance) return false;
-  if (Math.abs(d3) <= tolerance) return false;
-  if (Math.abs(d4) <= tolerance) return false;
+  if (Math.abs(d1) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d2) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d3) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d4) <= tolerance) {
+    return false;
+  }
   return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
 }
 
@@ -163,7 +177,9 @@ function parseTexts(svg: string): TextInfo[] {
     const textM = gm[2].match(
       /<text x="([\d.\-]+)" y="([\d.\-]+)" text-anchor="(\w+)" dominant-baseline="([\w-]+)"[^>]*font-size="([\d.]+)"/,
     );
-    if (!textM) continue;
+    if (!textM) {
+      continue;
+    }
     const lines = [...gm[2].matchAll(/<tspan[^>]*>([^<]+)<\/tspan>/g)].map((m) => m[1]);
     out.push({
       name,
@@ -188,7 +204,9 @@ function parseTexts(svg: string): TextInfo[] {
 const PIE_TEST_CFG = createPieLayoutConfig();
 function visualLineUnits(text: string): number {
   let sum = 0;
-  for (const ch of text) sum += visualCharEm(ch, PIE_TEST_CFG);
+  for (const ch of text) {
+    sum += visualCharEm(ch, PIE_TEST_CFG);
+  }
   return sum;
 }
 
@@ -233,8 +251,12 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
         }
         return d;
       };
-      for (const p of pa) min = Math.min(min, distToPolyline(p, pb));
-      for (const p of pb) min = Math.min(min, distToPolyline(p, pa));
+      for (const p of pa) {
+        min = Math.min(min, distToPolyline(p, pb));
+      }
+      for (const p of pb) {
+        min = Math.min(min, distToPolyline(p, pa));
+      }
     }
   }
   return min;
@@ -250,7 +272,9 @@ function minLeaderGap(leaders: { name: string; points: Pt[] }[]): number {
 function parsePieRobust(svg: string): { cx: number; cy: number; r: number } {
   const vb = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/);
   const r = svg.match(/[ML][\d.\-]+,[\d.\-]+ A([\d.]+),/);
-  if (!vb || !r) throw new Error('pie geometry not found');
+  if (!vb || !r) {
+    throw new Error('pie geometry not found');
+  }
   return { cx: parseFloat(vb[1]) / 2, cy: parseFloat(vb[2]) / 2, r: parseFloat(r[1]) };
 }
 
@@ -263,7 +287,9 @@ describe('ラベル box の円内侵入なし (label inside pie / 全サンプ�
       const { svg } = await renderPdfStylePieToSvg(items, { embedFont: false });
       const pie = parsePieRobust(svg);
       for (const t of parseTexts(svg)) {
-        if (t.inside) continue; // wedge 内ラベルは対象外 (円内に置くのが正)。
+        if (t.inside) {
+          continue; // wedge 内ラベルは対象外 (円内に置くのが正)。
+        }
         const b = textBoxPx(t);
         const nx = Math.max(b.left, Math.min(b.right, pie.cx));
         const ny = Math.max(b.top, Math.min(b.bottom, pie.cy));
@@ -470,10 +496,14 @@ describe('twoLineLeftStackMode: 左多数ラベルを全 2 行で密に縦積み
     for (const name of LEFT_COLUMN_NAMES) {
       const t = texts.find((x) => x.name === name);
       expect(t, `${name} ラベルが存在する`).toBeTruthy();
-      if (t!.lineCount < 2) oneLine.push(name);
+      if (t!.lineCount < 2) {
+        oneLine.push(name);
+      }
       const box = textBoxPx(t!);
       // 短名カタカナの左列は 2 行で viewBox 左端 (x=0) を見切れない。1px 許容。
-      if (box.left < -1) clipped.push(`${name}@${box.left.toFixed(0)}`);
+      if (box.left < -1) {
+        clipped.push(`${name}@${box.left.toFixed(0)}`);
+      }
       // ラベル右端 (anchor=end の box.right) と円縁との水平隙間。box の縦中心 y で円の左縁 x を取る。
       const dy = Math.min(Math.abs((box.top + box.bottom) / 2 - pie.cy), pie.r);
       const circleLeftX = pie.cx - Math.sqrt(pie.r * pie.r - dy * dy);
@@ -503,11 +533,15 @@ describe('左列ラベルの縦順序 == スライス角度順 (back-to-back 対
     // 各ラベルの引出アンカー = leader 折れ線で円中心に最も近い端点 (`svg.ts` と同基準)。
     const anchorYOf = (name: string): number | null => {
       const l = leaders.find((x) => x.name === name);
-      if (!l) return null;
+      if (!l) {
+        return null;
+      }
       let best: { y: number; d: number } | null = null;
       for (const p of l.points) {
         const d = Math.hypot(p.x - pie.cx, p.y - pie.cy);
-        if (!best || d < best.d) best = { y: p.y, d };
+        if (!best || d < best.d) {
+          best = { y: p.y, d };
+        }
       }
       return best ? best.y : null;
     };
@@ -560,8 +594,12 @@ describe('引出線が自ラベル box を貫通しない (self-penetration)', (
   ): boolean => {
     const inA = p1.x >= box.left && p1.x <= box.right && p1.y >= box.top && p1.y <= box.bottom;
     const inB = p2.x >= box.left && p2.x <= box.right && p2.y >= box.top && p2.y <= box.bottom;
-    if (inA && inB) return false;
-    if (inA || inB) return true;
+    if (inA && inB) {
+      return false;
+    }
+    if (inA || inB) {
+      return true;
+    }
     const c = [
       { x: box.left, y: box.top },
       { x: box.right, y: box.top },
@@ -569,7 +607,9 @@ describe('引出線が自ラベル box を貫通しない (self-penetration)', (
       { x: box.left, y: box.bottom },
     ];
     for (let k = 0; k < 4; k += 1) {
-      if (segmentsIntersect(p1, p2, c[k], c[(k + 1) % 4])) return true;
+      if (segmentsIntersect(p1, p2, c[k], c[(k + 1) % 4])) {
+        return true;
+      }
     }
     return false;
   };
@@ -590,7 +630,9 @@ describe('引出線が自ラベル box を貫通しない (self-penetration)', (
       const offenders: string[] = [];
       for (const l of leaders) {
         const t = texts.find((x) => x.name === l.name);
-        if (!t || t.inside) continue;
+        if (!t || t.inside) {
+          continue;
+        }
         const box = textBoxPx(t);
         for (let k = 0; k + 1 < l.points.length; k += 1) {
           if (segIntersectsBox(l.points[k], l.points[k + 1], box)) {

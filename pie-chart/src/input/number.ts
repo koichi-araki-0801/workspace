@@ -24,7 +24,9 @@ const DECIMAL_NUMBER_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 export function parseDecimalText(raw: string, allowGrouping: boolean): number | null {
   const text = raw.trim();
   const normalized = allowGrouping && GROUPED_NUMBER_RE.test(text) ? text.replace(/,/g, '') : text;
-  if (!DECIMAL_NUMBER_RE.test(normalized)) return null;
+  if (!DECIMAL_NUMBER_RE.test(normalized)) {
+    return null;
+  }
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
 }
@@ -36,8 +38,12 @@ export function parseDecimalText(raw: string, allowGrouping: boolean): number | 
  * 0.0% のスライスとして帳票に載る。
  */
 export function cellValueAsNumber(v: unknown): number | null {
-  if (v == null || v === '') return null;
-  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (v == null || v === '') {
+    return null;
+  }
+  if (typeof v === 'number') {
+    return Number.isFinite(v) ? v : null;
+  }
   return parseDecimalText(String(v), true);
 }
 
@@ -54,8 +60,12 @@ export function rowToItem(
   describeValue: () => string,
 ): [string, number] | null {
   const valueIsBlank = valueRaw == null || valueRaw === '';
-  if (!name && valueIsBlank) return null;
-  if (!name) throw new Error(`Empty name at row ${rowNo}.`);
+  if (!name && valueIsBlank) {
+    return null;
+  }
+  if (!name) {
+    throw new Error(`Empty name at row ${rowNo}.`);
+  }
   const value = cellValueAsNumber(valueRaw);
   if (value == null) {
     throw new Error(`Non-numeric value at row ${rowNo} (got "${describeValue()}").`);

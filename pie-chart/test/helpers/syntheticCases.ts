@@ -64,7 +64,9 @@ function makeItems(n: number, style: 'short' | 'long', withOther: boolean): Slic
     items.push({ name: names[i % names.length], value: Math.round(value * 10) / 10 });
     remaining = Math.round((remaining - value) * 10) / 10;
   }
-  if (withOther) items[n - 1] = { ...items[n - 1], name: 'その他' };
+  if (withOther) {
+    items[n - 1] = { ...items[n - 1], name: 'その他' };
+  }
   return items;
 }
 

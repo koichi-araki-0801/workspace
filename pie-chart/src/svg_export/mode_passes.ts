@@ -122,7 +122,9 @@ function twoLineLeftColumnMembers(placements: Placement[]): Placement[] {
  */
 export function applyTwoLineLeftColumn(placements: Placement[], cfg: PieLayoutConfig): void {
   const members = twoLineLeftColumnMembers(placements);
-  if (members.length < 6) return;
+  if (members.length < 6) {
+    return;
+  }
   // 角度順 (上→下 = sin 降順)。
   sortByAngleDesc(members);
   // X: mid-angle 放射方向に rim から TWO_LINE_LEFT_OUT_FACTOR 倍だけ外へ離す。参考 PDF のように
@@ -233,21 +235,29 @@ export function applyLeftStackClusterEvenSpread(
         p.x < 0,
     )
     .sort((a, b) => boxCenter(b) - boxCenter(a)); // 上 → 下 (+y 上, 箱中心降順)
-  if (left.length < 3) return;
+  if (left.length < 3) {
+    return;
+  }
   // 先頭の密集ラン: 隣接エアギャップが接触級で、かつ小スライスが続く先頭連続 run。
   // 大スライス (ユーロ/円/米ドル 等) は自スライス寄りに残す。
-  if ((left[0].item.percent ?? 100) > LEFT_CLUSTER_MAX_SMALL_PERCENT) return;
+  if ((left[0].item.percent ?? 100) > LEFT_CLUSTER_MAX_SMALL_PERCENT) {
+    return;
+  }
   const run: Placement[] = [left[0]];
   for (let i = 1; i < left.length; i += 1) {
     const air = placementBox(left[i - 1], cfg).bottom - placementBox(left[i], cfg).top;
     if (
       air < cfg.scaledMinGap * LEFT_CLUSTER_CRAMP_GAP_FRACTION &&
       (left[i].item.percent ?? 100) <= LEFT_CLUSTER_MAX_SMALL_PERCENT
-    )
+    ) {
       run.push(left[i]);
-    else break;
+    } else {
+      break;
+    }
   }
-  if (run.length < 3) return;
+  if (run.length < 3) {
+    return;
+  }
   // run の直下に続く大スライス群 (ユーロ/円/米ドル 等)。クラスタを上部へ詰めた分、これらを下方向へ
   // 押し下げてクラスタとの間に大きな間隔を作る (小スライスクラスタと大スライスを上下に分離)。
   const below = left.slice(run.length);
@@ -298,8 +308,12 @@ export function applyLeftStackClusterEvenSpread(
   {
     const sin0 = Math.sin(degToRad(run[0].item.midAngle ?? 0));
     for (const q of placements) {
-      if (q.insideSlice || all.includes(q) || q.x >= 0) continue;
-      if (Math.sin(degToRad(q.item.midAngle ?? 0)) <= sin0) continue; // 角度的に下 → 制約なし
+      if (q.insideSlice || all.includes(q) || q.x >= 0) {
+        continue;
+      }
+      if (Math.sin(degToRad(q.item.midAngle ?? 0)) <= sin0) {
+        continue; // 角度的に下 → 制約なし
+      }
       const qb = placementBox(q, cfg);
       topCenterCap = Math.min(topCenterCap, (qb.top + qb.bottom) / 2 - pxToLogical(cfg, 6));
     }
@@ -325,7 +339,9 @@ export function applyLeftStackClusterEvenSpread(
       c[i] = minCenter;
       const half = (heights[i - 1] + heights[i]) / 2;
       const maxAbove = c[i] + half + gapMin; // 直上はこれ以上下げない (重なり防止)
-      if (c[i - 1] < maxAbove) c[i - 1] = maxAbove;
+      if (c[i - 1] < maxAbove) {
+        c[i - 1] = maxAbove;
+      }
     }
   }
 
@@ -347,14 +363,18 @@ export function applyLeftStackClusterEvenSpread(
       hugRimAt(p, newY, 'left', cfg);
     }
     p.twoLineLeftColumn = true;
-    if (!isCluster) clampPlacement(p, cfg);
+    if (!isCluster) {
+      clampPlacement(p, cfg);
+    }
     // 長名ラベルの箱左端が viewBox 左端を割る見切れは、割った分だけ右へ戻す (pie 側の悪化は
     // 後段の do-no-harm ゲートが拾う)。⚠ canvasXlim (余白キャップ済み境界) ではなく clip 判定と
     // 同じ viewBox 端を使う — canvasXlim だと列全体が 60px 右へ押され leader 交差を作る。
     {
       const bx = placementBox(p, cfg);
       const xLo = -pxToLogical(cfg, cfg.svgWidthPx / 2 - 2);
-      if (bx.left < xLo) p.x += xLo - bx.left;
+      if (bx.left < xLo) {
+        p.x += xLo - bx.left;
+      }
     }
     p.origTextX = p.x;
     p.origTextY = p.y;
@@ -382,11 +402,17 @@ export function applyLeftStackClusterEvenSpread(
       bx: { left: number; right: number; top: number; bottom: number },
     ): boolean => {
       // 論理座標 (y-up)。粗い除外 → 端点内包 → 4 辺との交差判定。
-      if (Math.max(a.x, b.x) < bx.left || Math.min(a.x, b.x) > bx.right) return false;
-      if (Math.max(a.y, b.y) < bx.bottom || Math.min(a.y, b.y) > bx.top) return false;
+      if (Math.max(a.x, b.x) < bx.left || Math.min(a.x, b.x) > bx.right) {
+        return false;
+      }
+      if (Math.max(a.y, b.y) < bx.bottom || Math.min(a.y, b.y) > bx.top) {
+        return false;
+      }
       const inside = (p2: { x: number; y: number }): boolean =>
         p2.x >= bx.left && p2.x <= bx.right && p2.y >= bx.bottom && p2.y <= bx.top;
-      if (inside(a) || inside(b)) return true;
+      if (inside(a) || inside(b)) {
+        return true;
+      }
       const cross = (
         p1: { x: number; y: number },
         p2: { x: number; y: number },
@@ -394,7 +420,9 @@ export function applyLeftStackClusterEvenSpread(
         p4: { x: number; y: number },
       ): boolean => {
         const d = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
-        if (Math.abs(d) < 1e-12) return false;
+        if (Math.abs(d) < 1e-12) {
+          return false;
+        }
         const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / d;
         const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / d;
         return t >= 0 && t <= 1 && u >= 0 && u <= 1;
@@ -409,13 +437,19 @@ export function applyLeftStackClusterEvenSpread(
     };
     for (const p of all) {
       for (let attempt = 0; attempt < 5; attempt += 1) {
-        if (!p.sideCenterLeader) break;
+        if (!p.sideCenterLeader) {
+          break;
+        }
         const drawn = computeDrawnLeader(p, cfg);
-        if (drawn.skipLeader) break;
+        if (drawn.skipLeader) {
+          break;
+        }
         let hitBox: { left: number; right: number; top: number; bottom: number } | null = null;
         let hitSegMinX = Number.POSITIVE_INFINITY;
         for (const q of placements) {
-          if (q === p || q.insideSlice) continue;
+          if (q === p || q.insideSlice) {
+            continue;
+          }
           const qb = placementBox(q, cfg);
           const inflated = {
             left: qb.left - pad,
@@ -430,9 +464,13 @@ export function applyLeftStackClusterEvenSpread(
               break;
             }
           }
-          if (hitBox) break;
+          if (hitBox) {
+            break;
+          }
         }
-        if (!hitBox) break;
+        if (!hitBox) {
+          break;
+        }
         // 既定接続へのフォールバックはしない — 既定経路は同じ幾何で本物の through
         // (豪ドル>カナダドル) を作り、do-no-harm が全 revert してしまう。
         const fb = placementBox(p, cfg);
@@ -520,7 +558,9 @@ function spreadByAngleOrder(byAngle: Placement[], cfg: PieLayoutConfig, clamp: b
         moved = true;
       }
     }
-    if (!moved) break;
+    if (!moved) {
+      break;
+    }
   }
 }
 
@@ -537,11 +577,15 @@ export function spreadLeftStackByAngle(
   naturalY: Map<LayoutItemReady, number>,
 ): void {
   const stack = placements.filter(isLeftStackMember);
-  if (stack.length < 4) return; // leftStackMode (upperLeftSmallCount>=4) 相当のみ
+  if (stack.length < 4) {
+    return; // leftStackMode (upperLeftSmallCount>=4) 相当のみ
+  }
   // 自然 rim Y へ再アンカー (角度順に単調)。捕捉漏れは現 y を維持。
   for (const p of stack) {
     const ny = naturalY.get(p.item as LayoutItemReady);
-    if (typeof ny === 'number') p.y = ny;
+    if (typeof ny === 'number') {
+      p.y = ny;
+    }
   }
   // 角度順 (上→下 = sin 降順)。
   const byAngle = sortByAngleDesc([...stack]);
@@ -600,13 +644,19 @@ export function alignLeftStackToAnchors(
     )
     .sort((a, b) => boxCenterOf(b) - boxCenterOf(a)); // 上 → 下 (箱中心の降順)
   const n = stack.length;
-  if (n < 4) return;
+  if (n < 4) {
+    return;
+  }
 
   const boxes = stack.map((p) => placementBox(p, cfg));
   const heights = boxes.map((b) => b.top - b.bottom);
   let minAir = Number.POSITIVE_INFINITY;
-  for (let i = 1; i < n; i += 1) minAir = Math.min(minAir, boxes[i - 1].bottom - boxes[i].top);
-  if (minAir >= cfg.scaledMinGap * LEFT_STACK_ALIGN_MIN_GAP_FRACTION) return;
+  for (let i = 1; i < n; i += 1) {
+    minAir = Math.min(minAir, boxes[i - 1].bottom - boxes[i].top);
+  }
+  if (minAir >= cfg.scaledMinGap * LEFT_STACK_ALIGN_MIN_GAP_FRACTION) {
+    return;
+  }
 
   const hardTop = logicalYAtViewBoxYPx(coord, LEFT_STACK_ALIGN_EDGE_INSET_PX);
   const hardBottom = logicalYAtViewBoxYPx(coord, cfg.svgHeightPx - LEFT_STACK_ALIGN_EDGE_INSET_PX);
@@ -617,7 +667,9 @@ export function alignLeftStackToAnchors(
     (hardTop - hardBottom - sumH) / (n - 1),
   );
   const tol = pxToLogical(cfg, 1);
-  if (gapFloor <= tol || gapFloor <= minAir + tol) return; // 広がらない再配分はしない
+  if (gapFloor <= tol || gapFloor <= minAir + tol) {
+    return; // 広がらない再配分はしない
+  }
 
   const before = captureEmitDefectVec(placements, cfg, coord);
   const intrusionBefore = boxPieIntrusionMax(placements, cfg);
@@ -660,7 +712,9 @@ export function alignLeftStackToAnchors(
         moved = true;
       }
     }
-    if (!moved) break;
+    if (!moved) {
+      break;
+    }
   }
   for (let i = 0; i < n; i += 1) {
     const p = stack[i];
@@ -732,10 +786,14 @@ export function applyTopBandClusterReorder(
   const cluster = placements.filter(
     (p) => p.item.clusterTopBand === true && !p.insideSlice && !p.forceTopRight,
   );
-  if (cluster.length < 2) return;
+  if (cluster.length < 2) {
+    return;
+  }
   const nonBottom = cluster.filter((p) => p.item.clusterTopBandBottom !== true);
   const bottom = cluster.filter((p) => p.item.clusterTopBandBottom === true);
-  if (nonBottom.length === 0) return;
+  if (nonBottom.length === 0) {
+    return;
+  }
 
   // クラスタ最上段の y (現在の cluster 中の最大 pie y) を起点にする
   const topY = Math.max(...cluster.map((p) => p.y));
@@ -780,7 +838,9 @@ export function applyTopBandClusterReorder(
         bot = p.y - measured.height / 2;
       }
       const dist = boxDistToOrigin({ left, right, top, bottom: bot });
-      if (dist >= pieR + clearance) return;
+      if (dist >= pieR + clearance) {
+        return;
+      }
       // pie 上側 (y > 0) に居る前提: y を上げて離す
       const need = pieR + clearance - dist + 1e-3;
       p.y += need;
@@ -820,20 +880,28 @@ export function applyTopBandClusterReorder(
   const liftClusterToCanvasTop = (): void => {
     const n = sorted.length;
     const first = sorted[0];
-    if (n < 2 || typeof first.maxTextY !== 'number') return;
+    if (n < 2 || typeof first.maxTextY !== 'number') {
+      return;
+    }
     const tol = pxToLogical(cfg, 2);
     const headroom = first.maxTextY - first.y;
-    if (headroom <= tol) return;
+    if (headroom <= tol) {
+      return;
+    }
     const boxes = sorted.map((p) => placementBox(p, cfg));
     const heights = boxes.map((b) => b.top - b.bottom);
     let minAir = Number.POSITIVE_INFINITY;
-    for (let i = 1; i < n; i += 1) minAir = Math.min(minAir, boxes[i - 1].bottom - boxes[i].top);
+    for (let i = 1; i < n; i += 1) {
+      minAir = Math.min(minAir, boxes[i - 1].bottom - boxes[i].top);
+    }
     // 均等エアギャップ = (持ち上げ後の先頭箱上端 〜 据え置き最下段箱上端) から中間の箱高を
     // 引いた残余の等分。広がらない再配分はしない (`alignLeftStackToAnchors` と同思想)。
     const liftedTop = boxes[0].top + headroom;
     const sumH = heights.slice(0, n - 1).reduce((s, h) => s + h, 0);
     const gap = (liftedTop - boxes[n - 1].top - sumH) / (n - 1);
-    if (gap <= minAir + tol) return;
+    if (gap <= minAir + tol) {
+      return;
+    }
     const before = countVerifyIssuesDetailed(placements, cfg, coord, leftStackMode);
     const intrusionBefore = boxPieIntrusionMax(placements, cfg);
     const origY = sorted.map((p) => p.y);
@@ -888,9 +956,13 @@ export function applyTopBandClusterReorder(
       const xClearance = 0.1;
       const requiredRight = -(pieR + xClearance);
       let bboxRight: number;
-      if (p.anchor === 'start') bboxRight = p.x + measured.width;
-      else if (p.anchor === 'end') bboxRight = p.x;
-      else bboxRight = p.x + measured.width / 2;
+      if (p.anchor === 'start') {
+        bboxRight = p.x + measured.width;
+      } else if (p.anchor === 'end') {
+        bboxRight = p.x;
+      } else {
+        bboxRight = p.x + measured.width / 2;
+      }
       if (bboxRight > requiredRight) {
         const shift = bboxRight - requiredRight;
         p.x -= shift;
@@ -914,7 +986,9 @@ export function applyTopBandClusterReorder(
  */
 export function stackTopRightLiftedLabels(placements: Placement[], cfg: PieLayoutConfig): void {
   const esc = placements.filter((p) => p.forceTopRight && !p.insideSlice);
-  if (esc.length < 2) return;
+  if (esc.length < 2) {
+    return;
+  }
   // 望ましい縦順: 12時から遠い (|midAngle-90| 大) ほど上段。
   const byFarthest = [...esc].sort(
     (a, b) => Math.abs((b.item.midAngle ?? 0) - 90) - Math.abs((a.item.midAngle ?? 0) - 90),
@@ -935,11 +1009,15 @@ function crossOverlapMax(group: Placement[], all: Placement[], cfg: PieLayoutCon
   for (const g of group) {
     const a = placementBox(g, cfg);
     for (const o of all) {
-      if (inGroup.has(o) || o.insideSlice) continue;
+      if (inGroup.has(o) || o.insideSlice) {
+        continue;
+      }
       const b = placementBox(o, cfg);
       const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
       const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-      if (ox > 0 && oy > 0) m = Math.max(m, oy);
+      if (ox > 0 && oy > 0) {
+        m = Math.max(m, oy);
+      }
     }
   }
   return m;
@@ -967,12 +1045,16 @@ function restackLiftedIfOverlapping(
 ): void {
   const boxes = ordered.map((p) => placementBox(p, cfg));
   const overlapping = ordered.some((_, i) => {
-    if (i === 0) return false;
+    if (i === 0) {
+      return false;
+    }
     const a = boxes[i - 1];
     const b = boxes[i];
     return Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 && b.top > a.bottom;
   });
-  if (!overlapping) return;
+  if (!overlapping) {
+    return;
+  }
   const snapshot = all.map((p) => p.y);
   // escapee 同士の重なり (減らしたい量) と、escapee ↔ その他のラベルの重なり (増やしてはいけない量)
   // を別々に測る。チャート全体の最大重なりで見ると、無関係な別の重なりが最大値を握っている構成で
@@ -985,7 +1067,9 @@ function restackLiftedIfOverlapping(
     const prevBottom = placementBox(ordered[i - 1], cfg).bottom;
     const box = placementBox(p, cfg);
     const need = box.top - (prevBottom - cfg.scaledMinGap);
-    if (need <= 0) continue;
+    if (need <= 0) {
+      continue;
+    }
     // 必要量を一度に下げると円へ食い込むことがあるので、**降りられる分だけ降りる**部分適用にする
     // (「全部やるか諦めるか」にすると余地があるチャートでも重なりが残る)。
     const before = p.y;
@@ -993,7 +1077,9 @@ function restackLiftedIfOverlapping(
       p.y = before - (need * step) / RESTACK_DROP_STEPS;
       clampPlacement(p);
       const moved = placementBox(p, cfg);
-      if (boxDistToOrigin(moved) >= cfg.pieRadius) break;
+      if (boxDistToOrigin(moved) >= cfg.pieRadius) {
+        break;
+      }
       p.y = before;
       clampPlacement(p);
     }
@@ -1046,12 +1132,16 @@ export function tidyTopRightEscapeeStack(
     (p) =>
       !p.insideSlice && p.forceTopRight && p.anchor === 'start' && isOtherCategory(p.item.name),
   );
-  if (!sono) return;
+  if (!sono) {
+    return;
+  }
   const escapees = placements.filter(
     (p) =>
       !p.insideSlice && p.forceTopRight && p.anchor === 'start' && !isOtherCategory(p.item.name),
   );
-  if (escapees.length === 0) return;
+  if (escapees.length === 0) {
+    return;
+  }
   const boxCenter = (p: Placement): number => {
     const b = placementBox(p, cfg);
     return (b.top + b.bottom) / 2;
@@ -1075,7 +1165,9 @@ export function tidyTopRightEscapeeStack(
     if (delta > 1e-9) {
       const snapshot = group.map((p) => p.y);
       const before = captureEmitDefectVec(placements, cfg, coord);
-      for (const p of group) p.y += delta;
+      for (const p of group) {
+        p.y += delta;
+      }
       if (emitDefectsWorsened(before, placements, cfg, coord)) {
         group.forEach((p, i) => (p.y = snapshot[i]));
       }
@@ -1086,19 +1178,29 @@ export function tidyTopRightEscapeeStack(
   // 実 viewBox 端の数 px 内側 (`unsqueezeCondensedByShiftTowardPie` と同じ hard 限界)。
   const hardHalf = cfg.svgWidthPx / 2 / cfg.pxPerUnit - 4 / cfg.pxPerUnit;
   for (const p of escapees) {
-    if (p.x >= sono.x - 1e-9) continue;
+    if (p.x >= sono.x - 1e-9) {
+      continue;
+    }
     const box = placementBox(p, cfg);
-    if (boxCenter(p) <= boxCenter(sono)) continue; // 「その他」より上の段のみ
+    if (boxCenter(p) <= boxCenter(sono)) {
+      continue; // 「その他」より上の段のみ
+    }
     // 箱全体が pie キャップより上にあるラベルのみ (円と干渉せず右可動域を viewBox 端へ広げられる)。
-    if (box.bottom < cfg.pieRadius - 1e-9) continue;
+    if (box.bottom < cfg.pieRadius - 1e-9) {
+      continue;
+    }
     const width = box.right - box.left;
     // (p.x - box.left) は anchor=start でも box 左端と書き出し x の微差 (padding 等) を吸収する補正。
     const targetX = Math.min(sono.x, hardHalf - width + (p.x - box.left));
-    if (targetX <= p.x + 1e-9) continue;
+    if (targetX <= p.x + 1e-9) {
+      continue;
+    }
     const beforeX = p.x;
     const before = captureEmitDefectVec(placements, cfg, coord);
     p.x = targetX;
-    if (emitDefectsWorsened(before, placements, cfg, coord)) p.x = beforeX;
+    if (emitDefectsWorsened(before, placements, cfg, coord)) {
+      p.x = beforeX;
+    }
   }
 }
 
@@ -1132,7 +1234,9 @@ export function reorderLeftStackWithCondense(
       !isOtherCategory(p.item.name) &&
       p.x < 0,
   );
-  if (stack.length < 4) return;
+  if (stack.length < 4) {
+    return;
+  }
 
   const tol = pxToLogical(cfg, 2);
   const pieR = cfg.pieRadius;
@@ -1142,7 +1246,9 @@ export function reorderLeftStackWithCondense(
   const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
 
   const beforeInv = countAngularDiscordantPairs(placements, cfg, coord);
-  if (beforeInv === 0) return; // 逆転が無ければ触らない (OK チャートを乱さない)。
+  if (beforeInv === 0) {
+    return; // 逆転が無ければ触らない (OK チャートを乱さない)。
+  }
   const beforeCross = countLeaderCrossings(placements, cfg, coord);
   const beforeOverlap = maxOverlap();
   const beforePie = maxPieIntrusion();
@@ -1159,7 +1265,9 @@ export function reorderLeftStackWithCondense(
   // 各ラベルを自然 rim Y (sin*r = 角度順に単調・スライス直近) へ再アンカー。spanTop から詰めると低角度
   // ラベルがスライスから離れ leader が円を貫く (pie 侵入) ため、必ず自然 rim 高さに戻す。
   const byAngle = sortByAngleDesc([...stack]);
-  for (const p of byAngle) p.y = Math.sin(degToRad(p.item.midAngle ?? 0)) * pieR;
+  for (const p of byAngle) {
+    p.y = Math.sin(degToRad(p.item.midAngle ?? 0)) * pieR;
+  }
   // 角度順を保ったまま隣接を box 高+minGap に広げる (spreadLeftStackByAngle と同手・上下均等割り)。
   spreadByAngleOrder(byAngle, cfg, false);
   // 各ラベルを新 Y で左 rim にハグ (X=-sqrt(r²-y²) 起点に pie nudge) → leader を短く保つ。
@@ -1232,7 +1340,9 @@ export function separateLeftColumnByHeight(
       topBandSonohokaZone(p.item) === null &&
       !isOtherCategory(p.item.name),
   );
-  if (col.length < 4) return;
+  if (col.length < 4) {
+    return;
+  }
   // 上 → 下 (box 中心 y 降順)。
   const cy = (p: Placement) => {
     const b = placementBox(p, cfg);
@@ -1249,9 +1359,13 @@ export function separateLeftColumnByHeight(
   let maxAdjOverlap = 0;
   for (let i = 0; i + 1 < col.length; i += 1) {
     const ov = boxes[i + 1].top - boxes[i].bottom; // >0 = 重なり
-    if (ov > maxAdjOverlap) maxAdjOverlap = ov;
+    if (ov > maxAdjOverlap) {
+      maxAdjOverlap = ov;
+    }
   }
-  if (maxAdjOverlap < overlapThresh) return;
+  if (maxAdjOverlap < overlapThresh) {
+    return;
+  }
 
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
@@ -1279,24 +1393,34 @@ export function separateLeftColumnByHeight(
   const targetTop = boxes.map((b) => b.top);
   let active = false;
   for (let i = 1; i < col.length; i += 1) {
-    if (!active && boxes[i].top - boxes[i - 1].bottom >= overlapThresh) active = true;
-    if (!active) continue;
+    if (!active && boxes[i].top - boxes[i - 1].bottom >= overlapThresh) {
+      active = true;
+    }
+    if (!active) {
+      continue;
+    }
     const limit = targetTop[i - 1] - heights[i - 1] - sepGap; // 上 box 底 − gap
-    if (targetTop[i] > limit) targetTop[i] = limit;
+    if (targetTop[i] > limit) {
+      targetTop[i] = limit;
+    }
   }
   // 下端が canvas を割ったら、上端の余地ぶんだけ全体を上へ平行移動 (上スラックを使う)。収まり切らない
   // 残余は押し戻さず do-no-harm ゲート (viewBox はみ出し) に委ねる。
   const lastBottom = targetTop[col.length - 1] - heights[col.length - 1];
   if (lastBottom < yLo) {
     const lift = Math.min(yLo - lastBottom, Math.max(0, yHi - targetTop[0]));
-    for (let i = 0; i < col.length; i += 1) targetTop[i] += lift;
+    for (let i = 0; i < col.length; i += 1) {
+      targetTop[i] += lift;
+    }
   }
 
   // box.top を targetTop へ。y と box.top の関係 (baseline により y=top か y=top−h) は不変なので、
   // box.top の変位 = y の変位。X は維持し、pie クリアランス/境界は clampPlacement に委ねる。
   for (let i = 0; i < col.length; i += 1) {
     const dy = targetTop[i] - boxes[i].top;
-    if (Math.abs(dy) <= tol) continue;
+    if (Math.abs(dy) <= tol) {
+      continue;
+    }
     col[i].y += dy;
     clampPlacement(col[i]);
   }
@@ -1341,7 +1465,9 @@ const LEFT_STACK_GAP_EXCESS_FACTOR = 1.6;
  */
 export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutConfig): void {
   const stack = placements.filter(isUpperLeftStackMember);
-  if (stack.length < 3) return;
+  if (stack.length < 3) {
+    return;
+  }
   stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
 
   // box 中心間ステップで判定する。box 端ギャップは密スタックでほぼ 0 (箱が接する) になり
@@ -1351,20 +1477,28 @@ export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutCo
     return (b.top + b.bottom) / 2;
   });
   const steps: number[] = [];
-  for (let i = 1; i < stack.length; i += 1) steps.push(cy[i - 1] - cy[i]);
+  for (let i = 1; i < stack.length; i += 1) {
+    steps.push(cy[i - 1] - cy[i]);
+  }
   const sorted = [...steps].sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
   const tol = pxToLogical(cfg, 2);
-  if (median <= tol) return;
+  if (median <= tol) {
+    return;
+  }
 
   // 過大ステップ (= median*EXCESS 超) 分を累積し、その下のラベルを上 (logical y 増) へ。
   const shift: number[] = new Array(stack.length).fill(0);
   let cum = 0;
   for (let i = 1; i < stack.length; i += 1) {
-    if (steps[i - 1] > median * LEFT_STACK_GAP_EXCESS_FACTOR) cum += steps[i - 1] - median;
+    if (steps[i - 1] > median * LEFT_STACK_GAP_EXCESS_FACTOR) {
+      cum += steps[i - 1] - median;
+    }
     shift[i] = cum;
   }
-  if (cum <= tol) return;
+  if (cum <= tol) {
+    return;
+  }
 
   // do-no-harm 採点: 全 placement 横断の最大縦重なり (X が重なる対のみ)。
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
@@ -1373,7 +1507,9 @@ export function applyLeftStackGapClose(placements: Placement[], cfg: PieLayoutCo
   const origX = stack.map((p) => p.x);
 
   for (let i = 0; i < stack.length; i += 1) {
-    if (shift[i] <= tol) continue;
+    if (shift[i] <= tol) {
+      continue;
+    }
     const p = stack[i];
     const newY = p.y + shift[i];
     // 新 Y で左 rim にハグする X (= -sqrt(r^2 - y^2)) を起点に pie クリアランス nudge。
@@ -1420,7 +1556,9 @@ export function relieveLeftStackSpacing(
   coord: Coord,
 ): void {
   const stack = placements.filter(isUpperLeftStackMember);
-  if (stack.length < 4) return;
+  if (stack.length < 4) {
+    return;
+  }
   stack.sort((a, b) => b.y - a.y); // 上 → 下 (logical y 降順)
   // 論理→px の横スケール (右ほど大。線形なので 2 点差で求まる)。見切れ量から右シフト量を逆算する。
   const pxPerUnitX = coord.xScale(1) - coord.xScale(0);
@@ -1449,7 +1587,9 @@ export function relieveLeftStackSpacing(
   for (const m of stack) {
     const box = placementBox(m, cfg);
     const leftPx = Math.min(coord.xScale(box.left), coord.xScale(box.right));
-    if (leftPx >= 1 || pxPerUnitX <= 0) continue; // 見切れていない
+    if (leftPx >= 1 || pxPerUnitX <= 0) {
+      continue; // 見切れていない
+    }
     const before = countDefects(placements, cfg, coord);
     const beforeThrough = countLeaderThroughLabels(placements, cfg, coord);
     const origX = m.x;
@@ -1476,22 +1616,30 @@ export function relieveLeftStackSpacing(
           );
         },
       );
-      if (adopted) break;
+      if (adopted) {
+        break;
+      }
     }
   }
 
   // (2) リムハグ行の押し出し (赤道寄りで円縁に近接した密集側行を円から離す)。キャンバス端で
   // 見切れない範囲で、追加クリアランスを大きい順に試して入る分だけ離す (部分押し出し)。
   for (const m of stack) {
-    if (!m.item.denseSideOutsidePush) continue;
+    if (!m.item.denseSideOutsidePush) {
+      continue;
+    }
     const rimGap = -m.x - cfg.pieRadius; // anchor=end・x<0 ゆえ右辺=-m.x。円縁との隙間。
-    if (rimGap < 0 || rimGap > LEFT_STACK_RIM_HUG_MAX_GAP) continue;
+    if (rimGap < 0 || rimGap > LEFT_STACK_RIM_HUG_MAX_GAP) {
+      continue;
+    }
     const before = countDefects(placements, cfg, coord);
     const origX = m.x;
     for (let push = LEFT_STACK_EQUATOR_EXTRA_CLEARANCE; push >= 0.04 - 1e-9; push -= 0.04) {
       m.x = origX - push;
       clampPlacement(m);
-      if (notWorse(before)) break; // この押し出し量で収まった
+      if (notWorse(before)) {
+        break; // この押し出し量で収まった
+      }
       m.x = origX; // 戻して次のより小さい量を試す
     }
   }
@@ -1557,8 +1705,9 @@ export function reorderTopBandLeftClusterByAngle(
   if (
     countLeaderCrossings(placements, cfg, coord) === 0 &&
     countAngularDiscordantPairs(placements, cfg, coord) === 0
-  )
+  ) {
     return;
+  }
   const cx = coord.xScale(0);
   const pieR = cfg.pieRadius;
   const tol = pxToLogical(cfg, 2);
@@ -1571,7 +1720,9 @@ export function reorderTopBandLeftClusterByAngle(
       (p.item.midAngle ?? 0) > 90 &&
       angleInBand(normalizeAngle(p.item.midAngle ?? 0), 90, TOP_SEAM_ESCAPE_HALF_WIDTH_DEG),
   );
-  if (cluster.length < 2) return;
+  if (cluster.length < 2) {
+    return;
+  }
 
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
@@ -1582,7 +1733,9 @@ export function reorderTopBandLeftClusterByAngle(
     let m = 0;
     for (const p of placements) {
       const r = computeDrawnLeader(p, cfg);
-      if (r.skipLeader) continue;
+      if (r.skipLeader) {
+        continue;
+      }
       for (let k = 0; k + 1 < r.pathPoints.length; k += 1) {
         const d = distPointToSegment(
           0,
@@ -1620,8 +1773,11 @@ export function reorderTopBandLeftClusterByAngle(
       const clusterGap = radialFraction(cfg, 0.07, 0.7);
       const yOf: number[] = [];
       for (let i = 0; i < byAngle.length; i += 1) {
-        if (i === 0) yOf[i] = ceilTopY;
-        else yOf[i] = yOf[i - 1] - (placementExtent(byAngle[i - 1], cfg).height + clusterGap);
+        if (i === 0) {
+          yOf[i] = ceilTopY;
+        } else {
+          yOf[i] = yOf[i - 1] - (placementExtent(byAngle[i - 1], cfg).height + clusterGap);
+        }
       }
       byAngle.forEach((p, i) => reshapeToLeftRimHug(p, cfg, yOf[i]));
       applyFinalCondenseToFit(cluster, cfg);
@@ -1699,7 +1855,9 @@ export function escapeTopBandSeamLeader(
   // 選ぶ退行が出る (例 currency_many_small_10) ため、探索強化は emit 限定にする。
   thorough = false,
 ): void {
-  if (countLeaderCrossings(placements, cfg, coord) === 0) return;
+  if (countLeaderCrossings(placements, cfg, coord) === 0) {
+    return;
+  }
   const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
   const cx = coord.xScale(0);
@@ -1739,7 +1897,9 @@ export function escapeTopBandSeamLeader(
       const cb = placementBox(c, cfg);
       let pushed = false;
       for (const e of placements) {
-        if (e === c || !e.forceTopRight || e.insideSlice) continue;
+        if (e === c || !e.forceTopRight || e.insideSlice) {
+          continue;
+        }
         const eb = placementBox(e, cfg);
         const ox = Math.min(cb.right, eb.right) - Math.max(cb.left, eb.left);
         const oy = Math.min(cb.top, eb.top) - Math.max(cb.bottom, eb.bottom);
@@ -1750,7 +1910,9 @@ export function escapeTopBandSeamLeader(
           break;
         }
       }
-      if (!pushed) break;
+      if (!pushed) {
+        break;
+      }
     }
   };
 
@@ -1760,7 +1922,9 @@ export function escapeTopBandSeamLeader(
     // のときだけ採用。崩れたらその 1 枚を revert (退行0)。
     for (const c of candidates) {
       const beforeCross = countLeaderCrossings(placements, cfg, coord);
-      if (beforeCross === 0) break;
+      if (beforeCross === 0) {
+        break;
+      }
       const beforeOverlap = maxOverlap();
       const beforePie = maxPieIntrusion();
       const beforeView = maxViewOverflow();
@@ -1778,7 +1942,9 @@ export function escapeTopBandSeamLeader(
           return !harm;
         },
       );
-      if (adopted) adoptedAny = true;
+      if (adopted) {
+        adoptedAny = true;
+      }
     }
   } else {
     // 累積プレフィックス探索 (emit 限定): 候補をシーム最寄り順に 1 枚ずつ「追加で」逃がし、各
@@ -1829,7 +1995,9 @@ export function escapeTopBandSeamLeader(
       seamRestore(snap0);
       for (const c of candidates) {
         const cur = vecOf();
-        if (cur.cross + cur.through === 0) break;
+        if (cur.cross + cur.through === 0) {
+          break;
+        }
         escapeOne(c, oneLineEscapes);
         const after = vecOf();
         if (process.env.PIE_CHART_DEBUG_REPAIR) {
@@ -1847,7 +2015,9 @@ export function escapeTopBandSeamLeader(
     };
     explorePrefix(false);
     // 2 行のままで完治しない時だけ 1 行化プレフィックスも探索する (2 行優先 = 既存の見た目を保つ)。
-    if (bestVec.cross + bestVec.through > 0) explorePrefix(true);
+    if (bestVec.cross + bestVec.through > 0) {
+      explorePrefix(true);
+    }
     // 最良プレフィックスへ巻き戻す (改善が無ければ全 revert)。
     seamRestore(bestSnap ?? snap0);
     adoptedAny = bestSnap !== null;
@@ -1875,14 +2045,26 @@ export function leftStackOverflowItems(result: Placement[], cfg: PieLayoutConfig
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9); // ≈ 1 SVG px
   const out: { item: LayoutItem; over: number }[] = [];
   for (const p of copy) {
-    if (p.insideSlice) continue;
-    if (p.item.side !== 'left') continue;
-    if (p.item.flipToRight || p.item.flipToLeft) continue;
-    if (p.lines.length >= 2) continue;
-    if (p.item.preferOneLineCascade) continue;
+    if (p.insideSlice) {
+      continue;
+    }
+    if (p.item.side !== 'left') {
+      continue;
+    }
+    if (p.item.flipToRight || p.item.flipToLeft) {
+      continue;
+    }
+    if (p.lines.length >= 2) {
+      continue;
+    }
+    if (p.item.preferOneLineCascade) {
+      continue;
+    }
     const box = placementBox(p, cfg);
     const over = viewBoxLeft - box.left;
-    if (over > tol) out.push({ item: p.item, over });
+    if (over > tol) {
+      out.push({ item: p.item, over });
+    }
   }
   // 見切れが大きい順 (最も目立つ見切れから 2 行化を試す)。採否は do-no-harm なので順序は
   // 安全性に影響せず、結果の優先順位付けのみ。

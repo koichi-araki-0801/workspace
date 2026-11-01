@@ -153,7 +153,9 @@ function nextCascadeRank(state: CascadeState): number {
   let r = state.rank + 1;
   while (r <= 8) {
     if (CASCADE_INSIDE_RANKS.has(r)) {
-      if (state.insideOpts[r]) return r;
+      if (state.insideOpts[r]) {
+        return r;
+      }
       r += 1;
     } else {
       return r;
@@ -183,14 +185,24 @@ function isCascadeFailed(placement: Placement, others: Placement[], cfg: PieLayo
     [xmin, xmax] = cfg.canvasXlim;
   }
   const [ymin, ymax] = cfg.canvasYlim;
-  if (box.left < xmin - vboxTol || box.right > xmax + vboxTol) return true;
-  if (box.bottom < ymin - vboxTol || box.top > ymax + vboxTol) return true;
-  if (boxDistToOrigin(box) < cfg.pieRadius - vboxTol) return true;
+  if (box.left < xmin - vboxTol || box.right > xmax + vboxTol) {
+    return true;
+  }
+  if (box.bottom < ymin - vboxTol || box.top > ymax + vboxTol) {
+    return true;
+  }
+  if (boxDistToOrigin(box) < cfg.pieRadius - vboxTol) {
+    return true;
+  }
   for (const q of others) {
-    if (q === placement) continue;
+    if (q === placement) {
+      continue;
+    }
     const b = placementBox(q, cfg);
     const { x: ox, y: oy } = boxOverlapAmount(box, b);
-    if (ox > overlapTol && oy > overlapTol) return true;
+    if (ox > overlapTol && oy > overlapTol) {
+      return true;
+    }
   }
   return false;
 }
@@ -230,7 +242,9 @@ function runCascadeOnce(
   // 左列の自然 rim Y を init 時点で捕捉 (順序保存 spread の再アンカー基準)。
   const naturalLeftStackY = new Map<LayoutItemReady, number>();
   for (const s of states) {
-    if (isLeftStackMember(s.placement)) naturalLeftStackY.set(s.item, s.placement.y);
+    if (isLeftStackMember(s.placement)) {
+      naturalLeftStackY.set(s.item, s.placement.y);
+    }
   }
 
   for (let iter = 0; iter < CASCADE_MAX_ITER; iter += 1) {
@@ -259,17 +273,23 @@ function runCascadeOnce(
     }
     let changed = false;
     for (const s of outside) {
-      if (s.rank >= 9) continue;
+      if (s.rank >= 9) {
+        continue;
+      }
       if (isCascadeFailed(s.placement, outsidePlacements, cfg)) {
         let nr = nextCascadeRank(s);
         // useStackRimY (上左 triad の rim 重なり救済対象) は 2 行を維持する。1 行降格
         // (rank >= 5) を許さず rank 4 (2行長体) で打ち止め、viewBox はみ出し分は後段の
         // applyFinalCondenseToFit が名前長体で吸収する。9時付近の幅広上左ラベルが
         // 1 行化して左へ伸び見切れる症状を防ぐ。
-        if ((s.item.useStackRimY || s.item.keepTwoLineLeftStack) && nr > 4) nr = s.rank;
+        if ((s.item.useStackRimY || s.item.keepTwoLineLeftStack) && nr > 4) {
+          nr = s.rank;
+        }
         // bottomCenterBelow は 1行/長体 (rank 6/8) への降格は許すが rank 9 (leader) を禁止。
         // 真下中央 push-down は pie/viewBox を構造的にクリアするので leader 化は不要。
-        if (s.item.bottomCenterBelow && nr > 8) nr = 8;
+        if (s.item.bottomCenterBelow && nr > 8) {
+          nr = 8;
+        }
         if (nr !== s.rank) {
           s.rank = nr;
           s.placement = buildPlacementForRank(s.item, cfg, s.insideOpts, nr);
@@ -277,7 +297,9 @@ function runCascadeOnce(
         }
       }
     }
-    if (!changed) break;
+    if (!changed) {
+      break;
+    }
   }
 
   return states.map((s) => s.placement);
@@ -293,7 +315,9 @@ function toTwoLineNamePlacement(
   placement: Placement,
   cfg: PieLayoutConfig,
 ): { lines: string[]; nameSplit?: boolean; nameScaleX?: number } | null {
-  if (placement.insideSlice || placement.nameSplit || placement.lines.length !== 1) return null;
+  if (placement.insideSlice || placement.nameSplit || placement.lines.length !== 1) {
+    return null;
+  }
   const snap = {
     lines: placement.lines,
     nameSplit: placement.nameSplit,
@@ -307,7 +331,9 @@ function toTwoLineNamePlacement(
   placement.nameScaleX = 1;
   while (sx - 0.025 >= FINAL_CONDENSE_MIN_SCALE - 1e-9) {
     const b = placementBox(placement, cfg);
-    if (b.left >= xmin - tol && b.right <= xmax + tol) break;
+    if (b.left >= xmin - tol && b.right <= xmax + tol) {
+      break;
+    }
     sx = Math.round((sx - 0.025) * 1000) / 1000;
     placement.nameScaleX = sx;
   }
@@ -347,13 +373,21 @@ export function applyTwoLineNameFallback(
   };
 
   let before = measureDefectGate(placements, cfg, coord);
-  if (before.d.clips === 0) return;
+  if (before.d.clips === 0) {
+    return;
+  }
   for (const p of placements) {
-    if (p.insideSlice || p.nameSplit || p.lines.length !== 1) continue;
+    if (p.insideSlice || p.nameSplit || p.lines.length !== 1) {
+      continue;
+    }
     const myClipBefore = clipPx(p);
-    if (myClipBefore <= 0) continue; // 見切れていない 1 行はそのまま
+    if (myClipBefore <= 0) {
+      continue; // 見切れていない 1 行はそのまま
+    }
     const snap = toTwoLineNamePlacement(p, cfg);
-    if (!snap) continue;
+    if (!snap) {
+      continue;
+    }
     // 2 行化は箱が縦に伸び、下辺が pie 円へ食い込むことがある (クリアランス拡大で顕在化)。ゲートは
     // 食い込みを nudge で外した実 emit 相当の姿で判定する (却下時は幾何ごと戻す)。
     const geomSnap = { x: p.x, y: p.y };
@@ -422,7 +456,9 @@ export function applyVerticalDeclipFallback(
   // `countDefects` は leader×label 貫通を数えない。横優先 L 字の縦 riser が隣ラベル box を貫く退行
   // (例 `pdf_510037_07` オフショア riser が韓国 box を貫通) を防ぐため、gate の through も非悪化で見る。
   let before = measureDefectGate(placements, cfg, coord);
-  if (before.d.clips === 0) return;
+  if (before.d.clips === 0) {
+    return;
+  }
 
   // 隣接ラベル間の最小縦間隔 (`countDefects` の重なり閾値 6px に余裕)。
   const marginLogical = 8 / (pieRpx / cfg.pieRadius);
@@ -445,7 +481,9 @@ export function applyVerticalDeclipFallback(
       !p.twoLineLeftColumn &&
       clipsLeftViewBox(p),
   );
-  if (targets.length === 0) return;
+  if (targets.length === 0) {
+    return;
+  }
 
   const step = radialFraction(cfg, 0.01, 0.06);
   const MAX_ITERS = 200;
@@ -454,12 +492,20 @@ export function applyVerticalDeclipFallback(
   // x を pie 限界まで右へ寄せ直す (`applyVisualViewBoxNudge`)。ラベル幅は変えず x のみ寄せる。
   const stepAway = (p: Placement, dir: number): void => {
     for (let i = 0; i < MAX_ITERS; i += 1) {
-      if (blockedInY(p, dir)) break;
+      if (blockedInY(p, dir)) {
+        break;
+      }
       p.y += dir * step;
-      if (typeof p.maxTextY === 'number' && p.y > p.maxTextY) p.y = p.maxTextY;
-      if (typeof p.minTextY === 'number' && p.y < p.minTextY) p.y = p.minTextY;
+      if (typeof p.maxTextY === 'number' && p.y > p.maxTextY) {
+        p.y = p.maxTextY;
+      }
+      if (typeof p.minTextY === 'number' && p.y < p.minTextY) {
+        p.y = p.minTextY;
+      }
       applyVisualViewBoxNudge([p], cfg);
-      if (!clipsLeftViewBox(p)) break;
+      if (!clipsLeftViewBox(p)) {
+        break;
+      }
     }
   };
 
@@ -469,7 +515,9 @@ export function applyVerticalDeclipFallback(
   // 外側ラベルが「自身が解消した時点」で止まり内側ラベルの空きを作れない)。採否は片側単位の do-no-harm
   // ゲートで全件採用/全件 revert する。
   const processSide = (group: Placement[], dir: number): void => {
-    if (group.length === 0) return;
+    if (group.length === 0) {
+      return;
+    }
     group.sort((a, b) => Math.abs(a.y) - Math.abs(b.y)); // equator 近接側 (|y| 小) から
     // 全 placement の幾何 snapshot (revert 用)。後段 leader 修復が他ラベルの bend も触りうるため全件。
     const snaps = placements.map((p) => ({
@@ -492,7 +540,9 @@ export function applyVerticalDeclipFallback(
       if (clipsLeftViewBox(p) && p.lines.length === 1) {
         const origLeft = placementPixelRect(p, cfg, coord).left;
         const s = toTwoLineNamePlacement(p, cfg);
-        if (s) splitSnaps.push({ p, snap: s, origLeft });
+        if (s) {
+          splitSnaps.push({ p, snap: s, origLeft });
+        }
       }
     }
     const groupOrigY = group.map((p) => p.y); // 移動採用後に「実際に動いたラベル」を識別する基準
@@ -505,14 +555,18 @@ export function applyVerticalDeclipFallback(
           const need = innerEdge + marginLogical - box.bot; // p(上) の下端を直前 top + margin 以上へ
           if (need > 0) {
             p.y += need;
-            if (typeof p.maxTextY === 'number' && p.y > p.maxTextY) p.y = p.maxTextY;
+            if (typeof p.maxTextY === 'number' && p.y > p.maxTextY) {
+              p.y = p.maxTextY;
+            }
             applyVisualViewBoxNudge([p], cfg);
           }
         } else {
           const need = box.top - (innerEdge - marginLogical); // p(下) の上端を直前 bot - margin 以下へ
           if (need > 0) {
             p.y -= need;
-            if (typeof p.minTextY === 'number' && p.y < p.minTextY) p.y = p.minTextY;
+            if (typeof p.minTextY === 'number' && p.y < p.minTextY) {
+              p.y = p.minTextY;
+            }
             applyVisualViewBoxNudge([p], cfg);
           }
         }
@@ -531,13 +585,17 @@ export function applyVerticalDeclipFallback(
     // 移動採用が確定した後にフラグを立て直し再評価し、悪化したらフラグと bend のみ戻す (移動は維持)。
     const refineMovedLeaders = (): void => {
       const moved = group.filter((p, i) => Math.abs(p.y - groupOrigY[i]) > 1e-6);
-      if (moved.length === 0) return;
+      if (moved.length === 0) {
+        return;
+      }
       const leaderSnap = placements.map((p) => ({
         p,
         lb: { ...p.leaderBend },
         le: { ...p.leaderEndpoint },
       }));
-      for (const p of moved) p.declipBottomLeader = true;
+      for (const p of moved) {
+        p.declipBottomLeader = true;
+      }
       repairResidualLeaderDefects(placements, cfg, coord);
       const a = measureDefectGate(placements, cfg, coord);
       const ok =
@@ -547,7 +605,9 @@ export function applyVerticalDeclipFallback(
       if (ok) {
         before = a;
       } else {
-        for (const p of moved) p.declipBottomLeader = undefined;
+        for (const p of moved) {
+          p.declipBottomLeader = undefined;
+        }
         for (const s of leaderSnap) {
           s.p.leaderBend = s.lb;
           s.p.leaderEndpoint = s.le;
@@ -575,7 +635,9 @@ export function applyVerticalDeclipFallback(
     // の左はみ出し量が減り、かつ他カテゴリ非悪化 (clips は同値可) なら分割維持。
     revertGeometry();
     if (splitSnaps.length > 0) {
-      for (const { p } of splitSnaps) applyVisualViewBoxNudge([p], cfg);
+      for (const { p } of splitSnaps) {
+        applyVisualViewBoxNudge([p], cfg);
+      }
       repairResidualLeaderDefects(placements, cfg, coord);
       const splitAfter = measureDefectGate(placements, cfg, coord);
       const magnitudeReduced = splitSnaps.every(
@@ -594,7 +656,9 @@ export function applyVerticalDeclipFallback(
 
     // 手順1・2 とも不採用: 2 行変換も含め完全 revert (baseline byte 不変)。
     for (const { p, snap } of splitSnaps) {
-      if (snap) restoreTwoLineNamePlacement(p, snap);
+      if (snap) {
+        restoreTwoLineNamePlacement(p, snap);
+      }
     }
     revertGeometry();
   };
@@ -631,10 +695,14 @@ export function applyLowerLeftDropFallback(
   };
 
   let before = measureDefectGate(placements, cfg, coord);
-  if (before.d.clips === 0) return;
+  if (before.d.clips === 0) {
+    return;
+  }
   for (let i = 0; i < placements.length; i += 1) {
     const p = placements[i];
-    if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) continue;
+    if (p.insideSlice || !p.item.lowerLeftDropLeader || !clipsViewBox(p)) {
+      continue;
+    }
     const item = p.item as LayoutItemReady;
     // 下left ドロップ placement を構築。forceHorizontalLowerLeftDrop を一時的に立てて
     // finalizePlacement の内側 (canvasXlim) X クランプを解放し、viewBox 端まで伸ばせるようにする。
@@ -680,20 +748,30 @@ function cascadeWithSonohokaPick(
   leftStackMode = false,
 ): Placement[] {
   const topOthers = labels.filter((it) => topBandSonohokaZone(it) === 'core');
-  for (const it of topOthers) it.topRightRejected = false;
+  for (const it of topOthers) {
+    it.topRightRejected = false;
+  }
   const right = runCascadeOnce(labels, cfg, spreadLeftStack);
-  if (topOthers.length === 0) return right;
+  if (topOthers.length === 0) {
+    return right;
+  }
 
   const rightIssues = countVerifyIssuesDetailed(right, cfg, coord, leftStackMode);
-  for (const it of topOthers) it.topRightRejected = true;
+  for (const it of topOthers) {
+    it.topRightRejected = true;
+  }
   const left = runCascadeOnce(labels, cfg, spreadLeftStack);
-  for (const it of topOthers) it.topRightRejected = false;
+  for (const it of topOthers) {
+    it.topRightRejected = false;
+  }
   const leftIssues = countVerifyIssuesDetailed(left, cfg, coord, leftStackMode);
 
   // 孤立極小スライス leader 型 (`layout/diagnostics.ts` の `markLoneTopSliverLeader`) では『その他』を右上へ確定
   // (右逃がし)。これをしないと極小の up-and-over leader が中央の『その他』box を貫いて Pass 2 で
   // 抑制され、せっかくの leader が消える。本印は同マーカーの厳ゲートでこの 1 構成のみに立つ。
-  if (labels.some((it) => it.loneTopSliverLeader)) return right;
+  if (labels.some((it) => it.loneTopSliverLeader)) {
+    return right;
+  }
   // 右上(第一優先)は hard 不具合 (交差 / 円内貫通) を左上より悪化させないことが前提で採用する。判定は
   // 実描画 + 全後段で数える countVerifyIssuesDetailed を使い、後段 (角度順引き離し/9時
   // 逃がし) が解消する見かけ上の交差で右上を誤却下しない。右逃がしが本当に悪い構成
@@ -749,10 +827,14 @@ function pickCapClearanceParity(
   leftStackMode: boolean,
   bestResult: () => Placement[],
 ): Placement[] {
-  for (const it of labels) it.capParityRejected = false;
+  for (const it of labels) {
+    it.capParityRejected = false;
+  }
   const parity = bestResult();
   const parityScore = capParityScore(parity, cfg, coord, leftStackMode);
-  for (const it of labels) it.capParityRejected = true;
+  for (const it of labels) {
+    it.capParityRejected = true;
+  }
   const rejected = bestResult();
   const rejectedScore = capParityScore(rejected, cfg, coord, leftStackMode);
   // 採否は `cascadeWithSonohokaPick` と同じ hard > soft の辞書順。hard (交差 / 円内貫通 / ラベル箱
@@ -777,8 +859,12 @@ function pickCapClearanceParity(
   const softBetter =
     parityScore.clips < rejectedScore.clips || parityScore.total < rejectedScore.total;
   const parityNotWorse = hardGuard && (hardBetter || (softNotWorse && softBetter));
-  if (!parityNotWorse) return rejected;
-  for (const it of labels) it.capParityRejected = false;
+  if (!parityNotWorse) {
+    return rejected;
+  }
+  for (const it of labels) {
+    it.capParityRejected = false;
+  }
   return parity;
 }
 
@@ -801,7 +887,9 @@ function pickCapClearanceParity(
  */
 function overrideOverflowPreferOneLine(labels: LayoutItemReady[], cfg: PieLayoutConfig): void {
   const candidates = labels.filter((it) => it.preferOneLineCascade && it.side === 'left');
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
   // プローブを **emit と同じ後段** (nudge/condense-to-fit/relax-condense) で最終化したコピー上で
   // overflow を判定する。生 cascade 直後の box は condense/nudge で実際は収まる左ラベルを誤って
   // overflow 扱いし、不要な 2 行化を招く。leftStackOverflowItems と対称の実描画基準判定。配列順は
@@ -815,12 +903,18 @@ function overrideOverflowPreferOneLine(labels: LayoutItemReady[], cfg: PieLayout
   for (let i = 0; i < labels.length; i += 1) {
     const item = labels[i];
     const placement = probe[i];
-    if (!item.preferOneLineCascade) continue;
-    if (placement.insideSlice) continue;
+    if (!item.preferOneLineCascade) {
+      continue;
+    }
+    if (placement.insideSlice) {
+      continue;
+    }
 
     const box = placementBox(placement, cfg);
     const overflows = box.left < -halfW - tol || box.right > halfW + tol;
-    if (!overflows) continue;
+    if (!overflows) {
+      continue;
+    }
 
     item.preferOneLineCascade = false;
     item.compactLabel = false;
@@ -858,7 +952,9 @@ function runLabelCascade(
   }
   const bestResult = (): Placement[] => {
     const off = cascadeWithSonohokaPick(labels, cfg, coord, false, lsm);
-    if (!lsm) return off;
+    if (!lsm) {
+      return off;
+    }
     const spread = cascadeWithSonohokaPick(labels, cfg, coord, true, lsm);
     return countVerifyIssues(spread, cfg, coord, lsm) < countVerifyIssues(off, cfg, coord, lsm)
       ? spread
@@ -883,7 +979,9 @@ function runLabelCascade(
     while (changed && best.clips > 0) {
       changed = false;
       for (const it of overflowItems) {
-        if (it.keepTwoLineLeftStack) continue;
+        if (it.keepTwoLineLeftStack) {
+          continue;
+        }
         it.keepTwoLineLeftStack = true;
         const variant = bestResult();
         const v = countVerifyIssuesDetailed(variant, cfg, coord, lsm);
@@ -938,7 +1036,9 @@ export function normalizeAndSortItems(rawItems: unknown): LayoutItem[] {
     .sort((a, b) => {
       const aOther = isOtherCategory(a.name);
       const bOther = isOtherCategory(b.name);
-      if (aOther !== bOther) return aOther ? 1 : -1;
+      if (aOther !== bOther) {
+        return aOther ? 1 : -1;
+      }
       return b.value - a.value;
     });
 }
@@ -956,7 +1056,9 @@ function selectFinalLayout(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): LayoutResult | null {
-  if (items.length <= 1) return null;
+  if (items.length <= 1) {
+    return null;
+  }
   let finalLayout = layoutLabels(items, cfg);
   // 逃がし枚数の探索で同じレイアウトを再現するため、採用した回転オーバーライドを覚えておく
   // (非回転を採った時だけ 0。それ以外は自動判定に任せる = undefined)。
@@ -1002,7 +1104,9 @@ function selectFinalLayout(
       for (const push of [0.16, 0.12, 0.09, 0.06]) {
         cfg.pieLabelClearance = origClearance + push;
         const pushed = layoutLabels(items, cfg);
-        if (scoreLayout(pushed) <= rotScore) return pushed; // 採用: clearance は広げたまま
+        if (scoreLayout(pushed) <= rotScore) {
+          return pushed; // 採用: clearance は広げたまま
+        }
         cfg.pieLabelClearance = origClearance; // 悪化 → 次の弱い量を試す (全滅なら元クリアランス)
       }
       return rotated;
@@ -1092,7 +1196,9 @@ function pickUpperEscapeCount(
   rotateOverride: number | undefined,
 ): LayoutResult {
   const maxCount = base.diagnostics.upperEscapeCandidateCount ?? 0;
-  if (maxCount <= 0) return base;
+  if (maxCount <= 0) {
+    return base;
+  }
   const baseScore = upperEscapeScore(base, cfg, coord);
   let best = base;
   let bestScore = baseScore;
@@ -1187,7 +1293,9 @@ export async function renderPdfStylePieToSvg(
   // ── 1. スライス本体の描画 ──
   const sliceGroups = arcs
     .map((arc, index) => {
-      if (Math.abs(Number(arc.value)) === 0) return '';
+      if (Math.abs(Number(arc.value)) === 0) {
+        return '';
+      }
       const d = buildSlicePath(arc.startAngle, arc.endAngle, cfg.pieRadius, xScale, yScale);
       const path = `<path${attr('d', d)}${attr('fill', colors[index])} />`;
       const pct = percentOf(arc.value).toFixed(1);
@@ -1200,7 +1308,11 @@ export async function renderPdfStylePieToSvg(
   let diagnostics: Diagnostics | null = null;
   const usedChars = new Set<string>();
   const collectChars = (lines: string[]) => {
-    for (const line of lines) for (const ch of String(line)) usedChars.add(ch);
+    for (const line of lines) {
+      for (const ch of String(line)) {
+        usedChars.add(ch);
+      }
+    }
   };
   if (items.length === 1) {
     const item = items[0];
@@ -1243,7 +1355,9 @@ export async function renderPdfStylePieToSvg(
     // index の剰余ではなく確定済み colors[] を引く。
     const colorByName = new Map<string, string>();
     items.forEach((it, idx) => {
-      if (!colorByName.has(it.name)) colorByName.set(it.name, colors[idx]);
+      if (!colorByName.has(it.name)) {
+        colorByName.set(it.name, colors[idx]);
+      }
     });
 
     // emit 採用配置に対する最終修復パス列 (do-no-harm・順序依存)。詳細は applyEmitRepairPasses 内。
@@ -1261,7 +1375,9 @@ export async function renderPdfStylePieToSvg(
     // 大量に出て紛らわしい。ここは最終 placements かつ実 viewBox 基準 (coord) なので、件数・値が verify の
     // "label out of viewBox" (tolerance 1px) と一致する。
     for (const p of textPlacements) {
-      if (p.insideSlice) continue;
+      if (p.insideSlice) {
+        continue;
+      }
       const overPx = boxViewOverflowOf(p, cfg, { xScale, yScale, width, height });
       if (overPx > 1) {
         console.warn(`[svg_export] viewBox見切れ: "${p.item.name}" 約${Math.round(overPx)}px`);
@@ -1307,24 +1423,38 @@ export async function renderPdfStylePieToSvg(
       const limit = cfg.pieRadius - pxToLogical(cfg, 1);
       for (let k = 0; k + 1 < pts.length; k += 1) {
         const d = distPointToSegment(0, 0, pts[k].x, pts[k].y, pts[k + 1].x, pts[k + 1].y);
-        if (d < limit) return true;
+        if (d < limit) {
+          return true;
+        }
       }
       return false;
     };
     for (const entry of prepared) {
-      if (entry.skipLeader) continue;
-      if (!qualifiesTopCenterAttach(entry.placement, cfg)) continue;
+      if (entry.skipLeader) {
+        continue;
+      }
+      if (!qualifiesTopCenterAttach(entry.placement, cfg)) {
+        continue;
+      }
       const tc = computeDrawnLeader(entry.placement, cfg, true);
-      if (tc.skipLeader) continue;
+      if (tc.skipLeader) {
+        continue;
+      }
       const tcPix = toPixPts(tc.pathPoints);
       const sidePix = toPixPts(entry.pathPoints);
       let harmful = dipsIntoPie(tc.pathPoints) && !dipsIntoPie(entry.pathPoints);
       for (let j = 0; j < prepared.length && !harmful; j += 1) {
-        if (prepared[j] === entry) continue;
-        if (leaderCrossesBox(tcPix, prepared[j].pixelBox)) harmful = true;
+        if (prepared[j] === entry) {
+          continue;
+        }
+        if (leaderCrossesBox(tcPix, prepared[j].pixelBox)) {
+          harmful = true;
+        }
         if (!harmful && !prepared[j].skipLeader) {
           const other = toPixPts(prepared[j].pathPoints);
-          if (!pathsCross(sidePix, other) && pathsCross(tcPix, other)) harmful = true;
+          if (!pathsCross(sidePix, other) && pathsCross(tcPix, other)) {
+            harmful = true;
+          }
         }
       }
       if (!harmful) {
@@ -1345,26 +1475,38 @@ export async function renderPdfStylePieToSvg(
     // allowGrazeLift=true で先頭セグメントの円周グレイズを W へ持ち上げる。top-center leader も先頭
     // セグメントが rim をなぞり得る (例 イギリスポンド) ため topCenterApplied も対象に含める。
     for (const entry of prepared) {
-      if (entry.skipLeader) continue;
+      if (entry.skipLeader) {
+        continue;
+      }
       const gl = computeDrawnLeader(entry.placement, cfg, entry.topCenterApplied, true);
-      if (gl.skipLeader) continue;
+      if (gl.skipLeader) {
+        continue;
+      }
       const before = toPixPts(entry.pathPoints);
       const after = toPixPts(gl.pathPoints);
       const unchanged =
         before.length === after.length &&
         before.every((p, i) => p.x === after[i].x && p.y === after[i].y);
-      if (unchanged) continue; // グレイズ条件に当たらず持ち上げ無し
+      if (unchanged) {
+        continue; // グレイズ条件に当たらず持ち上げ無し
+      }
       // do-no-harm: どの他 leader とも交差の有無が変化せず、どの他 box も貫かず、円への食い込み
       // (中心距離 < r − 1px) を新規に作らないことを確認する (verify:consistency の crossings/pie 数を
       // baseline 内部スコアと一致させ、ラベルへの新規貫通も防ぐ)。
       let harmful = dipsIntoPie(gl.pathPoints) && !dipsIntoPie(entry.pathPoints);
       for (let j = 0; j < prepared.length && !harmful; j += 1) {
-        if (prepared[j] === entry) continue;
+        if (prepared[j] === entry) {
+          continue;
+        }
         if (!prepared[j].skipLeader) {
           const other = toPixPts(prepared[j].pathPoints);
-          if (pathsCross(before, other) !== pathsCross(after, other)) harmful = true;
+          if (pathsCross(before, other) !== pathsCross(after, other)) {
+            harmful = true;
+          }
         }
-        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) harmful = true;
+        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) {
+          harmful = true;
+        }
       }
       if (!harmful) {
         entry.pathPoints = gl.pathPoints;
@@ -1383,23 +1525,37 @@ export async function renderPdfStylePieToSvg(
     // の先行分岐 or 明示除外) で対象外。scorer / realLeaderPaths は既定 false のままなので採点・
     // レイアウト選択は不変。
     for (const entry of prepared) {
-      if (entry.skipLeader) continue;
+      if (entry.skipLeader) {
+        continue;
+      }
       const p = entry.placement;
       const diagonalTarget = p.leaderBendFollowsEndpointX || p.declipBottomLeader === true;
-      if (!diagonalTarget || p.forceTopRight || p.insideSlice) continue;
-      if (entry.pathPoints.length !== 3) continue; // 既に 2 点 (縮退直線) やテント再構成は対象外
+      if (!diagonalTarget || p.forceTopRight || p.insideSlice) {
+        continue;
+      }
+      if (entry.pathPoints.length !== 3) {
+        continue; // 既に 2 点 (縮退直線) やテント再構成は対象外
+      }
       const dg = computeDrawnLeader(p, cfg, entry.topCenterApplied, false, true);
-      if (dg.skipLeader || dg.pathPoints.length !== 2) continue;
+      if (dg.skipLeader || dg.pathPoints.length !== 2) {
+        continue;
+      }
       const before = toPixPts(entry.pathPoints);
       const after = toPixPts(dg.pathPoints);
       let harmful = dipsIntoPie(dg.pathPoints) && !dipsIntoPie(entry.pathPoints);
       for (let j = 0; j < prepared.length && !harmful; j += 1) {
-        if (prepared[j] === entry) continue;
+        if (prepared[j] === entry) {
+          continue;
+        }
         if (!prepared[j].skipLeader) {
           const other = toPixPts(prepared[j].pathPoints);
-          if (pathsCross(before, other) !== pathsCross(after, other)) harmful = true;
+          if (pathsCross(before, other) !== pathsCross(after, other)) {
+            harmful = true;
+          }
         }
-        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) harmful = true;
+        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) {
+          harmful = true;
+        }
       }
       if (!harmful) {
         entry.pathPoints = dg.pathPoints;
@@ -1420,22 +1576,36 @@ export async function renderPdfStylePieToSvg(
     // 交差関係不変・他ラベル box 非貫通・円食い込み非悪化)。scorer / realLeaderPaths は既定 false の
     // ままなので採点・レイアウト選択は不変 (ラベル位置は動かない)。
     for (const entry of prepared) {
-      if (entry.skipLeader) continue;
+      if (entry.skipLeader) {
+        continue;
+      }
       const p = entry.placement;
-      if (!qualifiesSideEdgeCenterAttach(p, cfg)) continue;
+      if (!qualifiesSideEdgeCenterAttach(p, cfg)) {
+        continue;
+      }
       const before = toPixPts(entry.pathPoints);
       const se = computeDrawnLeader(p, cfg, entry.topCenterApplied, false, false, true);
-      if (se.skipLeader) continue;
+      if (se.skipLeader) {
+        continue;
+      }
       const after = toPixPts(se.pathPoints);
-      if (leaderCrossesBox(after, entry.pixelBox)) continue; // 付け替えで自 box を貫く形は維持
+      if (leaderCrossesBox(after, entry.pixelBox)) {
+        continue; // 付け替えで自 box を貫く形は維持
+      }
       let harmful = dipsIntoPie(se.pathPoints) && !dipsIntoPie(entry.pathPoints);
       for (let j = 0; j < prepared.length && !harmful; j += 1) {
-        if (prepared[j] === entry) continue;
+        if (prepared[j] === entry) {
+          continue;
+        }
         if (!prepared[j].skipLeader) {
           const other = toPixPts(prepared[j].pathPoints);
-          if (pathsCross(before, other) !== pathsCross(after, other)) harmful = true;
+          if (pathsCross(before, other) !== pathsCross(after, other)) {
+            harmful = true;
+          }
         }
-        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) harmful = true;
+        if (!harmful && leaderCrossesBox(after, prepared[j].pixelBox)) {
+          harmful = true;
+        }
       }
       if (!harmful) {
         entry.pathPoints = se.pathPoints;
@@ -1449,7 +1619,9 @@ export async function renderPdfStylePieToSvg(
     // 採点より後段なのでレイアウト選択にも他 leader の交差解決にも影響しない (ラベル位置は不変)。
     // ラベルを貫く leader は削除せず `computeDrawnLeader` の declip 分岐が近端 (pie 側縦縁) へ接続して回避する。
     for (const entry of prepared) {
-      if (entry.skipLeader) continue;
+      if (entry.skipLeader) {
+        continue;
+      }
       if (isRedundantDominantRimLeader(entry.placement, entry.pathPoints, cfg)) {
         entry.skipLeader = true;
       }

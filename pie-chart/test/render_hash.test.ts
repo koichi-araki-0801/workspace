@@ -23,7 +23,9 @@ describe('合成入力の SVG ハッシュ固定 (サンプル外の入力分布
     const generated = ALL_CASES.map(([name]) => name).sort();
     expect(Object.keys(EXPECTED).sort()).toEqual(generated);
     expect(generated).toHaveLength(26);
-    for (const name of LONG_CASE_NAMES) expect(generated).toContain(name);
+    for (const name of LONG_CASE_NAMES) {
+      expect(generated).toContain(name);
+    }
     expect(LIGHT_CASES).toHaveLength(24);
   });
 

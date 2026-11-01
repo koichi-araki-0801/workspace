@@ -118,7 +118,9 @@ function stripPeSignature(file) {
     const peOff = u32(0x3c); // e_lfanew
     const sig = Buffer.alloc(4);
     readSync(fd, sig, 0, 4, peOff);
-    if (sig.toString('latin1') !== 'PE\0\0') throw new Error('not a PE file');
+    if (sig.toString('latin1') !== 'PE\0\0') {
+      throw new Error('not a PE file');
+    }
     const magic = (() => {
       const b = Buffer.alloc(2);
       readSync(fd, b, 0, 2, peOff + 24);
@@ -129,7 +131,9 @@ function stripPeSignature(file) {
     const secDirOff = peOff + 24 + ddStart + 4 * 8; // index 4 (SECURITY)
     const certOffset = u32(secDirOff); // 証明書テーブルの **ファイルオフセット**
     const certSize = u32(secDirOff + 4);
-    if (certOffset === 0 || certSize === 0) return false; // 署名なし
+    if (certOffset === 0 || certSize === 0) {
+      return false; // 署名なし
+    }
     writeSync(fd, Buffer.alloc(8), 0, 8, secDirOff); // SECURITY ディレクトリをゼロ化
     writeSync(fd, Buffer.alloc(4), 0, 4, peOff + 24 + 64); // CheckSum をゼロ化
     ftruncateSync(fd, certOffset); // 末尾の証明書データを切り詰め
@@ -173,7 +177,9 @@ const subsetFontVersion = require('subset-font/package.json').version;
 const hbWasmPath = createRequire(subsetFontEntry).resolve('harfbuzzjs/dist/harfbuzz-subset.wasm');
 const hbWasmSha256 = sha256(hbWasmPath);
 {
-  if (!existsSync(pinsPath)) fail(`missing ${pinsPath}`);
+  if (!existsSync(pinsPath)) {
+    fail(`missing ${pinsPath}`);
+  }
   const pins = JSON.parse(readFileSync(pinsPath, 'utf8'));
   if (pins.subsetFont !== subsetFontVersion) {
     fail(
@@ -208,8 +214,9 @@ if (!noDb) {
     `${process.platform}-${process.arch}`,
     'msnodesqlv8.node',
   );
-  if (!existsSync(driverPath))
+  if (!existsSync(driverPath)) {
     fail(`DB driver not found at ${driverPath} (pass --no-db to build without DB support)`);
+  }
   driverSha256 = sha256(driverPath);
   const pins = JSON.parse(readFileSync(pinsPath, 'utf8'));
   if (pins.msnodesqlv8 !== msVersion) {
@@ -257,7 +264,9 @@ const subsetFontFsPlugin = {
     const shim = join(root, 'src', 'runtime', 'subsetFontFs.ts');
     const target = resolve(subsetFontEntry);
     pluginBuild.onResolve({ filter: /^fs$/ }, (args) => {
-      if (resolve(args.importer) !== target) return null; // 他の importer は既定解決に任せる
+      if (resolve(args.importer) !== target) {
+        return null; // 他の importer は既定解決に任せる
+      }
       return { path: shim };
     });
   },
@@ -366,9 +375,13 @@ const seaAssets = {
 };
 // DB ドライバは --no-db でなければ埋め込む(キーは seaRuntime の SEA_ASSET_KEYS と同じ)。
 const DB_DRIVER_ASSET = 'sqlserverv8.node';
-if (!noDb) seaAssets[DB_DRIVER_ASSET] = driverPath;
+if (!noDb) {
+  seaAssets[DB_DRIVER_ASSET] = driverPath;
+}
 for (const [key, file] of Object.entries(seaAssets)) {
-  if (!existsSync(file)) fail(`SEA asset "${key}" not found at ${file}`);
+  if (!existsSync(file)) {
+    fail(`SEA asset "${key}" not found at ${file}`);
+  }
 }
 writeFileSync(
   seaConfigPath,
@@ -423,7 +436,9 @@ copyFileSync(join(root, 'fonts', 'OFL-BIZUDPGothic.txt'), join(distDir, 'OFL-BIZ
 // 署名鍵の thumbprint は **明示指定が必須**。ビルドが証明書を暗黙生成すると、端末ごとに
 // 同名の別ルート証明書が増えて「どの .cer を配ったか」が追跡不能になる。
 if (sign) {
-  if (process.platform !== 'win32') fail('--sign is only supported on Windows.');
+  if (process.platform !== 'win32') {
+    fail('--sign is only supported on Windows.');
+  }
   const certOut = join(distDir, 'pie-chart-codesign.cer');
   const local = existsSync(signingLocalPath)
     ? JSON.parse(readFileSync(signingLocalPath, 'utf8'))
@@ -450,7 +465,9 @@ if (sign) {
       '-CertOut',
       certOut,
     ];
-    if (timestampServer) args.push('-TimestampServer', timestampServer);
+    if (timestampServer) {
+      args.push('-TimestampServer', timestampServer);
+    }
     log('signing exe (PowerShell Set-AuthenticodeSignature)');
     let signOut = '';
     try {

@@ -71,7 +71,9 @@ interface SeaApi {
  */
 function seaApi(): SeaApi | null {
   const req = typeof require === 'function' ? require : null;
-  if (!req) return null;
+  if (!req) {
+    return null;
+  }
   try {
     return req('node:sea') as SeaApi;
   } catch {
@@ -124,7 +126,9 @@ export function readSeaAsset(key: string): Buffer {
  * (許可リストが実質無効化される)。
  */
 export function resolveSeaRequest(request: unknown): string {
-  if (request === HB_WASM_SPECIFIER) return HB_WASM_SENTINEL;
+  if (request === HB_WASM_SPECIFIER) {
+    return HB_WASM_SENTINEL;
+  }
   throw new Error(
     `require.resolve is disabled in the packaged executable (requested "${String(request)}"); ` +
       `only "${HB_WASM_SPECIFIER}" is resolvable.`,
@@ -167,7 +171,9 @@ let guardsInstalled = false;
  * sidecar 読み込みの経路が開いたまま「動いているように見える」状態になるため。
  */
 export function installSeaGuards(): void {
-  if (guardsInstalled || !isSea()) return;
+  if (guardsInstalled || !isSea()) {
+    return;
+  }
   const req = typeof require === 'function' ? require : null;
   if (!req) {
     throw new Error('SEA runtime without an ambient require; cannot install resolution guards.');

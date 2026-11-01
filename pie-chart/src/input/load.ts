@@ -61,8 +61,12 @@ export function parseRange(rangeText: string): ParsedRange {
   let endCol = colLettersToIndex(c2);
   let startRow = Number(r1);
   let endRow = Number(r2);
-  if (endCol < startCol) [startCol, endCol] = [endCol, startCol];
-  if (endRow < startRow) [startRow, endRow] = [endRow, startRow];
+  if (endCol < startCol) {
+    [startCol, endCol] = [endCol, startCol];
+  }
+  if (endRow < startRow) {
+    [startRow, endRow] = [endRow, startRow];
+  }
   if (endCol - startCol !== 1) {
     throw new Error(`Range must span exactly 2 columns (left=name, right=value): "${rangeText}"`);
   }
@@ -81,12 +85,19 @@ export function parseRange(rangeText: string): ParsedRange {
  * その包みを順に剥がして「素の値」を返す。
  */
 function unwrapCellValue(value: unknown): unknown {
-  if (value == null) return null;
+  if (value == null) {
+    return null;
+  }
   if (typeof value === 'object') {
-    if ('result' in value) return unwrapCellValue((value as { result: unknown }).result);
-    if ('richText' in value)
+    if ('result' in value) {
+      return unwrapCellValue((value as { result: unknown }).result);
+    }
+    if ('richText' in value) {
       return (value as { richText: Array<{ text: string }> }).richText.map((p) => p.text).join('');
-    if ('text' in value) return (value as { text: unknown }).text;
+    }
+    if ('text' in value) {
+      return (value as { text: unknown }).text;
+    }
   }
   return value;
 }
@@ -106,8 +117,12 @@ function cellErrorText(cell: { value: unknown }): string | null {
 
 function cellAsText(cell: { value: unknown }): string {
   const v = unwrapCellValue(cell.value);
-  if (v == null) return '';
-  if (v instanceof Date) return v.toISOString();
+  if (v == null) {
+    return '';
+  }
+  if (v instanceof Date) {
+    return v.toISOString();
+  }
   return String(v).trim();
 }
 
@@ -135,9 +150,15 @@ async function loadXlsxItems({
   sheet,
   range,
 }: LoadXlsxOpts): Promise<Array<[string, number]>> {
-  if (!xlsxPath) throw new Error('xlsx path is required.');
-  if (!sheet) throw new Error('sheet name is required.');
-  if (!range) throw new Error('range is required (e.g. "A2:B11").');
+  if (!xlsxPath) {
+    throw new Error('xlsx path is required.');
+  }
+  if (!sheet) {
+    throw new Error('sheet name is required.');
+  }
+  if (!range) {
+    throw new Error('range is required (e.g. "A2:B11").');
+  }
 
   // exceljs は zip 内の全エントリを無条件展開して JS 文字列へ載せる(必要判定は展開の後)
   // ので、展開の**前**に掛けられる防御は圧縮後のファイルサイズだけ。展開後サイズは残余
@@ -167,7 +188,9 @@ async function loadXlsxItems({
   const items: Array<[string, number]> = [];
   for (let r = startRow; r <= scanEnd; r += 1) {
     const row = ws.findRow(r);
-    if (!row) continue;
+    if (!row) {
+      continue;
+    }
     const nameCell = row.getCell(nameCol);
     const valueCell = row.getCell(valueCol);
     for (const [cell, column] of [
@@ -182,7 +205,9 @@ async function loadXlsxItems({
     const item = rowToItem(cellAsText(nameCell), unwrapCellValue(valueCell.value), r, () =>
       cellAsText(valueCell),
     );
-    if (item) items.push(item);
+    if (item) {
+      items.push(item);
+    }
   }
   if (items.length === 0) {
     throw new Error(`No data rows found in range "${range}" of sheet "${sheet}".`);
@@ -222,11 +247,12 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
   // 幅計算(`visualMaxEm`)は 1 文字ずつ加算するループで、配置カスケードの内側から
   // 何度も呼ばれる。切り詰めると出力が黙って変わるのでエラーにする(分類: 明示エラー)。
   const checkName = (name: string): string => {
-    if (name.length > MAX_LABEL_CHARS)
+    if (name.length > MAX_LABEL_CHARS) {
       throw new Error(
         `Label is ${name.length} characters (limit ${MAX_LABEL_CHARS}). ` +
           'Shorten it, or raise the limit with PIE_MAX_LABEL_CHARS=<n>.',
       );
+    }
     // 全 5 入力経路 + normalizeInputItems 直叩きをここ 1 箇所で覆う。
     assertLabelXmlSafe(name);
     return name;
@@ -235,10 +261,15 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
   // オブジェクトが "[object Object]" という名前のスライスになる。欠落(null / undefined /
   // 空文字 / 空白のみ)は xlsx / DB 経路の `Empty name at row N` と同じく明示エラーにする。
   const toName = (raw: unknown, index: number): string => {
-    if (raw == null || (typeof raw === 'string' && raw.trim() === ''))
+    if (raw == null || (typeof raw === 'string' && raw.trim() === '')) {
       throw new Error(`Empty name at item ${index + 1}.`);
-    if (typeof raw === 'string') return checkName(raw);
-    if (typeof raw === 'number' && Number.isFinite(raw)) return checkName(String(raw));
+    }
+    if (typeof raw === 'string') {
+      return checkName(raw);
+    }
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return checkName(String(raw));
+    }
     throw new Error(`Invalid name at item ${index + 1} (got ${JSON.stringify(raw)}).`);
   };
   // value は有限の数値か、10 進の数値文字列だけを受理する。`Number()` に任せると、読めない値は
@@ -254,8 +285,9 @@ export function normalizeInputItems(rawItems: unknown): Item[] {
         : typeof raw === 'string'
           ? parseDecimalText(raw, false)
           : null;
-    if (value === null)
+    if (value === null) {
       throw new Error(`Non-numeric value for "${name}" (got ${JSON.stringify(raw)}).`);
+    }
     return value;
   };
   return rawItems.map((item: unknown, index): Item => {
@@ -291,11 +323,12 @@ export function resolveInputData({ sample, data, dataJson }: ResolveSyncOpts): I
     // コード単位数で、日本語だけの JSON は実バイト数の約 1/3 にしか見えず、上限が名前どおりに
     // 効かない。
     const byteLength = Buffer.byteLength(dataJson, 'utf-8');
-    if (byteLength > MAX_JSON_BYTES)
+    if (byteLength > MAX_JSON_BYTES) {
       throw new Error(
         `dataJson is ${byteLength} bytes (limit ${MAX_JSON_BYTES}). ` +
           'Raise the limit with PIE_MAX_JSON_BYTES=<n> if this input is expected.',
       );
+    }
     return normalizeInputItems(JSON.parse(dataJson));
   }
   throw new Error('Provide one of: sample, data, dataJson.');

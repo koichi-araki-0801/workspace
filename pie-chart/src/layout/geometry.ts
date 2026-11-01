@@ -66,14 +66,30 @@ export function visualCharEm(ch: string, cfg: PieLayoutConfig): number {
   const c = ch.codePointAt(0)!;
   const table = GLYPH_ADVANCE_BY_WEIGHT[cfg.fontWeight] ?? GLYPH_ADVANCE_BY_WEIGHT['400'];
   const real = table.get(c);
-  if (real !== undefined) return real;
-  if (c >= 0x4e00 && c <= 0x9fff) return cfg.visualFullwidthEm;
-  if (c >= 0x3040 && c <= 0x309f) return cfg.visualFullwidthEm;
-  if (c >= 0x30a0 && c <= 0x30ff) return cfg.visualFullwidthEm;
-  if (c >= 0x3000 && c <= 0x303f) return cfg.visualFullwidthEm;
-  if (c >= 0xff01 && c <= 0xff60) return cfg.visualFullwidthEm;
-  if (c >= 0xffe0 && c <= 0xffe6) return cfg.visualFullwidthEm;
-  if (c === 0x25b3) return cfg.visualFullwidthEm; // U+25B3 (白三角) は全角幅で扱う
+  if (real !== undefined) {
+    return real;
+  }
+  if (c >= 0x4e00 && c <= 0x9fff) {
+    return cfg.visualFullwidthEm;
+  }
+  if (c >= 0x3040 && c <= 0x309f) {
+    return cfg.visualFullwidthEm;
+  }
+  if (c >= 0x30a0 && c <= 0x30ff) {
+    return cfg.visualFullwidthEm;
+  }
+  if (c >= 0x3000 && c <= 0x303f) {
+    return cfg.visualFullwidthEm;
+  }
+  if (c >= 0xff01 && c <= 0xff60) {
+    return cfg.visualFullwidthEm;
+  }
+  if (c >= 0xffe0 && c <= 0xffe6) {
+    return cfg.visualFullwidthEm;
+  }
+  if (c === 0x25b3) {
+    return cfg.visualFullwidthEm; // U+25B3 (白三角) は全角幅で扱う
+  }
   return cfg.visualHalfwidthEm;
 }
 
@@ -103,16 +119,22 @@ export function visualMaxEm(lines: string[], cfg: PieLayoutConfig): number {
     let lineEm = LINE_EM_CACHE.get(key);
     if (lineEm === undefined) {
       lineEm = 0;
-      for (const ch of line) lineEm += visualCharEm(ch, cfg);
+      for (const ch of line) {
+        lineEm += visualCharEm(ch, cfg);
+      }
       // 上限に達したら最古のキーから捨てる。値は入力に対する純関数なので、どのキーが
       // 残っているかは戻り値に影響しない(= 追い出し順は出力の決定性と無関係)。
       if (LINE_EM_CACHE.size >= LINE_EM_CACHE_LIMIT) {
         const oldest = LINE_EM_CACHE.keys().next();
-        if (!oldest.done) LINE_EM_CACHE.delete(oldest.value);
+        if (!oldest.done) {
+          LINE_EM_CACHE.delete(oldest.value);
+        }
       }
       LINE_EM_CACHE.set(key, lineEm);
     }
-    if (lineEm > maxEm) maxEm = lineEm;
+    if (lineEm > maxEm) {
+      maxEm = lineEm;
+    }
   }
   return maxEm;
 }
@@ -217,8 +239,12 @@ export function isOtherCategory(name: string): boolean {
 /** 角度(度)を (-180, 180] に正規化する。 */
 function signedDeg(deg: number): number {
   let value = deg % 360;
-  if (value > 180) value -= 360;
-  if (value <= -180) value += 360;
+  if (value > 180) {
+    value -= 360;
+  }
+  if (value <= -180) {
+    value += 360;
+  }
   return value;
 }
 
@@ -244,7 +270,9 @@ export function labelCongestionOffsetDeg(
   names: string[],
   cfg: PieLayoutConfig,
 ): number {
-  if (values.length < 4) return 0;
+  if (values.length < 4) {
+    return 0;
+  }
 
   // `smallSliceThreshold` は % しきい値。入力値の絶対スケール(合計が 100 でない場合)に依存させない
   // ため、生値ではなく割合(%)で小スライス判定する(buildProfiles の percent 判定と統一)。
@@ -258,11 +286,17 @@ export function labelCongestionOffsetDeg(
       continue;
     }
     let j = i;
-    while (j + 1 < values.length && isSmall(j + 1)) j += 1;
-    if (!run || j - i > run[1] - run[0]) run = [i, j];
+    while (j + 1 < values.length && isSmall(j + 1)) {
+      j += 1;
+    }
+    if (!run || j - i > run[1] - run[0]) {
+      run = [i, j];
+    }
     i = j + 1;
   }
-  if (!run || run[1] - run[0] < 2) return 0; // ラン長 >= 3 のみ
+  if (!run || run[1] - run[0] < 2) {
+    return 0; // ラン長 >= 3 のみ
+  }
 
   const arcs = arcAngles(values, cfg);
   const runStartDeg = radToDeg(arcs[run[0]].startAngle);
@@ -270,7 +304,9 @@ export function labelCongestionOffsetDeg(
   const runCenter = signedDeg((runStartDeg + runEndDeg) / 2);
 
   const inLowerLeft = runCenter < -90 && runCenter > -180;
-  if (!inLowerLeft) return 0;
+  if (!inLowerLeft) {
+    return 0;
+  }
 
   const toBottom = signedDeg(-90 - runCenter); // ラン中心を真下へ寄せる反時計回り量
   return Math.max(0, Math.min(MAX_LABEL_ROTATE_DEG, toBottom));
@@ -404,7 +440,9 @@ export function truncateLeaderEndpointAtBox(
   const dx = endpoint.x - bend.x;
   const dy = endpoint.y - bend.y;
   const len = Math.hypot(dx, dy);
-  if (len < 1e-9) return endpoint;
+  if (len < 1e-9) {
+    return endpoint;
+  }
   let t0 = 0;
   let t1 = 1;
   const p = [-dx, dx, -dy, dy];
@@ -412,21 +450,33 @@ export function truncateLeaderEndpointAtBox(
   for (let i = 0; i < 4; i += 1) {
     if (Math.abs(p[i]) < 1e-12) {
       // 線分がこのスラブに平行。境界の外側なら交差しない。
-      if (q[i] < 0) return endpoint;
+      if (q[i] < 0) {
+        return endpoint;
+      }
     } else {
       const r = q[i] / p[i];
       if (p[i] < 0) {
-        if (r > t1) return endpoint;
-        if (r > t0) t0 = r;
+        if (r > t1) {
+          return endpoint;
+        }
+        if (r > t0) {
+          t0 = r;
+        }
       } else {
-        if (r < t0) return endpoint;
-        if (r < t1) t1 = r;
+        if (r < t0) {
+          return endpoint;
+        }
+        if (r < t1) {
+          t1 = r;
+        }
       }
     }
   }
   // t0 <= 0: bend が box 内 (引出線がラベルに食い込む病的形状) → 切り詰めない。
   // t0 >= 1: box への進入点が endpoint より先 → 既に box 外なので切り詰め不要。
-  if (t0 <= 0 || t0 >= 1) return endpoint;
+  if (t0 <= 0 || t0 >= 1) {
+    return endpoint;
+  }
   const backoff = Math.min(gap / len, t0);
   const t = t0 - backoff;
   return { x: bend.x + t * dx, y: bend.y + t * dy };
@@ -448,12 +498,18 @@ export function leaderAttachTargetY(
   perLineHeight: number,
 ): number {
   const boxCenterY = (box.top + box.bottom) / 2;
-  if (lineCount < 2) return boxCenterY; // 1 行 → その行の縦中央
+  if (lineCount < 2) {
+    return boxCenterY; // 1 行 → その行の縦中央
+  }
   const boxCenterX = (box.left + box.right) / 2;
   const adx = boxCenterX - anchor.x;
   const ady = boxCenterY - anchor.y;
-  if (Math.abs(adx) >= Math.abs(ady)) return boxCenterY; // 横 → 行間
-  if (boxCenterY > anchor.y) return box.bottom + perLineHeight / 2; // 下から → 下行中央
+  if (Math.abs(adx) >= Math.abs(ady)) {
+    return boxCenterY; // 横 → 行間
+  }
+  if (boxCenterY > anchor.y) {
+    return box.bottom + perLineHeight / 2; // 下から → 下行中央
+  }
   return box.top - perLineHeight / 2; // 上から → 上行中央
 }
 
@@ -519,9 +575,13 @@ export function fitsInsideSliceExtent(
   horizontalCenter = false,
   anchorRadiusOverride?: number,
 ): InsideFit {
-  if (spanRad <= 1e-6) return { fits: false };
+  if (spanRad <= 1e-6) {
+    return { fits: false };
+  }
   const halfSpan = spanRad / 2;
-  if (bboxW <= 0 || bboxH <= 0) return { fits: false };
+  if (bboxW <= 0 || bboxH <= 0) {
+    return { fits: false };
+  }
 
   const R = cfg.pieRadius;
   // `anchorRadiusOverride` 指定時は重心クランプを使わず、その半径を bisector 方向のアンカーにする。
@@ -535,7 +595,9 @@ export function fitsInsideSliceExtent(
   const angularClearanceRad = degToRad(cfg.insideSliceAngularClearanceDeg ?? 3);
   const maxRadius = R - clearance;
   const allowedHalfSpan = halfSpan - angularClearanceRad;
-  if (allowedHalfSpan <= 0) return { fits: false };
+  if (allowedHalfSpan <= 0) {
+    return { fits: false };
+  }
 
   const halfW = bboxW / 2;
   const halfH = bboxH / 2;
@@ -547,13 +609,17 @@ export function fitsInsideSliceExtent(
   ];
   for (const corner of corners) {
     const r = Math.hypot(corner.x, corner.y);
-    if (r > maxRadius) return { fits: false };
+    if (r > maxRadius) {
+      return { fits: false };
+    }
     const cornerAngle = Math.atan2(corner.y, corner.x);
     const delta = Math.atan2(
       Math.sin(cornerAngle - midAngleRad),
       Math.cos(cornerAngle - midAngleRad),
     );
-    if (Math.abs(delta) > allowedHalfSpan) return { fits: false };
+    if (Math.abs(delta) > allowedHalfSpan) {
+      return { fits: false };
+    }
   }
   return { fits: true, centerX: cx, centerY: cy };
 }
@@ -668,7 +734,9 @@ function computePlacementExtent(placement: Placement, cfg: PieLayoutConfig): Ext
  * placement の現在位置から `verify/svg.ts` と同じ bbox を計算する。
  */
 export function placementBox(placement: Placement, cfg: PieLayoutConfig): BBox {
-  if (cfg.perfCounters) cfg.perfCounters.placementBox += 1;
+  if (cfg.perfCounters) {
+    cfg.perfCounters.placementBox += 1;
+  }
   const measured = placementExtent(placement, cfg);
   return textBoxBounds(placement.x, placement.y, measured, placement.anchor, placement.baseline);
 }
@@ -707,10 +775,18 @@ export function segmentsIntersect(
   const d2 = cross(c, d, b);
   const d3 = cross(a, b, c);
   const d4 = cross(a, b, d);
-  if (Math.abs(d1) <= tolerance) return false;
-  if (Math.abs(d2) <= tolerance) return false;
-  if (Math.abs(d3) <= tolerance) return false;
-  if (Math.abs(d4) <= tolerance) return false;
+  if (Math.abs(d1) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d2) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d3) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d4) <= tolerance) {
+    return false;
+  }
   return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
 }
 
@@ -725,7 +801,9 @@ export function leaderCrossesBox(points: Point[], box: BBox, pad = 2): boolean {
   const right = box.right - pad;
   const top = box.top + pad;
   const bottom = box.bottom - pad;
-  if (left >= right || top >= bottom) return false;
+  if (left >= right || top >= bottom) {
+    return false;
+  }
   const corners = [
     { x: left, y: top },
     { x: right, y: top },
@@ -737,10 +815,16 @@ export function leaderCrossesBox(points: Point[], box: BBox, pad = 2): boolean {
     const p2 = points[k + 1];
     const inA = p1.x >= left && p1.x <= right && p1.y >= top && p1.y <= bottom;
     const inB = p2.x >= left && p2.x <= right && p2.y >= top && p2.y <= bottom;
-    if (inA && inB) continue;
-    if (inA || inB) return true;
+    if (inA && inB) {
+      continue;
+    }
+    if (inA || inB) {
+      return true;
+    }
     for (let i = 0; i < 4; i += 1) {
-      if (segmentsIntersect(p1, p2, corners[i], corners[(i + 1) % 4])) return true;
+      if (segmentsIntersect(p1, p2, corners[i], corners[(i + 1) % 4])) {
+        return true;
+      }
     }
   }
   return false;
@@ -778,7 +862,9 @@ export function nudgeTextAwayFromEndpoint(
     const bounds = textBoxBounds(nextX, nextY, measured, anchor, baseline);
     const insideX = bounds.left - padX <= endpointX && endpointX <= bounds.right + padX;
     const insideY = bounds.bottom - padY <= endpointY && endpointY <= bounds.top + padY;
-    if (!insideX || !insideY) break;
+    if (!insideX || !insideY) {
+      break;
+    }
 
     if (anchor === 'start') {
       nextX = Math.max(nextX, endpointX + padX);
@@ -873,9 +959,14 @@ export function pieClampXLimits(
   force = false,
 ): { pieMinTextX: number; pieMaxTextX: number } | null {
   let closestY: number;
-  if (boxBottom <= 0 && boxTop >= 0) closestY = 0;
-  else closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
-  if (!force && Math.abs(closestY) >= cfg.pieRadius) return null;
+  if (boxBottom <= 0 && boxTop >= 0) {
+    closestY = 0;
+  } else {
+    closestY = Math.abs(boxBottom) < Math.abs(boxTop) ? boxBottom : boxTop;
+  }
+  if (!force && Math.abs(closestY) >= cfg.pieRadius) {
+    return null;
+  }
   const insidePieR = Math.sqrt(Math.max(0, cfg.pieRadius * cfg.pieRadius - closestY * closestY));
   // クリアランスは viewBox に収まる範囲でのみ狙い値へ広げる (幅広ラベルの見切れ退行防止)。
   const pieClearanceLogical = pieClearanceWithinViewBox(
@@ -922,7 +1013,9 @@ export function nudgeTextAwayFromPie(
     const insidePieR =
       Math.abs(closestY) >= pieR ? 0 : Math.sqrt(pieR * pieR - closestY * closestY);
     const clearance = pieClearanceWithinViewBox(cfg, insidePieR, bounds.right - bounds.left, 0);
-    if (dist >= pieR + clearance) break;
+    if (dist >= pieR + clearance) {
+      break;
+    }
 
     let dirX: number;
     let dirY: number;
@@ -933,7 +1026,9 @@ export function nudgeTextAwayFromPie(
       const cx = (bounds.left + bounds.right) / 2;
       const cy = (bounds.bottom + bounds.top) / 2;
       const cd = Math.hypot(cx, cy);
-      if (cd < 1e-6) break;
+      if (cd < 1e-6) {
+        break;
+      }
       dirX = cx / cd;
       dirY = cy / cd;
     }
@@ -966,7 +1061,9 @@ export function nudgeTextAwayFromSegment(
   for (let step = 0; step < 3; step += 1) {
     const textBounds = textBoxBounds(nextX, nextY, measured, anchor, baseline);
     const lineBounds = segmentBounds(start, end, padX, padY);
-    if (!boxesOverlap(textBounds, lineBounds)) break;
+    if (!boxesOverlap(textBounds, lineBounds)) {
+      break;
+    }
 
     const horizontal = Math.abs(end.x - start.x) >= Math.abs(end.y - start.y);
     if (horizontal) {
@@ -996,8 +1093,12 @@ export function nudgeTextAwayFromSegment(
 /** 角度 (rad) を [−π, π] へ巻き戻す。範囲内の値 (±π を含む) はそのまま返す。 */
 export function wrapPi(a: number): number {
   let r = a;
-  while (r > Math.PI) r -= 2 * Math.PI;
-  while (r < -Math.PI) r += 2 * Math.PI;
+  while (r > Math.PI) {
+    r -= 2 * Math.PI;
+  }
+  while (r < -Math.PI) {
+    r += 2 * Math.PI;
+  }
   return r;
 }
 

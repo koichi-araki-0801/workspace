@@ -17,9 +17,12 @@ import { hasXmlInvalidChars } from './svg_export/values.js';
  */
 function envPositiveInt(name: string, def: number): number {
   const raw = process.env[name];
-  if (raw === undefined) return def;
-  if (!/^\d+$/.test(raw.trim()) || Number(raw) <= 0)
+  if (raw === undefined) {
+    return def;
+  }
+  if (!/^\d+$/.test(raw.trim()) || Number(raw) <= 0) {
     throw new Error(`${name} must be a positive integer (got "${raw}").`);
+  }
   return Number(raw);
 }
 
@@ -41,15 +44,17 @@ const PIE_WARN_ITEMS = 16;
  * 指定ミスと分かることが、速く描けることより実際の価値。
  */
 export function assertItemCount(count: number): void {
-  if (count > PIE_MAX_ITEMS)
+  if (count > PIE_MAX_ITEMS) {
     throw new Error(
       `Too many items: ${count} (limit ${PIE_MAX_ITEMS}). ` +
         'Label placement grows worse than cubically in the item count, so a larger chart ' +
         'would run for many minutes. Reduce the data, or raise the limit deliberately with ' +
         `PIE_MAX_ITEMS=<n> (n=${PIE_MAX_ITEMS} already takes about two minutes).`,
     );
-  if (count > PIE_WARN_ITEMS)
+  }
+  if (count > PIE_WARN_ITEMS) {
     console.warn(`[pie-chart] ${count} items: label placement may take tens of seconds.`);
+  }
 }
 
 /**
@@ -62,12 +67,13 @@ export function assertItemCount(count: number): void {
  * なので、上限系と同じ様式(実際の値・原因・対処)の明示エラーで落とす。
  */
 export function assertTotalValue(total: number): void {
-  if (!Number.isFinite(total) || total <= 0)
+  if (!Number.isFinite(total) || total <= 0) {
     throw new Error(
       `Sum of |value| is not a usable number (got ${String(total)}). ` +
         'Percentages would all come out as 0.0%, so the chart is refused instead of being ' +
         'written silently. Check the input for overflowing magnitudes (values near 1e308).',
     );
+  }
 }
 
 /** ラベル 1 件の最大文字数。切り詰めると出力が黙って変わるためエラーにする。 */
@@ -129,13 +135,17 @@ export const DB_QUERY_TIMEOUT_S = (() => {
  * `svg_export/values.ts` の `hasXmlInvalidChars` を再利用し、除去ロジックを重複させない。
  */
 export function assertLabelXmlSafe(name: string): void {
-  if (!hasXmlInvalidChars(name)) return;
+  if (!hasXmlInvalidChars(name)) {
+    return;
+  }
   // 位置は正規表現の再実装でなく hasXmlInvalidChars の 1 文字ずつの再適用で求める
   // (判定ロジックを 2 箇所に持たない)。for..of はサロゲートペアを 1 コードポイントとして
   // 扱うため、孤立サロゲートだけを 1 コード単位として検出できる。
   let index = 0;
   for (const ch of name) {
-    if (hasXmlInvalidChars(ch)) break;
+    if (hasXmlInvalidChars(ch)) {
+      break;
+    }
     index += ch.length;
   }
   const codePoint = name.codePointAt(index);

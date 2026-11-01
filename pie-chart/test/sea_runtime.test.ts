@@ -38,7 +38,9 @@ const originalLoad = internals._load;
 function stubSeaRequire(api: unknown): void {
   internals._load = (request: string, ...rest: unknown[]) => {
     if (request === 'node:sea') {
-      if (api instanceof Error) throw api;
+      if (api instanceof Error) {
+        throw api;
+      }
       return api;
     }
     return (originalLoad as ModuleLoad)(request, ...rest);

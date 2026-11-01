@@ -154,7 +154,9 @@ function fakeDriver(result: MsSqlResults | Error | unknown[]) {
     promises: {
       query: async (...args) => {
         calls.push(args);
-        if (result instanceof Error || Array.isArray(result)) throw result;
+        if (result instanceof Error || Array.isArray(result)) {
+          throw result;
+        }
         return result as MsSqlResults;
       },
     },
