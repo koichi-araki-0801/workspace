@@ -91,7 +91,7 @@ async function loadFunds(keepFund: boolean) {
   }
   loading.value = true;
   const res = await service.listFunds(rep1);
-  if (!isLatest()) return;
+  if (!isLatest()) { return; }
   loading.value = false;
   if (isErr(res)) {
     toastError(res.error.message);
@@ -119,7 +119,7 @@ onMounted(async () => {
   }
   // URL から復元した会社コードは候補の綴り(略称)へそろえる。ファイル名の会社コードになるため。
   const known = companyOf(query.companyCode);
-  if (known) query.companyCode = known.companyCode;
+  if (known) { query.companyCode = known.companyCode; }
   await loadFunds(true);
 });
 

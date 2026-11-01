@@ -145,7 +145,9 @@ describe('reviewDiffService.buildDiff', () => {
     const res = await service.buildDiff('req-1');
 
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     // edit なので現行版レンダリングが呼ばれ、before に反映される。
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).toHaveBeenCalledWith(
       'baseline:XX01_111111_20250101_交付版',
@@ -169,7 +171,9 @@ describe('reviewDiffService.buildDiff', () => {
     );
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(res.value.changes.map((c) => c.no)).toEqual([1, 2]);
     expect(res.value.changes[0].name).toBe('ページ1・パーツ1');
     expect(res.value.changes[1].name).toBe('費用の表');
@@ -203,7 +207,9 @@ describe('reviewDiffService.buildDiff', () => {
     const res = await service.buildDiff('req-1');
 
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
 
     expect(compare.renderTemplateBody as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(compare.renderVersionHtml as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
@@ -238,7 +244,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(buildHtmlDiff).toHaveBeenCalledWith(
       '',
       '<section data-part-id="cover">表紙</section>',
@@ -296,7 +304,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(false);
-    if (res.ok) return;
+    if (res.ok) {
+      return;
+    }
     expect(res.error.message).toBe('申請し直してもらってください');
     expect(buildHtmlDiff).not.toHaveBeenCalled();
     expect(compare.renderTemplateBody as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
@@ -325,7 +335,9 @@ describe('reviewDiffService.buildDiff', () => {
     const { service } = makeService({ getReview: ok({ ...review('create'), renderedHtml }) });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     const added = res.value.changes
       .flatMap((c) => c.textOps)
       .filter((o) => o.type === 'ins')
@@ -342,7 +354,9 @@ describe('reviewDiffService.buildDiff', () => {
     const res = await service.buildDiff('req-1');
 
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(buildHtmlDiff).toHaveBeenCalledWith('', '<after>', '.after{}', '.after{}');
     expect(res.value.summary.removed).toBe(1);
   });
@@ -356,7 +370,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(res.value.summary.changed).toBe(0);
     expect(res.value.cssChanged).toBe(true);
   });
@@ -369,7 +385,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(res.value.cssChanged).toBe(false);
   });
 
@@ -384,7 +402,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(res.value.printOnlyCss).toBe(true);
   });
 
@@ -395,7 +415,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(res.value.printOnlyCss).toBe(false);
   });
 
@@ -436,7 +458,9 @@ describe('reviewDiffService.buildDiff', () => {
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     const ops = res.value.changes[0].textOps;
     const insText = ops
       .filter((o) => o.type === 'ins')
@@ -494,7 +518,9 @@ describe('reviewDiffService.buildDiff', () => {
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     const isCoarse = (ops: { type: string }[]) =>
       ops.length === 2 && ops.every((o) => o.type !== 'same');
     expect(isCoarse(res.value.changes[0].textOps)).toBe(false); // 1 つ目は語句単位
@@ -506,7 +532,9 @@ describe('reviewDiffService.buildDiff', () => {
     const { service } = makeService({});
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     expect(res.value.changes).toEqual([]);
   });
 
@@ -563,7 +591,9 @@ describe('reviewDiffService.buildDiff', () => {
     });
     const res = await service.buildDiff('req-1');
     expect(res.ok).toBe(true);
-    if (!res.ok) return;
+    if (!res.ok) {
+      return;
+    }
     const ins = res.value.changes[0].textOps
       .filter((o) => o.type === 'ins')
       .map((o) => o.text)

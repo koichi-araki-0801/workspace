@@ -50,15 +50,21 @@ function load(html: string): HTMLElement {
 /** モデル木からクラスで component を探す(view の無い `find` に頼らない)。 */
 function byClass(cls: string): Component {
   const walk = (c: Component): Component | undefined => {
-    if (c.getClasses().includes(cls)) return c;
+    if (c.getClasses().includes(cls)) {
+      return c;
+    }
     for (const child of c.components()) {
       const hit = walk(child);
-      if (hit) return hit;
+      if (hit) {
+        return hit;
+      }
     }
     return undefined;
   };
   const hit = walk(g.editor.value?.getWrapper() as Component);
-  if (!hit) throw new Error(`no .${cls}`);
+  if (!hit) {
+    throw new Error(`no .${cls}`);
+  }
   return hit;
 }
 
@@ -92,7 +98,9 @@ afterEach(() => {
   viewEl?.remove();
   viewEl = undefined;
   g.destroy();
-  for (const s of Array.from(document.head.querySelectorAll('style'))) s.remove();
+  for (const s of Array.from(document.head.querySelectorAll('style'))) {
+    s.remove();
+  }
 });
 
 describe('GrapesJS の保存の仕組み', () => {
@@ -543,8 +551,11 @@ describe('setPartBreak', () => {
     for (const cls of ['pagebreak', 'a']) {
       g.editor.value?.select(byClass(cls));
       h.beginUndo();
-      if (g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM))) h.commitUndo();
-      else h.cancelUndo();
+      if (g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM))) {
+        h.commitUndo();
+      } else {
+        h.cancelUndo();
+      }
     }
     expect(g.getBodyHtml()).toBe(html);
     expect(h.canUndo.value).toBe(false);

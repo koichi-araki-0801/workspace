@@ -90,22 +90,30 @@ export function useEditorShortcuts(h: EditorShortcutHandlers): void {
 
     // ── 2. テキスト編集と競合する操作は、編集中・入力欄フォーカス中は委ねる ──
     // canvas の RTE 編集中(`isTextEditing`)や数値入力欄では、ネイティブの undo/文字削除を活かす。
-    if (h.isTextEditing() || isEditableTarget(e.target)) return;
+    if (h.isTextEditing() || isEditableTarget(e.target)) {
+      return;
+    }
 
     if (mod && key === 'z' && !e.shiftKey) {
-      if (!h.canUndo()) return;
+      if (!h.canUndo()) {
+        return;
+      }
       e.preventDefault();
       h.undo();
       return;
     }
     if (mod && ((key === 'z' && e.shiftKey) || key === 'y')) {
-      if (!h.canRedo()) return;
+      if (!h.canRedo()) {
+        return;
+      }
       e.preventDefault();
       h.redo();
       return;
     }
     if (key === 'delete') {
-      if (!h.canRemove()) return;
+      if (!h.canRemove()) {
+        return;
+      }
       e.preventDefault();
       h.remove();
       return;

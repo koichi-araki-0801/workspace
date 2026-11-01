@@ -30,7 +30,9 @@ import { atomicWrite } from './atomic.js';
 const REQ_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 function reviewDir(reqId: string): string {
-  if (!REQ_ID_PATTERN.test(reqId)) throw notFound(`申請が見つかりません: ${reqId}`);
+  if (!REQ_ID_PATTERN.test(reqId)) {
+    throw notFound(`申請が見つかりません: ${reqId}`);
+  }
   return path.join(config.reviewsDir, reqId);
 }
 
@@ -48,10 +50,18 @@ export async function writeReview(req: StoredReviewRequest): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
   await atomicWrite(bodyHtmlPath(req.id), req.html);
   await atomicWrite(bodyCssPath(req.id), req.css);
-  if (req.renderedHtml !== undefined) await atomicWrite(renderedPath(req.id), req.renderedHtml);
-  if (req.cssBaseline !== undefined) await atomicWrite(baselineCssPath(req.id), req.cssBaseline);
-  if (req.baseHtml !== undefined) await atomicWrite(baseHtmlPath(req.id), req.baseHtml);
-  if (req.baseCss !== undefined) await atomicWrite(baseCssPath(req.id), req.baseCss);
+  if (req.renderedHtml !== undefined) {
+    await atomicWrite(renderedPath(req.id), req.renderedHtml);
+  }
+  if (req.cssBaseline !== undefined) {
+    await atomicWrite(baselineCssPath(req.id), req.cssBaseline);
+  }
+  if (req.baseHtml !== undefined) {
+    await atomicWrite(baseHtmlPath(req.id), req.baseHtml);
+  }
+  if (req.baseCss !== undefined) {
+    await atomicWrite(baseCssPath(req.id), req.baseCss);
+  }
 
   // 本体を先に書いてからメタを書く(メタが在れば本体も在る、を保つ)。
   await atomicWrite(metaPath(req.id), JSON.stringify(toReviewMeta(req), null, 2));
@@ -72,7 +82,9 @@ const warnedUnknownStatus = new Set<string>();
  */
 async function readReviewMeta(reqId: string): Promise<ReviewRequestMeta | null> {
   const raw = await fs.readFile(metaPath(reqId), 'utf8').catch(() => null);
-  if (raw === null) return null;
+  if (raw === null) {
+    return null;
+  }
   const parsed = JSON.parse(raw) as ReviewRequestMeta;
   if (!ReviewStatus.safeParse(parsed.status).success) {
     if (!warnedUnknownStatus.has(reqId)) {
@@ -100,7 +112,9 @@ async function readBodyFile(filePath: string, reqId: string): Promise<string> {
 /** 申請を本体込みで読む。無ければ null。本体(html/css)が読めない申請はエラー。 */
 export async function readReview(reqId: string): Promise<StoredReviewRequest | null> {
   const meta = await readReviewMeta(reqId);
-  if (!meta) return null;
+  if (!meta) {
+    return null;
+  }
   const html = await readBodyFile(bodyHtmlPath(reqId), reqId);
   const css = await readBodyFile(bodyCssPath(reqId), reqId);
   // rendered.html は作成経路だけが持つ。無い(この変更より前の申請)ときは `getReview` が描き直す。
@@ -206,7 +220,9 @@ export async function findDuplicatePendingReview(p: {
       }
       return null;
     });
-    if (body && reviewContentHash(body[0], body[1]) === p.contentHash) return m;
+    if (body && reviewContentHash(body[0], body[1]) === p.contentHash) {
+      return m;
+    }
   }
   return null;
 }
@@ -254,7 +270,9 @@ export async function updateReviewMeta(
   patch: Partial<ReviewRequestMeta>,
 ): Promise<ReviewRequestMeta> {
   const cur = await readReviewMeta(reqId);
-  if (!cur) throw notFound(`申請が見つかりません: ${reqId}`);
+  if (!cur) {
+    throw notFound(`申請が見つかりません: ${reqId}`);
+  }
   const next = { ...cur, ...patch };
   await atomicWrite(metaPath(reqId), JSON.stringify(next, null, 2));
   return next;

@@ -37,7 +37,9 @@ const templates = {
 
 beforeEach(() => {
   resetRep1NamesForTest();
-  for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+  for (const k of Object.keys(routeQuery)) {
+    delete routeQuery[k];
+  }
 });
 
 describe('SearchFilters の候補ラベル', () => {

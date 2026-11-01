@@ -100,16 +100,23 @@ export class BuildWorkerPool {
     // 枠は「ジョブ終了時に 1 回だけ」返す。`fn` が build を呼ばずに終わる経路(準備段階の
     // 失敗)でも必ず返さないと、枠が減ったまま戻らずプール全体が固まる。
     const release = (healthy: boolean): void => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
-      if (healthy) this.toIdle(slot);
-      else this.discard(slot);
+      if (healthy) {
+        this.toIdle(slot);
+      } else {
+        this.discard(slot);
+      }
     };
     try {
       return await fn((buildOptions) => {
         // 1 枠 = 1 ジョブ。2 度目を許すと、返却済みの枠(= 別のジョブが使っている
         // ワーカー)へ投げ込むことになる。
-        if (started) return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+        if (started) {
+          return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+        }
         started = true;
         return this.runOn(slot, buildOptions, release);
       });
@@ -147,7 +154,9 @@ export class BuildWorkerPool {
       release(true);
       throw e;
     } finally {
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
     }
   }
 
@@ -211,7 +220,9 @@ export class BuildWorkerPool {
 
   /** 健全なワーカーを返却する: 待機者がいれば直接渡し、無ければ idle 化して TTL を張る。 */
   private toIdle(slot: Slot): void {
-    if (!this.workers.has(slot)) return; // 異常終了で除去済み
+    if (!this.workers.has(slot)) {
+      return; // 異常終了で除去済み
+    }
     const waiter = this.waiters.shift();
     if (waiter) {
       waiter.resolve(slot);
@@ -223,24 +234,32 @@ export class BuildWorkerPool {
 
   /** ワーカーを kill して除去する(timeout 時)。空いた容量で待機者を満たす。 */
   private discard(slot: Slot): void {
-    if (!this.workers.has(slot)) return;
+    if (!this.workers.has(slot)) {
+      return;
+    }
     slot.worker.kill();
     this.removeFromPool(slot);
   }
 
   /** 異常終了/クラッシュ通知。まだ在籍していれば除去する。 */
   private onWorkerExit(slot: Slot, _err?: Error): void {
-    if (this.workers.has(slot)) this.removeFromPool(slot);
+    if (this.workers.has(slot)) {
+      this.removeFromPool(slot);
+    }
   }
 
   /** プールから完全に外し、容量が空いたぶん待機者を新規ワーカーで満たす。 */
   private removeFromPool(slot: Slot): void {
     this.workers.delete(slot);
     const i = this.idle.indexOf(slot);
-    if (i >= 0) this.idle.splice(i, 1);
+    if (i >= 0) {
+      this.idle.splice(i, 1);
+    }
     this.disarm(slot);
     const waiter = this.waiters.shift();
-    if (waiter) waiter.resolve(this.spawn());
+    if (waiter) {
+      waiter.resolve(this.spawn());
+    }
   }
 
   private arm(slot: Slot): void {
@@ -259,7 +278,9 @@ export class BuildWorkerPool {
   /** アイドル TTL 失効: idle なワーカーを停止し資源を解放する。 */
   private expireIdle(slot: Slot): void {
     const i = this.idle.indexOf(slot);
-    if (i < 0) return; // もう idle でない(再取得された)
+    if (i < 0) {
+      return; // もう idle でない(再取得された)
+    }
     this.idle.splice(i, 1);
     this.workers.delete(slot);
     slot.worker.kill();

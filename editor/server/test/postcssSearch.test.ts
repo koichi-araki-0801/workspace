@@ -94,7 +94,9 @@ type Mode = 'single' | 'config';
 async function projectZip(mode: Mode): Promise<Buffer> {
   const zip = new JSZip();
   const at = mode === 'config' ? 'proj/' : '';
-  if (mode === 'config') zip.file(`${at}vivliostyle.config.json`, '{"entry":"index.html"}');
+  if (mode === 'config') {
+    zip.file(`${at}vivliostyle.config.json`, '{"entry":"index.html"}');
+  }
   zip.file(
     `${at}index.html`,
     '<!doctype html><html><head><meta charset="utf-8">' +
@@ -119,13 +121,17 @@ async function previewOnce(
   type PreviewServer = Awaited<ReturnType<typeof import('@vivliostyle/cli')['preview']>>;
   let server: PreviewServer | undefined;
   try {
-    if (removeStopper) await fs.rm(path.join(project.dir, POSTCSS_STOPPER));
+    if (removeStopper) {
+      await fs.rm(path.join(project.dir, POSTCSS_STOPPER));
+    }
     const { preview } = await import('@vivliostyle/cli');
     const entry =
       mode === 'config'
         ? { configData: project.config, cwd: project.cwd }
         : { input: 'index.html', cwd: project.cwd };
-    if (mode === 'config') expect(project.cwd).not.toBe(project.dir);
+    if (mode === 'config') {
+      expect(project.cwd).not.toBe(project.dir);
+    }
     server = await preview({
       ...entry,
       openViewer: false,
@@ -163,7 +169,9 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // 隔離が効いていない(= 共有 `.tmp` を指している)ときに消しに行かないよう目印で確かめる。
-  if (!config.tmpDir.includes(TEST_TMP_MARKER)) return;
+  if (!config.tmpDir.includes(TEST_TMP_MARKER)) {
+    return;
+  }
   await fs.rm(config.tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
@@ -244,7 +252,9 @@ function listRepoFiles(): { root: string; tracked: string[] } {
     let root = path.resolve(import.meta.dirname);
     while (!existsSync(path.join(root, 'SOURCE-COMMIT'))) {
       const parent = path.dirname(root);
-      if (parent === root) throw new Error('git も SOURCE-COMMIT も見つからない');
+      if (parent === root) {
+        throw new Error('git も SOURCE-COMMIT も見つからない');
+      }
       root = parent;
     }
     const tracked: string[] = [];
@@ -252,8 +262,12 @@ function listRepoFiles(): { root: string; tracked: string[] } {
       for (const e of readdirSync(path.join(root, rel), { withFileTypes: true })) {
         const child = rel === '' ? e.name : `${rel}/${e.name}`;
         if (e.isDirectory()) {
-          if (!UNTRACKED_DIRS.has(e.name) && !/^patch-/.test(e.name)) walk(child);
-        } else if (e.isFile()) tracked.push(child);
+          if (!UNTRACKED_DIRS.has(e.name) && !/^patch-/.test(e.name)) {
+            walk(child);
+          }
+        } else if (e.isFile()) {
+          tracked.push(child);
+        }
       }
     };
     walk('');

@@ -190,7 +190,9 @@ describe('生成器の起動のしかた', () => {
     answerOk();
     await generateTemplates(attrs, BASE);
     const env = (execFileMock.mock.calls[0][2] as Opts).env;
-    for (const key of Object.keys(env)) expect(ALLOWED_ENV_KEYS.has(key)).toBe(true);
+    for (const key of Object.keys(env)) {
+      expect(ALLOWED_ENV_KEYS.has(key)).toBe(true);
+    }
     expect(JSON.stringify(env)).not.toMatch(/secret/);
     expect(env).not.toHaveProperty('PENDING_DIR');
     expect(env.PYTHONUTF8).toBe('1');
@@ -228,16 +230,22 @@ describe('生成器の指紋', () => {
   async function load(scriptPath: string, sha256: string | undefined) {
     vi.stubEnv('PY_GENERATE_SCRIPT', scriptPath);
     const saved = process.env.PY_GENERATE_SCRIPT_SHA256;
-    if (sha256 === undefined) delete process.env.PY_GENERATE_SCRIPT_SHA256;
-    else process.env.PY_GENERATE_SCRIPT_SHA256 = sha256;
+    if (sha256 === undefined) {
+      delete process.env.PY_GENERATE_SCRIPT_SHA256;
+    } else {
+      process.env.PY_GENERATE_SCRIPT_SHA256 = sha256;
+    }
     vi.resetModules();
     try {
       const mod = await import('../src/generate/pyTemplate.js');
       const { logger } = await import('../src/logger.js');
       return { ...mod, logger };
     } finally {
-      if (saved === undefined) delete process.env.PY_GENERATE_SCRIPT_SHA256;
-      else process.env.PY_GENERATE_SCRIPT_SHA256 = saved;
+      if (saved === undefined) {
+        delete process.env.PY_GENERATE_SCRIPT_SHA256;
+      } else {
+        process.env.PY_GENERATE_SCRIPT_SHA256 = saved;
+      }
     }
   }
 

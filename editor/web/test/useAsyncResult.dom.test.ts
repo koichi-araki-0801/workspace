@@ -12,7 +12,9 @@ describe('useAsyncResult', () => {
     const res = await p;
     expect(loading.value).toBe(false);
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value).toBe(42);
+    if (isOk(res)) {
+      expect(res.value).toBe(42);
+    }
   });
 
   it('passes an Err through, logging and toasting (not swallowing)', async () => {
@@ -20,7 +22,9 @@ describe('useAsyncResult', () => {
     const { run } = useAsyncResult();
     const res = await run(async () => err(unauthorized('だめ')));
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe('だめ');
+    if (isErr(res)) {
+      expect(res.error.message).toBe('だめ');
+    }
     expect(errSpy).toHaveBeenCalled();
   });
 
@@ -31,7 +35,9 @@ describe('useAsyncResult', () => {
       throw new Error('boom');
     });
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('unexpected');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('unexpected');
+    }
   });
 
   it('keeps loading true until all concurrent runs settle (ref-counted)', async () => {

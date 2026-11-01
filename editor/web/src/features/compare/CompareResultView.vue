@@ -58,7 +58,7 @@ function goPage(i: number) {
 // 前後ナビと、一覧から直接飛べるドロップダウンを両表示モード共通で置く。
 const changedPages = computed<number[]>(() =>
   liveDiff.value.pages.reduce<number[]>((acc, p, i) => {
-    if (p.changed) acc.push(i);
+    if (p.changed) { acc.push(i); }
     return acc;
   }, []),
 );
@@ -66,7 +66,7 @@ const prevChangedPage = computed<number | null>(() => {
   const list = changedPages.value;
   for (let k = list.length - 1; k >= 0; k--) {
     const i = list[k];
-    if (i != null && i < currentPage.value) return i;
+    if (i != null && i < currentPage.value) { return i; }
   }
   return null;
 });
@@ -74,25 +74,25 @@ const nextChangedPage = computed<number | null>(
   () => changedPages.value.find((i) => i > currentPage.value) ?? null,
 );
 function goPrevChanged() {
-  if (prevChangedPage.value != null) goPage(prevChangedPage.value);
+  if (prevChangedPage.value != null) { goPage(prevChangedPage.value); }
 }
 function goNextChanged() {
-  if (nextChangedPage.value != null) goPage(nextChangedPage.value);
+  if (nextChangedPage.value != null) { goPage(nextChangedPage.value); }
 }
 
 // ── グローバルキーボード送り(←/→、Shift で変更ページ間) ──────────────────
 // `PageNav` の入力欄にフォーカスしないとキー操作できなかったのを補う。入力系への
 // フォーカス中はキーを奪わない(`isEditableTarget`)。
 function onKeydown(e: KeyboardEvent): void {
-  if (isEditableTarget(e.target)) return;
+  if (isEditableTarget(e.target)) { return; }
   if (e.key === 'ArrowLeft') {
     e.preventDefault();
-    if (e.shiftKey) goPrevChanged();
-    else goPage(currentPage.value - 1);
+    if (e.shiftKey) { goPrevChanged(); }
+    else { goPage(currentPage.value - 1); }
   } else if (e.key === 'ArrowRight') {
     e.preventDefault();
-    if (e.shiftKey) goNextChanged();
-    else goPage(currentPage.value + 1);
+    if (e.shiftKey) { goNextChanged(); }
+    else { goPage(currentPage.value + 1); }
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown));
@@ -164,13 +164,14 @@ async function realign() {
       props.cssAfter,
       buildPairs(),
     );
-    if (token !== realignToken) return; // 後発の操作が走っているので破棄
+    if (token !== realignToken) { return; // 後発の操作が走っているので破棄
+}
     liveDiff.value = next;
     currentPage.value = Math.min(currentPage.value, Math.max(next.pages.length - 1, 0));
   } catch (e) {
-    if (token === realignToken) logError(toAppError(e));
+    if (token === realignToken) { logError(toAppError(e)); }
   } finally {
-    if (token === realignToken) realigning.value = false;
+    if (token === realignToken) { realigning.value = false; }
   }
 }
 
@@ -181,7 +182,8 @@ function shift(side: Side, delta: number) {
   if (localOnly.value) {
     off[r] = (off[r] ?? 0) + delta; // このページだけ
   } else {
-    for (let j = r; j < off.length; j++) off[j] = (off[j] ?? 0) + delta; // 以降も連動
+    for (let j = r; j < off.length; j++) { off[j] = (off[j] ?? 0) + delta; // 以降も連動
+}
   }
   applyLayout();
 }

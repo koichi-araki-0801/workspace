@@ -59,6 +59,8 @@ export function errorHandler(
   request.log.error({ err, kind: appError.kind, status }, appError.message);
 
   const body: ErrorBody = { kind: appError.kind, message: appError.message };
-  if (appError.code) body.code = appError.code;
+  if (appError.code) {
+    body.code = appError.code;
+  }
   reply.code(status).send(body);
 }

@@ -111,7 +111,9 @@ describe('TemplateEditorService.loadForEdit', () => {
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('not_found');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('not_found');
+    }
   });
 
   it('タイトルの既定はファイル名(サンプルデータのファンド名は使わない。名前は上部バーが Rep1 から引く)', async () => {
@@ -126,7 +128,9 @@ describe('TemplateEditorService.loadForEdit', () => {
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.fundName).toBe('t1');
+    if (isOk(res)) {
+      expect(res.value.fundName).toBe('t1');
+    }
   });
 
   it('falls back to the file name when the sample fetch fails', async () => {
@@ -141,7 +145,9 @@ describe('TemplateEditorService.loadForEdit', () => {
     const svc = createTemplateEditorService(templates, parts);
     const res = await svc.loadForEdit('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.fundName).toBe('t1');
+    if (isOk(res)) {
+      expect(res.value.fundName).toBe('t1');
+    }
   });
 });
 
@@ -191,7 +197,9 @@ describe('TemplateEditorService.loadForEdit — 下書きの所属セッショ�
       't1',
     );
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.hasDraft).toBe(false);
+    if (isOk(res)) {
+      expect(res.value.hasDraft).toBe(false);
+    }
   });
 
   it('saveDraft は成功時に所属を記録し、discardDraft は成功時に記録を消す', async () => {
@@ -321,7 +329,9 @@ describe('TemplateEditorService.loadForEdit — 赤入れの基準となる確�
     const parts = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
     const res = await createTemplateEditorService(templates, parts).loadForEdit('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.confirmedBody).toBe('<p>確定版の本文</p>');
+    if (isOk(res)) {
+      expect(res.value.confirmedBody).toBe('<p>確定版の本文</p>');
+    }
   });
 
   it('draft があっても確定版本文は確定版から解決する', async () => {
@@ -400,7 +410,9 @@ describe('TemplateEditorService.loadForEdit — CSS 外部参照の入口ガー�
       tplCss: '.a{background:url(\\68ttp://evil.example/x)}',
     }).loadForEdit('t1');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('validation');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('validation');
+    }
   });
 
   it('外部参照の無い CSS は従来どおり開ける', async () => {
@@ -472,7 +484,9 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     } as unknown as PartRepository;
     const resA = await createTemplateEditorService(templatesA, partsA).loadForEdit('t1');
     expect(isErr(resA)).toBe(true);
-    if (isErr(resA)) expect(resA.error.kind).toBe('network');
+    if (isErr(resA)) {
+      expect(resA.error.kind).toBe('network');
+    }
 
     const templatesB = {
       getTemplate: vi.fn(async () => ok(tpl)),
@@ -481,7 +495,9 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     const partsB = { listParts: vi.fn(async () => ok([])) } as unknown as PartRepository;
     const resB = await createTemplateEditorService(templatesB, partsB).loadForEdit('t1');
     expect(isErr(resB)).toBe(true);
-    if (isErr(resB)) expect(resB.error.kind).toBe('network');
+    if (isErr(resB)) {
+      expect(resB.error.kind).toBe('network');
+    }
   });
 
   it('getSampleData の失敗でも本文は開ける(sample は空)', async () => {
@@ -491,7 +507,9 @@ describe('TemplateEditorService.loadForEdit — 個別失敗経路と委譲', ()
     );
     const res = await createTemplateEditorService(templates, parts).loadForEdit('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.fundName).toBe('t1'); // sample が空なのでファイル名フォールバック
+    if (isOk(res)) {
+      expect(res.value.fundName).toBe('t1'); // sample が空なのでファイル名フォールバック
+    }
   });
 
   describe('共通サンプルの合成の警告', () => {

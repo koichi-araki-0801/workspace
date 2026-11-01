@@ -57,7 +57,9 @@ export function createNoteMasterService({
      */
     async reflectNoteMasterAfterConfirm(templateId, actor, target) {
       const attrs = parseAnyTemplateFileName(`${templateId}.html`);
-      if (!attrs) return null;
+      if (!attrs) {
+        return null;
+      }
 
       try {
         const [html, catalog] = await Promise.all([
@@ -77,7 +79,9 @@ export function createNoteMasterService({
         // 同一 partId が複数出現する場合は文書内の先頭出現(`#1`)を正とする(マスタは
         // 1 パーツ = 1 行のため。注記パーツは実務上 1 回しか現れない想定の安全側規約)。
         for (const part of extractSyncParts(html)) {
-          if (!reflectIds.has(part.partId) || !part.key.endsWith('#1')) continue;
+          if (!reflectIds.has(part.partId) || !part.key.endsWith('#1')) {
+            continue;
+          }
           await sproc.callSproc(SP.noteMaster, '反映', [
             p('パーツID', part.partId),
             p('ファンドコード', attrs.fundCode),
@@ -109,9 +113,13 @@ export function createNoteMasterService({
         const masters = new Map<string, string>();
         for (const r of rows) {
           const noteHtml = asStringOrNull(r.注記HTML);
-          if (noteHtml !== null) masters.set(asString(r.パーツID), noteHtml);
+          if (noteHtml !== null) {
+            masters.set(asString(r.パーツID), noteHtml);
+          }
         }
-        if (masters.size === 0) return html;
+        if (masters.size === 0) {
+          return html;
+        }
 
         const ops = extractSyncParts(html)
           .filter((part) => masters.has(part.partId))

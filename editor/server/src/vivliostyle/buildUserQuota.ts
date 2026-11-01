@@ -44,7 +44,9 @@ export class PerUserBuildGate {
     try {
       return await gate.run(fn);
     } finally {
-      if (gate.activeCount() === 0 && gate.queueLength() === 0) this.gates.delete(user);
+      if (gate.activeCount() === 0 && gate.queueLength() === 0) {
+        this.gates.delete(user);
+      }
     }
   }
 

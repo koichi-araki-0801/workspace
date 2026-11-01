@@ -111,7 +111,9 @@ describe('偏りと総量の上限', () => {
   it('予算を渡さない単発呼び出しは従来どおり(節約しない)', () => {
     const a = distinctTokens('a', 1000);
     const b = distinctTokens('b', 1000);
-    for (let i = 0; i < 3; i++) expect(diffTokens(a, b).coarse).toBe(false);
+    for (let i = 0; i < 3; i++) {
+      expect(diffTokens(a, b).coarse).toBe(false);
+    }
   });
 });
 

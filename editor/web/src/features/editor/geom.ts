@@ -40,11 +40,17 @@ export function clampMarginMm(n: number): number {
 
 /** CSS の length を mm へ変換する(mm/px に対応、それ以外は → 0)。 */
 function lenToMm(v: string | undefined): number {
-  if (!v) return 0;
+  if (!v) {
+    return 0;
+  }
   const s = v.trim();
   const n = Number.parseFloat(s);
-  if (Number.isNaN(n)) return 0;
-  if (s.endsWith('px')) return Math.round(n / PX_PER_MM);
+  if (Number.isNaN(n)) {
+    return 0;
+  }
+  if (s.endsWith('px')) {
+    return Math.round(n / PX_PER_MM);
+  }
   return Math.round(n);
 }
 
@@ -69,10 +75,15 @@ export function geomFromStyle(style: StyleMap): LayoutGeom {
   const mlAuto = style['margin-left'] === 'auto';
   const mrAuto = style['margin-right'] === 'auto';
   let align: Align;
-  if (widthPct >= 100) align = 'stretch';
-  else if (mlAuto && mrAuto) align = 'center';
-  else if (mlAuto) align = 'right';
-  else align = 'left';
+  if (widthPct >= 100) {
+    align = 'stretch';
+  } else if (mlAuto && mrAuto) {
+    align = 'center';
+  } else if (mlAuto) {
+    align = 'right';
+  } else {
+    align = 'left';
+  }
   const indent = align === 'left' && !mlAuto ? lenToMm(style['margin-left']) : 0;
   const breakInside = style['break-inside'] ?? style['page-break-inside'];
   return {
@@ -120,23 +131,31 @@ const ALIGN_JP: Record<Align, string> = {
 
 /** 最初に変化した幾何フィールドを説明する日本語ラベル(変化が無ければ null)。 */
 export function geomChangeLabel(before: LayoutGeom, after: LayoutGeom): string | null {
-  if (before.widthPct !== after.widthPct)
+  if (before.widthPct !== after.widthPct) {
     return `幅を ${before.widthPct}% → ${after.widthPct}% に変更`;
-  if (before.align !== after.align)
+  }
+  if (before.align !== after.align) {
     return `横の配置を ${ALIGN_JP[before.align]} → ${ALIGN_JP[after.align]} に変更`;
-  if (before.indent !== after.indent)
+  }
+  if (before.indent !== after.indent) {
     return `左インデントを ${before.indent}mm → ${after.indent}mm に変更`;
-  if (before.marginTop !== after.marginTop)
+  }
+  if (before.marginTop !== after.marginTop) {
     return `上の余白を ${before.marginTop}mm → ${after.marginTop}mm に変更`;
-  if (before.marginBottom !== after.marginBottom)
+  }
+  if (before.marginBottom !== after.marginBottom) {
     return `下の余白を ${before.marginBottom}mm → ${after.marginBottom}mm に変更`;
-  if (before.keepTogether !== after.keepTogether)
+  }
+  if (before.keepTogether !== after.keepTogether) {
     return `「ページ内で分割しない」を${after.keepTogether ? '有効化' : '解除'}`;
+  }
   return null;
 }
 
 /** 幅を変えたときの配置。上限以上は全幅（stretch）、stretch から縮めたら left、それ以外は維持する。 */
 export function alignForWidth(width: number, maxWidth: number, prevAlign: Align): Align {
-  if (width >= maxWidth) return 'stretch';
+  if (width >= maxWidth) {
+    return 'stretch';
+  }
   return prevAlign === 'stretch' ? 'left' : prevAlign;
 }

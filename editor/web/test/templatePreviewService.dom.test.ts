@@ -74,7 +74,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const svc = createTemplatePreviewService(templates, history);
     const res = await svc.loadForPreview('x');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('not_found');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('not_found');
+    }
   });
 
   it('builds a preview document from the source file when there is no draft', async () => {
@@ -143,7 +145,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const svc = createTemplatePreviewService(templates, history, ownerOf(true));
     const res = await svc.loadForPreview('t1');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('validation');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('validation');
+    }
   });
 
   it('reports a user-facing render error when the template fails to render', async () => {
@@ -155,7 +159,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const svc = createTemplatePreviewService(templates, history);
     const res = await svc.loadForPreview('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.renderError).not.toBeNull();
+    if (isOk(res)) {
+      expect(res.value.renderError).not.toBeNull();
+    }
   });
 
   it('別セッションの下書きは採用しない(確定版でプレビューする)', async () => {
@@ -193,7 +199,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const svc = createTemplatePreviewService(templates, history);
     const res = await svc.loadForPreview('t1', { editorCssBaseline: '.ignored{}' });
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.cssBaseline).toBe(res.value.css);
+    if (isOk(res)) {
+      expect(res.value.cssBaseline).toBe(res.value.css);
+    }
   });
 
   it('下書きがあれば、編集画面が測った baseline を css と同じ整形で返す', async () => {
@@ -204,7 +212,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
       expect(res.value.cssBaseline).toContain('.from-file');
       // css と同じ整形(`formatCss`)を通す。下書きの CSS が確定版と同じなら文字列も一致する。
       const same = await svc.loadForPreview('t1', { editorCssBaseline: '.from-draft{}' });
-      if (isOk(same)) expect(same.value.cssBaseline).toBe(same.value.css);
+      if (isOk(same)) {
+        expect(same.value.cssBaseline).toBe(same.value.css);
+      }
     }
   });
 
@@ -212,7 +222,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     const svc = createTemplatePreviewService(draftRepos('<p>d</p>'), history, ownerOf(true));
     const res = await svc.loadForPreview('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.cssBaseline).toBeNull();
+    if (isOk(res)) {
+      expect(res.value.cssBaseline).toBeNull();
+    }
   });
 
   it('再読み込み後も sessionStorage の baseline を申請の cssBaseline にする', async () => {
@@ -225,7 +237,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
       editorCssBaseline: useEditorSessionStore().cssBaselineOf('t1'),
     });
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.cssBaseline).toContain('.from-file');
+    if (isOk(res)) {
+      expect(res.value.cssBaseline).toContain('.from-file');
+    }
     sessionStorage.clear();
   });
 
@@ -236,7 +250,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     } as unknown as TemplateRepository;
     const resA = await createTemplatePreviewService(templatesA, history).loadForPreview('t1');
     expect(isErr(resA)).toBe(true);
-    if (isErr(resA)) expect(resA.error.kind).toBe('not_found');
+    if (isErr(resA)) {
+      expect(resA.error.kind).toBe('not_found');
+    }
 
     const templatesB = {
       getTemplate: vi.fn(async () => ok(tpl)),
@@ -245,7 +261,9 @@ describe('TemplatePreviewService.loadForPreview', () => {
     } as unknown as TemplateRepository;
     const resB = await createTemplatePreviewService(templatesB, history).loadForPreview('t1');
     expect(isErr(resB)).toBe(true);
-    if (isErr(resB)) expect(resB.error.kind).toBe('not_found');
+    if (isErr(resB)) {
+      expect(resB.error.kind).toBe('not_found');
+    }
   });
 
   // 編集タブの本文は値入り HTML(`filled`)で、`html` は Jinja 骨組み。local ではこの 2 つが
@@ -406,7 +424,9 @@ describe('TemplatePreviewService.renderPdf', () => {
     const res = await svc.renderPdf('<p>hi</p>', '', {}, false);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(BUILD_BUSY_USER_MESSAGE);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(BUILD_BUSY_USER_MESSAGE);
+    }
   });
 
   it('returns a PDF blob when the server responds ok', async () => {
@@ -418,7 +438,9 @@ describe('TemplatePreviewService.renderPdf', () => {
     const res = await svc.renderPdf('<p>hi</p>', '.c{}', {}, false);
     vi.unstubAllGlobals();
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value).toBeInstanceOf(Blob);
+    if (isOk(res)) {
+      expect(res.value).toBeInstanceOf(Blob);
+    }
   });
 
   it('appends trim-mark CSS to the sent css only when cropMarks is on', async () => {
@@ -442,7 +464,9 @@ describe('TemplatePreviewService.renderPdf', () => {
     const res = await svc.renderPdf('<p>{{ oops</p>', '', {}, false);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(PDF_ERROR_MSG);
+    }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -457,7 +481,9 @@ describe('TemplatePreviewService.renderPdf', () => {
     const res = await svc.renderPdf('<p>hi</p>', '.c{}', {}, false);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(PDF_ERROR_MSG);
+    }
   });
 });
 

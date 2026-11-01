@@ -103,7 +103,9 @@ describe('失敗応答の時間フロア', () => {
   });
 
   it('does not pay the floor when the rate limiter refuses the attempt', async () => {
-    for (let i = 0; i < maxFailures; i += 1) await timedPost('admin');
+    for (let i = 0; i < maxFailures; i += 1) {
+      await timedPost('admin');
+    }
     const { ms, status } = await timedPost('admin');
     expect(status).toBe(403);
     expect(ms).toBeLessThan(FLOOR_MS);

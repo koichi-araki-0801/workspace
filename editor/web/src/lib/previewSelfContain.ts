@@ -110,18 +110,28 @@ export function resetSelfContainCache(): void {
 
 async function fetchScriptBody(rel: string, fetcher: AssetFetcher): Promise<string | undefined> {
   const cached = scriptCache.get(rel);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const p = (async () => {
     const url = assetUrl(rel);
-    if (url === undefined) return undefined;
+    if (url === undefined) {
+      return undefined;
+    }
     try {
       const res = await fetcher(url);
-      if (!res.ok) return undefined;
+      if (!res.ok) {
+        return undefined;
+      }
       const body = await res.text();
-      if (body.length > MAX_INLINE_SCRIPT_BYTES) return undefined;
+      if (body.length > MAX_INLINE_SCRIPT_BYTES) {
+        return undefined;
+      }
       // script data のエスケープ状態(`<!--`)は `</script>` 終端を無効化しうるので展開しない
       // (サーバ `isUnsafeToInline` と同じ fail closed)。
-      if (body.includes('<!--')) return undefined;
+      if (body.includes('<!--')) {
+        return undefined;
+      }
       return body;
     } catch {
       return undefined;
@@ -151,9 +161,13 @@ async function fetchDataUri(
 ): Promise<string | undefined> {
   try {
     const res = await fetcher(url);
-    if (!res.ok) return undefined;
+    if (!res.ok) {
+      return undefined;
+    }
     const buf = await res.arrayBuffer();
-    if (buf.byteLength > maxBytes) return undefined;
+    if (buf.byteLength > maxBytes) {
+      return undefined;
+    }
     return `data:${mime};base64,${toBase64(buf)}`;
   } catch {
     return undefined;
@@ -162,13 +176,19 @@ async function fetchDataUri(
 
 async function fetchFontDataUri(rel: string, fetcher: AssetFetcher): Promise<string | undefined> {
   const cached = fontCache.get(rel);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const p = (async () => {
     const ext = rel.slice(rel.lastIndexOf('.')).toLowerCase();
     const mime = FONT_MIME[ext];
-    if (mime === undefined) return undefined;
+    if (mime === undefined) {
+      return undefined;
+    }
     const url = assetUrl(rel);
-    if (url === undefined) return undefined;
+    if (url === undefined) {
+      return undefined;
+    }
     return fetchDataUri(url, mime, MAX_INLINE_FONT_BYTES, fetcher);
   })();
   fontCache.set(rel, p);
@@ -185,10 +205,14 @@ async function fetchImageDataUri(
 ): Promise<string | undefined> {
   const key = `${ref.dir ?? ''}/${ref.file}`;
   const cached = imageCache.get(key);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
   const p = (async () => {
     const mime = fundImageMime(ref.file);
-    if (mime === undefined) return undefined;
+    if (mime === undefined) {
+      return undefined;
+    }
     return fetchDataUri(fundImageUrl(ref), mime, MAX_INLINE_IMAGE_BYTES, fetcher);
   })();
   imageCache.set(key, p);
@@ -203,9 +227,13 @@ async function inlineImages(
 ): Promise<void> {
   for (const img of Array.from(root.querySelectorAll('img[src]'))) {
     const ref = servedFundImageOf(img.getAttribute('src') ?? '', DOC_DIR, companyCode);
-    if (ref === undefined) continue;
+    if (ref === undefined) {
+      continue;
+    }
     const dataUri = await fetchImageDataUri(ref, fetcher);
-    if (dataUri !== undefined) img.setAttribute('src', dataUri);
+    if (dataUri !== undefined) {
+      img.setAttribute('src', dataUri);
+    }
   }
 }
 
@@ -219,19 +247,29 @@ async function inlineScripts(root: Element, fetcher: AssetFetcher): Promise<void
     let eligible = true;
     let typeValue = '';
     for (const attr of Array.from(script.attributes)) {
-      if (attr.name === 'src') continue;
+      if (attr.name === 'src') {
+        continue;
+      }
       if (attr.name === 'type') {
         typeValue = attr.value.trim().toLowerCase();
-        if (!INLINEABLE_SCRIPT_TYPES.has(typeValue)) eligible = false;
+        if (!INLINEABLE_SCRIPT_TYPES.has(typeValue)) {
+          eligible = false;
+        }
         continue;
       }
       eligible = false;
     }
-    if (!eligible) continue;
+    if (!eligible) {
+      continue;
+    }
     const rel = resolveDocAssetPath(script.getAttribute('src') ?? '', DOC_DIR);
-    if (rel === undefined) continue;
+    if (rel === undefined) {
+      continue;
+    }
     const body = await fetchScriptBody(rel, fetcher);
-    if (body === undefined) continue;
+    if (body === undefined) {
+      continue;
+    }
     script.textContent = neutralizeRawTextClose(body, 'script');
     script.removeAttribute('src');
   }
@@ -252,14 +290,18 @@ async function inlineStyleAssets(
 ): Promise<void> {
   for (const style of Array.from(root.querySelectorAll('style'))) {
     const css = style.textContent ?? '';
-    if (css === '') continue;
+    if (css === '') {
+      continue;
+    }
     const spans = collectCssUrlSpans(css);
     // 取得は非同期なので先に済ませ、置き換えは `replaceSpansFromEnd` に任せる。取得の順序は
     // 置き換えと同じ後ろから(キャッシュへの登録順を変えない)。
     const dataUris = new Map<number, string>();
     for (const span of [...spans].reverse()) {
       const rel = resolveDocAssetPath(span.value, DOC_DIR);
-      if (rel === undefined) continue;
+      if (rel === undefined) {
+        continue;
+      }
       let dataUri: string | undefined;
       if (rel.startsWith(`${DOC_FONTS_DIR}/`)) {
         dataUri = await fetchFontDataUri(rel, fetcher);
@@ -269,10 +311,14 @@ async function inlineStyleAssets(
           dataUri = await fetchImageDataUri(ref, fetcher);
         }
       }
-      if (dataUri === undefined) continue;
+      if (dataUri === undefined) {
+        continue;
+      }
       dataUris.set(span.start, dataUri);
     }
-    if (dataUris.size === 0) continue;
+    if (dataUris.size === 0) {
+      continue;
+    }
     const out = replaceSpansFromEnd(css, spans, (span) => {
       const dataUri = dataUris.get(span.start);
       return dataUri === undefined ? undefined : `url(${dataUri})`;
@@ -293,7 +339,9 @@ export async function selfContainPreviewDoc(
   fetcher: AssetFetcher = (url) => fetch(url),
   opts: SelfContainOptions = {},
 ): Promise<string> {
-  if (doc === '') return doc;
+  if (doc === '') {
+    return doc;
+  }
   const companyCode = opts.companyCode ?? null;
   const root = sanitizePreviewRoot(doc);
   await inlineScripts(root, fetcher);

@@ -69,7 +69,9 @@ export function useReviewDiff(reqId: () => string) {
     const res = await runLoad(() => diffService.buildDiff(reqId()));
     if (isErr(res)) {
       loadError.value = true;
-      if (res.error.code === REVIEW_RENDER_ERROR) renderErrorMessage.value = res.error.message;
+      if (res.error.code === REVIEW_RENDER_ERROR) {
+        renderErrorMessage.value = res.error.message;
+      }
       return false;
     }
     review.value = res.value.review;

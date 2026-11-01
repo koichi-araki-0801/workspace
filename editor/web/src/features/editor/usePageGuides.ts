@@ -89,20 +89,28 @@ export function usePageGuides(ctx: PageGuidesContext) {
         /** ページ `page` の末尾のパーツ `last` の後ろにある、描かれた(高さのある)最初の帯の位置。 */
         const bandAfter = (last: HTMLElement, page: number) => {
           for (let j = 0; j < breaks.length; j++) {
-            if (breakPages[j] !== page || !precedes(last, breaks[j])) continue;
+            if (breakPages[j] !== page || !precedes(last, breaks[j])) {
+              continue;
+            }
             const p = pos(breaks[j]);
-            if (p.height > 0) return p;
+            if (p.height > 0) {
+              return p;
+            }
           }
           return undefined;
         };
         for (let i = 1; i < pages.length; i++) {
           // 要素の無い白紙のページ i の先頭の線は、次のページの線と同じ位置に来る。次の線へまとめる。
-          if (isElementlessPage(split, i)) continue;
+          if (isElementlessPage(split, i)) {
+            continue;
+          }
           const blank = isElementlessPage(split, i - 1);
           // まとめた線は飛ばした線(続く白紙のページのうち最初のものの先頭)の位置を受け継ぐ。直前の
           // 要素のあるページの末尾に帯があれば、次の要素の上端ではなく帯の上端に引くため。
           let from = i;
-          while (from >= 2 && isElementlessPage(split, from - 1)) from--;
+          while (from >= 2 && isElementlessPage(split, from - 1)) {
+            from--;
+          }
           const prevLast = pages[from - 1].at(-1);
           const band = prevLast ? bandAfter(prevLast, from - 1) : undefined;
           // 末尾の改ページは消えるので、ページ i 以降には必ず要素がある。
@@ -113,7 +121,9 @@ export function usePageGuides(ctx: PageGuidesContext) {
             width: bodyPos.width,
             page: i,
           };
-          if (blank) guide.blank = true;
+          if (blank) {
+            guide.blank = true;
+          }
           out.push(guide);
         }
         pageGuides.value = out;

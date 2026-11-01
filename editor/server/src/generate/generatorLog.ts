@@ -40,10 +40,14 @@ export async function logSizeBefore(file: string): Promise<number> {
   try {
     st = await stat(file);
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      return 0;
+    }
     throw logError(file, `を確かめられませんでした: ${(e as Error).message}`);
   }
-  if (!st.isFile()) throw logError(file, 'が通常のファイルではありません');
+  if (!st.isFile()) {
+    throw logError(file, 'が通常のファイルではありません');
+  }
   return st.size;
 }
 
@@ -60,7 +64,9 @@ export async function readRunLog(
   try {
     handle = await open(file, 'r');
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw logError(file, 'が見つかりません');
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw logError(file, 'が見つかりません');
+    }
     throw logError(file, `を開けませんでした: ${(e as Error).message}`);
   }
   try {
@@ -69,13 +75,19 @@ export async function readRunLog(
     });
     const start = size < sizeBefore ? 0 : sizeBefore;
     const length = size - start;
-    if (length <= 0) throw logError(file, 'に今回の追記がありません');
-    if (length > maxBytes) throw logError(file, `の追記分が上限(${maxBytes} バイト)を超えています`);
+    if (length <= 0) {
+      throw logError(file, 'に今回の追記がありません');
+    }
+    if (length > maxBytes) {
+      throw logError(file, `の追記分が上限(${maxBytes} バイト)を超えています`);
+    }
     const buf = Buffer.alloc(length);
     const { bytesRead } = await handle.read(buf, 0, length, start).catch((e: Error) => {
       throw logError(file, `を読めませんでした: ${e.message}`);
     });
-    if (bytesRead !== length) throw logError(file, 'を最後まで読めませんでした');
+    if (bytesRead !== length) {
+      throw logError(file, 'を最後まで読めませんでした');
+    }
     let text: string;
     try {
       text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
@@ -96,11 +108,16 @@ export function parseOutputNames(text: string): string[] {
   const names: string[] = [];
   for (const line of text.split('\n')) {
     const at = line.indexOf(OUTPUT_MARKER);
-    if (at < 0) continue;
+    if (at < 0) {
+      continue;
+    }
     const name = line.slice(at + OUTPUT_MARKER.length).trim();
-    if (name === '')
+    if (name === '') {
       throw new Error(`実行ログの ${OUTPUT_MARKER.trim()} 行にファイル名がありません`);
-    if (!names.includes(name)) names.push(name);
+    }
+    if (!names.includes(name)) {
+      names.push(name);
+    }
   }
   return names;
 }

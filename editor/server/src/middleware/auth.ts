@@ -29,7 +29,9 @@ declare module 'fastify' {
  */
 export async function loadUser(req: FastifyRequest): Promise<User | null> {
   const sid = sessionIdFrom(req.headers.cookie);
-  if (!sid) return null;
+  if (!sid) {
+    return null;
+  }
   return req.server.sessionStore.getSessionUser(sid);
 }
 
@@ -72,15 +74,22 @@ export async function requireAuth(request: FastifyRequest, _reply: FastifyReply)
   // ⚠ この素通しは**データ系ルートに限る**意図的な設計である。資格情報を書き換える
   // ルート(パスワード変更)はこの区分に属さないので、`requireIdentifiedUser` を重ねて
   // 設定値に依存しない施錠を掛けること。
-  if (!config.requireAuth) return;
+  if (!config.requireAuth) {
+    return;
+  }
   const user = await loadUser(request);
-  if (!user) throw unauthorized('ログインが必要です');
-  if (user.disabled) throw unauthorized('このアカウントは無効化されています');
+  if (!user) {
+    throw unauthorized('ログインが必要です');
+  }
+  if (user.disabled) {
+    throw unauthorized('このアカウントは無効化されています');
+  }
   // 初期パスワードのままのセッションは、変更を終えるまでパスワード変更経路しか触れない。
-  if (user.mustChangePassword && !isPasswordChangeAllowed(request))
+  if (user.mustChangePassword && !isPasswordChangeAllowed(request)) {
     throw forbidden('パスワードの再設定が完了するまで、この操作は利用できません', {
       code: 'PASSWORD_CHANGE_REQUIRED',
     });
+  }
   request.user = user;
 }
 
@@ -98,7 +107,9 @@ export async function requireIdentifiedUser(
   request: FastifyRequest,
   _reply: FastifyReply,
 ): Promise<void> {
-  if (!request.user) throw unauthorized('ログインが必要です');
+  if (!request.user) {
+    throw unauthorized('ログインが必要です');
+  }
 }
 
 /**
@@ -111,9 +122,15 @@ function makeRoleGuard(
   message: string,
 ): (request: FastifyRequest, reply: FastifyReply) => Promise<void> {
   return async (request: FastifyRequest, _reply: FastifyReply): Promise<void> => {
-    if (!config.requireAuth) return;
-    if (!request.user) throw unauthorized('ログインが必要です');
-    if (!allowed(request.user)) throw forbidden(message);
+    if (!config.requireAuth) {
+      return;
+    }
+    if (!request.user) {
+      throw unauthorized('ログインが必要です');
+    }
+    if (!allowed(request.user)) {
+      throw forbidden(message);
+    }
   };
 }
 

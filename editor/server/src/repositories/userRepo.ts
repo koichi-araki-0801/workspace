@@ -70,7 +70,9 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
           ...pwParams,
         ]),
       );
-      if (!row) throw notFound('作成したユーザーを取得できません');
+      if (!row) {
+        throw notFound('作成したユーザーを取得できません');
+      }
       return { user: rowToUser(row), temporaryPassword };
     },
 
@@ -85,14 +87,18 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
           p('要パスワード変更', bit(patch.mustChangePassword)),
         ]),
       );
-      if (!row) throw notFound(`ユーザーが見つかりません: ${id}`);
+      if (!row) {
+        throw notFound(`ユーザーが見つかりません: ${id}`);
+      }
       return rowToUser(row);
     },
 
     async resetUserPassword(id) {
       // 存在しない公開ID への無言 no-op を避けるため、先に一覧で実在を確かめる。
       const user = (await listUsers()).find((u) => u.id === id);
-      if (!user) throw notFound(`ユーザーが見つかりません: ${id}`);
+      if (!user) {
+        throw notFound(`ユーザーが見つかりません: ${id}`);
+      }
       const { temporaryPassword, pwParams } = await issueTemporaryPassword();
       await sproc.callSproc(SP.user, 'PWリセット', [p('公開ID', id), ...pwParams]);
       return { temporaryPassword };

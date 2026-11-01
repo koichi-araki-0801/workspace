@@ -17,11 +17,15 @@
  */
 export function bundleSafeToInline(bundle: string): boolean {
   const lower = bundle.toLowerCase();
-  if (lower.includes('</script')) return false;
+  if (lower.includes('</script')) {
+    return false;
+  }
   for (let at = lower.indexOf('<!--'); at !== -1; at = lower.indexOf('<!--', at + 4)) {
     const close = lower.indexOf('-->', at + 4);
     const open = lower.indexOf('<script', at + 4);
-    if (open !== -1 && (close === -1 || open < close)) return false;
+    if (open !== -1 && (close === -1 || open < close)) {
+      return false;
+    }
   }
   return true;
 }

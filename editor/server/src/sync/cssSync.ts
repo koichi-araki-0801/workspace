@@ -21,9 +21,13 @@ import {
  * 同じ CSS の競合がある基準日の画面にしか出ず、他の基準日の承認では持ち越しも解消もされない。
  */
 export function cssSyncPairKey(templateId: string): string | null {
-  if (!isValidAnyTemplateId(templateId)) return null;
+  if (!isValidAnyTemplateId(templateId)) {
+    return null;
+  }
   const a = parseAnyTemplateFileName(`${templateId}.html`);
-  if (!a) return null;
+  if (!a) {
+    return null;
+  }
   return templatePairKey({
     companyCode: a.companyCode,
     fundCode: a.fundCode,
@@ -90,8 +94,9 @@ function canonicalConflicts(
     const keys = current(c.ruleKey) ? [c.ruleKey] : canonicalCssRuleKeys(c.ruleKey);
     for (const ruleKey of keys) {
       const seen = byKey.get(ruleKey);
-      if (seen === undefined || c.detectedAt < seen.detectedAt)
+      if (seen === undefined || c.detectedAt < seen.detectedAt) {
         byKey.set(ruleKey, { ...c, ruleKey });
+      }
     }
   }
   return [...byKey.values()];

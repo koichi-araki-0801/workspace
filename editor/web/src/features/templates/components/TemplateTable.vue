@@ -34,8 +34,8 @@ const vms = computed(() => props.rows.map(toTemplateMetaVm));
 
 // action 種別ごとの列ラベル・ボタン表示。追加 (add) は編集と同じ一覧に「追加」ボタンを出す。
 const actionVm = computed(() => {
-  if (props.action === 'edit') return { label: '編集', icon: Pencil, variant: 'default' as const };
-  if (props.action === 'add') return { label: '追加', icon: Plus, variant: 'outline' as const };
+  if (props.action === 'edit') { return { label: '編集', icon: Pencil, variant: 'default' as const }; }
+  if (props.action === 'add') { return { label: '追加', icon: Plus, variant: 'outline' as const }; }
   return { label: '作成', icon: FilePlus2, variant: 'outline' as const };
 });
 

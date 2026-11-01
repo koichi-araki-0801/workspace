@@ -44,12 +44,16 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   // 区切りだけの白紙のページは、その先頭の区切りを白紙のページの帯として描く
   // (`pagebreakCanvas.ts`)。
   split.pages.forEach((page, p) => {
-    if (page.length > 0) return;
+    if (page.length > 0) {
+      return;
+    }
     pageBreakOn(split, p)?.setAttribute(PV_BLANK_ATTR, '');
   });
   const pageOf = new Map<Element, number>();
   split.pages.forEach((page, i) => {
-    for (const part of page) pageOf.set(part, i);
+    for (const part of page) {
+      pageOf.set(part, i);
+    }
   });
   split.breakEls.forEach((el, i) => {
     pageOf.set(el, split.breakPages[i]);
@@ -63,7 +67,9 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
   for (const el of rootBlocks(Array.from(root.children))) {
     const page = pageOf.get(el);
     if (page !== undefined) {
-      for (const p of pending) mark(p, page);
+      for (const p of pending) {
+        mark(p, page);
+      }
       pending = [];
       mark(el, page);
       last = page;
@@ -74,7 +80,9 @@ export function markPages(root: HTMLElement, split: PageSplit<HTMLElement>): voi
       pending.push(el);
     }
   }
-  for (const p of pending) mark(p, last);
+  for (const p of pending) {
+    mark(p, last);
+  }
 }
 
 /**
@@ -108,7 +116,9 @@ export function pageViewCss(
   singleMode: boolean,
   elementless: boolean,
 ): string {
-  if (!singleMode || count <= 1) return '';
+  if (!singleMode || count <= 1) {
+    return '';
+  }
   const hide = `[data-gjs-type=wrapper] [${PV_ATTR}]:not([${PV_ATTR}="${index}"]) { display: none !important; }`;
   return elementless ? `${hide}\n${ELEMENTLESS_PAGE_CSS}` : hide;
 }

@@ -132,9 +132,13 @@ export function measureTemplate(
   const jinjaUnitKinds: Record<string, number> = {};
   const jinjaUnitSamples: string[] = [];
   for (const u of collectExecutableUnits(html)) {
-    if (!u.startsWith('jinja')) continue;
+    if (!u.startsWith('jinja')) {
+      continue;
+    }
     jinjaUnitKinds[kindOf(u)] = (jinjaUnitKinds[kindOf(u)] ?? 0) + 1;
-    if (jinjaUnitSamples.length < MAX_SOURCES_PER_ITEM) jinjaUnitSamples.push(clip(u));
+    if (jinjaUnitSamples.length < MAX_SOURCES_PER_ITEM) {
+      jinjaUnitSamples.push(clip(u));
+    }
   }
   let render: RenderOutcome;
   if (sample === null) {
@@ -212,10 +216,11 @@ export function readOnlySproc(inner: SprocClient): SprocClient {
       操作: string,
       params?: Parameters<SprocClient['callSproc']>[2],
     ) {
-      if (!READ_ONLY_OPS.has(`${proc}/${操作}`))
+      if (!READ_ONLY_OPS.has(`${proc}/${操作}`)) {
         return Promise.reject(
           new Error(`計測は読み取りの操作だけを呼びます。呼ぼうとした操作: ${proc} ${操作}`),
         );
+      }
       return inner.callSproc<T>(proc, 操作, params);
     },
   };
@@ -258,31 +263,38 @@ export async function runMeasure(deps: MeasureDeps): Promise<MeasureResult> {
   let partSample: { from: string; sample: SampleData } | null = null;
   const targets: { source: TemplateSource; fileName: string }[] = [];
   for (const fileName of [...(await deps.listTemplateFiles())].sort()) {
-    if (parseSkeletonFileName(fileName)) targets.push({ source: 'templates', fileName });
-    else
+    if (parseSkeletonFileName(fileName)) {
+      targets.push({ source: 'templates', fileName });
+    } else {
       notes.push(
         `templates/ の作成経路の名前(会社_ファンド_版種)でないため測りません: ${fileName}`,
       );
+    }
   }
   const pendingIds = [...(await deps.listPendingIds())].sort();
   const skeletonPending = pendingIds.filter((id) => parseSkeletonFileName(`${id}.html`));
   targets.push(
     ...skeletonPending.map((id) => ({ source: 'pending' as const, fileName: `${id}.html` })),
   );
-  if (skeletonPending.length < pendingIds.length)
+  if (skeletonPending.length < pendingIds.length) {
     notes.push(
       `pending/ の編集経路の生成物(基準日つき) ${pendingIds.length - skeletonPending.length} 件は測りません`,
     );
+  }
   for (const { source, fileName } of targets) {
     const attrs = parseSkeletonFileName(fileName);
-    if (!attrs) continue;
+    if (!attrs) {
+      continue;
+    }
     const id = templateIdFromFileName(fileName);
     const label = templateLabel({ source, id });
     let html: string;
     try {
       const got =
         source === 'templates' ? await deps.templates.getTemplate(id) : await deps.readPending(id);
-      if (got === null) throw new Error('見つかりません');
+      if (got === null) {
+        throw new Error('見つかりません');
+      }
       html = got.html;
     } catch (e) {
       notes.push(`読めませんでした: ${label}: ${clip(errorText(e))}`);
@@ -313,15 +325,21 @@ export async function runMeasure(deps: MeasureDeps): Promise<MeasureResult> {
 type Tally = Record<string, { items: number; count: number }>;
 
 function addTally(t: Tally, key: string, count: number) {
-  if (count === 0) return;
+  if (count === 0) {
+    return;
+  }
   const cur = t[key] ?? { items: 0, count: 0 };
   t[key] = { items: cur.items + 1, count: cur.count + count };
 }
 
 function tallyCodes(issues: readonly IssueHit[], into: Tally) {
   const by: Record<string, number> = {};
-  for (const i of issues) by[i.code] = (by[i.code] ?? 0) + 1;
-  for (const [k, n] of Object.entries(by)) addTally(into, k, n);
+  for (const i of issues) {
+    by[i.code] = (by[i.code] ?? 0) + 1;
+  }
+  for (const [k, n] of Object.entries(by)) {
+    addTally(into, k, n);
+  }
 }
 
 const partLabel = (p: PartMeasure) => `${p.name} (${p.id})`;
@@ -332,7 +350,9 @@ function templateStats(list: readonly TemplateMeasure[]) {
   const units: Tally = {};
   for (const t of list) {
     tallyCodes(t.issues, issues);
-    for (const [k, n] of Object.entries(t.jinjaUnitKinds)) addTally(units, k, n);
+    for (const [k, n] of Object.entries(t.jinjaUnitKinds)) {
+      addTally(units, k, n);
+    }
   }
   const ok = list.flatMap((t) => (t.render.ok ? [t.render] : []));
   return {
@@ -358,8 +378,12 @@ export function summarize(r: MeasureResult) {
   for (const p of r.parts) {
     tallyCodes(p.issues, partIssues);
     const by: Record<string, number> = {};
-    for (const u of p.jinjaUnits) by[kindOf(u)] = (by[kindOf(u)] ?? 0) + 1;
-    for (const [k, n] of Object.entries(by)) addTally(partUnits, k, n);
+    for (const u of p.jinjaUnits) {
+      by[kindOf(u)] = (by[kindOf(u)] ?? 0) + 1;
+    }
+    for (const [k, n] of Object.entries(by)) {
+      addTally(partUnits, k, n);
+    }
   }
   return {
     bySource,
@@ -379,7 +403,9 @@ export function summarize(r: MeasureResult) {
 /** 全角を 2 桁に数えて右を詰める(写真で列が揃うように)。 */
 function padW(s: string, width: number): string {
   let w = 0;
-  for (const ch of s) w += (ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+  for (const ch of s) {
+    w += (ch.codePointAt(0) ?? 0) > 0xff ? 2 : 1;
+  }
   return s + ' '.repeat(Math.max(0, width - w));
 }
 
@@ -414,7 +440,9 @@ const row2 = (
 ) => row(label, pick(t), pick(p), sum ? sum(t) + sum(p) : '');
 
 function nameList(title: string, names: readonly string[]): string[] {
-  if (names.length === 0) return [`${title}: なし`];
+  if (names.length === 0) {
+    return [`${title}: なし`];
+  }
   const head = names.slice(0, SCREEN_NAMES).map((n, i) => `  ${String(i + 1).padStart(2)}. ${n}`);
   const rest = names.length > SCREEN_NAMES ? [`  ほか ${names.length - SCREEN_NAMES} 件`] : [];
   return [`${title}(${names.length} 件。先頭 ${SCREEN_NAMES} 件):`, ...head, ...rest];
@@ -488,7 +516,9 @@ export function formatReport(r: MeasureResult): string {
       !t.render.ok ||
       kinds.length > 0 ||
       (t.render.ok && t.render.unrendered > 0);
-    if (!found) continue;
+    if (!found) {
+      continue;
+    }
     out.push(
       '',
       `■ ${templateLabel(t)}`,
@@ -517,7 +547,9 @@ export function formatReport(r: MeasureResult): string {
       p.otherUnits > 0 ||
       p.unrendered > 0 ||
       p.error !== undefined;
-    if (!found) continue;
+    if (!found) {
+      continue;
+    }
     out.push(
       '',
       `■ ${partLabel(p)}`,
@@ -547,11 +579,13 @@ export async function writeReport(
   text: string,
   forbiddenRoots: readonly string[],
 ): Promise<string> {
-  for (const root of forbiddenRoots)
-    if (isInside(outDir, root))
+  for (const root of forbiddenRoots) {
+    if (isInside(outDir, root)) {
       throw new Error(
         `出力先が dataRoot の中です。--out で dataRoot の外を指定してください: ${outDir}`,
       );
+    }
+  }
   await fs.mkdir(outDir, { recursive: true });
   const file = path.join(outDir, 'report.txt');
   await fs.writeFile(file, text, { encoding: 'utf8', flag: 'wx' });
@@ -568,9 +602,12 @@ const stamp = (d: Date) => {
 
 /** 引数は `--out <フォルダ>` だけ。既定は展開先(リポジトリの直下)の `bk/measure-<日時>`。 */
 export function parseArgs(argv: readonly string[], repoRoot: string): { outDir: string } | null {
-  if (argv.length === 0)
+  if (argv.length === 0) {
     return { outDir: path.join(repoRoot, 'bk', `measure-${stamp(new Date())}`) };
-  if (argv.length === 2 && argv[0] === '--out' && argv[1]) return { outDir: path.resolve(argv[1]) };
+  }
+  if (argv.length === 2 && argv[0] === '--out' && argv[1]) {
+    return { outDir: path.resolve(argv[1]) };
+  }
   return null;
 }
 
@@ -617,8 +654,9 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href)
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main().catch((e: unknown) => {
     console.error(`計測を中断しました(DB・ファイルは変えていません): ${errorText(e)}`);
     process.exit(1);
   });
+}

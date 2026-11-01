@@ -29,7 +29,9 @@ describe('toFilled の自己検査', () => {
   });
   it('配列リテラルの倍化でも例外を外へ出さず、unsupported に数える', () => {
     let raw = '{% set b0 = range(1000) %}';
-    for (let k = 1; k <= 20; k++) raw += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    for (let k = 1; k <= 20; k++) {
+      raw += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    }
     raw += '<p>{{ b20 }}</p>';
     const r = toFilledWithDiagnostics(raw, {});
     expect(r.html.length).toBeLessThan(10_000_000);

@@ -87,7 +87,9 @@ function withSpawnFallbackSlot<T>(
   return SPAWN_FALLBACK_GATE.run(() => {
     let started = false;
     return fn((buildOptions) => {
-      if (started) return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+      if (started) {
+        return Promise.reject(new Error(`${PDF_BUILD_FAILED}: 枠の二重使用`));
+      }
       started = true;
       return runBuildWorkerSpawn(buildOptions);
     });

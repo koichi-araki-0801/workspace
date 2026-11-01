@@ -57,8 +57,11 @@ export function groupHistoryByPart(input: {
   const byKey = new Map<string, PartHistoryEntry[]>();
   for (const e of entries) {
     const list = byKey.get(e.partKey);
-    if (list) list.push(e);
-    else byKey.set(e.partKey, [e]);
+    if (list) {
+      list.push(e);
+    } else {
+      byKey.set(e.partKey, [e]);
+    }
   }
   const take = (key: string): PartHistoryEntry[] => byKey.get(key) ?? [];
 
@@ -93,10 +96,14 @@ export function groupHistoryByPart(input: {
 
   const plain: HistoryGroup[] = [];
   for (const key of partOrder) {
-    if (numbers.byKey.has(key)) continue;
+    if (numbers.byKey.has(key)) {
+      continue;
+    }
     const list = take(key);
     const rej = rejected.get(key) ?? null;
-    if (list.length === 0 && rej === null) continue;
+    if (list.length === 0 && rej === null) {
+      continue;
+    }
     plain.push({
       key,
       no: null,
@@ -111,7 +118,9 @@ export function groupHistoryByPart(input: {
   const off: HistoryGroup[] = [];
   const offKeys = new Set([...byKey.keys(), ...rejected.keys()]);
   for (const key of offKeys) {
-    if (onCanvas.has(key) || removedKeys.has(key)) continue;
+    if (onCanvas.has(key) || removedKeys.has(key)) {
+      continue;
+    }
     off.push({
       key,
       no: null,

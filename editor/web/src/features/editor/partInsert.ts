@@ -29,8 +29,12 @@ export interface PartInsertDeps {
  * snapshot も取らずに戻る(ボタンも押せないが、本文の直列化を無駄にしないため)。
  */
 export function insertPartUndoable(deps: PartInsertDeps, p: PartCatalogItem): boolean {
-  if (!deps.canInsert()) return false;
-  if (!undoable(deps, () => deps.insertPart(p.content, p.id))) return false;
+  if (!deps.canInsert()) {
+    return false;
+  }
+  if (!undoable(deps, () => deps.insertPart(p.content, p.id))) {
+    return false;
+  }
   deps.setEditable();
   deps.setPreview(p);
   deps.recordChange(`パーツ「${p.name}」を追加`);

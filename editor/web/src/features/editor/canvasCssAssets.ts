@@ -58,10 +58,14 @@ const FONTS_PREFIX = `${DOC_FONTS_DIR}/`;
 export function canvasAssetUrl(rel: string, companyCode: string | null): string | undefined {
   if (rel.startsWith(`${FUND_IMAGES_DIR}/`)) {
     const ref = fundImageRefOf(rel);
-    if (ref === undefined || !companyFolderMatches(ref, companyCode)) return undefined;
+    if (ref === undefined || !companyFolderMatches(ref, companyCode)) {
+      return undefined;
+    }
     return fundImageUrl(ref);
   }
-  if (!rel.startsWith(FONTS_PREFIX)) return undefined;
+  if (!rel.startsWith(FONTS_PREFIX)) {
+    return undefined;
+  }
   return previewHostAssetUrl(rel);
 }
 
@@ -96,8 +100,11 @@ function declarationRanges(text: string): Range[] {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (quote !== '') {
-      if (ch === '\\') i++;
-      else if (ch === quote) quote = '';
+      if (ch === '\\') {
+        i++;
+      } else if (ch === quote) {
+        quote = '';
+      }
       continue;
     }
     if (ch === '\\') {
@@ -110,14 +117,18 @@ function declarationRanges(text: string): Range[] {
     } else if (ch === '(') {
       depth++;
     } else if (ch === ')') {
-      if (depth > 0) depth--;
+      if (depth > 0) {
+        depth--;
+      }
     } else if (depth === 0 && open < 0 && ch === '{') {
       open = i;
       start = i + 1;
     } else if (depth === 0 && open >= 0 && (ch === ';' || ch === '}')) {
       ranges.push({ start, end: i });
       start = i + 1;
-      if (ch === '}') break;
+      if (ch === '}') {
+        break;
+      }
     }
   }
   return ranges;
@@ -141,11 +152,15 @@ function rewriteSpans(
   let changed = false;
   let abandoned = false;
   const out = replaceSpansFromEnd(text.slice(range.start, range.end), inRange, (span) => {
-    if (abandoned) return undefined;
+    if (abandoned) {
+      return undefined;
+    }
     const rel = resolveDocAssetPath(span.value, from);
     const url = rel === undefined ? undefined : canvasAssetUrl(rel, companyCode);
     if (url === undefined) {
-      if (!keepUnresolved(span.value)) abandoned = true;
+      if (!keepUnresolved(span.value)) {
+        abandoned = true;
+      }
       return undefined;
     }
     changed = true;
@@ -178,9 +193,13 @@ function wrapCopiedRules(
   const out: string[] = [];
   for (const rule of splitCssRules(css)) {
     const copied = copy(rule.text);
-    if (copied === undefined) continue;
+    if (copied === undefined) {
+      continue;
+    }
     const wrapped = rule.atRules.reduceRight((inner, prelude) => `${prelude}{${inner}}`, copied);
-    if (accept(wrapped)) out.push(wrapped);
+    if (accept(wrapped)) {
+      out.push(wrapped);
+    }
   }
   return out.join('\n');
 }
@@ -192,12 +211,16 @@ function wrapCopiedRules(
  */
 function rewriteRule(text: string, companyCode: string | null, from: string): string | undefined {
   const spans = collectCssUrlSpans(text);
-  if (spans.length === 0) return undefined;
+  if (spans.length === 0) {
+    return undefined;
+  }
   if (FONT_FACE_RE.test(text)) {
     return rewriteUrls(text, { start: 0, end: text.length }, spans, companyCode, from);
   }
   const ranges = declarationRanges(text);
-  if (ranges.length === 0) return undefined;
+  if (ranges.length === 0) {
+    return undefined;
+  }
   const kept: string[] = [];
   /** これまでに残した `url()` 宣言のプロパティ名(後ろの個別指定を引き込む系統)。 */
   const families: string[] = [];
@@ -207,12 +230,16 @@ function rewriteRule(text: string, companyCode: string | null, from: string): st
     const decl = rewriteUrls(text, range, spans, companyCode, from);
     if (decl !== undefined) {
       kept.push(decl.replace(LEADING_TRIVIA_RE, '').trim());
-      if (prop !== '') families.push(prop);
+      if (prop !== '') {
+        families.push(prop);
+      }
     } else if (prop !== '' && families.some((f) => prop.startsWith(`${f}-`))) {
       kept.push(raw.trim());
     }
   }
-  if (kept.length === 0) return undefined;
+  if (kept.length === 0) {
+    return undefined;
+  }
   return `${text.slice(0, ranges[0].start)}${kept.join(';')}}`;
 }
 
@@ -253,18 +280,24 @@ function rewriteEveryUrl(
  */
 function copyWholeRule(text: string, companyCode: string | null, from: string): string | undefined {
   const spans = collectCssUrlSpans(text);
-  if (spans.length === 0) return text;
+  if (spans.length === 0) {
+    return text;
+  }
   if (text.trimStart().startsWith('@')) {
     return rewriteEveryUrl(text, { start: 0, end: text.length }, spans, companyCode, from);
   }
   const ranges = declarationRanges(text);
-  if (ranges.length === 0) return undefined;
+  if (ranges.length === 0) {
+    return undefined;
+  }
   const kept = ranges.flatMap((range) => {
     const decl = rewriteEveryUrl(text, range, spans, companyCode, from);
     return decl === undefined ? [] : [decl];
   });
   // 宣言を落として空になった規則は出さない(セレクタだけの規則は何も効かない)。
-  if (kept.every((decl) => decl.trim() === '')) return undefined;
+  if (kept.every((decl) => decl.trim() === '')) {
+    return undefined;
+  }
   return `${text.slice(0, ranges[0].start)}${kept.join(';')}}`;
 }
 

@@ -33,7 +33,9 @@ export async function readTemplateValues(templateId: string): Promise<TemplateVa
   try {
     size = (await fs.stat(file)).size;
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return { found: false, values: {} };
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { found: false, values: {} };
+    }
     throw e;
   }
   if (size > MAX_VALUES_BYTES) {

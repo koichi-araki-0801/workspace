@@ -54,7 +54,9 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(imagesDir, '%41.png'), PNG);
   fs.writeFileSync(path.join(imagesDir, 'XXAM', 'q#r.svg'), GOOD_SVG);
   // Windows は `?` をファイル名に使えない(純粋関数のテストで担保する)。
-  if (!IS_WINDOWS) fs.writeFileSync(path.join(imagesDir, 'a?b.png'), PNG);
+  if (!IS_WINDOWS) {
+    fs.writeFileSync(path.join(imagesDir, 'a?b.png'), PNG);
+  }
   // NTFS の代替データストリーム(作れない環境では存在しないファイルとして 404 になるだけ)。
   try {
     fs.writeFileSync(path.join(imagesDir, '950037_logo.svg:s.svg'), GOOD_SVG);
@@ -342,7 +344,9 @@ describe('POST /api/fund-assets/inspect', () => {
     const [result] = res.json().results;
     expect(result.status).toBe('svg_rejected');
     expect(result.violations.length).toBeGreaterThan(0);
-    for (const v of result.violations as string[]) expect(v.length).toBeLessThanOrEqual(200);
+    for (const v of result.violations as string[]) {
+      expect(v.length).toBeLessThanOrEqual(200);
+    }
     expect(result.violations.some((v: string) => v.endsWith('…'))).toBe(true);
     expect(res.body).not.toContain(longName);
   });

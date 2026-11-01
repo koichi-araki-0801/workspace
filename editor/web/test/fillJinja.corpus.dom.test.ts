@@ -62,8 +62,9 @@ function checkDirect(raw: string, sample: Record<string, unknown>) {
     ['jsdom', defaultHtmlParser],
     ['linkedom', linkedomParser],
   ];
-  for (const [name, parse] of parsers)
+  for (const [name, parse] of parsers) {
     expectRoundTrip(rawBody, toTemplate(filledBody, { asFragment: true }, parse), name);
+  }
   return result;
 }
 
@@ -80,7 +81,9 @@ const fixtureFiles = readdirSync(fixtureDir)
 function fixtureCase(file: string): { raw: string; sample: Record<string, unknown> } {
   const raw = readFileSync(resolve(fixtureDir, file), 'utf8');
   const attrs = parseTemplateFileName(file);
-  if (!attrs) throw new Error(file);
+  if (!attrs) {
+    throw new Error(file);
+  }
   const sample = fixtureSample(attrs.fundCode) as Record<string, unknown>;
   return { raw, sample };
 }
@@ -120,11 +123,12 @@ describe('乱数生成ケース', () => {
 // 本文の先頭のコメント(往復の印や fixture の見出しコメント)が読み込みで消えないことも、
 // ここで fixture・再現・乱数の全件に対して確かめる。
 describe('キャンバス経由', () => {
-  for (const file of fixtureFiles)
+  for (const file of fixtureFiles) {
     it(file, () => {
       const { raw, sample } = fixtureCase(file);
       checkCanvas(raw, sample);
     });
+  }
 
   it('本文の先頭のコメントが残る', () => {
     const { raw, sample } = fixtureCase(fixtureFiles[0] as string);

@@ -158,13 +158,18 @@ describe('openapi document', () => {
     const refs: string[] = [];
     const walk = (node: unknown): void => {
       if (Array.isArray(node)) {
-        for (const v of node) walk(v);
+        for (const v of node) {
+          walk(v);
+        }
         return;
       }
       if (node && typeof node === 'object') {
         for (const [k, v] of Object.entries(node)) {
-          if (k === '$ref' && typeof v === 'string') refs.push(v);
-          else walk(v);
+          if (k === '$ref' && typeof v === 'string') {
+            refs.push(v);
+          } else {
+            walk(v);
+          }
         }
       }
     };

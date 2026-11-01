@@ -34,8 +34,12 @@ function oldDiffTokens(a: string[], b: string[]): DiffOp[] {
       ops.push({ type: 'ins', text: b[j++] });
     }
   }
-  while (i < n) ops.push({ type: 'del', text: a[i++] });
-  while (j < m) ops.push({ type: 'ins', text: b[j++] });
+  while (i < n) {
+    ops.push({ type: 'del', text: a[i++] });
+  }
+  while (j < m) {
+    ops.push({ type: 'ins', text: b[j++] });
+  }
   return ops;
 }
 

@@ -38,7 +38,9 @@ function mountStub(): HTMLIFrameElement {
 
 function childWindow(): Window {
   const win = frame.contentWindow;
-  if (!win) throw new Error('jsdom が contentWindow を作っていない');
+  if (!win) {
+    throw new Error('jsdom が contentWindow を作っていない');
+  }
   return win;
 }
 

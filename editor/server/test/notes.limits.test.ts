@@ -168,7 +168,7 @@ describe('同時保存で更新が消えない', () => {
     // 1 件 64KiB × 70 件 ≒ 4.4MiB。件数上限 1000 の 7% でファイル上限を超える
     // (1000 × 64KiB = 64MiB は 4MiB の 16 倍で、件数だけではサイズを縛れない)。
     const map: Record<string, unknown> = {};
-    for (let i = 0; i < 70; i++)
+    for (let i = 0; i < 70; i++) {
       map[`p${i}`] = [
         {
           id: `e${i}`,
@@ -182,6 +182,7 @@ describe('同時保存で更新が消えない', () => {
           kind: 'note',
         },
       ];
+    }
     expect(Object.keys(map).length).toBeLessThan(MAX_NOTES_PER_TEMPLATE);
     await expect(
       files.writeNotes(tplId, map as Parameters<typeof files.writeNotes>[1]),

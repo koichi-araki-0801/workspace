@@ -48,7 +48,9 @@ export function useZoomFit(ctx: ZoomFitContext) {
    */
   function updateScrollMode(): void {
     const containerEl = ctx.getContainer();
-    if (!containerEl) return;
+    if (!containerEl) {
+      return;
+    }
     const body = ctx.editor.value?.Canvas.getBody();
     const fits =
       !!body &&
@@ -68,12 +70,16 @@ export function useZoomFit(ctx: ZoomFitContext) {
   function fitToView(): void {
     const containerEl = ctx.getContainer();
     const body = ctx.editor.value?.Canvas.getBody();
-    if (!body || !containerEl) return;
+    if (!body || !containerEl) {
+      return;
+    }
     const availH = containerEl.clientHeight - FIT_MARGIN;
     const availW = containerEl.clientWidth - FIT_MARGIN;
     const pageH = body.offsetHeight;
     const pageW = body.offsetWidth;
-    if (pageH <= 0 || pageW <= 0 || availH <= 0 || availW <= 0) return;
+    if (pageH <= 0 || pageW <= 0 || availH <= 0 || availW <= 0) {
+      return;
+    }
     setZoom(Math.min(availH / pageH, availW / pageW));
     // `setZoom` 側の rAF でも更新されるが、フィット直後の class を確実に揃えておく。
     updateScrollMode();

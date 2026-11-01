@@ -179,16 +179,26 @@ function methodsOf(routeOptions: RouteOptions): string[] {
 
 function preHandlersOf(routeOptions: RouteOptions): unknown[] {
   const raw = routeOptions.preHandler;
-  if (!raw) return [];
+  if (!raw) {
+    return [];
+  }
   return Array.isArray(raw) ? [...raw] : [raw];
 }
 
 /** 実際に付いているガードから読み取ったレベル。表の宣言と厳密一致していなければならない。 */
 function levelOf(preHandlers: readonly unknown[]): GuardLevel {
-  if (!preHandlers.includes(requireAuth)) return 'public';
-  if (preHandlers.includes(requireAdmin)) return 'admin';
-  if (preHandlers.includes(requireApprover)) return 'approver';
-  if (preHandlers.includes(requireEditor)) return 'editor';
+  if (!preHandlers.includes(requireAuth)) {
+    return 'public';
+  }
+  if (preHandlers.includes(requireAdmin)) {
+    return 'admin';
+  }
+  if (preHandlers.includes(requireApprover)) {
+    return 'approver';
+  }
+  if (preHandlers.includes(requireEditor)) {
+    return 'editor';
+  }
   return 'auth';
 }
 
@@ -200,8 +210,12 @@ function levelOf(preHandlers: readonly unknown[]): GuardLevel {
  */
 export function assertRoutePolicy(routeOptions: RouteOptions): void {
   const url = routeOptions.url;
-  if (!url.startsWith('/api')) return;
-  if (EXTERNAL_ROUTE_PREFIXES.some((prefix) => url.startsWith(prefix))) return;
+  if (!url.startsWith('/api')) {
+    return;
+  }
+  if (EXTERNAL_ROUTE_PREFIXES.some((prefix) => url.startsWith(prefix))) {
+    return;
+  }
 
   const preHandlers = preHandlersOf(routeOptions);
   const actual = levelOf(preHandlers);

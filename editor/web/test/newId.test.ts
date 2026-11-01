@@ -25,7 +25,9 @@ describe('newId', () => {
     let n = 0;
     vi.stubGlobal('crypto', {
       getRandomValues: (a: Uint8Array) => {
-        for (let i = 0; i < a.length; i++) a[i] = (n++ * 37) & 0xff;
+        for (let i = 0; i < a.length; i++) {
+          a[i] = (n++ * 37) & 0xff;
+        }
         return a;
       },
     });

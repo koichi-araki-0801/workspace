@@ -34,7 +34,7 @@ const shown = computed(() => (props.modelValue == null ? '' : String(props.model
 const editing = ref(false);
 const draft = ref(shown.value);
 watch(shown, (v) => {
-  if (!editing.value) draft.value = v;
+  if (!editing.value) { draft.value = v; }
 });
 
 // 「対応なし」を解除したときの戻り先。直前に指していたページへ戻せると往復が軽い。
@@ -42,7 +42,7 @@ const lastValid = ref(props.modelValue ?? 0);
 watch(
   () => props.modelValue,
   (v) => {
-    if (v != null) lastValid.value = v;
+    if (v != null) { lastValid.value = v; }
   },
 );
 
@@ -51,7 +51,7 @@ const inputWidth = computed(() => `${Math.max(2, String(props.pageCount).length)
 
 /** 0 起点 index を確定する(変化があるときだけ通知し、無駄な再 diff を避ける)。 */
 function commitIndex(index: number): void {
-  if (index !== props.modelValue) emit('update:modelValue', index);
+  if (index !== props.modelValue) { emit('update:modelValue', index); }
 }
 
 /** 入力中の値を解釈して確定する。無効(空 / 非数値)なら元の値へ戻す。 */
@@ -74,7 +74,7 @@ function onFocus(e: FocusEvent): void {
 
 /** 上下キー / PageUp・Down で相対移動する。対応なしからは先頭ページを起点にする。 */
 function step(delta: number): void {
-  if (disabled.value) return;
+  if (disabled.value) { return; }
   const base = props.modelValue == null ? 0 : props.modelValue + delta;
   commitIndex(clampPage(base + 1, props.pageCount) - 1);
 }

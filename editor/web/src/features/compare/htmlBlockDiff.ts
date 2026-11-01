@@ -129,7 +129,9 @@ export function buildDiffDoc(fragment: string, css: string, highlightCss: string
  * プレビュー(vivliostyle = print 相当)で実際の見えを確認できる。
  */
 export function hasPrintOnlyRules(css: string): boolean {
-  if (!css.trim()) return false;
+  if (!css.trim()) {
+    return false;
+  }
   // `media="not all"` を付けて**この文書には一切適用させず**、規則の解析結果だけを読む。
   // 切り離した document(`createHTMLDocument`)では stylesheet が結び付かず `sheet` が
   // null になるため、生きた document へ一時的に挿す以外に CSSOM を得る手が無い。
@@ -147,7 +149,9 @@ export function hasPrintOnlyRules(css: string): boolean {
 /** メディアクエリが「print には効くが screen には効かない」= 承認者の見えと乖離するか。 */
 function divergesFromScreen(mediaText: string): boolean {
   const t = mediaText.toLowerCase();
-  if (!/\bprint\b/.test(t)) return false;
+  if (!/\bprint\b/.test(t)) {
+    return false;
+  }
   // `screen, print` や `all` は承認者の画面にも効くので乖離しない。
   return !/\bscreen\b/.test(t) && !/\ball\b/.test(t);
 }
@@ -155,10 +159,14 @@ function divergesFromScreen(mediaText: string): boolean {
 function printOnlyInRules(rules: CSSRuleList): boolean {
   for (const rule of Array.from(rules)) {
     const media = (rule as CSSMediaRule).media?.mediaText;
-    if (media !== undefined && divergesFromScreen(media)) return true;
+    if (media !== undefined && divergesFromScreen(media)) {
+      return true;
+    }
     // `@supports` / `@layer` の内側にも `@media` は書ける。
     const nested = (rule as CSSGroupingRule).cssRules;
-    if (nested && printOnlyInRules(nested)) return true;
+    if (nested && printOnlyInRules(nested)) {
+      return true;
+    }
   }
   return false;
 }

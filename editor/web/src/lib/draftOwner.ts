@@ -29,7 +29,9 @@ export interface DraftOwner {
 
 function newToken(): string {
   const c = globalThis.crypto;
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  if (c && typeof c.randomUUID === 'function') {
+    return c.randomUUID();
+  }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
@@ -37,7 +39,9 @@ function newToken(): string {
 export function sessionToken(): string {
   try {
     const current = sessionStorage.getItem(SESSION_TOKEN_KEY);
-    if (current) return current;
+    if (current) {
+      return current;
+    }
     const token = newToken();
     sessionStorage.setItem(SESSION_TOKEN_KEY, token);
     return token;
@@ -72,7 +76,9 @@ export const draftOwner: DraftOwner = {
   },
   release(templateId) {
     const map = readMap();
-    if (!(templateId in map)) return;
+    if (!(templateId in map)) {
+      return;
+    }
     delete map[templateId];
     writeMap(map);
   },

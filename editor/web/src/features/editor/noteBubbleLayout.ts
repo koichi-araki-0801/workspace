@@ -87,7 +87,11 @@ export function computeBubbleAnchor(input: BubbleAnchorInput): BubbleAnchor {
  * 自己再発火して無限ループになる(吹き出し表示中ずっと毎フレーム再計測が走る形)。
  */
 export function sameBubbleAnchor(a: BubbleAnchor | null, b: BubbleAnchor | null): boolean {
-  if (a === b) return true;
-  if (a === null || b === null) return false;
+  if (a === b) {
+    return true;
+  }
+  if (a === null || b === null) {
+    return false;
+  }
   return a.side === b.side && a.left === b.left && a.top === b.top;
 }

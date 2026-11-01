@@ -69,11 +69,11 @@ const pickable = computed(() => props.canDecide && props.status === 'pending' &&
 watch(
   () => props.status,
   (s) => {
-    if (s !== 'pending') closeReject();
+    if (s !== 'pending') { closeReject(); }
   },
 );
 watch(draft, (v) => {
-  if (v.trim()) emptyError.value = false;
+  if (v.trim()) { emptyError.value = false; }
 });
 
 function openReject() {
@@ -88,8 +88,8 @@ function closeReject() {
 
 function submitReject() {
   const problem = rejectReasonProblem(draft.value);
-  if (problem === 'empty') emptyError.value = true;
-  if (problem !== null) return;
+  if (problem === 'empty') { emptyError.value = true; }
+  if (problem !== null) { return; }
   emit('reject', draft.value.trim());
 }
 

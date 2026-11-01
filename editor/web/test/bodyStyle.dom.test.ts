@@ -44,7 +44,9 @@ function styleCount(html: string): number {
 function canvasDoc(g: ReturnType<typeof useGrapes>): Document {
   const doc = document.implementation.createHTMLDocument('');
   const canvas = g.editor.value?.Canvas;
-  if (!canvas) throw new Error('editor が無い');
+  if (!canvas) {
+    throw new Error('editor が無い');
+  }
   vi.spyOn(canvas, 'getDocument').mockReturnValue(doc);
   return doc;
 }
@@ -92,7 +94,9 @@ describe('本文の <style>', () => {
 
   it('編集タブ: Undo の snapshot・下書きの再読込(load(getBodyHtml()))を繰り返しても残る', () => {
     g.load(BODY, '');
-    for (let i = 0; i < 3; i++) g.load(g.getBodyHtml(), g.getCss());
+    for (let i = 0; i < 3; i++) {
+      g.load(g.getBodyHtml(), g.getCss());
+    }
     const html = g.getBodyHtml();
     expect(html).toContain(STYLE);
     expect(styleCount(html)).toBe(1);

@@ -55,8 +55,9 @@ export const REPOS_KEY: InjectionKey<Repositories> = Symbol('Repositories');
 /** 全リポジトリを inject する。コンポーネント/ストア/サービスの setup で使う。 */
 function useRepos(): Repositories {
   const repos = inject(REPOS_KEY);
-  if (!repos)
+  if (!repos) {
     throw new Error('Repositories が provide されていません（main.ts の provide を確認）');
+  }
   return repos;
 }
 

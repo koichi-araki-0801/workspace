@@ -41,7 +41,9 @@ function setup(
   }
   const getElementPos = vi.fn((el: Element, _opts?: { noScroll?: boolean }) => {
     const p = pos.get(el);
-    if (!p) throw new Error(`no pos for ${el.id}`);
+    if (!p) {
+      throw new Error(`no pos for ${el.id}`);
+    }
     return p;
   });
   const editor = shallowRef({
@@ -62,7 +64,9 @@ function setup(
     top: (id: string) => {
       const el = root.querySelector(`#${id}`);
       const p = el && pos.get(el);
-      if (!p) throw new Error(`no pos for ${id}`);
+      if (!p) {
+        throw new Error(`no pos for ${id}`);
+      }
       return p.top;
     },
   };
@@ -85,7 +89,9 @@ describe('usePageGuides', () => {
     ]);
     // overlay は viewport 相対の座標で置くので、すべての測位が noScroll。
     expect(getElementPos).toHaveBeenCalled();
-    for (const call of getElementPos.mock.calls) expect(call[1]).toEqual({ noScroll: true });
+    for (const call of getElementPos.mock.calls) {
+      expect(call[1]).toEqual({ noScroll: true });
+    }
   });
 
   it('区切りの帯がページの間にあれば、線は帯の上端に引く', () => {

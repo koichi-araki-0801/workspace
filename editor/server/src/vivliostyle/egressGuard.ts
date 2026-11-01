@@ -161,9 +161,15 @@ function isForwardableTarget(
   port: number,
   allowed: ReadonlySet<number>,
 ): boolean {
-  if (!isLoopbackHost(hostname)) return false;
-  if (port === config.port) return false;
-  if (relayPorts.has(port)) return false;
+  if (!isLoopbackHost(hostname)) {
+    return false;
+  }
+  if (port === config.port) {
+    return false;
+  }
+  if (relayPorts.has(port)) {
+    return false;
+  }
   return allowed.has(port);
 }
 
@@ -218,8 +224,12 @@ export async function pickFreePortSpan(probe: PortProbe = listenProbe): Promise<
       }
       const ports = Array.from({ length: BUILD_PORT_SPAN }, (_, i) => base + i);
       // API ポートを覆う番地は端から使わない(`isForwardableTarget` の最終防御に頼らない)。
-      if (ports.includes(config.port)) continue;
-      if (ports.some((p) => reservedPorts.has(p))) continue;
+      if (ports.includes(config.port)) {
+        continue;
+      }
+      if (ports.some((p) => reservedPorts.has(p))) {
+        continue;
+      }
       let free = true;
       for (const p of ports.slice(1)) {
         try {
@@ -230,8 +240,12 @@ export async function pickFreePortSpan(probe: PortProbe = listenProbe): Promise<
           break;
         }
       }
-      if (!free) continue;
-      for (const p of ports) reservedPorts.add(p);
+      if (!free) {
+        continue;
+      }
+      for (const p of ports) {
+        reservedPorts.add(p);
+      }
       return ports;
     }
   } finally {
@@ -308,7 +322,9 @@ function handleRequest(
   // 購読が無いと、黙り込んだ上流を待つ中継が build のタイムアウトまで枠を占有する。
   upstream.on('timeout', () => upstream.destroy());
   upstream.on('error', () => {
-    if (!res.headersSent) res.statusCode = 502;
+    if (!res.headersSent) {
+      res.statusCode = 502;
+    }
     res.end();
   });
   // client が先に消えたときに上流への要求だけが生き残らないようにする(枠を返した後まで
@@ -355,7 +371,9 @@ function startRelay(allowed: ReadonlySet<number>): Promise<EgressRelay> {
       resolve({
         url: `http://127.0.0.1:${port}`,
         close() {
-          if (closed) return;
+          if (closed) {
+            return;
+          }
           closed = true;
           relays.delete(s);
           relayPorts.delete(port);
@@ -393,7 +411,9 @@ export async function reserveBuildOrigin(): Promise<BuildOriginReservation> {
     relay = await startRelay(new Set(ports));
   } catch (e) {
     // 中継が立たないなら枠も返す。返さないと以後の予約がこの番地を避け続ける(枠の枯渇)。
-    for (const p of ports) reservedPorts.delete(p);
+    for (const p of ports) {
+      reservedPorts.delete(p);
+    }
     throw e;
   }
   // 冪等にする。2 度目の release で枠を消すと、その番地を既に取り直した別のビルドの
@@ -404,10 +424,14 @@ export async function reserveBuildOrigin(): Promise<BuildOriginReservation> {
     ports,
     proxyServer: relay.url,
     release: () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       relay.close();
-      for (const p of ports) reservedPorts.delete(p);
+      for (const p of ports) {
+        reservedPorts.delete(p);
+      }
     },
   };
 }
@@ -423,7 +447,9 @@ export async function reserveBuildOrigin(): Promise<BuildOriginReservation> {
  * 落とすと遮断ごと消えるので、fail closed にする。
  */
 export function startEgressGuard(): Promise<string> {
-  if (sharedStarting) return sharedStarting;
+  if (sharedStarting) {
+    return sharedStarting;
+  }
   const attempt = startRelay(new Set<number>()).then((relay) => relay.url);
   // 失敗した約束を握り続けると、以後の build が全部同じ失敗を再生し続ける(一時的な
   // EADDRINUSE で永続故障になる)。失敗時だけキャッシュを捨てて次回に再試行させる。

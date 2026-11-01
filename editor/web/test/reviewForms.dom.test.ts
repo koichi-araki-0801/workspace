@@ -37,7 +37,9 @@ const CASES = JSON.parse(
 
 /** 受付を通れば描画結果、止まれば null。 */
 function accepted(c: FormCase): string | null {
-  if (!c.gatePass) return null;
+  if (!c.gatePass) {
+    return null;
+  }
   try {
     return renderCreateReview(c.src, c.data ?? { fund: { name: 'F' } }, c.base).renderedHtml;
   } catch {
@@ -75,7 +77,9 @@ async function rightColumnText(renderedHtml: string): Promise<string> {
     >[2],
   );
   const res = await service.buildDiff('r1');
-  if (!res.ok) throw new Error(res.error.message);
+  if (!res.ok) {
+    throw new Error(res.error.message);
+  }
   return res.value.changes
     .flatMap((c) => c.textOps)
     .filter((o) => o.type !== 'del')
@@ -92,7 +96,9 @@ describe('敵対レビューの全形 — 承認画面の右欄', () => {
     '%s: 受付で止まるか、右欄の文字に出る',
     async (_id, c) => {
       const rendered = accepted(c);
-      if (rendered === null || !c.prodShows) return;
+      if (rendered === null || !c.prodShows) {
+        return;
+      }
       expect(await rightColumnText(rendered), c.src).toContain(c.mark);
     },
   );

@@ -32,7 +32,9 @@ beforeEach(() => resetLoginRateLimit());
 /** 1 試行を通して即 settle する(ゲージを埋めずに回数だけ消費する定型)。 */
 function attempt(loginId: string, now: number, ip: string | undefined = IP): boolean {
   const r = beginCredentialAttempt('login', ip, canonicalLoginId(loginId), now);
-  if (r.ok) settleCredentialAttempt(r.ticket, 'failure');
+  if (r.ok) {
+    settleCredentialAttempt(r.ticket, 'failure');
+  }
   return r.ok;
 }
 
@@ -43,21 +45,29 @@ describe('beginCredentialAttempt — 予約方式', () => {
     const tickets = [];
     for (let i = 0; i < 20; i += 1) {
       const r = beginCredentialAttempt('login', IP, 'admin', T0);
-      if (r.ok) tickets.push(r.ticket);
+      if (r.ok) {
+        tickets.push(r.ticket);
+      }
     }
     // 同時実行ゲージ(第 3 段)のほうが先に効くので、通るのは高々その本数。
     expect(tickets.length).toBe(MAX_CONCURRENT_ATTEMPTS);
-    for (const t of tickets) settleCredentialAttempt(t, 'failure');
+    for (const t of tickets) {
+      settleCredentialAttempt(t, 'failure');
+    }
     // ゲージを空けても、既に計上済みの回数は戻らない。
     expect(loginInFlightCount()).toBe(0);
   });
 
   it('allows attempts up to the threshold and blocks the next one', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) expect(attempt('admin', T0)).toBe(true);
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      expect(attempt('admin', T0)).toBe(true);
+    }
 
     const r = beginCredentialAttempt('login', IP, 'admin', T0);
     expect(r.ok).toBe(false);
-    if (r.ok) return;
+    if (r.ok) {
+      return;
+    }
     expect(r.error).toMatchObject({ kind: 'forbidden', code: LOGIN_RATE_LIMITED_CODE });
     expect(r.error.message).toContain('ログイン試行が多すぎます');
   });
@@ -65,19 +75,25 @@ describe('beginCredentialAttempt — 予約方式', () => {
   // DB の `Japanese_CI_AS` は大小・幅を区別せず末尾空白を無視し、65 文字目以降は切り詰める。
   // JS 側のキーがこれとずれると、同じ 1 アカウントに独立したカウンタをいくつでも作れる。
   it('folds the login id the same way the database does', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) attempt('admin', T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      attempt('admin', T0);
+    }
 
     for (const variant of ['ADMIN', 'admin ', 'ａｄｍｉｎ', 'Admin　']) {
       expect(attempt(variant, T0)).toBe(false);
     }
     // 64 文字目まで同じなら DB も同一行に当たるので、キーも同一でなければならない。
     const long = 'a'.repeat(64);
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) attempt(long, T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      attempt(long, T0);
+    }
     expect(attempt(`${long}b`, T0)).toBe(false);
   });
 
   it('does not punish a different IP or a different login id', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) attempt('admin', T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      attempt('admin', T0);
+    }
 
     expect(attempt('admin', T0, '10.0.0.2')).toBe(true);
     expect(attempt('editor', T0)).toBe(true);
@@ -88,7 +104,9 @@ describe('beginCredentialAttempt — 予約方式', () => {
   it('spreads across login ids but still trips the per-IP window', () => {
     let allowed = 0;
     for (let i = 0; i < IP_MAX_ATTEMPTS + 20; i += 1) {
-      if (attempt(`user${i}`, T0)) allowed += 1;
+      if (attempt(`user${i}`, T0)) {
+        allowed += 1;
+      }
     }
     expect(allowed).toBe(IP_MAX_ATTEMPTS);
     expect(attempt('anyone-else', T0)).toBe(false);
@@ -97,38 +115,54 @@ describe('beginCredentialAttempt — 予約方式', () => {
   // 対称にすると、有効な資格情報を 1 つ持つ攻撃者が自分のログイン成功を挟むだけで
   // IP 上限をリセットでき、スプレーが素通しになる。
   it('does not let a successful login clear the per-IP window', () => {
-    for (let i = 0; i < IP_MAX_ATTEMPTS - 1; i += 1) attempt(`user${i}`, T0);
+    for (let i = 0; i < IP_MAX_ATTEMPTS - 1; i += 1) {
+      attempt(`user${i}`, T0);
+    }
     const mine = beginCredentialAttempt('login', IP, 'mine', T0);
     expect(mine.ok).toBe(true);
-    if (mine.ok) settleCredentialAttempt(mine.ticket, 'success');
+    if (mine.ok) {
+      settleCredentialAttempt(mine.ticket, 'success');
+    }
 
     // 成功で消えるのは自分の第 1 段だけ。IP 窓は残っているので次で上限に達する。
     expect(attempt('someone', T0)).toBe(false);
   });
 
   it('forgets the per-id failures of a successful login', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i += 1) attempt('admin', T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i += 1) {
+      attempt('admin', T0);
+    }
     const ok = beginCredentialAttempt('login', IP, 'admin', T0);
     expect(ok.ok).toBe(true);
-    if (ok.ok) settleCredentialAttempt(ok.ticket, 'success');
+    if (ok.ok) {
+      settleCredentialAttempt(ok.ticket, 'success');
+    }
 
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) expect(attempt('admin', T0)).toBe(true);
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      expect(attempt('admin', T0)).toBe(true);
+    }
   });
 
   it('lifts the block once the wait has elapsed', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) attempt('admin', T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) {
+      attempt('admin', T0);
+    }
 
     expect(attempt('admin', T0 + 14 * MINUTE)).toBe(false);
     expect(attempt('admin', T0 + 16 * MINUTE)).toBe(true);
   });
 
   it('restarts counting after the window, so slow typos never accumulate into a block', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) attempt('admin', T0 + i * MINUTE);
+    for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
+      attempt('admin', T0 + i * MINUTE);
+    }
     expect(attempt('admin', T0 + 30 * MINUTE)).toBe(true);
   });
 
   it('separates the login and init-password scopes', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) attempt('admin', T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) {
+      attempt('admin', T0);
+    }
     expect(beginCredentialAttempt('init-password', IP, 'admin', T0).ok).toBe(true);
   });
 
@@ -136,7 +170,9 @@ describe('beginCredentialAttempt — 予約方式', () => {
     for (let i = 0; i < LOGIN_MAX_FAILURES; i += 1) {
       const r = beginCredentialAttempt('login', IP, 'admin');
       expect(r.ok).toBe(true);
-      if (r.ok) settleCredentialAttempt(r.ticket, 'failure');
+      if (r.ok) {
+        settleCredentialAttempt(r.ticket, 'failure');
+      }
     }
     expect(beginCredentialAttempt('login', IP, 'admin').ok).toBe(false);
   });
@@ -148,13 +184,19 @@ describe('同時実行ゲージ(第 3 段)', () => {
     for (let i = 0; i < MAX_CONCURRENT_ATTEMPTS; i += 1) {
       const r = beginCredentialAttempt('login', `10.1.0.${i}`, `user${i}`, T0);
       expect(r.ok).toBe(true);
-      if (r.ok) tickets.push(r.ticket);
+      if (r.ok) {
+        tickets.push(r.ticket);
+      }
     }
     const overflow = beginCredentialAttempt('login', '10.1.9.9', 'other', T0);
     expect(overflow.ok).toBe(false);
-    if (!overflow.ok) expect(overflow.error.code).toBe(LOGIN_BUSY_CODE);
+    if (!overflow.ok) {
+      expect(overflow.error.code).toBe(LOGIN_BUSY_CODE);
+    }
 
-    for (const t of tickets) settleCredentialAttempt(t, 'failure');
+    for (const t of tickets) {
+      settleCredentialAttempt(t, 'failure');
+    }
     expect(loginInFlightCount()).toBe(0);
     expect(beginCredentialAttempt('login', '10.1.9.9', 'other', T0).ok).toBe(true);
   });
@@ -163,8 +205,12 @@ describe('同時実行ゲージ(第 3 段)', () => {
     const a = beginCredentialAttempt('login', IP, 'a', T0);
     const b = beginCredentialAttempt('login', IP, 'b', T0);
     expect(loginInFlightCount()).toBe(2);
-    if (a.ok) settleCredentialAttempt(a.ticket, 'success');
-    if (b.ok) settleCredentialAttempt(b.ticket, 'failure');
+    if (a.ok) {
+      settleCredentialAttempt(a.ticket, 'success');
+    }
+    if (b.ok) {
+      settleCredentialAttempt(b.ticket, 'failure');
+    }
     expect(loginInFlightCount()).toBe(0);
   });
 
@@ -186,7 +232,9 @@ describe('表の上限と掃除', () => {
   // 最中の失敗カウンタで、落ちたキーは次の計上で 0 からやり直しになる(fail open)。
   // 上限は**新規キーの拒否**で守る。詳細は `loginRateLimit.capacity.test.ts`。
   it('caps the table size and keeps a live block while flooded', () => {
-    for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) attempt('victim', T0);
+    for (let i = 0; i < LOGIN_MAX_FAILURES + 1; i += 1) {
+      attempt('victim', T0);
+    }
     // 未認証でできる操作(違う IP・違う ID で失敗し続ける)だけで上限を溢れさせる。
     for (let i = 0; i < LOGIN_MAX_ENTRIES + 100; i += 1) {
       attempt(`flood${i}`, T0 + 1, `10.9.${(i >> 8) & 255}.${i & 255}`);

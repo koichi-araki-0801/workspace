@@ -53,11 +53,17 @@ function isLegacyBreakValue(v: string | undefined): boolean {
  */
 export function ignoredInlineBreakProps(el: Element, edge: 'before' | 'after'): string[] {
   const style = el.getAttribute('style');
-  if (!style) return [];
+  if (!style) {
+    return [];
+  }
   const last = new Map(parseDecls(style));
   const out: string[] = [];
-  if (isLegacyBreakValue(last.get(`page-break-${edge}`))) out.push(`page-break-${edge}`);
-  if (last.get(`break-${edge}`) === 'always') out.push(`break-${edge}`);
+  if (isLegacyBreakValue(last.get(`page-break-${edge}`))) {
+    out.push(`page-break-${edge}`);
+  }
+  if (last.get(`break-${edge}`) === 'always') {
+    out.push(`break-${edge}`);
+  }
   return out;
 }
 
@@ -87,12 +93,16 @@ const SCRIPT_CLOSE_RE = /<\/script[^>]*>/g;
  * パーツの番号がずれうる。テストから直接検証するために公開する。
  */
 export function isElementizingChip(el: Element): boolean {
-  if (!el.classList.contains(JINJA_CHIP_CLASS)) return false;
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) {
+    return false;
+  }
   if (el.hasAttribute(DATA_JINJA)) {
     const src = chipSource(el, DATA_JINJA);
     return src.startsWith('{{') && SAFE_FILTER_RE.test(src);
   }
-  if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') return false;
+  if (el.getAttribute(DATA_OPAQUE_KIND) !== 'rawtext') {
+    return false;
+  }
   const src = chipSource(el, DATA_OPAQUE);
   return src.startsWith('{%') && hasVisibleElementMarkup(src);
 }
@@ -108,14 +118,20 @@ function hasVisibleElementMarkup(src: string): boolean {
   for (;;) {
     ANY_LT_RE.lastIndex = from;
     const lt = ANY_LT_RE.exec(lower);
-    if (!lt) return false;
+    if (!lt) {
+      return false;
+    }
     RAWTEXT_OPEN_RE.lastIndex = lt.index;
     const open = RAWTEXT_OPEN_RE.exec(lower);
-    if (!open) return true;
+    if (!open) {
+      return true;
+    }
     const close = open[1] === 'style' ? STYLE_CLOSE_RE : SCRIPT_CLOSE_RE;
     close.lastIndex = lt.index;
     const end = close.exec(lower);
-    if (!end) return false;
+    if (!end) {
+      return false;
+    }
     from = end.index + end[0].length;
   }
 }
@@ -140,9 +156,13 @@ export function pageBreakOn<T extends Element>(split: PageSplit<T>, p: number): 
 export function pageHead<T extends Element>(split: PageSplit<T>, i: number): T | undefined {
   for (let p = Math.max(i, 0); p < split.pages.length; p++) {
     const part = split.pages[p][0];
-    if (part) return part;
+    if (part) {
+      return part;
+    }
     const brk = pageBreakOn(split, p);
-    if (brk) return brk;
+    if (brk) {
+      return brk;
+    }
   }
   return undefined;
 }
@@ -166,7 +186,9 @@ export function findUncountedBreaks(root: Element): Element[] {
   const out: Element[] = [];
   const walk = (parent: Element, nested: boolean): void => {
     for (const el of Array.from(parent.children)) {
-      if (el.hasAttribute(REDLINE_ATTR)) continue;
+      if (el.hasAttribute(REDLINE_ATTR)) {
+        continue;
+      }
       if (nested && (isPagebreakEl(el) || inlineBreak(el, 'before') || inlineBreak(el, 'after'))) {
         out.push(el);
       }
@@ -188,8 +210,12 @@ export function findIgnoredInlineBreaks(root: Element): Element[] {
   const out: Element[] = [];
   const walk = (parent: Element): void => {
     for (const el of Array.from(parent.children)) {
-      if (el.hasAttribute(REDLINE_ATTR)) continue;
-      if (hasIgnoredInlineBreak(el)) out.push(el);
+      if (el.hasAttribute(REDLINE_ATTR)) {
+        continue;
+      }
+      if (hasIgnoredInlineBreak(el)) {
+        out.push(el);
+      }
       walk(el);
     }
   };
@@ -220,7 +246,9 @@ function readRule(text: string): {
   decls: Array<[string, string]>;
 } | null {
   const open = text.indexOf('{');
-  if (open < 0) return null;
+  if (open < 0) {
+    return null;
+  }
   const head = text
     .slice(0, open)
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -243,13 +271,17 @@ function readRule(text: string): {
 export function pagebreakCssDefined(css: string): boolean {
   for (const rule of splitCssRules(css)) {
     const parsed = readRule(rule.text);
-    if (!parsed?.selectors.some((s) => PAGEBREAK_SELECTOR_RE.test(s))) continue;
+    if (!parsed?.selectors.some((s) => PAGEBREAK_SELECTOR_RE.test(s))) {
+      continue;
+    }
     const breaks = parsed.decls.some(
       ([prop, value]) =>
         (BREAK_PROP_RE.test(prop) && isBreakValue(value)) ||
         (LEGACY_BREAK_PROP_RE.test(prop) && isLegacyBreakValue(value)),
     );
-    if (breaks) return true;
+    if (breaks) {
+      return true;
+    }
   }
   return false;
 }
@@ -284,7 +316,9 @@ export function cssRuleBreakSelector(sources: readonly string[]): string | null 
   for (const css of sources) {
     for (const rule of splitCssRules(css)) {
       const parsed = readRule(rule.text);
-      if (!parsed || parsed.head.startsWith('@')) continue;
+      if (!parsed || parsed.head.startsWith('@')) {
+        continue;
+      }
       const { decls } = parsed;
       const breaks = (edge: 'before' | 'after', accepts?: (v: string) => boolean) =>
         decls.some(
@@ -295,10 +329,14 @@ export function cssRuleBreakSelector(sources: readonly string[]): string | null 
         );
       const before = breaks('before');
       const after = breaks('after');
-      if (!before && !after) continue;
+      if (!before && !after) {
+        continue;
+      }
       const sidedAfter = breaks('after', (v) => SIDED_BREAK_VALUES.has(v));
       for (const sel of parsed.selectors) {
-        if (!PAGEBREAK_SELECTOR_RE.test(sel) || before || sidedAfter) return sel;
+        if (!PAGEBREAK_SELECTOR_RE.test(sel) || before || sidedAfter) {
+          return sel;
+        }
       }
     }
   }

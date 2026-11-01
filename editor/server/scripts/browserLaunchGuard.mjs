@@ -66,7 +66,9 @@ export function normalizeExecutable(file) {
 
 /** `file` がブラウザの起動か。覚えた実行ファイル(`known`)か、名前で見分ける。 */
 export function isBrowserExecutable(file, known) {
-  if (known.has(normalizeExecutable(file))) return true;
+  if (known.has(normalizeExecutable(file))) {
+    return true;
+  }
   const base = path
     .basename(String(file).replaceAll('\\', '/'))
     .toLowerCase()
@@ -78,19 +80,27 @@ export function isBrowserExecutable(file, known) {
 
 /** exports の 1 項目を import の条件で読む(Node と同じく、キーの順で最初に合う条件)。 */
 function pickImportTarget(entry) {
-  if (typeof entry === 'string') return entry;
+  if (typeof entry === 'string') {
+    return entry;
+  }
   if (Array.isArray(entry)) {
     for (const e of entry) {
       const hit = pickImportTarget(e);
-      if (hit) return hit;
+      if (hit) {
+        return hit;
+      }
     }
     return undefined;
   }
   if (entry && typeof entry === 'object') {
     for (const [key, value] of Object.entries(entry)) {
-      if (!IMPORT_CONDITIONS.has(key)) continue;
+      if (!IMPORT_CONDITIONS.has(key)) {
+        continue;
+      }
       const hit = pickImportTarget(value);
-      if (hit) return hit;
+      if (hit) {
+        return hit;
+      }
     }
   }
   return undefined;
@@ -105,10 +115,14 @@ export function importTargetOf(pkgDir) {
         ? pkg.exports['.']
         : pkg.exports;
     const target = pickImportTarget(root);
-    if (target) return target;
+    if (target) {
+      return target;
+    }
     throw new Error(`[browserLaunchGuard] ${pkgDir} の exports に import の行き先がありません`);
   }
-  if (typeof pkg.main === 'string') return pkg.main;
+  if (typeof pkg.main === 'string') {
+    return pkg.main;
+  }
   throw new Error(`[browserLaunchGuard] ${pkgDir} の入口(exports / main)がありません`);
 }
 
@@ -121,10 +135,14 @@ export function findPackageDir(fromFile, name) {
   for (;;) {
     if (path.basename(dir) !== 'node_modules') {
       const candidate = path.join(dir, 'node_modules', name);
-      if (fs.existsSync(path.join(candidate, 'package.json'))) return candidate;
+      if (fs.existsSync(path.join(candidate, 'package.json'))) {
+        return candidate;
+      }
     }
     const parent = path.dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir) {
+      return null;
+    }
     dir = parent;
   }
 }
@@ -144,9 +162,13 @@ function owningPackageDir(file, name) {
   let dir = path.dirname(file);
   for (;;) {
     const pj = path.join(dir, 'package.json');
-    if (fs.existsSync(pj) && JSON.parse(fs.readFileSync(pj, 'utf8')).name === name) return dir;
+    if (fs.existsSync(pj) && JSON.parse(fs.readFileSync(pj, 'utf8')).name === name) {
+      return dir;
+    }
     const parent = path.dirname(dir);
-    if (parent === dir) return null;
+    if (parent === dir) {
+      return null;
+    }
     dir = parent;
   }
 }
@@ -186,12 +208,18 @@ export function wrapComputeLaunchArguments(ChromeLauncher, known) {
       '[browserLaunchGuard] ChromeLauncher.prototype.computeLaunchArguments がありません',
     );
   }
-  if (original[WRAPPED]) return;
+  if (original[WRAPPED]) {
+    return;
+  }
   const wrapped = async function computeLaunchArguments(...args) {
     const result = await original.apply(this, args);
-    if (!result.args.includes(WEBRTC_FLAG)) result.args.push(WEBRTC_FLAG);
+    if (!result.args.includes(WEBRTC_FLAG)) {
+      result.args.push(WEBRTC_FLAG);
+    }
     // 関所が名前で見分けられない実行ファイル(名前を変えた配備)でも掛かるよう覚える。
-    if (result.executablePath) known.add(normalizeExecutable(result.executablePath));
+    if (result.executablePath) {
+      known.add(normalizeExecutable(result.executablePath));
+    }
     return result;
   };
   wrapped[WRAPPED] = true;
@@ -206,7 +234,9 @@ export function wrapComputeLaunchArguments(ChromeLauncher, known) {
  */
 export function installSpawnGate(known) {
   const original = childProcess.spawn;
-  if (original[WRAPPED]) return () => {};
+  if (original[WRAPPED]) {
+    return () => {};
+  }
   const gated = function spawn(file, args, ...rest) {
     if (isBrowserExecutable(file, known)) {
       const list = Array.isArray(args) ? args : [];
@@ -223,7 +253,9 @@ export function installSpawnGate(known) {
   // `import { spawn } from 'node:child_process'` の名前付きの束縛も差し替える。
   syncBuiltinESMExports();
   return () => {
-    if (childProcess.spawn !== gated) return;
+    if (childProcess.spawn !== gated) {
+      return;
+    }
     childProcess.spawn = original;
     syncBuiltinESMExports();
   };
@@ -250,7 +282,9 @@ export async function hardenBrowserLaunch(cliEntryUrl) {
   return {
     puppeteerCoreFile,
     rememberBrowser(file) {
-      if (typeof file === 'string' && file !== '') known.add(normalizeExecutable(file));
+      if (typeof file === 'string' && file !== '') {
+        known.add(normalizeExecutable(file));
+      }
     },
     uninstall,
   };

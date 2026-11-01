@@ -35,7 +35,9 @@ const sampleDir = resolve(web, '../fixtures/sample');
 // 出力はテスト用の filled fixtures のみ。REST 実体は dataRoot(git 管理)側が持つため、
 // ここからリポジトリ内の他の場所へは書き出さない。
 const outDirs = [resolve(web, '../fixtures/filled')];
-for (const d of outDirs) mkdirSync(d, { recursive: true });
+for (const d of outDirs) {
+  mkdirSync(d, { recursive: true });
+}
 
 const funds = fundMaster as Record<
   string,
@@ -73,8 +75,11 @@ for (const file of readdirSync(templatesDir).filter((f) => f.endsWith('.html')))
   const raw = readFileSync(resolve(templatesDir, file), 'utf8');
   const sample = resolveSample(attrs.fundCode, attrs);
   const { html: filled, diagnostics } = renderPlainFilled(raw, sample);
-  if (diagnostics.unsupported.length > 0)
+  if (diagnostics.unsupported.length > 0) {
     console.warn(`${file}: 解釈できない式 ${diagnostics.unsupported.join(' / ')}`);
-  for (const d of outDirs) writeFileSync(resolve(d, file), filled, 'utf8');
+  }
+  for (const d of outDirs) {
+    writeFileSync(resolve(d, file), filled, 'utf8');
+  }
   console.log(`wrote ${file} (${filled.length} chars)`);
 }

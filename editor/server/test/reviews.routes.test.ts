@@ -80,8 +80,9 @@ d('review workflow (HTTP routes)', () => {
   // 編集経路(`origin:'edit'`)の申請は値入り HTML が既に在ることが前提なので先に置く。
   const submit = (headers: Record<string, string>, templateId: string, html: string) => {
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-    if (!fs.existsSync(filledFile(templateId)))
+    if (!fs.existsSync(filledFile(templateId))) {
       fs.writeFileSync(filledFile(templateId), SEEDED_FILLED, 'utf8');
+    }
     return app.inject({
       method: 'POST',
       url: '/review-requests',

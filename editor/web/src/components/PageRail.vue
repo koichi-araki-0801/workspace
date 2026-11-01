@@ -42,10 +42,10 @@ const thumbTop = computed(() => {
 // 目盛りラベル: ページ数に比例させず最大十数個へ間引く(端と現在ページは常に含める)。
 const ticks = computed(() => {
   const count = props.pageCount;
-  if (count <= 1) return [] as { page: number; top: string }[];
+  if (count <= 1) { return [] as { page: number; top: string }[]; }
   const stride = Math.max(1, Math.ceil(count / 12));
   const pages = new Set<number>([1, count, props.currentPage]);
-  for (let p = 1; p <= count; p += stride) pages.add(p);
+  for (let p = 1; p <= count; p += stride) { pages.add(p); }
   return [...pages]
     .sort((a, b) => a - b)
     .map((page) => ({ page, top: `${pageToFraction(page, count) * 100}%` }));
@@ -54,7 +54,7 @@ const ticks = computed(() => {
 /** ポインタ位置から縦位置比率とジャンプ先ページ(1 起点)を求める。 */
 function locate(e: PointerEvent): { page: number; frac: number } {
   const el = railEl.value;
-  if (!el) return { page: props.currentPage, frac: 0 };
+  if (!el) { return { page: props.currentPage, frac: 0 }; }
   const r = el.getBoundingClientRect();
   const frac = r.height > 0 ? Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1) : 0;
   return { page: fractionToPage(frac, props.pageCount), frac };
@@ -68,14 +68,14 @@ function onPointerMove(e: PointerEvent): void {
   const { page, frac } = locate(e);
   hoverPage.value = page;
   hoverFrac.value = frac;
-  if (dragging.value) emit('go', page);
+  if (dragging.value) { emit('go', page); }
 }
 function onPointerUp(e: PointerEvent): void {
   dragging.value = false;
   (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
 }
 function onLeave(): void {
-  if (!dragging.value) hoverPage.value = null;
+  if (!dragging.value) { hoverPage.value = null; }
 }
 /** 上下キー/Home/End でのキーボード操作(端は clamp)。 */
 function key(target: number): void {

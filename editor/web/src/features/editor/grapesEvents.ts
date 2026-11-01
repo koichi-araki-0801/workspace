@@ -157,8 +157,12 @@ export function wireGrapesEvents(ed: Editor, deps: GrapesEventDeps): void {
     refreshMove();
     // 編集可否切替中の component:update は内容変更ではない(`isApplyingLockState` の doc を
     // 見よ)。dirty/autosave へは流さず、幾何の追随(上の即時部)だけ行う。
-    if (deps.isApplyingLockState()) return;
-    if (opts.saveNeutral) return;
+    if (deps.isApplyingLockState()) {
+      return;
+    }
+    if (opts.saveNeutral) {
+      return;
+    }
     callbacks.change?.();
   };
   // `component:update` は直近の `set` で変わった prop を `model.changed` に持つ。全部が

@@ -157,18 +157,24 @@ export function scanTags(html: string): ScanResult {
       // bogus comment として最初の `>` まで。どちらも中身にタグは無い。
       if (html.startsWith('<!--', i)) {
         const end = commentEnd(html, i + 4, commentSeen);
-        if (end === -1) return { tags, ok: false };
+        if (end === -1) {
+          return { tags, ok: false };
+        }
         i = end;
       } else {
         const end = html.indexOf('>', i + 2);
-        if (end === -1) return { tags, ok: false };
+        if (end === -1) {
+          return { tags, ok: false };
+        }
         i = end + 1;
       }
       continue;
     }
     if (next === '?') {
       const end = html.indexOf('>', i + 2);
-      if (end === -1) return { tags, ok: false };
+      if (end === -1) {
+        return { tags, ok: false };
+      }
       i = end + 1;
       continue;
     }
@@ -178,7 +184,9 @@ export function scanTags(html: string): ScanResult {
       // `</` + 非英字は bogus comment(最初の `>` まで)。`<` + 非英字はただのテキスト。
       if (isEnd) {
         const end = html.indexOf('>', nameStart);
-        if (end === -1) return { tags, ok: false };
+        if (end === -1) {
+          return { tags, ok: false };
+        }
         i = end + 1;
       } else {
         i++;
@@ -186,7 +194,9 @@ export function scanTags(html: string): ScanResult {
       continue;
     }
     let j = nameStart;
-    while (j < html.length && !isTagNameEnd(html[j])) j++;
+    while (j < html.length && !isTagNameEnd(html[j])) {
+      j++;
+    }
     const name = html.slice(nameStart, j).toLowerCase();
     // 属性を 1 つずつ読んで閉じ `>` を探す。引用符が属性の値として開くのは `=` の直後だけで、
     // 引用符の外に現れた `>` だけがタグを閉じる(未引用の属性値中の `>` もタグを閉じる)。
@@ -198,10 +208,14 @@ export function scanTags(html: string): ScanResult {
         continue;
       }
       const attr = readAttr(html, k, html.length);
-      if (!isEnd) attrs.push({ name: attr.name, value: attr.value ?? '' });
+      if (!isEnd) {
+        attrs.push({ name: attr.name, value: attr.value ?? '' });
+      }
       k = attr.next;
     }
-    if (k >= html.length) return { tags, ok: false };
+    if (k >= html.length) {
+      return { tags, ok: false };
+    }
     const end = k + 1;
     const span: TagSpan = {
       start: i,
@@ -217,7 +231,9 @@ export function scanTags(html: string): ScanResult {
     i = end;
     if (!isEnd && INLINE_CSS_RAW_TEXT.has(name)) {
       const close = findRawTextEnd(lower, name, i).at;
-      if (close === -1) return { tags, ok: false };
+      if (close === -1) {
+        return { tags, ok: false };
+      }
       span.rawText = html.slice(i, close);
       i = close;
     }
@@ -234,9 +250,13 @@ function hasHttpEquiv(tag: TagSpan): boolean {
  * `<link rel="stylesheet">` か(`rel` は空白区切りの複数値・大小文字を区別しない)。
  */
 function isStylesheetLink(tag: TagSpan): boolean {
-  if (tag.name !== 'link') return false;
+  if (tag.name !== 'link') {
+    return false;
+  }
   const rel = tag.attrs.find((a) => a.name === 'rel');
-  if (rel === undefined) return false;
+  if (rel === undefined) {
+    return false;
+  }
   return rel.value
     .toLowerCase()
     .split(/[\t\n\f\r ]+/)
@@ -258,7 +278,9 @@ function isStylesheetLink(tag: TagSpan): boolean {
 function dropsUnservedRef(tag: TagSpan, served: ReadonlySet<string>): boolean {
   const attrName = tag.name === 'link' ? 'href' : 'src';
   const attr = tag.attrs.find((a) => a.name === attrName);
-  if (attr === undefined) return false;
+  if (attr === undefined) {
+    return false;
+  }
   const rel = resolveDocAssetPath(attr.value, DOC_DIR);
   return rel === undefined || !served.has(rel);
 }
@@ -288,13 +310,17 @@ function stripUnresolvableRefTags(
   const kept: string[] = [];
   let cursor = 0;
   for (const [i, tag] of tags.entries()) {
-    if (tag.isEnd) continue;
+    if (tag.isEnd) {
+      continue;
+    }
     const drop =
       ALWAYS_DROPPED_ELEMENTS.has(tag.name) ||
       (tag.name === 'meta' && hasHttpEquiv(tag)) ||
       (hasInlineCss && isStylesheetLink(tag)) ||
       ((tag.name === 'link' || tag.name === 'script') && dropsUnservedRef(tag, served));
-    if (!drop) continue;
+    if (!drop) {
+      continue;
+    }
     kept.push(html.slice(cursor, tag.start));
     cursor = dropEndOf(tags, i, tag);
   }
@@ -310,7 +336,9 @@ function stripUnresolvableRefTags(
  * `inlineCss.ts` 冒頭の「除去でタグ境界を壊さない」不変則と同じ種類の罠である。
  */
 function dropEndOf(tags: TagSpan[], index: number, tag: TagSpan): number {
-  if (tag.rawText === undefined) return tag.end;
+  if (tag.rawText === undefined) {
+    return tag.end;
+  }
   const next = tags[index + 1];
   // `scanTags` は raw text の直後に終了タグ span を積む。無ければ中身の末尾で止める。
   const contentEnd = tag.end + tag.rawText.length;
@@ -353,11 +381,15 @@ export function inlineCss(html: string, css: string, opts: InlineCssOptions = {}
     served,
     opts.dropStylesheetLinks ?? styleTag !== '',
   );
-  if (!styleTag) return cleaned;
+  if (!styleTag) {
+    return cleaned;
+  }
 
   // 除去でオフセットが動くので、挿入位置は掃除後の文字列から取り直す。
   const scan = scanTags(cleaned);
-  if (!scan.ok) return `<!doctype html>\n${styleTag}\n${cleaned}`;
+  if (!scan.ok) {
+    return `<!doctype html>\n${styleTag}\n${cleaned}`;
+  }
 
   const headEnd = scan.tags.find((t) => t.isEnd && t.name === 'head');
   if (headEnd) {

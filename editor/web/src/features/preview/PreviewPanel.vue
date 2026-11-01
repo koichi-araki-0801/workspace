@@ -101,7 +101,7 @@ const docSeq = ref(0);
 
 /** 子へ目印を送る。承認タブの紙面でない・簡易表示のときは送らない。 */
 function sendMarks() {
-  if (props.marks === undefined || useFallback.value) return;
+  if (props.marks === undefined || useFallback.value) { return; }
   postToHost({ type: PREVIEW_MSG_MARKS, marks: props.marks });
 }
 
@@ -112,7 +112,7 @@ let bootTimer: ReturnType<typeof setTimeout> | null = null;
 let loaderFailsafe: ReturnType<typeof setTimeout> | null = null;
 
 function clearTimer(t: ReturnType<typeof setTimeout> | null): null {
-  if (t !== null) clearTimeout(t);
+  if (t !== null) { clearTimeout(t); }
   return null;
 }
 
@@ -133,13 +133,13 @@ function emitState() {
  * プレビュー自体は機能し続ける(ページ送りとズームは失われる)。
  */
 function fallback(reason: string) {
-  if (useFallback.value) return;
+  if (useFallback.value) { return; }
   logError(unexpected(`プレビューの組版に失敗したため簡易表示へ切り替えました: ${reason}`));
   useFallback.value = true;
   rendering.value = false;
   bootTimer = clearTimer(bootTimer);
   loaderFailsafe = clearTimer(loaderFailsafe);
-  if (fallbackFrame.value) fallbackFrame.value.srcdoc = props.html;
+  if (fallbackFrame.value) { fallbackFrame.value.srcdoc = props.html; }
   emitState();
 }
 
@@ -171,7 +171,7 @@ function postDoc(html: string) {
 }
 
 function sendDoc() {
-  if (!hostReady.value || useFallback.value) return;
+  if (!hostReady.value || useFallback.value) { return; }
   loaderFailsafe = clearTimer(loaderFailsafe);
   rendering.value = props.html !== '';
   const seq = ++sendSeq;
@@ -191,14 +191,14 @@ function sendDoc() {
   void selfContainPreviewDoc(props.html, undefined, { companyCode: props.companyCode ?? null })
     .catch(() => props.html)
     .then((html) => {
-      if (seq !== sendSeq || !hostReady.value || useFallback.value) return;
+      if (seq !== sendSeq || !hostReady.value || useFallback.value) { return; }
       postDoc(html);
     });
   // 子が COMPLETE へ到達しない非同期失敗への保険。組版自体は継続しうるので、
   // フォールバックへは倒さずローダーだけ解除する。
   loaderFailsafe = setTimeout(() => {
     loaderFailsafe = null;
-    if (!rendering.value) return;
+    if (!rendering.value) { return; }
     rendering.value = false;
     logError(unexpected('プレビューの組版が時間内に完了しないため、ローダーを強制解除しました'));
     emitState();
@@ -211,14 +211,14 @@ function sendDoc() {
  * sandbox フレームとも一致するため識別に使えない(`useIframeAutoFit.ts` と同じ作法)。
  */
 function onMessage(e: MessageEvent) {
-  if (!frame.value || e.source !== frame.value.contentWindow) return;
+  if (!frame.value || e.source !== frame.value.contentWindow) { return; }
   const data = e.data as {
     type?: unknown;
     state?: unknown;
     message?: unknown;
     seq?: unknown;
   } | null;
-  if (!data || typeof data.type !== 'string') return;
+  if (!data || typeof data.type !== 'string') { return; }
   // 文書についての通知は、最後に送った文書の番号のものだけ受ける(前の文書の `ready`・ページ表・
   // 押下・組版の失敗が、送り直した直後に届いても新しい文書のものと取り違えない)。文書を送る前の
   // エラー(ビューアの起動の失敗)は、子も番号 0 で送る。
@@ -227,7 +227,7 @@ function onMessage(e: MessageEvent) {
     data.type === PREVIEW_MSG_PART_CLICK ||
     data.type === PREVIEW_MSG_PART_PAGES ||
     data.type === PREVIEW_MSG_ERROR;
-  if (aboutDoc && parsePreviewDocSeq(data.seq) !== docSeq.value) return;
+  if (aboutDoc && parsePreviewDocSeq(data.seq) !== docSeq.value) { return; }
   if (data.type === PREVIEW_MSG_READY) {
     bootTimer = clearTimer(bootTimer);
     hostReady.value = true;
@@ -236,7 +236,7 @@ function onMessage(e: MessageEvent) {
   }
   if (data.type === PREVIEW_MSG_STATE) {
     const s = data.state as Partial<PreviewHostState> | null;
-    if (!s) return;
+    if (!s) { return; }
     const wasReady = nav.value.ready;
     nav.value = {
       currentPage: Number(s.currentPage) || 1,
@@ -248,7 +248,7 @@ function onMessage(e: MessageEvent) {
     };
     if (nav.value.ready) {
       // 文書ごとに 1 回、組版が終わったところで目印を送る。
-      if (!wasReady) sendMarks();
+      if (!wasReady) { sendMarks(); }
       loaderFailsafe = clearTimer(loaderFailsafe);
       rendering.value = false;
     }
@@ -257,12 +257,12 @@ function onMessage(e: MessageEvent) {
   }
   if (data.type === PREVIEW_MSG_PART_CLICK) {
     const part = (data as { part?: unknown }).part;
-    if (isPreviewPartNo(part)) emit('part-click', part);
+    if (isPreviewPartNo(part)) { emit('part-click', part); }
     return;
   }
   if (data.type === PREVIEW_MSG_PART_PAGES) {
     const pages = parsePreviewPartPages((data as { pages?: unknown }).pages);
-    if (pages !== null) emit('part-pages', pages);
+    if (pages !== null) { emit('part-pages', pages); }
     return;
   }
   if (data.type === PREVIEW_MSG_ERROR) {
@@ -273,15 +273,15 @@ function onMessage(e: MessageEvent) {
 /** iframe の `load`。ホストページが表示されなかった場合の切り分け用に boot 期限を張る。 */
 function onFrameLoad() {
   bootTimer = clearTimer(bootTimer);
-  if (hostReady.value) return;
+  if (hostReady.value) { return; }
   bootTimer = setTimeout(() => {
     bootTimer = null;
-    if (!hostReady.value) fallback('ビューアの起動確認が取れませんでした');
+    if (!hostReady.value) { fallback('ビューアの起動確認が取れませんでした'); }
   }, RENDER_HOST_BOOT_TIMEOUT_MS);
 }
 
 const send = (cmd: PreviewCommand, page?: number) => {
-  if (useFallback.value) return;
+  if (useFallback.value) { return; }
   postToHost({ type: PREVIEW_MSG_CMD, cmd, ...(page === undefined ? {} : { page }) });
 };
 
@@ -307,13 +307,13 @@ function fit() {
 }
 /** 承認タブのページの先頭へ移る。`id` は `buildCompareDoc` が振るアンカー(既存の id を含む)。 */
 function gotoAnchor(id: string) {
-  if (useFallback.value) return;
+  if (useFallback.value) { return; }
   postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoAnchor', anchor: id });
 }
 
 /** 承認タブのパーツへ飛ぶ。`no` は番号の文字列。 */
 function gotoPart(no: string) {
-  if (useFallback.value) return;
+  if (useFallback.value) { return; }
   postToHost({ type: PREVIEW_MSG_CMD, cmd: 'gotoPart', part: no });
 }
 
@@ -321,7 +321,7 @@ function gotoPart(no: string) {
 watch(
   () => props.marks,
   () => {
-    if (nav.value.ready) sendMarks();
+    if (nav.value.ready) { sendMarks(); }
   },
 );
 
@@ -329,7 +329,7 @@ watch(
   () => props.html,
   () => {
     if (useFallback.value) {
-      if (fallbackFrame.value) fallbackFrame.value.srcdoc = props.html;
+      if (fallbackFrame.value) { fallbackFrame.value.srcdoc = props.html; }
       return;
     }
     rendering.value = props.html !== '';

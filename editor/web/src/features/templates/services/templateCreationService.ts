@@ -67,7 +67,9 @@ export function createTemplateCreationService(
         // 1 回の作成は作る版をまとめて置き換えるので、取り込んだ全 id の前の編集状態を捨てる
         // (同じタブで別の版を開いたとき古い Undo が戻らないように)。
         const ids = new Set(res.value.imported.map((i) => i.templateId));
-        for (const id of ids) forgetEditState(id);
+        for (const id of ids) {
+          forgetEditState(id);
+        }
       }
       return map(res, (r) => ({
         meta: r.template?.meta ?? null,

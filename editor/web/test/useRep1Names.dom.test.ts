@@ -26,7 +26,9 @@ function setup(templates: Record<string, unknown>) {
     }),
     { global: { provide: { [REPOS_KEY as symbol]: { templates } } } },
   );
-  if (!api) throw new Error('setup が走っていない');
+  if (!api) {
+    throw new Error('setup が走っていない');
+  }
   return api;
 }
 
@@ -77,9 +79,13 @@ describe('useRep1Names', () => {
     const listCompanies = vi.fn(async () => ok(COMPANIES));
     const listFunds = vi.fn(async () => ok(FUNDS));
     const api = setup({ listCompanies, listFunds });
-    for (let i = 0; i < 100; i++) api.resolveFunds('XX01');
+    for (let i = 0; i < 100; i++) {
+      api.resolveFunds('XX01');
+    }
     await flushPromises();
-    for (let i = 0; i < 100; i++) api.resolveFunds('xx01');
+    for (let i = 0; i < 100; i++) {
+      api.resolveFunds('xx01');
+    }
     await flushPromises();
     expect(listCompanies).toHaveBeenCalledTimes(1);
     expect(listFunds).toHaveBeenCalledTimes(1);

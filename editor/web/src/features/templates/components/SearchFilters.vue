@@ -76,7 +76,7 @@ const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
 // query で options を取る。復元できたときだけ親へ `restore` を通知し一覧を再取得させる。
 const { hydrated } = useUrlQuerySync(query, { keys: FIELDS, prefix: props.queryKey });
 onMounted(() => {
-  if (hydrated) emit('restore', { ...query });
+  if (hydrated) { emit('restore', { ...query }); }
 });
 
 const { resolveCompanies, resolveFunds, companyLabel, fundName } = useRep1Names();
@@ -114,7 +114,8 @@ const COMBO_FIELDS: Field[] = ['companyCode', 'fundCode'];
 // カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
 function fieldDisabled(f: Field): boolean {
   const idx = FIELDS.indexOf(f);
-  if (idx === 0) return false; // 先頭 (委託会社) は常に活性
+  if (idx === 0) { return false; // 先頭 (委託会社) は常に活性
+}
   return !query[FIELDS[idx - 1]];
 }
 

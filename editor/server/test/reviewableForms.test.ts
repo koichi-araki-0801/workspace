@@ -64,8 +64,12 @@ describe('敵対レビューの全形', () => {
 
   it.each(CASES.map((c) => [c.id, c] as const))('%s: 受付で止まるか、承認画面に出る', (_id, c) => {
     const r = submit(c);
-    if ('rejected' in r) return;
-    if (c.prodShows) expect(approvalText(r.rendered), c.src).toContain(c.mark);
+    if ('rejected' in r) {
+      return;
+    }
+    if (c.prodShows) {
+      expect(approvalText(r.rendered), c.src).toContain(c.mark);
+    }
   });
 
   it.each(CASES.filter((c) => c.id.startsWith('c6head/')).map((c) => [c.id, c] as const))(

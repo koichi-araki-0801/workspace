@@ -73,13 +73,13 @@ const allPendingPicked = computed(
 watch(pendingNos, (nos) => {
   const keep = new Set(nos);
   const next = new Set([...picked.value].filter((no) => keep.has(no)));
-  if (next.size !== picked.value.size) picked.value = next;
+  if (next.size !== picked.value.size) { picked.value = next; }
   // 判定が届いたパーツの書きかけの理由も捨てる(窓の外で届くと行は閉じる機会が無い)。
   const pendingKeys = new Set(
     rows.value.filter((c) => keep.has(c.no)).map((c) => c.partKey),
   );
   const drafts = new Map([...rejectDrafts.value].filter(([key]) => pendingKeys.has(key)));
-  if (drafts.size !== rejectDrafts.value.size) rejectDrafts.value = drafts;
+  if (drafts.size !== rejectDrafts.value.size) { rejectDrafts.value = drafts; }
 });
 
 // ── 2a. 1 行の却下の書きかけ ──
@@ -100,15 +100,15 @@ function draftOf(key: string): RejectDraft {
 function setDraft(key: string, patch: Partial<RejectDraft>) {
   const next = { ...draftOf(key), ...patch };
   const m = new Map(rejectDrafts.value);
-  if (!next.open && !next.text) m.delete(key);
-  else m.set(key, next);
+  if (!next.open && !next.text) { m.delete(key); }
+  else { m.set(key, next); }
   rejectDrafts.value = m;
 }
 
 function setPicked(no: number, value: boolean) {
   const next = new Set(picked.value);
-  if (value) next.add(no);
-  else next.delete(no);
+  if (value) { next.add(no); }
+  else { next.delete(no); }
   picked.value = next;
 }
 
@@ -129,10 +129,10 @@ const bulkDescribedBy = computed(() =>
 );
 
 watch(pickedCount, (n) => {
-  if (n === 0) closeBulk();
+  if (n === 0) { closeBulk(); }
 });
 watch(bulkDraft, (v) => {
-  if (v.trim()) bulkEmptyError.value = false;
+  if (v.trim()) { bulkEmptyError.value = false; }
 });
 
 function closeBulk() {
@@ -147,8 +147,8 @@ function approvePicked() {
 
 function submitBulkReject() {
   const problem = rejectReasonProblem(bulkDraft.value);
-  if (problem === 'empty') bulkEmptyError.value = true;
-  if (problem !== null) return;
+  if (problem === 'empty') { bulkEmptyError.value = true; }
+  if (problem !== null) { return; }
   emit('reject', pickedKeys.value, bulkDraft.value.trim());
 }
 
@@ -190,32 +190,32 @@ function heightsOf(els: HTMLElement[]): number[] {
 
 async function extendDown() {
   const { next, droppedTop } = growDown(win.value, rows.value.length);
-  if (next.end === win.value.end) return;
+  if (next.end === win.value.end) { return; }
   // 外す行の実高は、外す直前に測る(外したあとは見込み高の余白に置き換わる)。
   const dropped = heightsOf(renderedRowEls().slice(0, droppedTop));
   win.value = next;
   await nextTick();
-  if (droppedTop > 0 && scroller.value) scroller.value.scrollTop -= scrollDelta(dropped);
+  if (droppedTop > 0 && scroller.value) { scroller.value.scrollTop -= scrollDelta(dropped); }
 }
 
 async function extendUp() {
   const { next, addedTop } = growUp(win.value);
-  if (addedTop === 0) return;
+  if (addedTop === 0) { return; }
   win.value = next;
   await nextTick();
   // 足した行の実高は、描いた直後に測る。
   const added = heightsOf(renderedRowEls().slice(0, addedTop));
-  if (scroller.value) scroller.value.scrollTop += scrollDelta(added);
+  if (scroller.value) { scroller.value.scrollTop += scrollDelta(added); }
 }
 
 async function onIntersect(entries: IntersectionObserverEntry[]) {
-  if (moving || revealing > 0) return;
+  if (moving || revealing > 0) { return; }
   const hit = entries.find((e) => e.isIntersecting);
-  if (!hit) return;
+  if (!hit) { return; }
   moving = true;
   try {
-    if (hit.target === bottomEl.value) await extendDown();
-    else if (hit.target === topEl.value) await extendUp();
+    if (hit.target === bottomEl.value) { await extendDown(); }
+    else if (hit.target === topEl.value) { await extendUp(); }
   } finally {
     moving = false;
   }
@@ -228,10 +228,10 @@ async function onIntersect(entries: IntersectionObserverEntry[]) {
  */
 function syncObservation() {
   const io = observer;
-  if (!io) return;
-  for (const el of [topEl.value, bottomEl.value]) if (el) io.unobserve(el);
-  if (topEl.value && win.value.start > 0) io.observe(topEl.value);
-  if (bottomEl.value && win.value.end < rows.value.length) io.observe(bottomEl.value);
+  if (!io) { return; }
+  for (const el of [topEl.value, bottomEl.value]) { if (el) { io.unobserve(el); } }
+  if (topEl.value && win.value.start > 0) { io.observe(topEl.value); }
+  if (bottomEl.value && win.value.end < rows.value.length) { io.observe(bottomEl.value); }
 }
 
 watch([() => win.value.start, () => win.value.end, () => rows.value.length], syncObservation, {
@@ -259,7 +259,7 @@ onBeforeUnmount(() => {
  */
 async function revealNo(no: number): Promise<void> {
   const i = rows.value.findIndex((c) => c.no === no);
-  if (i < 0) return;
+  if (i < 0) { return; }
   revealing++;
   try {
     if (i < win.value.start || i >= win.value.end) {
@@ -267,14 +267,14 @@ async function revealNo(no: number): Promise<void> {
     }
     await nextTick();
     const el = scroller.value?.querySelector<HTMLElement>(`[data-review-row-no="${no}"]`);
-    if (!el) return;
+    if (!el) { return; }
     // sticky の帯の下へ隠れないよう、送る直前の帯の高さを行の上の余白にする(帯は理由欄の開閉で
     // 高さが変わるので固定値にしない)。
     el.style.scrollMarginTop = `${band.value?.offsetHeight ?? 0}px`;
     el.scrollIntoView({ block: 'nearest' });
   } finally {
     revealing--;
-    if (revealing === 0) syncObservation();
+    if (revealing === 0) { syncObservation(); }
   }
 }
 

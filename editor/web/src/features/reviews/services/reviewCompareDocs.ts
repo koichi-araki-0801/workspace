@@ -31,13 +31,19 @@ export interface CompareDoc {
  * しうるので上書きしない(その id をそのままアンカーにする)。
  */
 function annotatePages(html: string): { html: string; pageAnchors: string[] } {
-  if (!html.trim()) return { html, pageAnchors: [] };
+  if (!html.trim()) {
+    return { html, pageAnchors: [] };
+  }
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const split = splitPages(pageItems(doc.body.children));
   const pageAnchors = split.pages.map((_, i) => {
     const head = pageHead(split, i);
-    if (!head) return '';
-    if (!head.id) head.id = `review-anchor-${i + 1}`;
+    if (!head) {
+      return '';
+    }
+    if (!head.id) {
+      head.id = `review-anchor-${i + 1}`;
+    }
     return head.id;
   });
   return { html: doc.body.innerHTML, pageAnchors };

@@ -79,7 +79,9 @@ export function scanMaskedHtml(
   src: string,
   tokens?: readonly { start: number; end: number }[],
 ): HtmlScan {
-  if (tokens) return scanHtml(maskJinja(src, tokens));
+  if (tokens) {
+    return scanHtml(maskJinja(src, tokens));
+  }
   const lexed = lexJinja(src);
   return scanHtml(lexed.ok ? maskJinja(src, lexed.tokens) : src);
 }
@@ -143,12 +145,16 @@ export function scanHtml(masked: string): HtmlScan {
 
   const top = () => stack[stack.length - 1] ?? null;
   const push = (from: number, ctx: PositionContext) => {
-    if (spans[spans.length - 1]?.from === from) spans.pop();
+    if (spans[spans.length - 1]?.from === from) {
+      spans.pop();
+    }
     spans.push({ from, ctx });
   };
   /** textFrom から to までを、いまのスタックの先頭を親とするテキストとして区切る。 */
   const flushText = (to: number) => {
-    if (to > textFrom) push(textFrom, { kind: 'text', parent: top() });
+    if (to > textFrom) {
+      push(textFrom, { kind: 'text', parent: top() });
+    }
   };
   /** スタックの index 以降を暗黙に閉じる。 */
   const closeFrom = (index: number, at: number) => {
@@ -170,7 +176,9 @@ export function scanHtml(masked: string): HtmlScan {
         closeFrom(i, at);
         return;
       }
-      if (stops.includes(t) || SCOPE_BOUNDARY.has(t) || el?.foreign != null) return;
+      if (stops.includes(t) || SCOPE_BOUNDARY.has(t) || el?.foreign != null) {
+        return;
+      }
     }
   };
 
@@ -185,12 +193,15 @@ export function scanHtml(masked: string): HtmlScan {
       flushText(i);
       // コメントの閉じ方は `commentEnd`(ブラウザと同じ)。閉じなければ末尾までコメントとみなす。
       let to: number;
-      if (masked.startsWith('<!--', i)) to = commentEnd(masked, i + 4, commentMemo);
-      else {
+      if (masked.startsWith('<!--', i)) {
+        to = commentEnd(masked, i + 4, commentMemo);
+      } else {
         const gt = masked.indexOf('>', i + 2);
         to = gt < 0 ? -1 : gt + 1;
       }
-      if (to < 0) to = len;
+      if (to < 0) {
+        to = len;
+      }
       push(i, { kind: 'htmlComment' });
       i = textFrom = to;
       continue;
@@ -208,7 +219,9 @@ export function scanHtml(masked: string): HtmlScan {
     if (masked[i + 1] === '/' && isAsciiAlpha(masked[i + 2])) {
       flushText(i);
       let j = i + 2;
-      while (j < len && !isTagNameEnd(masked[j])) j++;
+      while (j < len && !isTagNameEnd(masked[j])) {
+        j++;
+      }
       const name = lower.slice(i + 2, j);
       const gt = masked.indexOf('>', j);
       const to = gt < 0 ? len : gt + 1;
@@ -238,20 +251,31 @@ export function scanHtml(masked: string): HtmlScan {
     if (isAsciiAlpha(masked[i + 1]) && masked[i + 1] !== MASK_CHAR) {
       flushText(i);
       let j = i + 1;
-      while (j < len && !isTagNameEnd(masked[j])) j++;
+      while (j < len && !isTagNameEnd(masked[j])) {
+        j++;
+      }
       const tag = lower.slice(i + 1, j);
       const outer = top();
       const underForeign = outer?.foreign != null && outer.tag !== 'foreignobject';
       if (!underForeign) {
         const rule = IMPLIED[tag];
-        if (rule) closeNearest(rule.closes, rule.stops, i);
-        if (tag !== 'p' && P_CLOSERS.has(tag)) closeNearest(['p'], P_STOPS, i);
-        if (tag === 'p') closeNearest(['p'], P_STOPS, i);
+        if (rule) {
+          closeNearest(rule.closes, rule.stops, i);
+        }
+        if (tag !== 'p' && P_CLOSERS.has(tag)) {
+          closeNearest(['p'], P_STOPS, i);
+        }
+        if (tag === 'p') {
+          closeNearest(['p'], P_STOPS, i);
+        }
       }
       const parent = top();
       let foreign: 'svg' | 'math' | null = null;
-      if (tag === 'svg' || tag === 'math') foreign = tag;
-      else if (underForeign) foreign = outer?.foreign ?? null;
+      if (tag === 'svg' || tag === 'math') {
+        foreign = tag;
+      } else if (underForeign) {
+        foreign = outer?.foreign ?? null;
+      }
       const el: ScannedElement = {
         tag,
         start: i,
@@ -287,15 +311,22 @@ export function scanHtml(masked: string): HtmlScan {
         }
         while (k < len) {
           const d = masked[k];
-          if (isHtmlSpace(d) || d === '=' || d === '>' || (d === '/' && masked[k + 1] === '>'))
+          if (isHtmlSpace(d) || d === '=' || d === '>' || (d === '/' && masked[k + 1] === '>')) {
             break;
+          }
           k++;
         }
         let m = k;
-        while (isHtmlSpace(masked[m])) m++;
-        if (masked[m] !== '=') continue;
+        while (isHtmlSpace(masked[m])) {
+          m++;
+        }
+        if (masked[m] !== '=') {
+          continue;
+        }
         m++;
-        while (isHtmlSpace(masked[m])) m++;
+        while (isHtmlSpace(masked[m])) {
+          m++;
+        }
         const q = masked[m];
         if (q === '"' || q === "'") {
           const close = masked.indexOf(q, m + 1);
@@ -304,7 +335,9 @@ export function scanHtml(masked: string): HtmlScan {
           segFrom = close < 0 ? len : close;
           k = close < 0 ? len : close + 1;
         } else {
-          while (m < len && !isHtmlSpace(masked[m]) && masked[m] !== '>') m++;
+          while (m < len && !isHtmlSpace(masked[m]) && masked[m] !== '>') {
+            m++;
+          }
           k = m;
         }
       }
@@ -327,7 +360,9 @@ export function scanHtml(masked: string): HtmlScan {
       if (RAW_TEXT_ELEMENTS.has(tag) && foreign === null && !underForeign) {
         const close = findRawTextEnd(lower, tag, k).at;
         const to = close < 0 ? len : close;
-        if (to > k) push(k, { kind: 'rawText', element: el });
+        if (to > k) {
+          push(k, { kind: 'rawText', element: el });
+        }
         textFrom = i = to;
       }
       continue;
@@ -350,10 +385,14 @@ function makeScan(elements: ScannedElement[], spans: Span[], len: number): HtmlS
         if ((spans[mid]?.from ?? 0) <= pos) {
           hit = mid;
           lo = mid + 1;
-        } else hi = mid - 1;
+        } else {
+          hi = mid - 1;
+        }
       }
       const s = hit >= 0 ? spans[hit] : undefined;
-      if (!s || pos >= len) return { kind: 'text', parent: null };
+      if (!s || pos >= len) {
+        return { kind: 'text', parent: null };
+      }
       return s.ctx;
     },
     innermostContaining(start, end, includeStartTag = false) {
@@ -361,7 +400,9 @@ function makeScan(elements: ScannedElement[], spans: Span[], len: number): HtmlS
       for (const e of elements) {
         // 既定は開始タグの内側から数えるので、範囲が要素ちょうどなら、その要素ではなく親を返す。
         const inside = (includeStartTag ? e.start : e.startTagEnd) <= start && end <= e.end;
-        if (inside && (!best || e.end - e.start <= best.end - best.start)) best = e;
+        if (inside && (!best || e.end - e.start <= best.end - best.start)) {
+          best = e;
+        }
       }
       return best;
     },

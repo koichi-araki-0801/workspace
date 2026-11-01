@@ -155,15 +155,21 @@ export function createRenderHostClient(opts?: {
   const queued: RenderHostRequest[] = [];
 
   function clearBootTimer(): void {
-    if (bootTimer !== null) clearTimeout(bootTimer);
+    if (bootTimer !== null) {
+      clearTimeout(bootTimer);
+    }
     bootTimer = null;
   }
 
   /** 要求 1 件を解決して待ち合わせを畳む。未知の `id` は黙って捨てる。 */
   function settle(id: unknown, result: RenderResult): void {
-    if (typeof id !== 'number') return;
+    if (typeof id !== 'number') {
+      return;
+    }
     const call = pending.get(id);
-    if (!call) return;
+    if (!call) {
+      return;
+    }
     pending.delete(id);
     clearTimeout(call.timer);
     call.resolve(result);
@@ -175,12 +181,16 @@ export function createRenderHostClient(opts?: {
    * 期限分待たせるだけになるため。Worker の恒久フォールバックと同じ判断。
    */
   function fail(reason: string): void {
-    if (broken !== null) return;
+    if (broken !== null) {
+      return;
+    }
     broken = BOOT_FAILED_MSG;
     clearBootTimer();
     logError(unexpected('render host unavailable', { cause: reason }));
     queued.length = 0;
-    for (const id of Array.from(pending.keys())) settle(id, { html: '', error: broken });
+    for (const id of Array.from(pending.keys())) {
+      settle(id, { html: '', error: broken });
+    }
   }
 
   /**
@@ -204,14 +214,20 @@ export function createRenderHostClient(opts?: {
 
   function onMessage(e: MessageEvent): void {
     // 発信元は `contentWindow` との同一性だけで判定する(`origin` は 'null' で識別不能)。
-    if (!frame || e.source !== frame.contentWindow) return;
+    if (!frame || e.source !== frame.contentWindow) {
+      return;
+    }
     const d = e.data as { type?: unknown; id?: unknown; html?: unknown; error?: unknown } | null;
-    if (!d || typeof d.type !== 'string') return;
+    if (!d || typeof d.type !== 'string') {
+      return;
+    }
 
     if (d.type === RENDER_MSG_READY) {
       clearBootTimer();
       ready = true;
-      for (const req of queued.splice(0)) post(req);
+      for (const req of queued.splice(0)) {
+        post(req);
+      }
       return;
     }
     if (d.type === RENDER_MSG_RES) {
@@ -222,13 +238,18 @@ export function createRenderHostClient(opts?: {
       const message = typeof d.error === 'string' && d.error !== '' ? d.error : UNKNOWN_ERROR_MSG;
       // `id` が予約値のときだけは要求に紐づかないブート段の致命失敗(nunjucks バンドルが
       // 読めなかった等)。この 1 件だけを恒久失敗として扱い、他はテンプレ側の構文エラー。
-      if (d.id === RENDER_BOOT_ERROR_ID) fail(message);
-      else settle(d.id, { html: '', error: message });
+      if (d.id === RENDER_BOOT_ERROR_ID) {
+        fail(message);
+      } else {
+        settle(d.id, { html: '', error: message });
+      }
     }
   }
 
   function ensureFrame(): void {
-    if (frame !== null || broken !== null) return;
+    if (frame !== null || broken !== null) {
+      return;
+    }
     try {
       window.addEventListener('message', onMessage);
       frame = mount();
@@ -238,13 +259,17 @@ export function createRenderHostClient(opts?: {
     }
     bootTimer = setTimeout(() => {
       bootTimer = null;
-      if (!ready) fail(`起動確認が取れませんでした (>${bootTimeoutMs}ms)`);
+      if (!ready) {
+        fail(`起動確認が取れませんでした (>${bootTimeoutMs}ms)`);
+      }
     }, bootTimeoutMs);
   }
 
   return {
     render(template, data) {
-      if (broken !== null) return Promise.resolve({ html: '', error: broken });
+      if (broken !== null) {
+        return Promise.resolve({ html: '', error: broken });
+      }
       // 送る前に複製可能な形へ落とす。ここで落ちる値(循環参照など)は送っても
       // `DataCloneError` になるだけなので、待たずに理由を返す。
       const payload = toTransferableData(data);
@@ -253,7 +278,9 @@ export function createRenderHostClient(opts?: {
         return Promise.resolve({ html: '', error: DATA_NOT_TRANSFERABLE_MSG });
       }
       ensureFrame();
-      if (broken !== null) return Promise.resolve({ html: '', error: broken });
+      if (broken !== null) {
+        return Promise.resolve({ html: '', error: broken });
+      }
       const id = ++nextId;
       const req: RenderHostRequest = { id, template, data: payload.value };
       return new Promise<RenderResult>((resolve) => {
@@ -263,8 +290,11 @@ export function createRenderHostClient(opts?: {
           resolve({ html: '', error: CALL_TIMEOUT_MSG });
         }, callTimeoutMs);
         pending.set(id, { resolve, timer });
-        if (ready) post(req);
-        else queued.push(req);
+        if (ready) {
+          post(req);
+        } else {
+          queued.push(req);
+        }
       });
     },
 

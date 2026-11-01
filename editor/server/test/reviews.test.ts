@@ -67,7 +67,9 @@ d('review workflow (reviewRepo)', () => {
   // 編集タブの申請は値入り HTML が既に在ることが前提(無い id は作成経路の成果物で、
   // 承認が `filled/` へ Jinja 骨組みを書いてしまう)。既定の origin に合わせて種を撒く。
   const submit = (templateId: string, html: string, origin: 'edit' | 'create' = 'edit') => {
-    if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) seedFilled(templateId);
+    if (origin === 'edit' && !fs.existsSync(filledFile(templateId))) {
+      seedFilled(templateId);
+    }
     // 作成経路は値入り HTML を送らない(承認画面の本文はサーバが受付で描く)。
     const body = origin === 'create' ? asDoc(html) : filledDoc(html);
     return reviews.submitReview({ templateId, html: body, css: '.x{}', origin }, submitter);
@@ -78,7 +80,9 @@ d('review workflow (reviewRepo)', () => {
    */
   const decideAll = async (reqId: string) => {
     const review = await reviews.getReview(reqId, approver);
-    if (review.origin !== 'edit' || review.baseHtml === undefined) return;
+    if (review.origin !== 'edit' || review.baseHtml === undefined) {
+      return;
+    }
     const { buildHtmlDiff } = await import('@editor/shared');
     const { linkedomParser } = await import('../src/util/linkedomParser.js');
     const diff = buildHtmlDiff(review.baseHtml, review.html, linkedomParser);
@@ -86,7 +90,9 @@ d('review workflow (reviewRepo)', () => {
       .flatMap((page) => page.blocks)
       .filter((block) => block.status !== 'same')
       .map((block) => ({ partKey: block.partKey, status: 'approved' as const }));
-    if (changed.length === 0) return;
+    if (changed.length === 0) {
+      return;
+    }
     const saved = await reviews.updatePartDecisions(reqId, { decisions: changed }, approver);
     expect(saved.map((d) => d.status)).toEqual(changed.map(() => 'approved'));
   };
@@ -300,8 +306,11 @@ d('review workflow (reviewRepo)', () => {
 
     const fulfilledCount = results.filter((r) => r.status === 'fulfilled').length;
     expect(fulfilledCount).toBe(1);
-    for (const r of results)
-      if (r.status === 'rejected') expect(r.reason).toMatchObject({ kind: 'conflict' });
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        expect(r.reason).toMatchObject({ kind: 'conflict' });
+      }
+    }
     // 確定した状態と実ファイルの内容が一致する(反映済みなのに rejected、が起きない)。
     const after = await reviews.getReview(meta.id, approver);
     const written = fs.readFileSync(filledFile(tplId), 'utf8');
@@ -651,7 +660,9 @@ d('review workflow (reviewRepo)', () => {
       html: string,
       css = '.x{}',
     ) => {
-      if (!fs.existsSync(filledFile(templateId))) seedFilled(templateId);
+      if (!fs.existsSync(filledFile(templateId))) {
+        seedFilled(templateId);
+      }
       return reviews.submitReview(
         { templateId, html: filledDoc(html), css, origin: 'edit' },
         actor,
@@ -1194,7 +1205,9 @@ d('review workflow (reviewRepo)', () => {
       const { updateReviewMeta, readReview } = await import('../src/files/reviewFiles.js');
       const decided = (await readReview(meta.id))?.partDecisions ?? [];
       const added = decided.find((p) => p.partKey === 'added#1');
-      if (added === undefined) throw new Error('added#1 not saved');
+      if (added === undefined) {
+        throw new Error('added#1 not saved');
+      }
       await updateReviewMeta(meta.id, {
         partDecisions: [...decided, { ...added, partKey: 'nope#1' }],
       });
@@ -1595,8 +1608,12 @@ d('review workflow (reviewRepo)', () => {
       await withSample(
         async (templateId) => {
           calls.push(templateId);
-          if (templateId === 'XX01_730017_交付版') await submitGate;
-          if (templateId === 'XX01_730016_交付版') await oldGate;
+          if (templateId === 'XX01_730017_交付版') {
+            await submitGate;
+          }
+          if (templateId === 'XX01_730016_交付版') {
+            await oldGate;
+          }
           return SAMPLE;
         },
         async () => {
@@ -1635,7 +1652,9 @@ d('review workflow (reviewRepo)', () => {
       await withSample(
         async (templateId) => {
           calls.push(templateId);
-          if (calls.length === 1) await gate;
+          if (calls.length === 1) {
+            await gate;
+          }
           return SAMPLE;
         },
         async () => {
@@ -1692,7 +1711,9 @@ d('review workflow (reviewRepo)', () => {
     const makeOldCreate = (reqId: string, body?: string) => {
       fs.writeFileSync(path.join(reviewDir(reqId), 'base.html'), '', 'utf8');
       fs.writeFileSync(path.join(reviewDir(reqId), 'base.css'), '.x{}', 'utf8');
-      if (body !== undefined) fs.writeFileSync(path.join(reviewDir(reqId), 'body.html'), body);
+      if (body !== undefined) {
+        fs.writeFileSync(path.join(reviewDir(reqId), 'body.html'), body);
+      }
     };
     const NOT_REVIEWABLE = {
       kind: 'conflict',

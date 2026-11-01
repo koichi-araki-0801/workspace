@@ -84,7 +84,9 @@ async function screenKeys(n: string): Promise<string[]> {
     parts as unknown as Parameters<typeof createReviewDiffService>[2],
   );
   const res = await service.buildDiff(`req-${n}`);
-  if (!res.ok) throw new Error(res.error.message);
+  if (!res.ok) {
+    throw new Error(res.error.message);
+  }
   expect(res.value.truncated).toBe(false);
   // 作成経路は手元で描き直さない(サーバが描いた本文だけを見せる)。
   expect(compare.renderTemplateBody).not.toHaveBeenCalled();

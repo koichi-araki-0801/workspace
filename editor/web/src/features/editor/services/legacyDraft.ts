@@ -23,6 +23,8 @@ export const LEGACY_DRAFT_MESSAGE =
  */
 export function isLegacyDraft(draftHtml: string, edition: 'filled' | 'template'): boolean {
   const hits = findEditingMarkers(draftHtml);
-  if (edition === 'filled') return hits.length > 0;
+  if (edition === 'filled') {
+    return hits.length > 0;
+  }
   return hits.some((h) => LEGACY_DRAFT_ATTRS.some((a) => h.marker === `attr:${a}`));
 }

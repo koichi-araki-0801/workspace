@@ -12,7 +12,9 @@ const LEGACY_TAG_RE = /<!--[\s\S]*?-->|<\/?([a-zA-Z][a-zA-Z0-9-]*)((?:"[^"]*"|'[
 const legacyScan = (html: string): number => {
   LEGACY_TAG_RE.lastIndex = 0;
   let count = 0;
-  for (let m = LEGACY_TAG_RE.exec(html); m !== null; m = LEGACY_TAG_RE.exec(html)) count++;
+  for (let m = LEGACY_TAG_RE.exec(html); m !== null; m = LEGACY_TAG_RE.exec(html)) {
+    count++;
+  }
   return count;
 };
 
@@ -25,7 +27,9 @@ const measure = (fn: () => void): number => {
 /** 空回しのあと `runs` 回測った最小値。JIT の暖機前や GC・他プロセスの割り込みで混じる外れ値を除く。 */
 const minOf = (fn: () => void, runs: number): number => {
   let best = Number.POSITIVE_INFINITY;
-  for (let k = 0; k < runs; k++) best = Math.min(best, measure(fn));
+  for (let k = 0; k < runs; k++) {
+    best = Math.min(best, measure(fn));
+  }
   return best;
 };
 

@@ -657,7 +657,9 @@ describe('Jinja の判定は想定外の例外でも fail closed', () => {
 
   it('走査の上限で打ち切ったときも「検査できない」の文言で拒否する', () => {
     let html = '<script>evil()</script>';
-    for (let i = 0; i < 12; i++) html = opaque(html);
+    for (let i = 0; i < 12; i++) {
+      html = opaque(html);
+    }
     let caught: unknown;
     try {
       assertTemplateScriptsUnchanged('', html, CTX);
@@ -712,7 +714,9 @@ describe('拒否の文言は違いの種類で分ける', () => {
     try {
       assertTemplateScriptsUnchanged(base, submitted, CTX);
     } catch (e) {
-      if (isAppError(e)) return e;
+      if (isAppError(e)) {
+        return e;
+      }
     }
     throw new Error('拒否されなかった');
   };
@@ -903,7 +907,9 @@ describe('走査の上限に達した入力は拒否側へ倒れる(fail closed)
     `<span data-opaque="${Buffer.from(inner).toString('base64')}">x</span>`;
   const nestChips = (inner: string, levels: number) => {
     let html = inner;
-    for (let i = 0; i < levels; i++) html = chip(html);
+    for (let i = 0; i < levels; i++) {
+      html = chip(html);
+    }
     return html;
   };
 

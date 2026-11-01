@@ -49,7 +49,9 @@ describe('renderPdfDocument', () => {
   ])('script 以外の防御は維持する(%s → %s を残さない = %s)', async (html, needle) => {
     const res = await renderPdfDocument(html, '', {});
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.html).not.toContain(needle);
+    if (isOk(res)) {
+      expect(res.value.html).not.toContain(needle);
+    }
   });
 
   // ⚠ ここで `<link>` が残るのは「サニタイザが落とさない」だけの話で、**当たる CSS が
@@ -75,7 +77,9 @@ describe('renderPdfDocument', () => {
   it('解決済み CSS を css として返す(サーバが唯一の源にできる形)', async () => {
     const res = await renderPdfDocument('<p>x</p>', 'p{color:red}', {});
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.css).toContain('p{color:red}');
+    if (isOk(res)) {
+      expect(res.value.css).toContain('p{color:red}');
+    }
   });
 
   it.each([
@@ -85,7 +89,9 @@ describe('renderPdfDocument', () => {
   ])('HTML の絶対参照(%s = %s)で PDF を作らない', async (html) => {
     const res = await renderPdfDocument(html, '', {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
+    }
   });
 
   it('appends trim-mark CSS only when cropMarks is on', async () => {
@@ -98,7 +104,9 @@ describe('renderPdfDocument', () => {
   it('returns err with the safe message when the template fails to render', async () => {
     const res = await renderPdfDocument('<p>{{ oops</p>', '', {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(PDF_ERROR_MSG);
+    }
   });
 
   // PDF は CSP の無い headless ブラウザで組版されるため、CSS からの外向き通信は
@@ -112,7 +120,9 @@ describe('renderPdfDocument', () => {
   ])('外部参照を含む CSS(%s = %s)で PDF を作らない', async (css) => {
     const res = await renderPdfDocument('<p>x</p>', css, {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(EXTERNAL_REF_MESSAGE);
+    }
   });
 
   // 承認者は実行結果しか見ない運用(DECISIONS の Q10)なので、「PDF では動くのに
@@ -124,7 +134,9 @@ describe('renderPdfDocument', () => {
     const html = `<html><head></head><body><p>x</p><scr${'ipt>'}fitColumns()</scr${'ipt>'}</body></html>`;
     const pdf = await renderPdfDocument(html, '', {});
     expect(isOk(pdf)).toBe(true);
-    if (isOk(pdf)) expect(pdf.value.html).toContain('fitColumns()');
+    if (isOk(pdf)) {
+      expect(pdf.value.html).toContain('fitColumns()');
+    }
     expect(assemblePreviewDocument(html, '')).toContain('fitColumns()');
   });
 
@@ -147,7 +159,9 @@ describe('renderPdfDocument', () => {
     const css = '.b{background:url(../images/other/c.svg)}.c{background:url(../images/XXAM/d.svg)}';
     const res = await renderPdfDocument(html, css, {}, { skipJinja: true, companyCode: 'XXAM' });
     expect(isOk(res)).toBe(true);
-    if (!isOk(res)) return;
+    if (!isOk(res)) {
+      return;
+    }
     expect(res.value.html).toContain('src="../images/xxam/qr.svg"');
     expect(res.value.html).toContain('src="../images/950037_logo.svg"');
     expect(res.value.html).not.toContain('other/x.svg');
@@ -167,7 +181,9 @@ describe('renderPdfDocument', () => {
       '<div style="background:url(../images/950037_u.svg)">c</div></body></html>';
     const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'XXAM' });
     expect(isOk(res)).toBe(true);
-    if (!isOk(res)) return;
+    if (!isOk(res)) {
+      return;
+    }
     expect(res.value.html).not.toContain('other/s.svg');
     expect(res.value.html).toContain('url(../images/xxam/t.svg)');
     expect(res.value.html).toContain('url(../images/950037_u.svg)');
@@ -185,7 +201,9 @@ describe('renderPdfDocument', () => {
       '</body></html>';
     const res = await renderPdfDocument(html, '', {}, { skipJinja: true, companyCode: 'XXAM' });
     expect(isOk(res)).toBe(true);
-    if (!isOk(res)) return;
+    if (!isOk(res)) {
+      return;
+    }
     expect(res.value.html).not.toContain('other/');
     expect(res.value.html).toContain('src="../images/xxam/a.svg"');
     expect(res.value.html).toContain('src="../images/xxam/p.svg"');
@@ -292,6 +310,8 @@ describe('postBuild', () => {
     );
     const res = await postBuild('/build', {});
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(PDF_ERROR_MSG);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(PDF_ERROR_MSG);
+    }
   });
 });

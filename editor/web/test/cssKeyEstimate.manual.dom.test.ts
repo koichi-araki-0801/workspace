@@ -47,7 +47,9 @@ function normNearest(p: string): string {
   while (!existsSync(cur)) {
     rest.unshift(basename(cur));
     const up = dirname(cur);
-    if (up === cur) break;
+    if (up === cur) {
+      break;
+    }
     cur = up;
   }
   const real = norm(cur);
@@ -128,7 +130,9 @@ function countDupSuspects(css: string): number {
     const body = r.text.slice(r.text.indexOf('{')).replace(/\s+/g, ' ').trim();
     for (const k of canonicalCssRuleKeys(r.key)) {
       const parts = JSON.parse(k) as unknown[];
-      if (typeof parts[parts.length - 1] === 'number') parts.pop();
+      if (typeof parts[parts.length - 1] === 'number') {
+        parts.pop();
+      }
       const id = JSON.stringify(parts);
       bodies.set(id, (bodies.get(id) ?? new Set()).add(body));
     }
@@ -193,7 +197,9 @@ describe.skipIf(!DIR)('既存 CSS の照合キー見積もり(読み取り専用
   beforeAll(() => {
     const roots = guardedRoots(process.env);
     assertInputNotUnderDataRoot(DIR as string, roots);
-    if (OUT) assertOutSafe(OUT, DIR as string, roots);
+    if (OUT) {
+      assertOutSafe(OUT, DIR as string, roots);
+    }
   });
 
   it('ファイルごとの集計を出す', () => {

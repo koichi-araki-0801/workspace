@@ -25,8 +25,11 @@ function sourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) found.push(...sourceFiles(full));
-    else if (/\.(ts|vue)$/.test(name)) found.push(full);
+    if (statSync(full).isDirectory()) {
+      found.push(...sourceFiles(full));
+    } else if (/\.(ts|vue)$/.test(name)) {
+      found.push(full);
+    }
   }
   return found;
 }
@@ -64,7 +67,9 @@ describe('下書きの所属判定ガード — getDraft を呼ぶ経路は関�
 
   it('getDraft を呼ぶファイルは belongsToSession も参照している', () => {
     const offenders = ALL_SOURCES.filter((file) => {
-      if (isDefinitionSide(file)) return false;
+      if (isDefinitionSide(file)) {
+        return false;
+      }
       const code = stripComments(readFileSync(file, 'utf8'));
       return /\bgetDraft\s*\(/.test(code) && !/\bbelongsToSession\b/.test(code);
     }).map((f) => path.relative(WEB_SRC, f).replaceAll('\\', '/'));

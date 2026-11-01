@@ -64,7 +64,9 @@ type UiMap = Record<string, PersistedUi>;
  * `NaN` clamp のような実害になるため、hydrate の時点で 1 フィールドずつ検証する。
  */
 function sanitizePersistedUi(raw: unknown): Partial<PersistedUi> {
-  if (typeof raw !== 'object' || raw === null) return {};
+  if (typeof raw !== 'object' || raw === null) {
+    return {};
+  }
   const r = raw as Record<string, unknown>;
   const def = defaultEditorUiState();
   const out: Partial<PersistedUi> = {};
@@ -185,7 +187,9 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
   /** CSS の baseline。編集画面を経ていない・測れなかったときは null。 */
   function cssBaselineOf(templateId: string): string | null {
     const mem = cssBaselines.get(templateId);
-    if (mem !== undefined) return mem;
+    if (mem !== undefined) {
+      return mem;
+    }
     try {
       return sessionStorage.getItem(cssBaselineKey(templateId));
     } catch {
@@ -218,19 +222,25 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
    */
   function persist(templateId: string): void {
     const sess = sessions[templateId];
-    if (!sess) return;
+    if (!sess) {
+      return;
+    }
     const past = sess.undoPast.slice(-UNDO_PERSIST_CAP);
     // future の末尾が次の redo 対象(`useSnapshotHistory` の redo は pop)なので後方を残す。
     const future = sess.undoFuture.slice(-UNDO_PERSIST_CAP);
     const map = readUndoMap();
     delete map[templateId]; // 削除→再追加でキー順の末尾=最近使用に置く(LRU 用)。
     map[templateId] = { past, future };
-    if (writeUndoMap(map)) return;
+    if (writeUndoMap(map)) {
+      return;
+    }
 
     // quota: 他テンプレートを古い側から間引いて再試行する。
     for (const k of Object.keys(map).filter((k) => k !== templateId)) {
       delete map[k];
-      if (writeUndoMap(map)) return;
+      if (writeUndoMap(map)) {
+        return;
+      }
     }
     // 自身だけでも入らない: 深度を半減させながら再試行する。
     let depth = past.length;
@@ -240,7 +250,9 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
         past: past.slice(-depth),
         future: future.slice(-depth),
       };
-      if (writeUndoMap(map)) return;
+      if (writeUndoMap(map)) {
+        return;
+      }
     }
     // ここまで来たら保存は諦める(throw しない)。
   }
@@ -251,7 +263,9 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
    */
   function persistUi(templateId: string): void {
     const sess = sessions[templateId];
-    if (!sess) return;
+    if (!sess) {
+      return;
+    }
     const { allowEdit: _allowEdit, selectedKey: _selectedKey, ...rest } = sess.ui;
     const map = readUiMap();
     map[templateId] = rest;

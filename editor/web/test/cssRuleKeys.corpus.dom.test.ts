@@ -31,7 +31,9 @@ function withoutRule(css: string, key: string): string {
   let out = css;
   for (const r of splitCssRules(css).reverse()) {
     const alone = r.atRules.reduceRight((inner, at) => `${at}{${inner}}`, r.text);
-    if (foldedCssRuleTexts(alone).has(key)) out = out.slice(0, r.start) + out.slice(r.end);
+    if (foldedCssRuleTexts(alone).has(key)) {
+      out = out.slice(0, r.start) + out.slice(r.end);
+    }
   }
   return out;
 }
@@ -58,7 +60,9 @@ describe.each(Object.entries({ ...FIXTURES, ...SYNTHETIC }))('%s', (name, css) =
       const rawKeys = new Set(foldedCssRuleTexts(css).keys());
       const outKeys = [...foldedCssRuleTexts(out).keys()];
       // 宣言のある規則が 1 つでもあれば書き出しは空でない(空の書き出しで素通りさせない)。
-      if (/\{[^{}]*:/.test(css)) expect(outKeys.length, out).toBeGreaterThan(0);
+      if (/\{[^{}]*:/.test(css)) {
+        expect(outKeys.length, out).toBeGreaterThan(0);
+      }
       const missing = outKeys.filter((k) => !rawKeys.has(k));
       expect(missing, out).toEqual(KNOWN_UNMATCHED[name] ?? []);
       for (const k of missing) {

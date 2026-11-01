@@ -32,7 +32,9 @@ function makeDel(doc: Document, inline: boolean): HTMLElement {
   del.setAttribute(REDLINE_ATTR, '');
   // RTE の contenteditable 領域の中に入っても編集対象にならないようにする。
   del.setAttribute('contenteditable', 'false');
-  if (!inline) del.classList.add(REDLINE_BLOCK_CLASS);
+  if (!inline) {
+    del.classList.add(REDLINE_BLOCK_CLASS);
+  }
   return del;
 }
 
@@ -43,12 +45,16 @@ function applyDelText(text: Text, ops: RedlineOp & { kind: 'delText' }): void {
   let offset = 0;
   let pendingDel = '';
   const flush = () => {
-    if (!pendingDel) return;
+    if (!pendingDel) {
+      return;
+    }
     const del = makeDel(doc, true);
     del.textContent = pendingDel;
     pendingDel = '';
     const parent = cur.parentNode;
-    if (!parent) return;
+    if (!parent) {
+      return;
+    }
     if (offset === 0) {
       parent.insertBefore(del, cur);
     } else if (offset >= cur.data.length) {
@@ -77,11 +83,15 @@ function applyInsText(
   ops: RedlineOp & { kind: 'insText' },
   highlight: { add(r: Range): void } | null,
 ): void {
-  if (!highlight) return;
+  if (!highlight) {
+    return;
+  }
   const doc = text.ownerDocument;
   let offset = 0;
   for (const op of ops.ops) {
-    if (op.type === 'del') continue;
+    if (op.type === 'del') {
+      continue;
+    }
     if (op.type === 'ins') {
       const end = Math.min(offset + op.text.length, text.data.length);
       if (end > offset) {
@@ -114,28 +124,45 @@ export function applyRedline(rootEl: HTMLElement, ops: RedlineOp[]): void {
   const highlight = hl ? new hl.ctor() : null;
 
   for (const op of ops) {
-    if (op.kind !== 'insText') continue;
+    if (op.kind !== 'insText') {
+      continue;
+    }
     const n = op.node();
-    if (isText(n)) applyInsText(n, op, highlight);
+    if (isText(n)) {
+      applyInsText(n, op, highlight);
+    }
   }
-  if (hl && highlight) hl.registry.set(REDLINE_HIGHLIGHT, highlight);
+  if (hl && highlight) {
+    hl.registry.set(REDLINE_HIGHLIGHT, highlight);
+  }
 
   for (const op of ops) {
-    if (op.kind !== 'delText') continue;
+    if (op.kind !== 'delText') {
+      continue;
+    }
     const n = op.node();
-    if (isText(n)) applyDelText(n, op);
+    if (isText(n)) {
+      applyDelText(n, op);
+    }
   }
 
   for (const op of ops) {
     if (op.kind === 'addedEl') {
       const n = op.node();
-      if (n instanceof Element) n.setAttribute(REDLINE_ADDED_ATTR, '');
+      if (n instanceof Element) {
+        n.setAttribute(REDLINE_ADDED_ATTR, '');
+      }
     } else if (op.kind === 'removedEl') {
       const parent = op.parent ? op.parent() : rootEl;
-      if (!(parent instanceof Element)) continue;
+      if (!(parent instanceof Element)) {
+        continue;
+      }
       const del = makeDel(doc, op.inline);
-      if (op.inline) del.textContent = op.text ?? '';
-      else if (op.def) del.appendChild(renderDefinition(op.def, doc));
+      if (op.inline) {
+        del.textContent = op.text ?? '';
+      } else if (op.def) {
+        del.appendChild(renderDefinition(op.def, doc));
+      }
       const before = op.before ? op.before() : null;
       parent.insertBefore(del, before && before.parentNode === parent ? before : null);
     }
@@ -146,15 +173,21 @@ export function applyRedline(rootEl: HTMLElement, ops: RedlineOp[]): void {
 function clearWithin(scope: HTMLElement, dropHighlight: boolean): void {
   const parents = new Set<Node>();
   for (const del of Array.from(scope.querySelectorAll(`[${REDLINE_ATTR}]`))) {
-    if (del.parentNode) parents.add(del.parentNode);
+    if (del.parentNode) {
+      parents.add(del.parentNode);
+    }
     del.remove();
   }
   for (const el of Array.from(scope.querySelectorAll(`[${REDLINE_ADDED_ATTR}]`))) {
     el.removeAttribute(REDLINE_ADDED_ATTR);
   }
   scope.removeAttribute(REDLINE_ADDED_ATTR);
-  for (const p of parents) p.normalize();
-  if (dropHighlight) highlightRegistry(scope.ownerDocument)?.registry.delete(REDLINE_HIGHLIGHT);
+  for (const p of parents) {
+    p.normalize();
+  }
+  if (dropHighlight) {
+    highlightRegistry(scope.ownerDocument)?.registry.delete(REDLINE_HIGHLIGHT);
+  }
 }
 
 export function clearRedline(rootEl: HTMLElement): void {

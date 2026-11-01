@@ -35,7 +35,9 @@ export function readOrMissing<T extends string | null>(
   fallback: T,
 ): Promise<string | T> {
   return fs.readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
-    if (e?.code === 'ENOENT') return fallback;
+    if (e?.code === 'ENOENT') {
+      return fallback;
+    }
     throw e;
   });
 }

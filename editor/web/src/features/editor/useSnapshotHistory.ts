@@ -54,20 +54,26 @@ export function useSnapshotHistory<T>(
   function updateFlags(): void {
     canUndo.value = past.length > 0;
     canRedo.value = future.length > 0;
-    if (started) onChange?.();
+    if (started) {
+      onChange?.();
+    }
   }
 
   /** snapshot を past へ積み、redo 分岐(`future`)を捨てる。 */
   function pushSnapshot(snap: T): void {
     past.push(snap);
-    if (past.length > max) past.shift();
+    if (past.length > max) {
+      past.shift();
+    }
     future.length = 0;
     updateFlags();
   }
 
   /** 変更前の state を capture して即座に積む。変更が確実な操作の直前に呼ぶ。 */
   function pushUndo(): void {
-    if (applying) return;
+    if (applying) {
+      return;
+    }
     pushSnapshot(capture());
   }
 
@@ -83,15 +89,21 @@ export function useSnapshotHistory<T>(
    * 残っていても開始時点を失わないための多重防御。
    */
   function beginUndo(): void {
-    if (applying) return;
+    if (applying) {
+      return;
+    }
     const now = capture();
-    if (pending && !equals(pending.snap, now)) pushSnapshot(pending.snap);
+    if (pending && !equals(pending.snap, now)) {
+      pushSnapshot(pending.snap);
+    }
     pending = { snap: now };
   }
 
   /** 保留中の開始時 snapshot を past へ積む(変更が実際に起きたときだけ呼ぶ)。 */
   function commitUndo(): void {
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     const { snap } = pending;
     pending = null;
     pushSnapshot(snap);
@@ -113,13 +125,17 @@ export function useSnapshotHistory<T>(
   }
 
   function undo(): void {
-    if (!past.length) return;
+    if (!past.length) {
+      return;
+    }
     future.push(capture());
     applySnap(past.pop() as T);
   }
 
   function redo(): void {
-    if (!future.length) return;
+    if (!future.length) {
+      return;
+    }
     past.push(capture());
     // 末尾から取り出す: `undo` が future へ push するので、末尾が直近に取り消した state。
     applySnap(future.pop() as T);

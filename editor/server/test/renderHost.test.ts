@@ -153,13 +153,17 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     const sandbox: Record<string, unknown> = {
       parent,
       addEventListener: (type: string, fn: (e: { source: unknown; data: unknown }) => void) => {
-        if (type === 'message') listener = fn;
+        if (type === 'message') {
+          listener = fn;
+        }
       },
     };
     sandbox.window = sandbox;
     sandbox.self = sandbox;
     const context = vm.createContext(sandbox);
-    for (const src of scripts) vm.runInContext(src, context);
+    for (const src of scripts) {
+      vm.runInContext(src, context);
+    }
     // ブートが READY を出していない = nunjucks が載っていない。
     expect(posted.map((m) => m.type)).toContain('editor:render-ready');
     expect(listener).not.toBeNull();
@@ -224,7 +228,9 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
         `脱出した: ${template}`,
       ).toBe(false);
       // 出力にも中身を漏らさない(例外か空文字のどちらかで、コードは 1 度も走らない)。
-      if (res?.type === 'editor:render-res') expect(res.html).not.toContain('function');
+      if (res?.type === 'editor:render-res') {
+        expect(res.html).not.toContain('function');
+      }
     }
   });
 
@@ -301,12 +307,16 @@ describe('ブートスクリプトの多層防御(nunjucks サンドボックス
     const sandbox: Record<string, unknown> = {
       parent,
       addEventListener: (type: string, fn: (e: { source: unknown; data: unknown }) => void) => {
-        if (type === 'message') listener = fn;
+        if (type === 'message') {
+          listener = fn;
+        }
       },
     };
     sandbox.window = sandbox;
     sandbox.self = sandbox;
-    for (const src of scripts) vm.runInContext(src, vm.createContext(sandbox));
+    for (const src of scripts) {
+      vm.runInContext(src, vm.createContext(sandbox));
+    }
     posted.length = 0;
     // 別の window(例: 同居する他の sandbox フレーム)を騙る。子 → 親の `event.origin` は
     // どの opaque フレームでも `'null'` なので、判定は source の同一性でしか行えない。

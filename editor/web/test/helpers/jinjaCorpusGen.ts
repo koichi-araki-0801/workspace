@@ -21,7 +21,9 @@ type Gen = { r: () => number; depth: number };
 const pick = <T>(g: Gen, xs: readonly T[]): T => xs[Math.floor(g.r() * xs.length)] as T;
 
 function flow(g: Gen): string {
-  if (g.depth > 3) return pick(g, ['text', '{{ v }}', '<b>{{ w }}</b>']);
+  if (g.depth > 3) {
+    return pick(g, ['text', '{{ v }}', '<b>{{ w }}</b>']);
+  }
   const d = { ...g, depth: g.depth + 1 };
   const n = 1 + Math.floor(g.r() * 3);
   return Array.from({ length: n }, () =>

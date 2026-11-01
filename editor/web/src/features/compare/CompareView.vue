@@ -48,7 +48,7 @@ const result = ref<CompareResult | null>(null);
 async function onCompare() {
   const a = sideA.value;
   const b = sideB.value;
-  if (!a || !b) return;
+  if (!a || !b) { return; }
   compareError.value = null;
   rendering.value = true;
   try {

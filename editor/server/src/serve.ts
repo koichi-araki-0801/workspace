@@ -27,7 +27,9 @@ interface StartServerOptions {
 // (GetFinalPathNameByHandle)が UNC へ解決することを利用して判定する(ベストエフォート。
 // 判定できないときは黙ってスキップし、起動は妨げない)。
 function isNetworkPath(p: string): boolean {
-  if (p.startsWith('\\\\')) return true;
+  if (p.startsWith('\\\\')) {
+    return true;
+  }
   try {
     return fs.realpathSync.native(p).startsWith('\\\\');
   } catch {
@@ -61,7 +63,9 @@ function warnOnNetworkPlacement(): void {
 // 認証なし(無認証モード)では DB 未接続なので呼ばない。失敗してもプロセスは継続するが、失効漏れ
 // は「再起動後もログイン状態が残る」形へ戻る退行なので error で目立たせる。
 async function invalidateSessionsOnBoot(app: ReturnType<typeof buildApp>): Promise<void> {
-  if (!config.requireAuth) return;
+  if (!config.requireAuth) {
+    return;
+  }
   try {
     await app.sessionStore.invalidateAllSessions();
     logger.info('[server] 全セッションを失効しました(起動時) — 再ログインを強制します');
@@ -130,7 +134,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
   // + 一時ディレクトリを保持)を停止し、リーク(leak)を残さない。
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
-    if (shuttingDown) return;
+    if (shuttingDown) {
+      return;
+    }
     shuttingDown = true;
     logger.info(`[server] ${signal} received — closing preview sessions`);
     await Promise.allSettled([previewManager.disposeAll(), buildWorkerPool.disposeAll()]);

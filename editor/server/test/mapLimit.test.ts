@@ -31,7 +31,9 @@ describe('mapLimit', () => {
       mapLimit([1, 2, 3, 4], 2, async (x) => {
         seen.push(x);
         await tick(x === 1 ? 1 : 5);
-        if (x === 1) throw new Error('boom');
+        if (x === 1) {
+          throw new Error('boom');
+        }
         return x;
       }),
     ).rejects.toThrow('boom');
@@ -48,7 +50,9 @@ describe('mapLimit', () => {
         async (x) => {
           seen.push(x);
           await tick(1);
-          if (x === 1) throw new Error('boom');
+          if (x === 1) {
+            throw new Error('boom');
+          }
           return x;
         },
         { stopOnError: true },

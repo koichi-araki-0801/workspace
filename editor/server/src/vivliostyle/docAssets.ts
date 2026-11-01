@@ -138,10 +138,16 @@ function groupFor(rel: string): { group: AssetGroup; rest: string[] } | undefine
   );
   for (const group of byDepth) {
     const mountSegs = group.mount.split('/');
-    if (segments.length <= mountSegs.length) continue;
-    if (!mountSegs.every((s, i) => segments[i] === s)) continue;
+    if (segments.length <= mountSegs.length) {
+      continue;
+    }
+    if (!mountSegs.every((s, i) => segments[i] === s)) {
+      continue;
+    }
     const rest = segments.slice(mountSegs.length);
-    if (group.skipTopDirs?.has(rest[0].toLowerCase()) && rest.length > 1) return undefined;
+    if (group.skipTopDirs?.has(rest[0].toLowerCase()) && rest.length > 1) {
+      return undefined;
+    }
     return { group, rest };
   }
   return undefined;
@@ -165,8 +171,12 @@ function isAliasingSegment(seg: string): boolean {
  */
 function foldImageDirKey(rel: string): string | undefined {
   const segs = rel.split('/');
-  if (segs.length !== 3 || segs[0] !== FUND_IMAGES_DIR) return undefined;
-  if (segs.some(isAliasingSegment)) return undefined;
+  if (segs.length !== 3 || segs[0] !== FUND_IMAGES_DIR) {
+    return undefined;
+  }
+  if (segs.some(isAliasingSegment)) {
+    return undefined;
+  }
   return `${segs[0]}/${segs[1].toLowerCase()}/${segs[2]}`;
 }
 
@@ -223,7 +233,9 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
   const root = group.sourceDir();
   const out: AssetFile[] = [];
   const walk = async (dir: string, relPrefix: string, depth: number): Promise<void> => {
-    if (depth > group.maxDepth) return;
+    if (depth > group.maxDepth) {
+      return;
+    }
     let entries: Dirent[] = [];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -235,13 +247,19 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
       const full = path.join(dir, entry.name);
       const rel = `${relPrefix}/${entry.name}`;
       if (entry.isDirectory()) {
-        if (depth === 0 && group.skipTopDirs?.has(entry.name.toLowerCase())) continue;
+        if (depth === 0 && group.skipTopDirs?.has(entry.name.toLowerCase())) {
+          continue;
+        }
         await walk(full, rel, depth + 1);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
       const ext = path.extname(entry.name).toLowerCase();
-      if (!group.extensions.has(ext)) continue;
+      if (!group.extensions.has(ext)) {
+        continue;
+      }
       let bytes = 0;
       try {
         bytes = (await fs.stat(full)).size;
@@ -268,9 +286,13 @@ async function collectGroup(group: AssetGroup): Promise<AssetFile[]> {
  */
 export async function resolveServedAssetSource(rel: string): Promise<string | undefined> {
   const hit = groupFor(rel);
-  if (hit === undefined) return undefined;
+  if (hit === undefined) {
+    return undefined;
+  }
   const { group, rest } = hit;
-  if (rest.length > group.maxDepth + 1) return undefined;
+  if (rest.length > group.maxDepth + 1) {
+    return undefined;
+  }
   // `\` と NUL は Windows で 1 セグメントのまま下の階層へ降りる / 名前を切るので、先に落とす。
   // 末尾の `.`・空白と `:` は別の実体へ読み替えられる(`isAliasingSegment`)。
   if (
@@ -283,19 +305,26 @@ export async function resolveServedAssetSource(rel: string): Promise<string | un
         s.includes('\0') ||
         isAliasingSegment(s),
     )
-  )
+  ) {
     return undefined;
-  if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) return undefined;
+  }
+  if (!group.extensions.has(path.extname(rest[rest.length - 1]).toLowerCase())) {
+    return undefined;
+  }
   let current = group.sourceDir();
   for (const [i, seg] of rest.entries()) {
     const last = i === rest.length - 1;
     // images の会社フォルダだけは名前の大小文字を問わない(`foldImageDirKey` の理由)。
     const name = !last && group.mount === FUND_IMAGES_DIR ? await matchDirName(current, seg) : seg;
-    if (name === undefined) return undefined;
+    if (name === undefined) {
+      return undefined;
+    }
     current = path.join(current, name);
     try {
       const st = await fs.lstat(current);
-      if (last ? !st.isFile() : !st.isDirectory()) return undefined;
+      if (last ? !st.isFile() : !st.isDirectory()) {
+        return undefined;
+      }
     } catch {
       return undefined;
     }
@@ -332,11 +361,15 @@ async function expandReferenced(
   const folded = new Map<string, AssetFile | null>();
   for (const [rel, file] of catalog) {
     const key = foldImageDirKey(rel);
-    if (key !== undefined) folded.set(key, folded.has(key) ? null : file);
+    if (key !== undefined) {
+      folded.set(key, folded.has(key) ? null : file);
+    }
   }
   const lookup = (rel: string): AssetFile | undefined => {
     const exact = catalog.get(rel);
-    if (exact !== undefined) return exact;
+    if (exact !== undefined) {
+      return exact;
+    }
     const key = foldImageDirKey(rel);
     return key === undefined ? undefined : (folded.get(key) ?? undefined);
   };
@@ -346,12 +379,18 @@ async function expandReferenced(
   for (let depth = 0; depth < MAX_ASSET_REF_DEPTH && frontier.length > 0; depth++) {
     const next: string[] = [];
     for (const rel of frontier) {
-      if (chosen.has(rel)) continue;
+      if (chosen.has(rel)) {
+        continue;
+      }
       const found = lookup(rel);
-      if (found === undefined) continue;
+      if (found === undefined) {
+        continue;
+      }
       const file = { ...found, rel };
       chosen.set(rel, file);
-      if (path.extname(rel).toLowerCase() !== '.css') continue;
+      if (path.extname(rel).toLowerCase() !== '.css') {
+        continue;
+      }
       let text = '';
       try {
         text = await fs.readFile(file.source, 'utf8');
@@ -361,7 +400,9 @@ async function expandReferenced(
       for (const candidate of collectCssUrlCandidates(text)) {
         // CSS 内の参照は CSS 自身の位置が基準(`css/A_1_交付版.css` の `fonts/x` = `css/fonts/x`)。
         const child = resolveDocAssetPath(candidate, rel);
-        if (child !== undefined && !chosen.has(child)) next.push(child);
+        if (child !== undefined && !chosen.has(child)) {
+          next.push(child);
+        }
       }
     }
     frontier = next;
@@ -381,7 +422,9 @@ async function readInspectedSvg(file: AssetFile): Promise<Buffer | undefined> {
     return undefined;
   }
   const violations = inspectSvg(body.toString('utf8'));
-  if (violations.length === 0) return body;
+  if (violations.length === 0) {
+    return body;
+  }
   warnSvgRejected(
     file.rel,
     violations,
@@ -407,7 +450,9 @@ export async function stageDocAssets(
 ): Promise<Set<string>> {
   const catalog = new Map<string, AssetFile>();
   for (const group of ASSET_GROUPS) {
-    for (const file of await collectGroup(group)) catalog.set(file.rel, file);
+    for (const file of await collectGroup(group)) {
+      catalog.set(file.rel, file);
+    }
   }
   const wanted = await expandReferenced(catalog, opts.referenced);
 
@@ -415,22 +460,29 @@ export async function stageDocAssets(
   let files = 0;
   let bytes = 0;
   for (const file of wanted) {
-    if (files >= MAX_ASSET_FILES || bytes + file.bytes > MAX_ASSET_BYTES) return served;
+    if (files >= MAX_ASSET_FILES || bytes + file.bytes > MAX_ASSET_BYTES) {
+      return served;
+    }
     // SVG は参照されたものだけをここで検査する(目録づくりの段では読まない = 全画像を毎回
     // 読まない)。違反は置かない。`served` に入らないので `<link>` / `<script>` の参照は
     // `inlineCss` が落とすが、`<img>` / `url()` は残って 404 になり、表示されない。
     let body: Buffer | undefined;
     if (path.extname(file.rel).toLowerCase() === '.svg') {
       body = await readInspectedSvg(file);
-      if (body === undefined) continue;
+      if (body === undefined) {
+        continue;
+      }
     }
     const dest = path.join(destDir, ...file.rel.split('/'));
     await fs.mkdir(path.dirname(dest), { recursive: true });
     try {
       // `COPYFILE_EXCL` / `wx` = 既存があれば失敗。配信ルートに先着の実体があればそちらを残す
       // (zip 展開物のように既に同名がある配信ルートを我々の資産で上書きしない)。
-      if (body === undefined) await fs.copyFile(file.source, dest, fs.constants.COPYFILE_EXCL);
-      else await fs.writeFile(dest, body, { flag: 'wx' });
+      if (body === undefined) {
+        await fs.copyFile(file.source, dest, fs.constants.COPYFILE_EXCL);
+      } else {
+        await fs.writeFile(dest, body, { flag: 'wx' });
+      }
     } catch {
       // 失敗の原因が「先着があった」なのか「読めなかった」なのかを、例外の種類ではなく
       // **配信ルートの実体**で判定する。集合に載せてよいのは実体が在るときだけ —
@@ -440,7 +492,9 @@ export async function stageDocAssets(
         .stat(dest)
         .then((s) => s.isFile())
         .catch(() => false);
-      if (!exists) continue;
+      if (!exists) {
+        continue;
+      }
     }
     served.add(file.rel);
     files += 1;

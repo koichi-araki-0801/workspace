@@ -130,7 +130,9 @@ interface ScanBudget {
 
 function decodeBase64(value: string): string | null {
   const compact = value.replace(/\s+/g, '');
-  if (compact === '') return '';
+  if (compact === '') {
+    return '';
+  }
   try {
     return Buffer.from(compact, 'base64').toString('utf8');
   } catch {
@@ -158,7 +160,9 @@ function splitEncodedChips(html: string): { text: string; payloads: ChipPayload[
     const decoded = decodeBase64(m[1] ?? m[2] ?? '');
     out += html.slice(last, m.index);
     last = m.index + m[0].length;
-    if (decoded !== null && decoded !== '') payloads.push({ at: out.length, decoded });
+    if (decoded !== null && decoded !== '') {
+      payloads.push({ at: out.length, decoded });
+    }
   }
   out += html.slice(last);
   return { text: out, payloads };
@@ -174,11 +178,15 @@ export function expandEncodedChips(html: string): string {
     let changed = false;
     text = text.replace(ENCODED_ATTR_RE, (whole, dq?: string, sq?: string) => {
       const decoded = decodeBase64(dq ?? sq ?? '');
-      if (decoded === null || decoded === '') return whole;
+      if (decoded === null || decoded === '') {
+        return whole;
+      }
       changed = true;
       return `\n${decoded}\n`;
     });
-    if (!changed) break;
+    if (!changed) {
+      break;
+    }
   }
   return text;
 }
@@ -512,11 +520,15 @@ const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
  */
 function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
   const close = jinjaCloserOf(text.slice(at, at + 2));
-  if (close === undefined) return -1;
+  if (close === undefined) {
+    return -1;
+  }
   const e = text.indexOf(close, at + 2);
   // 閉じ記号を探して走った距離を予算から引く(閉じない `{{` が末尾まで舐める分をここで数える)。
   budget.remaining -= (e < 0 ? text.length : e) - at;
-  if (e < 0) return -1;
+  if (e < 0) {
+    return -1;
+  }
   return TAG_LIKE_LT_RE.test(text.slice(at + 2, e)) ? -1 : e + 2;
 }
 
@@ -551,9 +563,13 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
   const len = text.length;
   let i = 0;
   while (i < len) {
-    if (budget.remaining <= 0) return; // 作業量予算が尽きたら走査を止める(fail closed)
+    if (budget.remaining <= 0) {
+      return; // 作業量予算が尽きたら走査を止める(fail closed)
+    }
     const lt = text.indexOf('<', i);
-    if (lt < 0) return;
+    if (lt < 0) {
+      return;
+    }
     const next = text[lt + 1] ?? '';
     if (next === '!') {
       if (text.startsWith('<!--', lt)) {
@@ -587,15 +603,23 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
       continue;
     }
     let p = lt + 1;
-    while (p < len && !isTagNameEnd(text[p])) p++;
+    while (p < len && !isTagNameEnd(text[p])) {
+      p++;
+    }
     const name = text.slice(lt + 1, p).toLowerCase();
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
     const jinjaAt: number[] = [];
     while (p < len) {
-      if (budget.remaining <= 0) break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
-      while (p < len && (isHtmlSpace(text[p]) || text[p] === '/')) p++;
-      if (p >= len) break;
+      if (budget.remaining <= 0) {
+        break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
+      }
+      while (p < len && (isHtmlSpace(text[p]) || text[p] === '/')) {
+        p++;
+      }
+      if (p >= len) {
+        break;
+      }
       if (text[p] === '>') {
         p++;
         break;
@@ -612,15 +636,21 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
         // 下の属性名走査へ落とす — ここで走査を打ち切ると入力の残りが単位から消える。
       }
       const nameStart = p;
-      while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) p++;
+      while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) {
+        p++;
+      }
       const attrName = text.slice(nameStart, p).toLowerCase();
-      while (p < len && isHtmlSpace(text[p])) p++;
+      while (p < len && isHtmlSpace(text[p])) {
+        p++;
+      }
       let value = '';
       let valueAt = -1;
       let valueEnd = -1;
       if (text[p] === '=') {
         p++;
-        while (p < len && isHtmlSpace(text[p])) p++;
+        while (p < len && isHtmlSpace(text[p])) {
+          p++;
+        }
         const quote = text[p];
         if (quote === '"' || quote === "'") {
           const e = text.indexOf(quote, p + 1);
@@ -630,12 +660,16 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
           p = e < 0 ? len : e + 1;
         } else {
           valueAt = p;
-          while (p < len && !isHtmlSpace(text[p]) && text[p] !== '>') p++;
+          while (p < len && !isHtmlSpace(text[p]) && text[p] !== '>') {
+            p++;
+          }
           valueEnd = p;
           value = text.slice(valueAt, p);
         }
       }
-      if (attrName !== '') attrs.push({ name: attrName, value, valueAt, valueEnd });
+      if (attrName !== '') {
+        attrs.push({ name: attrName, value, valueAt, valueEnd });
+      }
     }
     yield { at: lt, contentAt: p, name, attrs, jinja, jinjaAt };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
@@ -696,7 +730,9 @@ function stripJinjaTokens(s: string): string {
     const close = s[i] === '{' ? jinjaCloserOf(s.slice(i, i + 2)) : undefined;
     if (close !== undefined) {
       const e = s.indexOf(close, i + 2);
-      if (e < 0) break; // 閉じないトークン: 以降は捨てる
+      if (e < 0) {
+        break; // 閉じないトークン: 以降は捨てる
+      }
       i = e + 2; // 閉じるトークンは丸ごと飛ばす(indexOf は前進のみ = 全体で線形)
       continue;
     }
@@ -711,10 +747,16 @@ function isInertUrlLiteral(decoded: string): boolean {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ブラウザが URL から除く文字域
   const compact = decoded.replace(/[\s\u0000-\u001f\u007f]/g, '');
   const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(compact);
-  if (!m) return true; // 相対 URL・断片(`#id`)・クエリのみ
+  if (!m) {
+    return true; // 相対 URL・断片(`#id`)・クエリのみ
+  }
   const scheme = (m[1] as string).toLowerCase();
-  if (INERT_SCHEMES.has(scheme)) return true;
-  if (scheme !== 'data') return false;
+  if (INERT_SCHEMES.has(scheme)) {
+    return true;
+  }
+  if (scheme !== 'data') {
+    return false;
+  }
   return INERT_DATA_MEDIA.test(compact.slice(m[0].length));
 }
 
@@ -728,7 +770,9 @@ function isInertUrlLiteral(decoded: string): boolean {
  */
 function isInertUrl(value: string): boolean {
   const decoded = decodeHtmlEntities(value);
-  if (!isInertUrlLiteral(decoded)) return false;
+  if (!isInertUrlLiteral(decoded)) {
+    return false;
+  }
   const stripped = stripJinjaTokens(decoded);
   return stripped === decoded || isInertUrlLiteral(stripped);
 }
@@ -749,7 +793,11 @@ function pushCssUnits(css: string, at: number, out: PositionedUnit[]): void {
   // 同じトークンが基準にもある(コメントを置いて綴りを割ってある)なら、それだけでは違いが出ない。
   const stripped = stripJinjaTokens(decoded);
   if (stripped !== decoded) {
-    for (const ref of findExternalRefsInCss(stripped)) if (!refs.includes(ref)) refs.push(ref);
+    for (const ref of findExternalRefsInCss(stripped)) {
+      if (!refs.includes(ref)) {
+        refs.push(ref);
+      }
+    }
   }
   for (const ref of refs) {
     out.push({ at, seq: out.length, unit: `css-ref:${collapse(ref)}` });
@@ -795,7 +843,9 @@ const JINJA_LEX_ERROR_UNIT = 'jinja-lex-error';
 /** 直前の HTML の空白を飛ばした位置の文字が `<` か。`{%-` の刈り込みと `lstrip_blocks` を考える。 */
 function followsLt(text: string, at: number): boolean {
   let b = at - 1;
-  while (b >= 0 && isHtmlSpace(text[b])) b--;
+  while (b >= 0 && isHtmlSpace(text[b])) {
+    b--;
+  }
   return text[b] === '<';
 }
 
@@ -831,15 +881,21 @@ function pushJinjaUnits(
     return;
   }
   // 束ねた名前は文脈を問わず集める(属性値・CSS・script の本文の `set` も。拾いすぎる側)。
-  for (const tok of lexed.tokens) seen.push(tok);
+  for (const tok of lexed.tokens) {
+    seen.push(tok);
+  }
   // タグ・本文の範囲は文書の順に並び、互いに重ならない。トークンも先頭の位置の順なので、
   // 2 本の添字を進めるだけで分類でき、全体で線形に収まる。
   let ti = 0;
   let bi = 0;
   for (const tok of lexed.tokens) {
     const s = tok.start;
-    while (ti < tags.length && (tags[ti] as TagSpan).end <= s) ti++;
-    while (bi < bodies.length && (bodies[bi] as BodySpan).end <= s) bi++;
+    while (ti < tags.length && (tags[ti] as TagSpan).end <= s) {
+      ti++;
+    }
+    while (bi < bodies.length && (bodies[bi] as BodySpan).end <= s) {
+      bi++;
+    }
     const tag = tags[ti];
     if (tag !== undefined && tag.start <= s) {
       pushTagJinjaUnit(tag, tok);
@@ -861,7 +917,9 @@ function pushJinjaUnits(
       out.push({ at: s, seq: out.length, unit: '', pending: tok });
     }
   }
-  for (const span of tags) flushTagJinjaUnits(span, out);
+  for (const span of tags) {
+    flushTagJinjaUnits(span, out);
+  }
 }
 
 function pushTagJinjaUnit(span: TagSpan, tok: JinjaToken): void {
@@ -870,7 +928,9 @@ function pushTagJinjaUnit(span: TagSpan, tok: JinjaToken): void {
   while (span.jinjaCursor < tag.jinjaAt.length && (tag.jinjaAt[span.jinjaCursor] as number) < s) {
     span.jinjaCursor++;
   }
-  if (tag.jinjaAt[span.jinjaCursor] === s) return; // `jinja-attr:` として積んである
+  if (tag.jinjaAt[span.jinjaCursor] === s) {
+    return; // `jinja-attr:` として積んである
+  }
   // 値の無い属性は `valueEnd` が -1 なので、ここで読み飛ばされる。
   while (
     span.attrCursor < tag.attrs.length &&
@@ -897,9 +957,13 @@ function pushTagJinjaUnit(span: TagSpan, tok: JinjaToken): void {
  * トークンの順は保つ(`href="{{ a }}{{ b }}"` と `href="{{ b }}{{ a }}"` は別の単位列になる)。
  */
 function flushTagJinjaUnits(span: TagSpan, out: PositionedUnit[]): void {
-  if (span.pending.length === 0) return;
+  if (span.pending.length === 0) {
+    return;
+  }
   span.pending.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  for (const p of span.pending) out.push({ at: span.tag.at, seq: out.length, unit: p.unit });
+  for (const p of span.pending) {
+    out.push({ at: span.tag.at, seq: out.length, unit: p.unit });
+  }
 }
 
 /**
@@ -918,7 +982,9 @@ function collectInto(
   // depth は「チップ復号の入れ子」と「<style> 本文の再走査」の両方を数える。閉じない
   // `<style>` の反復は残り全体を本文として同じ深さで再走査させるため、深さでも止める
   // (byte 予算と二段で、総走査バイト数・スタック深さの双方を入力長に対して線形に保つ)。
-  if (html === '') return;
+  if (html === '') {
+    return;
+  }
   if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) {
     budget.truncated = true;
     return;
@@ -971,7 +1037,9 @@ function collectInto(
       // 足し・消し・並べ替えるだけで単位の並びが変わって、正当な編集が拒否される。
       const nested: PositionedUnit[] = [];
       collectInto(body, nested, depth + 1, budget, seen, false);
-      for (const n of nested) out.push({ ...n, at: n.at + tag.contentAt, seq: out.length });
+      for (const n of nested) {
+        out.push({ ...n, at: n.at + tag.contentAt, seq: out.length });
+      }
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {
@@ -1010,7 +1078,9 @@ function collectInto(
           unit: `url:${tag.name}.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
         });
       }
-      if (a.name === 'style') pushCssUnits(a.value, tag.at, out);
+      if (a.name === 'style') {
+        pushCssUnits(a.value, tag.at, out);
+      }
     }
     // タグ内の Jinja は描画時に任意の属性文字列へ展開されうる(`<div {{ x }}>`)。
     // 実行面の入口なので、断片そのものを固定する。
@@ -1022,14 +1092,20 @@ function collectInto(
     pushJinjaUnits(text, tagSpans, bodySpans, out, budget, seen);
   }
   if (depth >= MAX_DECODE_DEPTH) {
-    if (payloads.length > 0) budget.truncated = true;
+    if (payloads.length > 0) {
+      budget.truncated = true;
+    }
     return;
   }
   for (const p of payloads) {
-    if (budget.remaining <= 0) return;
+    if (budget.remaining <= 0) {
+      return;
+    }
     const nested: PositionedUnit[] = [];
     collectInto(p.decoded, nested, depth + 1, budget, seen);
-    for (const n of nested) out.push({ ...n, at: p.at, seq: out.length });
+    for (const n of nested) {
+      out.push({ ...n, at: p.at, seq: out.length });
+    }
   }
 }
 
@@ -1073,11 +1149,16 @@ function collectUnits(html: string): string[] {
   const judge = new InertJinjaJudge(seen);
   const units: string[] = [];
   for (const u of out.sort((a, b) => a.at - b.at || a.seq - b.seq)) {
-    if (u.pending === undefined) units.push(u.unit);
-    else if (!judge.isInert(u.pending)) units.push(`jinja:${collapse(u.pending.source)}`);
+    if (u.pending === undefined) {
+      units.push(u.unit);
+    } else if (!judge.isInert(u.pending)) {
+      units.push(`jinja:${collapse(u.pending.source)}`);
+    }
   }
   // 予算切れは `scanOpenTags` の途中打ち切りも含むので、残量で判定する。
-  if (budget.truncated || budget.remaining <= 0) units.push(SCAN_INCOMPLETE_UNIT);
+  if (budget.truncated || budget.remaining <= 0) {
+    units.push(SCAN_INCOMPLETE_UNIT);
+  }
   return units;
 }
 
@@ -1143,7 +1224,9 @@ export function assertTemplateScriptsUnchanged(
   const before = baseline.units;
   const after = submitted.units;
   const incomplete = before.includes(SCAN_INCOMPLETE_UNIT) || after.includes(SCAN_INCOMPLETE_UNIT);
-  if (unitsEqual(before, after) && !incomplete) return;
+  if (unitsEqual(before, after) && !incomplete) {
+    return;
+  }
   const jinjaOnly =
     !incomplete &&
     unitsEqual(

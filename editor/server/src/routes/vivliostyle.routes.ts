@@ -53,9 +53,13 @@ const LOCAL_ACTOR = '@local';
  * 管理者にも他人のセッションを開ける例外は持たせない(`previewManager.ts` の `owned`)。
  */
 function previewActorOf(request: FastifyRequest): PreviewActor {
-  if (!config.requireAuth) return { loginId: LOCAL_ACTOR };
+  if (!config.requireAuth) {
+    return { loginId: LOCAL_ACTOR };
+  }
   const u = request.user;
-  if (!u) throw notFound('プレビューセッションが見つかりません');
+  if (!u) {
+    throw notFound('プレビューセッションが見つかりません');
+  }
   return { loginId: u.username };
 }
 
@@ -65,9 +69,13 @@ function previewActorOf(request: FastifyRequest): PreviewActor {
  * 認証ありで利用者が居ないのは配線の誤り — 名前の無い主体へ畳まずに 401 にする。
  */
 function buildUserOf(request: FastifyRequest): string {
-  if (!config.requireAuth) return LOCAL_ACTOR;
+  if (!config.requireAuth) {
+    return LOCAL_ACTOR;
+  }
   const u = request.user;
-  if (!u) throw unauthorized('ログインが必要です');
+  if (!u) {
+    throw unauthorized('ログインが必要です');
+  }
   return u.username;
 }
 
@@ -77,7 +85,9 @@ function buildUserOf(request: FastifyRequest): string {
  * 経路の存在を 401 / 413 で漏らさない。
  */
 async function requirePreviewEnabled(): Promise<void> {
-  if (!config.vivliostyle.preview.enabled) throw notFound('Not Found');
+  if (!config.vivliostyle.preview.enabled) {
+    throw notFound('Not Found');
+  }
 }
 
 /** PDF 書き出しを `pdf.export` の監査付きで走らせる。成功時は `pdfBytes` を detail へ足す。 */
@@ -119,7 +129,9 @@ function projectOptions(
   const q = request.query as Record<string, unknown>;
   const entry = typeof q.entry === 'string' && q.entry !== '' ? q.entry : undefined;
   const size = typeof q.size === 'string' ? q.size : undefined;
-  if (size !== undefined && !isValidPageSize(size)) throw validation(`不正な size です: ${size}`);
+  if (size !== undefined && !isValidPageSize(size)) {
+    throw validation(`不正な size です: ${size}`);
+  }
   return {
     entry: entry === undefined ? undefined : safeProjectEntry(root, entry),
     size,
@@ -152,7 +164,9 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       const zip: unknown = request.body;
       // zip 以外の content-type(JSON・本文なし)では `request.body` が Buffer にならない。
       // 展開へ渡すと型の前提が崩れて 500 になるので、`POST /preview` と同じく入力エラーにする。
-      if (!Buffer.isBuffer(zip)) throw validation('プロジェクト zip を送ってください');
+      if (!Buffer.isBuffer(zip)) {
+        throw validation('プロジェクト zip を送ってください');
+      }
       // ⚠ zip の展開は**枠を取ってから**行う(`withBuildSlot` の内側)。枠の外で展開していた
       // 版は、順番待ちのあいだずっと展開済みディレクトリを握ったので、行列の長さがそのまま
       // ディスク消費だった(inline / merge の資源確保を枠の内側へ寄せたのと同じ理由)。
@@ -257,7 +271,9 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
         );
       } else {
         const parsed = BuildInlineRequest.safeParse(request.body);
-        if (!parsed.success) throw validation('リクエスト内容が不正です');
+        if (!parsed.success) {
+          throw validation('リクエスト内容が不正です');
+        }
         const { dir, config: inlineConfig } = await prepareInlineDoc(parsed.data);
         meta = await previewManager.start(
           {
@@ -292,7 +308,9 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       // 他人のセッションも「見つかりません」に合流させる(403 は存在オラクルになる)。
       const meta = previewManager.get(request.params.id, previewActorOf(request));
-      if (!meta) throw notFound('プレビューセッションが見つかりません');
+      if (!meta) {
+        throw notFound('プレビューセッションが見つかりません');
+      }
       return meta;
     },
   );
@@ -306,7 +324,9 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       // 空振りは workDir も消さない(`stop` は cleanupProject まで行うため、素通しすると
       // 他人の作業ディレクトリを消せる)。
       const stopped = await previewManager.stop(id, previewActorOf(request));
-      if (!stopped) throw notFound('プレビューセッションが見つかりません');
+      if (!stopped) {
+        throw notFound('プレビューセッションが見つかりません');
+      }
       audit({
         event: 'vivliostyle.preview.stop',
         outcome: 'success',
@@ -334,17 +354,25 @@ export async function vivliostyleRoutes(app: FastifyInstance): Promise<void> {
       // (`%2D` で書いた UUID など)。許可リストを載せる以上、この算術は置けない。
       const m = /^\/api\/preview\/([^/?#]+)((?:\/[^?#]*)?(?:[?#].*)?)$/.exec(request.url);
       // hijack 前なので、ここでの throw は通常どおり 404 として errorHandler が処理する。
-      if (!m) throw notFound('プレビューセッションが見つかりません');
+      if (!m) {
+        throw notFound('プレビューセッションが見つかりません');
+      }
       const rawId = m[1];
       // セッション id は `crypto.randomUUID`。literal UUID 以外は受けない(encode 揺れを
       // 型ごと排除する)。
-      if (!UUID_RE.test(rawId)) throw notFound('プレビューセッションが見つかりません');
+      if (!UUID_RE.test(rawId)) {
+        throw notFound('プレビューセッションが見つかりません');
+      }
       const target = previewManager.resolveFor(rawId, previewActorOf(request));
-      if (!target) throw notFound('プレビューセッションが見つかりません');
+      if (!target) {
+        throw notFound('プレビューセッションが見つかりません');
+      }
       const forward = allowForwardPath(m[2] || '/', target.docBase);
       // 許可リスト非該当は**上流へ 1 バイトも出さずに**落とす。上流へ届けてから 404 に
       // すると、応答時間差や上流ログで存在が漏れる。
-      if (!forward) throw notFound('このパスはプレビューでは配信されません');
+      if (!forward) {
+        throw notFound('このパスはプレビューでは配信されません');
+      }
       previewManager.touch(rawId);
       // Fastify の応答送出を抑止し、proxy が生 res を完全所有する。
       reply.hijack();

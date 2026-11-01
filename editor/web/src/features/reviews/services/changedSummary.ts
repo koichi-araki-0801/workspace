@@ -79,7 +79,9 @@ export async function computeChangedSummaryWith(
   try {
     return await Promise.race([computeUnbounded(input, deps), timeout]);
   } finally {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
@@ -89,7 +91,9 @@ async function computeUnbounded(
 ): Promise<ReviewChangedSummary | null> {
   try {
     const pairRes = await deps.renderPair(input);
-    if (isErr(pairRes)) return null;
+    if (isErr(pairRes)) {
+      return null;
+    }
     const { before, after } = pairRes.value;
     const diff = await deps.buildHtmlDiff(before.html, after.html, before.css, after.css);
     const nameById = await deps.loadNames();

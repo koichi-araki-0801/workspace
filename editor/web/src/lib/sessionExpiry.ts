@@ -22,7 +22,9 @@ export function armUnauthorizedNotice(): void {
 
 /** セッション切れを通知する(再武装まで 1 回だけ handler を呼ぶ)。 */
 export function notifyUnauthorized(): void {
-  if (notified) return;
+  if (notified) {
+    return;
+  }
   notified = true;
   handler?.();
 }

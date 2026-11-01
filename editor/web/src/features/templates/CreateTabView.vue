@@ -81,7 +81,7 @@ const visibleMethodCards = computed(() =>
 
 // Step 2 の説明。版種を選んだときは、作る版と組入先を取り込まないことを示す。
 const step2Hint = computed(() => {
-  if (!canCreate.value) return 'ステップ1を完了すると選択できます。';
+  if (!canCreate.value) { return 'ステップ1を完了すると選択できます。'; }
   if (liveQuery.editionType) {
     return `${liveQuery.editionType}だけを作り、作成後はその編集画面が開きます。組入先は取り込みません。`;
   }
@@ -98,14 +98,15 @@ async function loadInfo() {
   // 世代は問い合わせないときも進める。前の属性の問い合わせが飛んでいると、その応答が
   // 後から届いて消したばかりの作成可否を埋め戻すため。
   const isLatest = latestResolve.begin();
-  if (!companyCode || !rep1CompanyCode || !fundCode) return;
+  if (!companyCode || !rep1CompanyCode || !fundCode) { return; }
   const res = await templates.getCreatableInfo({
     companyCode,
     rep1CompanyCode,
     fundCode,
     ...(editionType ? { editionType } : {}),
   });
-  if (!isLatest()) return; // 属性を変え直した後に届いた旧応答は捨てる
+  if (!isLatest()) { return; // 属性を変え直した後に届いた旧応答は捨てる
+}
   if (isErr(res)) {
     // 取れないと「シリーズから作成」カードが黙って消えるだけになるため明示する。
     toastError(res.error.message);
@@ -126,7 +127,7 @@ watch(
 );
 
 function selectMethod(m: Method) {
-  if (!canCreate.value || blocked.value || creating.value) return;
+  if (!canCreate.value || blocked.value || creating.value) { return; }
   // 属性から新規作成 (`blank`) はカード押下で即作成→編集画面へ。シリーズは候補一覧を表示する。
   if (m === 'blank') {
     void createNew();
@@ -137,7 +138,7 @@ function selectMethod(m: Method) {
 
 async function create(req: GenerateRequest, successMsg: string) {
   const res = await run(() => templates.create(req));
-  if (isErr(res)) return;
+  if (isErr(res)) { return; }
   toastSuccess(successMsg);
   // 版種を選ばない作成で、作成済みか申請中のため作らなかった版を知らせる(警告色のトーストは
   // 無いので既定色)。
@@ -161,7 +162,7 @@ async function create(req: GenerateRequest, successMsg: string) {
  * サーバは同意(`replaceExisting`)の無い作り直しを 409 で止めるので、送る前にここで聞く。
  */
 async function recreateConsent(): Promise<{ replaceExisting?: true } | null> {
-  if ((plan.value?.inProgress.length ?? 0) === 0) return {};
+  if ((plan.value?.inProgress.length ?? 0) === 0) { return {}; }
   const ok = await confirm({
     title: '作業中の内容を捨てて作り直しますか',
     description: `${plan.value?.consentScope}について、作成中のテンプレートの下書きと生成した内容を捨てて、新しく作り直します。コメントと修正履歴は残ります。`,
@@ -173,7 +174,7 @@ async function recreateConsent(): Promise<{ replaceExisting?: true } | null> {
 
 /** 作成経路(差し込み値のハイライトあり)で開く。作成済みは申請 → 承認で templates/ を上書きする。 */
 function openInCreateRoute(id: string | undefined) {
-  if (id) router.push(editorRoute(id, { created: true }));
+  if (id) { router.push(editorRoute(id, { created: true })); }
 }
 
 async function createNew() {
@@ -183,7 +184,7 @@ async function createNew() {
     return;
   }
   const consent = await recreateConsent();
-  if (!consent) return;
+  if (!consent) { return; }
   await create(
     {
       companyCode,
@@ -198,7 +199,8 @@ async function createNew() {
 }
 
 async function createFromSeries(sourceFundCode: string) {
-  if (creating.value || blocked.value) return; // 連打・作成済みで二重に作らせない
+  if (creating.value || blocked.value) { return; // 連打・作成済みで二重に作らせない
+}
   // コピー元は候補のファンド。作成されるのは Step1 で選んだファンド。
   const { companyCode, rep1CompanyCode, fundCode, editionType } = liveQuery;
   if (!companyCode || !rep1CompanyCode || !fundCode) {
@@ -206,7 +208,7 @@ async function createFromSeries(sourceFundCode: string) {
     return;
   }
   const consent = await recreateConsent();
-  if (!consent) return;
+  if (!consent) { return; }
   await create(
     {
       companyCode,

@@ -35,7 +35,9 @@ async function mountNav(props: Record<string, unknown>): Promise<VueWrapper> {
 /** 総ページ数の表示(`/ N`)。 */
 const countEl = (w: VueWrapper) => {
   const el = w.findAll('span').find((s) => s.text() === '/ 120');
-  if (!el) throw new Error('総ページ数の表示が無い');
+  if (!el) {
+    throw new Error('総ページ数の表示が無い');
+  }
   return el;
 };
 

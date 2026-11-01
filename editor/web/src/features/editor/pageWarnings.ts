@@ -78,13 +78,27 @@ export const LEGACY_KEY_WARNING = (n: number): string =>
  */
 export function pageWarnings(f: PageWarningFacts): string[] {
   const out: string[] = [];
-  if (f.uncounted > 0) out.push(UNCOUNTED_BREAK_WARNING(f.uncounted));
-  if (f.ignoredInline > 0) out.push(IGNORED_INLINE_BREAK_WARNING(f.ignoredInline));
-  if (f.cssRuleBreak !== null) out.push(CSS_RULE_BREAK_WARNING(f.cssRuleBreak));
-  if (f.counted > 0 && !f.cssDefined) out.push(PAGEBREAK_CSS_WARNING);
-  if (f.elementizingChips > 0) out.push(ELEMENTIZING_CHIP_WARNING);
-  if (f.jinjaAnchors > 0) out.push(JINJA_ANCHOR_WARNING);
-  if (f.legacyKeys > 0) out.push(LEGACY_KEY_WARNING(f.legacyKeys));
+  if (f.uncounted > 0) {
+    out.push(UNCOUNTED_BREAK_WARNING(f.uncounted));
+  }
+  if (f.ignoredInline > 0) {
+    out.push(IGNORED_INLINE_BREAK_WARNING(f.ignoredInline));
+  }
+  if (f.cssRuleBreak !== null) {
+    out.push(CSS_RULE_BREAK_WARNING(f.cssRuleBreak));
+  }
+  if (f.counted > 0 && !f.cssDefined) {
+    out.push(PAGEBREAK_CSS_WARNING);
+  }
+  if (f.elementizingChips > 0) {
+    out.push(ELEMENTIZING_CHIP_WARNING);
+  }
+  if (f.jinjaAnchors > 0) {
+    out.push(JINJA_ANCHOR_WARNING);
+  }
+  if (f.legacyKeys > 0) {
+    out.push(LEGACY_KEY_WARNING(f.legacyKeys));
+  }
   return out;
 }
 

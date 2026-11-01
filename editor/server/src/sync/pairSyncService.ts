@@ -97,7 +97,9 @@ async function rerenderForPair(
     input.catalog.filter((p) => containsJinja(p.content)).map((p) => [p.id, p.content]),
   );
   const warnings = new Map<string, string[]>();
-  if (jinjaCatalog.size === 0) return { html: input.sourceHtml, warnings };
+  if (jinjaCatalog.size === 0) {
+    return { html: input.sourceHtml, warnings };
+  }
   const [source, target] = await Promise.all([
     values.read(input.sourceTemplateId),
     values.read(input.pairId),
@@ -113,16 +115,22 @@ async function rerenderForPair(
   const add = (key: string, reason: string): void => {
     warnings.set(key, [...(warnings.get(key) ?? []), reason]);
   };
-  for (const key of r.edited) add(key, editedWarning(input.sourceEdition));
+  for (const key of r.edited) {
+    add(key, editedWarning(input.sourceEdition));
+  }
   if (!target.found) {
     // 値ファイルが無いと欠けた値は全部になるだけなので、無いことだけを知らせる(挿入時と同じ)。
-    for (const key of r.rerendered) add(key, valuesNotFoundWarning(input.targetEdition));
+    for (const key of r.rerendered) {
+      add(key, valuesNotFoundWarning(input.targetEdition));
+    }
   } else {
     for (const b of r.blanks) {
-      if (b.missing.length > 0)
+      if (b.missing.length > 0) {
         add(b.partKey, `次の値が見つからないため空欄で写しました: ${b.missing.join('、')}`);
-      if (b.unsupported.length > 0)
+      }
+      if (b.unsupported.length > 0) {
         add(b.partKey, `次の書き方は描画できないため空欄で写しました: ${b.unsupported.join('、')}`);
+      }
     }
   }
   return { html: r.html, warnings };
@@ -147,7 +155,9 @@ function withValueChecks(input: {
 }): Record<string, PairPartState> {
   const hasMarks =
     input.warnings.size > 0 || Object.values(input.prev).some((p) => p.valueCheck !== undefined);
-  if (!hasMarks) return input.parts;
+  if (!hasMarks) {
+    return input.parts;
+  }
   const srcHashes = partHashes(input.sourceHtml);
   const tgtHashes = partHashes(input.targetHtml);
   const applied = new Set(input.applied);
@@ -167,7 +177,9 @@ function withValueChecks(input: {
           : prev?.edition === input.targetEdition
             ? tgtHashes
             : null;
-      if (prev && side?.get(key) === prev.hash) mark = prev;
+      if (prev && side?.get(key) === prev.hash) {
+        mark = prev;
+      }
     }
     out[key] = mark ? { ...rest, valueCheck: mark } : rest;
   }
@@ -199,7 +211,7 @@ export function createPairSyncService(
     async getPairSyncStatus(templateId) {
       const pairId = pairedTemplateId(templateId);
       const attrs = parseAnyTemplateFileName(`${templateId}.html`);
-      if (pairId === null || !attrs)
+      if (pairId === null || !attrs) {
         return {
           pairTemplateId: null,
           pairExists: false,
@@ -207,6 +219,7 @@ export function createPairSyncService(
           valueChecks: [],
           cssConflicts: [],
         };
+      }
       // バナーが問うのは編集タブで開けるペアの有無なので、値入り HTML の側を見る。
       const pairExists = await filledExists(`${pairId}.html`);
       const state = pairExists
@@ -252,19 +265,29 @@ export function createPairSyncService(
       const exists = target === 'filled' ? filledExists : templateExists;
       const readHtml = (fileName: string) => readConfirmedHtml(target, fileName);
       const pairId = pairedTemplateId(sourceTemplateId);
-      if (pairId === null) return null;
+      if (pairId === null) {
+        return null;
+      }
       const attrs = parseAnyTemplateFileName(`${sourceTemplateId}.html`);
       const pairAttrs = parseAnyTemplateFileName(`${pairId}.html`);
-      if (!attrs || !pairAttrs) return null;
+      if (!attrs || !pairAttrs) {
+        return null;
+      }
       const pairFile = `${pairId}.html`;
-      if (!(await exists(pairFile))) return null;
+      if (!(await exists(pairFile))) {
+        return null;
+      }
 
       // CSS の入力。読めなければ(権限・共有違反など)CSS の転写だけを飛ばし、本文の同期は続ける。
       // 読めない CSS を '' と見なすと、全規則が追加・削除扱いになってペアへ誤って写る。
       const readCssInputs = async (bodyKey: string, state: PairSyncState) => {
-        if (opts.css === null) return null;
+        if (opts.css === null) {
+          return null;
+        }
         const cssKey = cssSyncPairKey(sourceTemplateId);
-        if (cssKey === null) return null;
+        if (cssKey === null) {
+          return null;
+        }
         try {
           const [next, target] = await Promise.all([
             readTemplateCss(sourceTemplateId),
@@ -367,11 +390,17 @@ export function createPairSyncService(
           // 「写さなかった規則」だけで、次の承認で両版の一致を見て持ち越すか消すかが決まる
           // (写したことにする記録は残らない)。
           if (sameFile && cssStateNext !== null) {
-            if (statesChanged) await writeSyncState(cssStateNext);
+            if (statesChanged) {
+              await writeSyncState(cssStateNext);
+            }
             return;
           }
-          if (cssConflictsChanged && cssStateNext !== null) await writeSyncState(cssStateNext);
-          if (bodyChanged) await writeSyncState(bodyStateNext);
+          if (cssConflictsChanged && cssStateNext !== null) {
+            await writeSyncState(cssStateNext);
+          }
+          if (bodyChanged) {
+            await writeSyncState(bodyStateNext);
+          }
         };
         const cssToWrite = cssSync?.css ?? null;
 

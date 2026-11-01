@@ -25,7 +25,9 @@ vi.mock('../src/files/atomic.js', async (importOriginal) => {
     ...orig,
     atomicWrite: async (filePath: string, content: string) => {
       for (const suffix of failingSuffixes) {
-        if (filePath.endsWith(suffix)) throw new Error(`書込に失敗しました: ${filePath}`);
+        if (filePath.endsWith(suffix)) {
+          throw new Error(`書込に失敗しました: ${filePath}`);
+        }
       }
       return orig.atomicWrite(filePath, content);
     },

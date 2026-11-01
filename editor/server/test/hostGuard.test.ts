@@ -23,7 +23,9 @@ async function buildApp(): Promise<FastifyInstance> {
   const { allowedHosts, isAllowedHost } = await import('../src/config.js');
   const app = Fastify();
   app.addHook('onRequest', async (request, reply) => {
-    if (isAllowedHost(request.headers.host, allowedHosts)) return;
+    if (isAllowedHost(request.headers.host, allowedHosts)) {
+      return;
+    }
     await reply.code(403).send();
   });
   app.get('/api/health', async () => ({ ok: true, secret: 'internal-marker' }));
@@ -154,8 +156,11 @@ describe('実 app.ts の Host 検査(buildApp の実配線)', { timeout: 60_000 
       });
       expect(unauth.statusCode).toBe(401);
     } finally {
-      if (previous === undefined) delete process.env.AUTH_REQUIRED;
-      else process.env.AUTH_REQUIRED = previous;
+      if (previous === undefined) {
+        delete process.env.AUTH_REQUIRED;
+      } else {
+        process.env.AUTH_REQUIRED = previous;
+      }
       vi.resetModules();
     }
   });

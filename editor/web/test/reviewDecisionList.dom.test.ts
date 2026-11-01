@@ -47,7 +47,9 @@ async function see(w: VueWrapper, sel: string) {
 }
 
 async function flush() {
-  for (let i = 0; i < 4; i++) await nextTick();
+  for (let i = 0; i < 4; i++) {
+    await nextTick();
+  }
 }
 
 beforeEach(() => {
@@ -122,7 +124,9 @@ const row = (w: VueWrapper, no: number) => w.find(`[data-review-row-no="${no}"]`
 
 const button = (root: { findAll: VueWrapper['findAll'] }, text: string) => {
   const b = root.findAll('button').find((x) => x.text() === text);
-  if (!b) throw new Error(`ボタン「${text}」が無い`);
+  if (!b) {
+    throw new Error(`ボタン「${text}」が無い`);
+  }
   return b;
 };
 
@@ -524,7 +528,9 @@ describe('ReviewDecisionList — 表示窓', () => {
   it('上の番兵が見えたら上へ 50 行戻し、下から外し、足した行の差だけ scrollTop を足す', async () => {
     const w = mountList({ changes: many(300) });
     await flush();
-    for (let i = 0; i < 3; i++) await see(w, '[data-review-sentinel="bottom"]');
+    for (let i = 0; i < 3; i++) {
+      await see(w, '[data-review-sentinel="bottom"]');
+    }
     expect(rowNos(w)[0]).toBe(51);
     const scroller = w.find('[data-review-scroller]').element as HTMLElement;
     scroller.scrollTop = 5000;
@@ -552,7 +558,9 @@ describe('ReviewDecisionList — 表示窓', () => {
     const bottom = w.find('[data-review-sentinel="bottom"]').element;
     expect(observedAll()).toContain(bottom);
     expect(observedAll()).not.toContain(top);
-    for (let i = 0; i < 3; i++) await see(w, '[data-review-sentinel="bottom"]');
+    for (let i = 0; i < 3; i++) {
+      await see(w, '[data-review-sentinel="bottom"]');
+    }
     expect(observedAll()).toContain(top);
   });
 
@@ -598,7 +606,9 @@ describe('ReviewDecisionList — 表示窓', () => {
     const vm = w.vm as unknown as { revealNo(no: number): Promise<void> };
     const bottom = w.find('[data-review-sentinel="bottom"]').element;
     const io = FakeIO.instances[0];
-    if (!io) throw new Error('IO が無い');
+    if (!io) {
+      throw new Error('IO が無い');
+    }
     const done = vm.revealNo(800);
     // 送り(nextTick を待つ間)の最中に届いた通知。ここで窓を広げると、送ったあとに scrollTop の
     // 補正が後から走り、送った行が見える位置からずれる。
@@ -631,7 +641,9 @@ describe('ReviewDecisionList — 表示窓', () => {
     const w = mountList({ changes: many(60) });
     await flush();
     const io = FakeIO.instances[0];
-    if (!io) throw new Error('IO が無い');
+    if (!io) {
+      throw new Error('IO が無い');
+    }
     const notify = (target: Element, isIntersecting: boolean) =>
       io.cb(
         [{ target, isIntersecting } as unknown as IntersectionObserverEntry],

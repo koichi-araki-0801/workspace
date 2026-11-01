@@ -48,7 +48,9 @@ interface PasswordHash {
 export function generateTemporaryPassword(): string {
   const bytes = randomBytes(TEMP_PASSWORD_LENGTH);
   let out = '';
-  for (const b of bytes) out += TEMP_PASSWORD_ALPHABET[b % TEMP_PASSWORD_ALPHABET.length];
+  for (const b of bytes) {
+    out += TEMP_PASSWORD_ALPHABET[b % TEMP_PASSWORD_ALPHABET.length];
+  }
   return out;
 }
 
@@ -72,7 +74,9 @@ export async function verifyPassword(
   salt: Buffer | null | undefined,
   iterations: number | null | undefined,
 ): Promise<boolean> {
-  if (!hash || !salt || !iterations) return false;
+  if (!hash || !salt || !iterations) {
+    return false;
+  }
   const candidate = await pbkdf2Async(password, salt, iterations, hash.length, DIGEST);
   return candidate.length === hash.length && timingSafeEqual(candidate, hash);
 }
@@ -88,10 +92,15 @@ const KNOWN_SEED_PASSWORDS = new Set(['admin', 'password']);
  * 変更と同じ `PASSWORD_MIN_LENGTH` を空白を除いて測り、ログインIDと同じもの・既知の値は大小を問わず拒む。
  */
 export function seedPasswordProblem(loginId: string, password: string): string | null {
-  if (password.trim().length < PASSWORD_MIN_LENGTH)
+  if (password.trim().length < PASSWORD_MIN_LENGTH) {
     return `パスワードは ${PASSWORD_MIN_LENGTH} 文字以上にしてください`;
+  }
   const lower = password.toLowerCase();
-  if (lower === loginId.toLowerCase()) return 'ログインIDと同じパスワードは使えません';
-  if (KNOWN_SEED_PASSWORDS.has(lower)) return '推測されやすいパスワードは使えません';
+  if (lower === loginId.toLowerCase()) {
+    return 'ログインIDと同じパスワードは使えません';
+  }
+  if (KNOWN_SEED_PASSWORDS.has(lower)) {
+    return '推測されやすいパスワードは使えません';
+  }
   return null;
 }

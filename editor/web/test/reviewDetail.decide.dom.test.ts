@@ -287,7 +287,9 @@ describe('ReviewDetail の判定と選択', () => {
     const d0 = data();
     serve(d0);
     const [c1, c2] = d0.changes;
-    if (!c1 || !c2) throw new Error('変更が 2 件ない');
+    if (!c1 || !c2) {
+      throw new Error('変更が 2 件ない');
+    }
     repo.updatePartDecisions.mockResolvedValue(
       err(
         appError(
@@ -323,7 +325,9 @@ describe('ReviewDetail の判定と選択', () => {
     await w.find('[data-next-pending]').trigger('click');
     await flushPromises();
     expect(row(w, 1).attributes('data-selected')).toBe('true');
-    for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('1');
+    for (const p of panels) {
+      expect(p.api.gotoPart).toHaveBeenLastCalledWith('1');
+    }
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     const [key, no] = w.emitted('select')?.at(-1) ?? [];
     expect(no).toBe(1);
@@ -349,7 +353,9 @@ describe('ReviewDetail の判定と選択', () => {
     await readyPanels();
     await row(w, 2).find('[data-review-name]').trigger('click');
     await flushPromises();
-    for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('2');
+    for (const p of panels) {
+      expect(p.api.gotoPart).toHaveBeenLastCalledWith('2');
+    }
   });
 
   it('選択中のパーツをもう一度押すと選択が外れ、select と slot の selectedKey が null に戻る', async () => {
@@ -454,7 +460,9 @@ describe('ReviewDetail の申請カード', () => {
     expect(w.find('[data-review-card]').exists()).toBe(false);
     resolve(ok(structuredClone(data())));
     // マイクロタスクだけを進める(タスクの切れ目 = ブラウザが描く機会を挟まない)。
-    for (let i = 0; i < 10 && !w.find('[data-review-card]').exists(); i++) await nextTick();
+    for (let i = 0; i < 10 && !w.find('[data-review-card]').exists(); i++) {
+      await nextTick();
+    }
     expect(w.find('[data-review-card]').exists()).toBe(true);
     // カードが出たのと同じ flush で、もう移っている。
     expect(w.find('[data-review-tools] [data-page-prev]').exists()).toBe(true);

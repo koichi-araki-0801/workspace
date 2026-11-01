@@ -72,7 +72,9 @@ const mountView = () =>
   );
 
 const flush = async () => {
-  for (let i = 0; i < 4; i++) await Promise.resolve();
+  for (let i = 0; i < 4; i++) {
+    await Promise.resolve();
+  }
 };
 
 const buttonByText = (w: ReturnType<typeof mountView>, text: string) => {

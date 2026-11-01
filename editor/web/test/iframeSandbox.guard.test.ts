@@ -27,8 +27,11 @@ function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
-    else if (name.endsWith('.vue') || name.endsWith('.ts')) out.push(full);
+    if (statSync(full).isDirectory()) {
+      out.push(...sourceFiles(full));
+    } else if (name.endsWith('.vue') || name.endsWith('.ts')) {
+      out.push(full);
+    }
   }
   return out;
 }
@@ -76,7 +79,9 @@ const CREATED_FRAMES = SOURCES.flatMap(({ file, source }) => {
   const lines = source.split('\n');
   const out: Array<{ file: string; line: number; sandbox: string | null }> = [];
   lines.forEach((line, i) => {
-    if (!/createElement\(\s*['"`]iframe['"`]\s*\)/.test(line)) return;
+    if (!/createElement\(\s*['"`]iframe['"`]\s*\)/.test(line)) {
+      return;
+    }
     const window = lines.slice(i, i + CREATION_WINDOW_LINES).join('\n');
     const m = window.match(/setAttribute\(\s*['"`]sandbox['"`]\s*,\s*['"`]([^'"`]*)['"`]/);
     out.push({ file, line: i + 1, sandbox: m ? m[1] : null });

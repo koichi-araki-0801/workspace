@@ -55,19 +55,29 @@ export function imageRefIssue(
   companyCode: string | null,
 ): ImageRefIssue | null {
   const v = url.trim();
-  if (v === '' || v.startsWith('#') || SCHEME_RE.test(v)) return null;
+  if (v === '' || v.startsWith('#') || SCHEME_RE.test(v)) {
+    return null;
+  }
   const rel = resolveDocAssetPath(v, from);
-  if (JINJA_OPEN_RE.test(v)) return rel?.startsWith(IMAGES_PREFIX) ? 'jinja' : null;
+  if (JINJA_OPEN_RE.test(v)) {
+    return rel?.startsWith(IMAGES_PREFIX) ? 'jinja' : null;
+  }
   const c = classifyImageRel(rel, companyCode);
-  if (c.kind !== 'fundImage') return 'unserved';
+  if (c.kind !== 'fundImage') {
+    return 'unserved';
+  }
   return c.companyMatches ? null : 'company';
 }
 
 /** `images/` を指す参照の問題(`images/` の外を指す値は見ない)。 */
 function imagesRelIssue(rel: string | undefined, companyCode: string | null): ImageRefIssue | null {
   const c = classifyImageRel(rel, companyCode);
-  if (c.kind === 'outside') return null;
-  if (c.kind === 'other') return 'unserved';
+  if (c.kind === 'outside') {
+    return null;
+  }
+  if (c.kind === 'other') {
+    return 'unserved';
+  }
   return c.companyMatches ? null : 'company';
 }
 
@@ -80,7 +90,9 @@ export function cssImageIssues(
   const out: Array<[string, ImageRefIssue]> = [];
   for (const span of collectCssUrlSpans(css)) {
     const kind = imagesRelIssue(resolveDocAssetPath(span.value, from), companyCode);
-    if (kind !== null) out.push([span.value, kind]);
+    if (kind !== null) {
+      out.push([span.value, kind]);
+    }
   }
   return out;
 }
@@ -94,10 +106,14 @@ export function docImageIssues(
   html: string,
   companyCode: string | null,
 ): Array<[string, ImageRefIssue]> {
-  if (html === '') return [];
+  if (html === '') {
+    return [];
+  }
   const out: Array<[string, ImageRefIssue]> = [];
   const push = (url: string, kind: ImageRefIssue | null): void => {
-    if (kind !== null) out.push([url, kind]);
+    if (kind !== null) {
+      out.push([url, kind]);
+    }
   };
   visitDocImageRefs(html, {
     imgSrc: (src) => push(src, imageRefIssue(src, DOC_DIR, companyCode)),
@@ -123,14 +139,18 @@ function visitDocImageRefs(html: string, visitor: DocImageRefVisitor): void {
   for (const img of Array.from(doc.querySelectorAll('img[src]'))) {
     visitor.imgSrc(img.getAttribute('src') ?? '');
   }
-  for (const style of Array.from(doc.querySelectorAll('style')))
+  for (const style of Array.from(doc.querySelectorAll('style'))) {
     visitor.css(style.textContent ?? '');
+  }
   for (const el of Array.from(doc.querySelectorAll('*'))) {
     const isImg = el.tagName.toLowerCase() === 'img';
     for (const { name, value } of Array.from(el.attributes)) {
-      if (name === 'style') visitor.css(value);
-      else if (!(isImg && name === 'src')) {
-        for (const url of attrUrlCandidates(name, value)) visitor.attrUrl(url);
+      if (name === 'style') {
+        visitor.css(value);
+      } else if (!(isImg && name === 'src')) {
+        for (const url of attrUrlCandidates(name, value)) {
+          visitor.attrUrl(url);
+        }
       }
     }
   }
@@ -148,9 +168,13 @@ export function imageIssueMessages(
   companyCode: string | null,
 ): string[] {
   const by: Record<ImageRefIssue, string[]> = { jinja: [], unserved: [], company: [] };
-  for (const [ref, kind] of issues) by[kind].push(ref);
+  for (const [ref, kind] of issues) {
+    by[kind].push(ref);
+  }
   const out: string[] = [];
-  if (by.jinja.length > 0) out.push(FUND_IMAGE_WARNING_MESSAGE);
+  if (by.jinja.length > 0) {
+    out.push(FUND_IMAGE_WARNING_MESSAGE);
+  }
   if (by.unserved.length > 0) {
     out.push(
       `配信されない画像参照があります（${listRefs(by.unserved)}）。` +
@@ -184,7 +208,9 @@ export function svgRejectedImages(results: readonly FundAssetInspectResult[]): S
  * つき最初の 1 つだけ出す(違反は 1 枚で数十件になりうり、1 つ直せば次が分かる)。
  */
 export function svgRejectedMessage(images: readonly SvgRejectedImage[]): string | null {
-  if (images.length === 0) return null;
+  if (images.length === 0) {
+    return null;
+  }
   const refs = images.map(({ ref, violations }) =>
     violations.length > 0 ? `${ref.file}: ${violations[0]}` : ref.file,
   );
@@ -200,17 +226,25 @@ export function svgRejectedMessage(images: readonly SvgRejectedImage[]): string 
  * 取りに行かないので除く。
  */
 export function docFundImageRefs(html: string, companyCode: string | null): FundImageRef[] {
-  if (html === '') return [];
+  if (html === '') {
+    return [];
+  }
   const out = new Map<string, FundImageRef>();
   const add = (url: string): void => {
-    if (JINJA_OPEN_RE.test(url)) return;
+    if (JINJA_OPEN_RE.test(url)) {
+      return;
+    }
     const ref = servedFundImageOf(url.trim(), DOC_DIR, companyCode);
-    if (ref !== undefined) out.set(JSON.stringify([ref.dir, ref.file]), ref);
+    if (ref !== undefined) {
+      out.set(JSON.stringify([ref.dir, ref.file]), ref);
+    }
   };
   visitDocImageRefs(html, {
     imgSrc: add,
     css: (css) => {
-      for (const span of collectCssUrlSpans(css)) add(span.value);
+      for (const span of collectCssUrlSpans(css)) {
+        add(span.value);
+      }
     },
     attrUrl: add,
   });

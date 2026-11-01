@@ -40,13 +40,21 @@ export function useCascadingSelect<Q extends object, O, L = unknown>(
     const isLatest = latest.begin();
     await run(async () => {
       const optRes = await config.fetchOptions({ ...query });
-      if (isErr(optRes)) return optRes;
-      if (!isLatest()) return ok(undefined);
+      if (isErr(optRes)) {
+        return optRes;
+      }
+      if (!isLatest()) {
+        return ok(undefined);
+      }
       options.value = optRes.value;
       if (config.fetchList) {
         const listRes = await config.fetchList({ ...query });
-        if (isErr(listRes)) return listRes;
-        if (!isLatest()) return ok(undefined);
+        if (isErr(listRes)) {
+          return listRes;
+        }
+        if (!isLatest()) {
+          return ok(undefined);
+        }
         list.value = listRes.value;
       }
       return ok(undefined);
@@ -64,12 +72,16 @@ export function useCascadingSelect<Q extends object, O, L = unknown>(
   }
 
   function reset(): void {
-    for (const key of config.levels) query[key] = undefined as Q[typeof key];
+    for (const key of config.levels) {
+      query[key] = undefined as Q[typeof key];
+    }
     config.onChange?.({ ...query });
     void refresh();
   }
 
-  if (config.immediate ?? true) onMounted(refresh);
+  if (config.immediate ?? true) {
+    onMounted(refresh);
+  }
 
   return { query, options, list, loading, onLevelChange, reset, refresh };
 }

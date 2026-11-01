@@ -28,7 +28,9 @@ export const CROP_MARKS_CSS = '@page { marks: crop cross; }';
  * 規律だけに委ねないため(トグルは稀なのでコストは許容する)。
  */
 export function withCropMarks(doc: string, on: boolean): string {
-  if (!on) return doc;
+  if (!on) {
+    return doc;
+  }
   const root = sanitizePreviewRoot(doc);
   appendPreviewStyle(root, CROP_MARKS_CSS, { 'data-crop-marks': '' });
   return serializePreviewRoot(root);

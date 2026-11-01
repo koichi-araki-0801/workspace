@@ -143,7 +143,9 @@ const ReviewDetailStub = defineComponent({
       selectPart: (key: string) => {
         selectPart(key);
         const no = slotProps.partNumbers.get(key);
-        if (no === undefined) return;
+        if (no === undefined) {
+          return;
+        }
         slotProps.selectedNo = no;
         slotProps.selectedKey = key;
         emit('select', key, no);
@@ -207,7 +209,9 @@ beforeEach(() => {
   gotoPage.mockClear();
   selectPart.mockClear();
   openRequestReject.mockClear();
-  for (const k of Object.keys(canDecideOf)) delete canDecideOf[k];
+  for (const k of Object.keys(canDecideOf)) {
+    delete canDecideOf[k];
+  }
   slotProps.selectedNo = null;
   slotProps.selectedKey = null;
   slotProps.partNumbers = new Map();

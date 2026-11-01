@@ -40,7 +40,9 @@ describe('router 認可宣言の網羅性', () => {
   it('name → access の対応表が実ルート表と一致する(追加・変更時の更新を強制)', () => {
     const table: Record<string, string> = {};
     for (const r of declarable) {
-      if (typeof r.name === 'string') table[r.name] = r.meta?.access ?? '';
+      if (typeof r.name === 'string') {
+        table[r.name] = r.meta?.access ?? '';
+      }
     }
     expect(table).toEqual({
       login: 'public',

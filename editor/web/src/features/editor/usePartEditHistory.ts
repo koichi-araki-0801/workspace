@@ -37,7 +37,9 @@ export function usePartEditHistory(
   /** 現在の選択に編集履歴エントリを記録する(セッション内 + 永続)。 */
   function record(change: string): void {
     const key = currentPartKey();
-    if (!key) return;
+    if (!key) {
+      return;
+    }
     const arr = sessionHistory[key] ?? [];
     sessionHistory[key] = arr;
     const id = newId();
@@ -81,8 +83,12 @@ export function usePartEditHistory(
 function dedupeById(list: PartHistoryEntry[]): PartHistoryEntry[] {
   const seen = new Set<string>();
   return list.filter((e) => {
-    if (!e.id) return true;
-    if (seen.has(e.id)) return false;
+    if (!e.id) {
+      return true;
+    }
+    if (seen.has(e.id)) {
+      return false;
+    }
     seen.add(e.id);
     return true;
   });

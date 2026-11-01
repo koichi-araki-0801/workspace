@@ -341,8 +341,11 @@ describe('parts.routes', () => {
         await localApp.close();
       }
     } finally {
-      if (saved === undefined) delete process.env.AUTH_REQUIRED;
-      else process.env.AUTH_REQUIRED = saved;
+      if (saved === undefined) {
+        delete process.env.AUTH_REQUIRED;
+      } else {
+        process.env.AUTH_REQUIRED = saved;
+      }
       vi.resetModules();
     }
   });

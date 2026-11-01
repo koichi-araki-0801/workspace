@@ -128,7 +128,9 @@ describe('Inspector の改ページ', () => {
   }
   const button = (w: ReturnType<typeof mount>, text: string) => {
     const b = w.findAll('button').find((x) => x.text().includes(text));
-    if (!b) throw new Error(`no button ${text}`);
+    if (!b) {
+      throw new Error(`no button ${text}`);
+    }
     return b;
   };
 
@@ -182,7 +184,9 @@ describe('useGrapes.patchSelectedStyle', () => {
       getStyle: () => ({ ...cur }),
       setStyle: (s: Record<string, string>) => {
         calls.push(s);
-        for (const k of Object.keys(cur)) delete cur[k];
+        for (const k of Object.keys(cur)) {
+          delete cur[k];
+        }
         Object.assign(cur, s);
       },
     };

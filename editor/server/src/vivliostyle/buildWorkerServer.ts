@@ -56,17 +56,24 @@ class ForkedBuildWorker implements BuildWorker {
     this.child.on('message', (raw) => {
       const msg = raw as WorkerReply;
       const p = this.pending.get(msg?.id);
-      if (!p) return;
+      if (!p) {
+        return;
+      }
       this.pending.delete(msg.id);
-      if (msg.ok) p.resolve();
-      else p.reject(new Error(msg.error || 'PDFの生成に失敗しました'));
+      if (msg.ok) {
+        p.resolve();
+      } else {
+        p.reject(new Error(msg.error || 'PDFの生成に失敗しました'));
+      }
     });
     this.child.on('exit', () => this.onDead());
     this.child.on('error', (e) => this.onDead(e));
   }
 
   run(opts: unknown): Promise<void> {
-    if (this.dead) return Promise.reject(new Error('PDF build worker は終了しています'));
+    if (this.dead) {
+      return Promise.reject(new Error('PDF build worker は終了しています'));
+    }
     const id = ++this.seq;
     return new Promise<void>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -80,7 +87,9 @@ class ForkedBuildWorker implements BuildWorker {
   }
 
   kill(): void {
-    if (this.dead) return;
+    if (this.dead) {
+      return;
+    }
     this.dead = true;
     killProcessTree(this.child);
   }
@@ -98,12 +107,16 @@ class ForkedBuildWorker implements BuildWorker {
     }
     this.dead = true;
     this.rejectPending(err);
-    for (const cb of this.exitCbs) cb(err);
+    for (const cb of this.exitCbs) {
+      cb(err);
+    }
   }
 
   private rejectPending(err?: Error): void {
     const e = err ?? new Error('PDFの生成に失敗しました: ワーカーが異常終了しました');
-    for (const p of this.pending.values()) p.reject(e);
+    for (const p of this.pending.values()) {
+      p.reject(e);
+    }
     this.pending.clear();
   }
 }

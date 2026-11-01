@@ -31,8 +31,9 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
   let repo: import('../src/repositories/templateRepo.js').TemplateRepo;
 
   beforeAll(async () => {
-    for (const d of ['templates', 'filled', 'pending', 'reviews'])
+    for (const d of ['templates', 'filled', 'pending', 'reviews']) {
       fs.mkdirSync(path.join(tmp, d), { recursive: true });
+    }
     put('filled', 'xx01_910024_20250101_交付版'); // filled/ にしか無い
     put('templates', 'xx01_950037_交付版'); // 小文字の会社コード
     put('templates', 'XX01_950003_全体版');
@@ -173,8 +174,12 @@ describe('templateRepo の作成タブ用の問い合わせ', () => {
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     // createSprocClient が組む SQL は `EXEC <proc> @操作=?, …` で、@操作 の値は values[0]。
     const sproc = createSprocClient(async (sql, values) => {
-      if (sql.includes(SP.series)) return [];
-      if (values[0] === 'ファンド一覧') return [{ ファンドコード: '777777', ファンド名: '行なし' }];
+      if (sql.includes(SP.series)) {
+        return [];
+      }
+      if (values[0] === 'ファンド一覧') {
+        return [{ ファンドコード: '777777', ファンド名: '行なし' }];
+      }
       return [];
     });
     const info = await createTemplateRepo(sproc).getCreatableInfo(q('777777'));

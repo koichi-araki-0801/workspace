@@ -68,10 +68,14 @@ export function partOf(el: HTMLElement, root: HTMLElement): HTMLElement | null {
  * 包みの直下(`@/lib/pageBreaks` の `rootBlocks`)にあるので、根へ向かって最初に当たるパーツを採る。
  */
 function partIndex(el: HTMLElement, root: HTMLElement, parts: readonly HTMLElement[]): number {
-  if (!root.contains(el)) return -1;
+  if (!root.contains(el)) {
+    return -1;
+  }
   for (let cur: HTMLElement | null = el; cur && cur !== root; cur = cur.parentElement) {
     const i = parts.indexOf(cur);
-    if (i >= 0) return i;
+    if (i >= 0) {
+      return i;
+    }
   }
   return -1;
 }
@@ -133,7 +137,9 @@ function eachPart(
   keyOf: RawKeyOf,
   fn: (key: string, page: number, index: number) => void,
 ): void {
-  for (const e of partEntries(root, keyOf)) fn(e.key, e.page, e.index);
+  for (const e of partEntries(root, keyOf)) {
+    fn(e.key, e.page, e.index);
+  }
 }
 
 /**
@@ -170,7 +176,11 @@ export function legacyPartKeyCount(
   current: { has(key: string): boolean },
 ): number {
   let n = 0;
-  for (const key of keys) if (key.includes('/') && !current.has(key)) n += 1;
+  for (const key of keys) {
+    if (key.includes('/') && !current.has(key)) {
+      n += 1;
+    }
+  }
   return n;
 }
 
@@ -179,9 +189,13 @@ export function legacyPartKeyCount(
  * null。`template` の中身は文書に属さないので、`<script>` は実行されず資源も取りに行かない。
  */
 function parseSourceElement(el: HTMLElement, encoded: string | null): Element | null {
-  if (!encoded) return null;
+  if (!encoded) {
+    return null;
+  }
   const source = b64decodeSafe(encoded);
-  if (!/^<[a-z]/i.test(source)) return null;
+  if (!/^<[a-z]/i.test(source)) {
+    return null;
+  }
   const t = el.ownerDocument.createElement('template');
   t.innerHTML = source;
   // `<math>` は HTMLElement でないが、`rawKey` が読むのは属性・クラス・タグ名だけ。
@@ -195,7 +209,9 @@ function parseSourceElement(el: HTMLElement, encoded: string | null): Element | 
  * キーが割れる)。
  */
 function chipSourceElement(el: HTMLElement): Element | null {
-  if (!el.classList.contains(JINJA_CHIP_CLASS)) return null;
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) {
+    return null;
+  }
   return parseSourceElement(el, el.getAttribute(DATA_OPAQUE));
 }
 
@@ -211,7 +227,9 @@ function frozenSourceElement(el: HTMLElement): Element | null {
 }
 
 function frozenCarrier(el: HTMLElement): HTMLElement | null {
-  if (el.getAttribute(DATA_OPAQUE_KIND) === 'frozen') return el;
+  if (el.getAttribute(DATA_OPAQUE_KIND) === 'frozen') {
+    return el;
+  }
   const parent = el.parentElement;
   if (
     parent?.classList.contains(FROZEN_BODY_CLASS) &&
@@ -241,7 +259,9 @@ const GJS_CLASS_PREFIX = 'gjs-';
 export function canvasRawKey(ed: Editor): RawKeyOf {
   return (el) => {
     const carried = chipSourceElement(el);
-    if (carried) return rawKey(carried as HTMLElement);
+    if (carried) {
+      return rawKey(carried as HTMLElement);
+    }
     const comp = el.id ? ed.Components.getById(el.id) : undefined;
     const attrs = comp?.get('attributes') as Record<string, unknown> | undefined;
     const firstClass = comp

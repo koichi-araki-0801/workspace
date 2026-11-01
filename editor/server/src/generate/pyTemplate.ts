@@ -83,7 +83,9 @@ function generatorError(message: string, code: string, statusCode: number): Erro
  */
 async function assertGeneratorFingerprint(): Promise<void> {
   const expected = config.python.scriptSha256;
-  if (expected === undefined) return;
+  if (expected === undefined) {
+    return;
+  }
   const script = config.python.script;
   let actual: string;
   try {
@@ -146,7 +148,9 @@ export function generatorEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of INHERITED_ENV_KEYS) {
     const value = process.env[key];
-    if (value !== undefined) env[key] = value;
+    if (value !== undefined) {
+      env[key] = value;
+    }
   }
   // Python ツールに UTF-8 出力を強制する(Windows の既定は cp932)。
   env.PYTHONUTF8 = '1';
@@ -174,8 +178,12 @@ export function generatorArgs(attrs: GenerateAttributes, baseDate: string): stri
     ? assertTemplateAttributeToken('コピー元ファンドコード', attrs.sourceFundCode)
     : undefined;
   const args = [rep1, fund, date];
-  if (source !== undefined || attrs.isRedemption) args.push(source ?? '');
-  if (attrs.isRedemption) args.push('1');
+  if (source !== undefined || attrs.isRedemption) {
+    args.push(source ?? '');
+  }
+  if (attrs.isRedemption) {
+    args.push('1');
+  }
   return args;
 }
 
@@ -206,7 +214,9 @@ async function outputState(file: string): Promise<OutputState | null> {
     const digest = bytes ? createHash('sha256').update(bytes).digest('hex') : '';
     return { mtimeMs: s.mtimeMs, ino: s.ino, isFile: s.isFile(), digest, bytes };
   } catch (err) {
-    if (isEnoent(err)) return null;
+    if (isEnoent(err)) {
+      return null;
+    }
     throw err;
   }
 }
@@ -218,13 +228,19 @@ async function snapshotOutputs(dir: string): Promise<Map<string, OutputState>> {
   try {
     names = await readdir(dir);
   } catch (err) {
-    if (isEnoent(err)) return states;
+    if (isEnoent(err)) {
+      return states;
+    }
     throw err;
   }
   for (const name of names) {
-    if (!name.toLowerCase().endsWith('.html')) continue;
+    if (!name.toLowerCase().endsWith('.html')) {
+      continue;
+    }
     const state = await outputState(path.join(dir, name));
-    if (state) states.set(foldName(name), { ...state, bytes: null });
+    if (state) {
+      states.set(foldName(name), { ...state, bytes: null });
+    }
   }
   return states;
 }
@@ -254,7 +270,9 @@ async function readGeneratedFile(
   } catch {
     attributes = null;
   }
-  if (!attributes) throw rejected(`の出力名が 会社_ファンド_版種.html の形ではありません: ${name}`);
+  if (!attributes) {
+    throw rejected(`の出力名が 会社_ファンド_版種.html の形ではありません: ${name}`);
+  }
   if (!(GENERATED_EDITIONS as readonly string[]).includes(attributes.editionType)) {
     throw rejected(`の出力の版種が 交付版・全体版 ではありません: ${name}`);
   }
@@ -263,7 +281,9 @@ async function readGeneratedFile(
   }
   const file = path.join(dir, name);
   const after = await outputState(file);
-  if (after && !after.isFile) throw rejected(`の出力が通常のファイルではありません: ${name}`);
+  if (after && !after.isFile) {
+    throw rejected(`の出力が通常のファイルではありません: ${name}`);
+  }
   const prev = before.get(foldName(name));
   const written =
     after?.bytes != null &&
@@ -271,9 +291,13 @@ async function readGeneratedFile(
       after.mtimeMs > prev.mtimeMs ||
       after.ino !== prev.ino ||
       after.digest !== prev.digest);
-  if (!written || !after?.bytes) throw rejected(`が ${name} を書き出していません`);
+  if (!written || !after?.bytes) {
+    throw rejected(`が ${name} を書き出していません`);
+  }
   const html = after.bytes.toString('utf8');
-  if (!html.trim()) throw rejected(`が空の出力を返しました: ${name}`);
+  if (!html.trim()) {
+    throw rejected(`が空の出力を返しました: ${name}`);
+  }
   return { fileName: name, attributes, html, path: file };
 }
 
@@ -304,7 +328,9 @@ export function generateTemplates(
     const seen = new Set<string>();
     const names = listed.filter((n) => {
       const key = n.toLowerCase();
-      if (seen.has(key)) return false;
+      if (seen.has(key)) {
+        return false;
+      }
       seen.add(key);
       return true;
     });
@@ -335,7 +361,9 @@ function orderGenerated(
     const hit = files.find(
       (f) => f.attributes.fundCode === fundCode && f.attributes.editionType === edition,
     );
-    if (!hit) throw rejected(`が ${fundCode} の ${edition} を書き出していません`);
+    if (!hit) {
+      throw rejected(`が ${fundCode} の ${edition} を書き出していません`);
+    }
     head.push(hit);
   }
   const rest = files
@@ -350,7 +378,9 @@ export async function removeGeneratedFiles(files: readonly GeneratedFile[]): Pro
     try {
       await unlink(f.path);
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err;
+      }
     }
   }
 }

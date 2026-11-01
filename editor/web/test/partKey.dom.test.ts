@@ -25,7 +25,9 @@ function root(html: string): HTMLElement {
 
 const q = (r: HTMLElement, sel: string): HTMLElement => {
   const el = r.querySelector(sel);
-  if (!(el instanceof HTMLElement)) throw new Error(`not found: ${sel}`);
+  if (!(el instanceof HTMLElement)) {
+    throw new Error(`not found: ${sel}`);
+  }
   return el;
 };
 

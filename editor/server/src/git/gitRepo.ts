@@ -110,7 +110,9 @@ function gitChildEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
     const upper = k.toUpperCase();
     const allowed =
       GIT_ENV_ALLOWED.has(upper) || GIT_ENV_ALLOWED_PREFIXES.some((p) => upper.startsWith(p));
-    if (allowed && v !== undefined) env[k] = v;
+    if (allowed && v !== undefined) {
+      env[k] = v;
+    }
   }
   return { ...env, LC_ALL: 'C', ...extra };
 }
@@ -126,7 +128,9 @@ function gitChildEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
 
 /** リビジョン引数を「オプションと解釈されない形」に限る。`HEAD` はコード内定数用。 */
 function checkRevision(rev: string): string {
-  if (rev === 'HEAD' || isGitObjectId(rev)) return rev;
+  if (rev === 'HEAD' || isGitObjectId(rev)) {
+    return rev;
+  }
   throw validation(`版の指定が不正です: ${rev}`);
 }
 
@@ -144,7 +148,9 @@ function checkRelPath(relPath: string): string {
     relPath.startsWith('/') ||
     relPath.includes('\\') ||
     /(^|\/)\.\.(\/|$)/.test(relPath);
-  if (unsafe) throw validation(`ファイルの指定が不正です: ${relPath}`);
+  if (unsafe) {
+    throw validation(`ファイルの指定が不正です: ${relPath}`);
+  }
   return relPath;
 }
 
@@ -217,7 +223,9 @@ async function git(args: string[], opts?: { env?: Record<string, string> }): Pro
     try {
       return await run();
     } catch (e) {
-      if (!isIndexLockError(e)) throw e;
+      if (!isIndexLockError(e)) {
+        throw e;
+      }
       await delay(ms);
     }
   }
@@ -305,7 +313,9 @@ async function ensureGitignore(): Promise<void> {
   const existing = await fs.readFile(file, 'utf8').catch(() => '');
   const lines = existing.split('\n').map((l) => l.trim());
   const missing = required.filter((r) => !lines.includes(r));
-  if (missing.length === 0 && existing !== '') return;
+  if (missing.length === 0 && existing !== '') {
+    return;
+  }
   const merged = [...new Set([...lines.filter((l) => l !== ''), ...missing])];
   await fs.writeFile(file, `${merged.join('\n')}\n`, 'utf8');
 }
@@ -328,7 +338,9 @@ async function ensureGitattributes(): Promise<void> {
     .map((l) => l.trim())
     .filter((l) => l !== '' && l !== LEGACY_GITATTRIBUTES_LINE && l !== GITATTRIBUTES_LINE);
   const wanted = `${[GITATTRIBUTES_LINE, ...others].join('\n')}\n`;
-  if (existing === wanted) return;
+  if (existing === wanted) {
+    return;
+  }
   await fs.writeFile(file, wanted, 'utf8');
 }
 
@@ -342,7 +354,9 @@ async function ensureGitattributes(): Promise<void> {
  */
 async function ensureLongPaths(): Promise<void> {
   const current = await git(['config', '--get', 'core.longpaths']).catch(() => '');
-  if (current.trim() === 'true') return;
+  if (current.trim() === 'true') {
+    return;
+  }
   await git(['config', 'core.longpaths', 'true']);
 }
 
@@ -406,9 +420,13 @@ async function stageTrackedAreas(): Promise<void> {
       .stat(path.join(config.gitRepoDir, spec))
       .then(() => true)
       .catch(() => false);
-    if (exists) present.push(spec);
+    if (exists) {
+      present.push(spec);
+    }
   }
-  if (present.length === 0) return;
+  if (present.length === 0) {
+    return;
+  }
   await git(['add', '-A', '--', ...present]);
 }
 
@@ -462,7 +480,9 @@ export async function logForFile(relPath: string): Promise<GitCommitMeta[]> {
   // 検証はリポジトリ状態の判定より先に置く。未初期化時の早期 return に隠れて不正入力が
   // 素通り(= 検査がリポジトリ状態依存)になるのを避けるため。
   const spec = checkRelPath(relPath);
-  if (!(await isRepo()) || !(await hasHead())) return [];
+  if (!(await isRepo()) || !(await hasHead())) {
+    return [];
+  }
   // 版一覧も件数を有界にする(履歴は承認のたび伸びる一方で、画面が使うのは直近だけ)。
   const out = await git([
     'log',
@@ -498,7 +518,9 @@ export async function logAllWithFiles(
   limit: number = MAX_LOG_COMMITS,
 ): Promise<GitCommitWithFiles[]> {
   const spec = checkRelPath(pathspec);
-  if (!(await isRepo()) || !(await hasHead())) return [];
+  if (!(await isRepo()) || !(await hasHead())) {
+    return [];
+  }
   const capped = Math.max(1, Math.min(Math.trunc(limit), MAX_LOG_COMMITS));
   const out = await git([
     'log',
@@ -511,10 +533,14 @@ export async function logAllWithFiles(
   ]);
   const records: GitCommitWithFiles[] = [];
   for (const chunk of out.split('\0')) {
-    if (chunk.trim() === '') continue;
+    if (chunk.trim() === '') {
+      continue;
+    }
     const [head, ...rest] = chunk.split('\n');
     const [meta] = parseLog(head);
-    if (!meta) continue;
+    if (!meta) {
+      continue;
+    }
     records.push({ ...meta, files: rest.map((l) => l.trim()).filter((l) => l.length > 0) });
   }
   return records;
@@ -558,7 +584,9 @@ export async function showFile(hash: string, relPath: string): Promise<string> {
   } catch (e) {
     const err = e as { stderr?: string; message?: string };
     const text = `${err?.stderr ?? ''}${err?.message ?? ''}`;
-    if (PATH_ABSENT_MARKERS.some((m) => text.includes(m))) return '';
+    if (PATH_ABSENT_MARKERS.some((m) => text.includes(m))) {
+      return '';
+    }
     throw e;
   }
 }

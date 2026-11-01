@@ -77,7 +77,9 @@ describe('measureTemplate(テンプレートごと)', () => {
     expect(first.excerpt).toContain('{{ fund.name }}');
     expect(first.excerpt.length).toBeLessThanOrEqual(40 * 2 + 20);
     expect(r.render.ok).toBe(false);
-    if (!r.render.ok) expect(r.render.reason).toContain('タグ・コメント・<style> などの途中');
+    if (!r.render.ok) {
+      expect(r.render.reason).toContain('タグ・コメント・<style> などの途中');
+    }
   });
 
   it('値で描けない式は unrendered に数え、原文を先頭数件だけ返す', () => {
@@ -168,8 +170,9 @@ describe('runMeasure(リポジトリ経由の全体)と出力', () => {
 
   beforeAll(async () => {
     fs.mkdirSync(path.join(tmp, 'templates'), { recursive: true });
-    for (const t of fixtureTemplates)
+    for (const t of fixtureTemplates) {
       fs.writeFileSync(path.join(tmp, 'templates', `${t.id}.html`), t.html, 'utf8');
+    }
     fs.writeFileSync(
       path.join(tmp, 'templates', 'XX01_999999_交付版.html'),
       doc('<!-- {{ fund.name }} -->'),

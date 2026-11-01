@@ -103,7 +103,9 @@ let bundleCache: string | null = null;
  * ラッパは要らない)。中身は 1 バイトも書き換えない。
  */
 async function nunjucksBundle(): Promise<string> {
-  if (bundleCache !== null) return bundleCache;
+  if (bundleCache !== null) {
+    return bundleCache;
+  }
   bundleCache = await fs.readFile(NUNJUCKS_BUNDLE_SOURCE, 'utf8');
   return bundleCache;
 }
@@ -240,7 +242,9 @@ let hostPageCache: string | null = null;
 
 /** バンドル内蔵のホストページ。内蔵できない版のときだけ `<script src>` 形へ倒す。 */
 async function hostPage(): Promise<string> {
-  if (hostPageCache !== null) return hostPageCache;
+  if (hostPageCache !== null) {
+    return hostPageCache;
+  }
   const bundle = await nunjucksBundle();
   hostPageCache = bundleSafeToInline(bundle)
     ? buildHostPage(`<script>${bundle}</script>`)
@@ -294,7 +298,9 @@ export async function renderHostRoutes(app: FastifyInstance): Promise<void> {
     `${RENDER_HOST_BASE}/*`,
     { preHandler: requireAuth },
     async (request, reply) => {
-      if ((request.params['*'] ?? '') !== NUNJUCKS_BUNDLE_FILE) return reply.code(404).send();
+      if ((request.params['*'] ?? '') !== NUNJUCKS_BUNDLE_FILE) {
+        return reply.code(404).send();
+      }
       return reply
         .header('Cache-Control', 'no-store')
         .type('text/javascript; charset=utf-8')

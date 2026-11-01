@@ -125,11 +125,16 @@ async function restoreTemplateAndCss(
   prev: Snapshot,
 ): Promise<void> {
   const restore = async (snap: FileSnapshot, resolve: () => string): Promise<void> => {
-    if (snap.state === 'content') await atomicWrite(resolve(), snap.text);
-    else if (snap.state === 'absent') await fs.rm(resolve(), { force: true });
+    if (snap.state === 'content') {
+      await atomicWrite(resolve(), snap.text);
+    } else if (snap.state === 'absent') {
+      await fs.rm(resolve(), { force: true });
+    }
   };
   await restore(prev.html, () => htmlPathOf(target, fileName));
-  if (stylePath !== null) await restore(prev.css, () => stylePath);
+  if (stylePath !== null) {
+    await restore(prev.css, () => stylePath);
+  }
 }
 
 // ── 2. 公開 API ──
@@ -187,7 +192,9 @@ export async function baselineTemplateHtml(
 ): Promise<string> {
   const fileName = `${templateId}.html`;
   const confirmed = await readConfirmedHtml(target, fileName);
-  if (confirmed !== '') return confirmed;
+  if (confirmed !== '') {
+    return confirmed;
+  }
   const pending = await readPending(templateId);
   return pending?.html ?? '';
 }
@@ -219,7 +226,9 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   let stylePath: string | null = null;
   if (cssText !== undefined) {
     stylePath = await resolveTemplateCssPath(templateId);
-    if (stylePath === null) throw validation(`CSS の名前を id から決められません: ${templateId}`);
+    if (stylePath === null) {
+      throw validation(`CSS の名前を id から決められません: ${templateId}`);
+    }
   }
 
   // ── 往復用の印 ──
@@ -336,6 +345,8 @@ export async function applyConfirmedWrite(op: ConfirmedWriteOp): Promise<Templat
   }
 
   const meta = await fileToMeta(fileName, op.target);
-  if (!meta) throw notFound(`テンプレートが見つかりません: ${templateId}`);
+  if (!meta) {
+    throw notFound(`テンプレートが見つかりません: ${templateId}`);
+  }
   return meta;
 }

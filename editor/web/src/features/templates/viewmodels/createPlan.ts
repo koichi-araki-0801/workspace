@@ -63,7 +63,9 @@ export function planCreation(info: CreatableInfo, editionType: string | undefine
         `あとで両版のパーツ同期を行うと、${what}の${s.editionType}との差分が競合として出ることがあります。`,
       ];
     }
-    if (blocked && editions.length > 0) blockedNotice = blockedText(created.length, pendingReview);
+    if (blocked && editions.length > 0) {
+      blockedNotice = blockedText(created.length, pendingReview);
+    }
   }
   return {
     targets,
@@ -82,7 +84,9 @@ function blockedText(createdCount: number, pendingReview: string[]): string {
   if (pendingReview.length === 0) {
     return `${BOTH}とも作成済みです。直すときは既存のテンプレートを開いてください。`;
   }
-  if (createdCount === 0) return `${BOTH}とも承認待ちです。`;
+  if (createdCount === 0) {
+    return `${BOTH}とも承認待ちです。`;
+  }
   const createdEdition = CREATABLE_EDITIONS.find((e) => !pendingReview.includes(e));
   return `${createdEdition}は作成済みです。${pendingReview.join('・')}は承認待ちです。`;
 }

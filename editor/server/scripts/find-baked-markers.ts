@@ -31,7 +31,9 @@ export function dirsFromArgs(argv: readonly string[]): ScanDirs | null {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const root = opt('root');
-  if (!root) return null;
+  if (!root) {
+    return null;
+  }
   return {
     templates: opt('templates') ?? path.join(root, 'templates'),
     pending: opt('pending') ?? path.join(root, 'pending'),
@@ -61,17 +63,23 @@ async function scanFile(file: string, label: string): Promise<ScanFinding[]> {
 // 関所は作成・編集の両経路に掛かるので、値入り HTML(filled/)の印も申請を止める。
 export async function scanDataRoot(dirs: ScanDirs): Promise<ScanFinding[]> {
   const out: ScanFinding[] = [];
-  for (const key of ['templates', 'pending', 'filled'] as const)
-    for (const f of await listHtml(dirs[key]))
+  for (const key of ['templates', 'pending', 'filled'] as const) {
+    for (const f of await listHtml(dirs[key])) {
       out.push(...(await scanFile(f, path.join(key, path.basename(f)))));
+    }
+  }
   const reqs = (await fs.readdir(dirs.reviews).catch(() => [] as string[])).sort();
   for (const id of reqs) {
     const meta = await fs
       .readFile(path.join(dirs.reviews, id, 'meta.json'), 'utf8')
       .catch(() => null);
-    if (meta === null) continue;
+    if (meta === null) {
+      continue;
+    }
     const m = JSON.parse(meta) as { status?: string };
-    if (m.status !== 'pending') continue;
+    if (m.status !== 'pending') {
+      continue;
+    }
     const body = path.join(dirs.reviews, id, 'body.html');
     out.push(...(await scanFile(body, path.join('reviews', id, 'body.html')).catch(() => [])));
   }
@@ -87,9 +95,13 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const found = await scanDataRoot(dirs);
-  for (const f of found) console.log(`${f.severity}\t${f.file}\t${f.marker}\t@${f.index}`);
+  for (const f of found) {
+    console.log(`${f.severity}\t${f.file}\t${f.marker}\t@${f.index}`);
+  }
   console.log(`要対応 ${found.length} 件`);
   process.exit(found.length > 0 ? 1 : 0);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void main();
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  void main();
+}

@@ -1027,6 +1027,8 @@ export function buildOpenApiDocument() {
 let cached: ReturnType<typeof buildOpenApiDocument> | undefined;
 
 export function getOpenApiDocument(): ReturnType<typeof buildOpenApiDocument> {
-  if (!cached) cached = buildOpenApiDocument();
+  if (!cached) {
+    cached = buildOpenApiDocument();
+  }
   return cached;
 }

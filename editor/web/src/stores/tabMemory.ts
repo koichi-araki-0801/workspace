@@ -17,7 +17,9 @@ export const useTabMemoryStore = defineStore('tabMemory', () => {
   /** 遷移先を、その属するタブの「直前の画面」として記録する。タブを持たない画面は無視する。 */
   function remember(route: TabRouteLike & { fullPath: string }): void {
     const tab = tabOf(route);
-    if (tab) paths[tab] = route.fullPath;
+    if (tab) {
+      paths[tab] = route.fullPath;
+    }
   }
 
   /** タブの「直前の画面」。記憶が無ければ undefined(呼び手はタブの既定画面へ送る)。 */
@@ -31,7 +33,9 @@ export const useTabMemoryStore = defineStore('tabMemory', () => {
    * 利用者ごとのキーへ分けたのと同じ理由)。
    */
   function clear(): void {
-    for (const key of Object.keys(paths)) delete paths[key as TabName];
+    for (const key of Object.keys(paths)) {
+      delete paths[key as TabName];
+    }
   }
 
   return { paths, remember, pathFor, clear };

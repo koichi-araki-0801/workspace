@@ -83,11 +83,15 @@ export function useReviewDecisions(ctx: {
   async function send(input: UpdateReviewPartDecisionsRequest): Promise<boolean> {
     // 連打で古い応答が新しい応答を上書きしたり、reload が飛行中の要求を追い越したりしないよう、
     // 保存中は次を受け付けない。
-    if (saving.value) return false;
+    if (saving.value) {
+      return false;
+    }
     saving.value = true;
     try {
       const res = await ctx.save(input);
-      if (isErr(res)) return await failed(res.error);
+      if (isErr(res)) {
+        return await failed(res.error);
+      }
       local.value = mergeSavedDecisions(local.value, res.value);
       return true;
     } finally {

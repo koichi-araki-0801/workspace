@@ -94,7 +94,9 @@ function setup(over: Record<string, unknown> = {}, pair: [string, string] = [BEF
 }
 
 async function readyAll(...ps: (StubPanel | undefined)[]) {
-  for (const p of ps) p?.emit('state', state());
+  for (const p of ps) {
+    p?.emit('state', state());
+  }
   await flushPromises();
 }
 

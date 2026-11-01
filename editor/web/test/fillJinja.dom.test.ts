@@ -90,7 +90,9 @@ describe('real report templates round-trip token-for-token', () => {
     .sort()
     .map((file) => {
       const attrs = parseTemplateFileName(file);
-      if (!attrs) throw new Error(`テンプレ名から属性を取れない fixture: ${file}`);
+      if (!attrs) {
+        throw new Error(`テンプレ名から属性を取れない fixture: ${file}`);
+      }
       return [file, attrs.fundCode] as const;
     });
   it('走査でテンプレ fixture を実際に見つけている(セルフテスト)', () => {
@@ -159,7 +161,9 @@ describe('生成スケルトンの参照キーがサンプルで満たされる'
   it('生成器の書きぶり(基準日・前日比の符号分岐): 解釈できない/未定義の Jinja 式が無い', () => {
     const attrs = parseTemplateFileName('XX01_950037_20240710_kr.html');
     expect(attrs).not.toBeNull();
-    if (!attrs) return;
+    if (!attrs) {
+      return;
+    }
     const { diagnostics } = toFilledWithDiagnostics(
       GENERATED_SKELETON_BODY,
       fixtureSample(attrs.fundCode, attrs),
@@ -355,7 +359,9 @@ describe('toFilled — 本番パーツが使う構文も描き、原文へ戻る
     const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_COMMENT);
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
       const d = (n as Comment).data;
-      if (d.startsWith('jinja-rt:')) marks.push(d.slice(9, 10));
+      if (d.startsWith('jinja-rt:')) {
+        marks.push(d.slice(9, 10));
+      }
     }
     expect(marks).toEqual(['o', 'c']);
     expect(doc.querySelectorAll('[data-jinja]').length).toBe(1);

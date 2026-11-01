@@ -89,7 +89,9 @@ export async function materializeMergeProject(
     // 参照集合は**全文書の和**にする(1 つの配信ルートを全文書が共有するため)。
     const referenced = new Set<string>();
     for (const doc of documents) {
-      for (const rel of collectDocumentAssetRefs(doc.html, doc.css)) referenced.add(rel);
+      for (const rel of collectDocumentAssetRefs(doc.html, doc.css)) {
+        referenced.add(rel);
+      }
     }
     const served = await stageDocAssets(dir, { referenced });
     await fs.mkdir(path.join(dir, DOC_DIR), { recursive: true });

@@ -95,7 +95,7 @@ const {
 async function reloadAfterDecisionFailure(): Promise<boolean> {
   const reloaded = await load();
   const r = review.value;
-  if (reloaded && r && r.status !== 'pending') emit('decided', toReviewMeta(r));
+  if (reloaded && r && r.status !== 'pending') { emit('decided', toReviewMeta(r)); }
   return reloaded;
 }
 
@@ -135,7 +135,7 @@ const listRef = ref<InstanceType<typeof ReviewDecisionList>>();
  * キー(`p#2` など)が確定版の別のパーツのキーと重なり、そちらへコメントが付いてしまう。
  */
 function commentKeyOf(c: ReviewChangeRow): string | null {
-  if (c.kind === 'added') return null;
+  if (c.kind === 'added') { return null; }
   return isCreate.value ? c.partKey : c.beforePartKey;
 }
 
@@ -150,7 +150,7 @@ function select(no: number, toggle = false): void {
     return;
   }
   const c = changes.value.find((x) => x.no === no);
-  if (!c) return;
+  if (!c) { return; }
   selectedNo.value = no;
   visualRef.value?.gotoPart(no);
   void listRef.value?.revealNo(no);
@@ -171,7 +171,7 @@ function onPick(no: number): void {
 /** コメント一覧などから宛先のキーでパーツを選ぶ。変更の無いキーは何もしない。 */
 function selectPart(commentKey: string): void {
   const c = changes.value.find((x) => commentKeyOf(x) === commentKey);
-  if (c) select(c.no);
+  if (c) { select(c.no); }
 }
 
 const nextNo = computed(() =>
@@ -179,7 +179,7 @@ const nextNo = computed(() =>
 );
 
 function selectNextPending(): void {
-  if (nextNo.value !== null) select(nextNo.value);
+  if (nextNo.value !== null) { select(nextNo.value); }
 }
 
 const selectedKey = computed(() => {
@@ -192,7 +192,7 @@ const commentSlotProps = computed<CommentSlotProps>(() => {
   const partNames = new Map<string, string>();
   for (const c of changes.value) {
     const key = commentKeyOf(c);
-    if (key === null) continue;
+    if (key === null) { continue; }
     partNumbers.set(key, c.no);
     partNames.set(key, c.name);
   }
@@ -209,10 +209,10 @@ const changesKey = computed(() => changes.value.map((c) => `${c.no}:${c.partKey}
 // ので、残った選択は今のキーで知らせ直す(親は `select` と slot の `selectedKey` で宛先を決める)。
 watch(changesKey, () => {
   const no = selectedNo.value;
-  if (no === null) return;
+  if (no === null) { return; }
   const c = changes.value.find((x) => x.no === no);
-  if (!c) clearSelection();
-  else emit('select', commentKeyOf(c), no);
+  if (!c) { clearSelection(); }
+  else { emit('select', commentKeyOf(c), no); }
 });
 
 // ── 2. 右欄のタブ ──
@@ -252,7 +252,7 @@ function gotoPage(index: number): void {
 watch(
   visualRef,
   (v) => {
-    if (!v || pendingIndex.value === null) return;
+    if (!v || pendingIndex.value === null) { return; }
     const index = pendingIndex.value;
     pendingIndex.value = null;
     v.gotoPage(index);
@@ -261,7 +261,7 @@ watch(
 );
 // 読み込みの失敗では待機 index を捨てる。残ると後の再読込で頼んでいないページ送りが 1 回起きる。
 watch(loadError, (e) => {
-  if (e) pendingIndex.value = null;
+  if (e) { pendingIndex.value = null; }
 });
 
 // ── 4. 最終確定 ──
@@ -309,18 +309,18 @@ async function onDecideFailed(code: string | undefined): Promise<void> {
     toast(resubmit, 'error');
     return;
   }
-  if (code !== REVIEW_ALREADY_DECIDED) return;
+  if (code !== REVIEW_ALREADY_DECIDED) { return; }
   const reloaded = await load();
   toast(
     `この申請はすでに処理されています。${reloaded ? '画面を読み直しました。' : ''}`,
     'error',
   );
   const r = review.value;
-  if (reloaded && r && r.status !== 'pending') emit('decided', toReviewMeta(r));
+  if (reloaded && r && r.status !== 'pending') { emit('decided', toReviewMeta(r)); }
 }
 
 async function finalize(): Promise<void> {
-  if (busy.value || !canFinalize.value || counts.value.pending > 0) return;
+  if (busy.value || !canFinalize.value || counts.value.pending > 0) { return; }
 
   const accepted = await confirm({
     title: 'この申請を最終確定しますか？',
@@ -333,7 +333,7 @@ async function finalize(): Promise<void> {
     confirmLabel: '最終確定する',
     variant: 'destructive',
   });
-  if (!accepted) return;
+  if (!accepted) { return; }
 
   // 申請全体の承認メモは送らない(承認の理由は書かせない。パーツの却下理由だけを残す)。
   const res = await approveReview(undefined);
@@ -382,7 +382,7 @@ function emitDecided(
     emit('decided', toReviewMeta(reloaded));
     return;
   }
-  if (!before) return;
+  if (!before) { return; }
   review.value = { ...before, ...decision };
   emit('decided', toReviewMeta(review.value));
 }
@@ -394,7 +394,7 @@ function emitDecided(
  */
 function notifySyncResult(sync: ApproveReviewResult['sync']): void {
   const r = pairSyncResultText(sync);
-  if (!r) return;
+  if (!r) { return; }
   toast(r.text, r.variant, r.variant === 'error' ? 8000 : 6000);
 }
 
@@ -404,12 +404,12 @@ function notifySyncResult(sync: ApproveReviewResult['sync']): void {
  * あったときだけ短く伝える(対象パーツ無しの承認で毎回鳴らさない)。
  */
 function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): void {
-  if (!noteMaster) return;
+  if (!noteMaster) { return; }
   if (noteMaster.error) {
     toast(`注記マスタへの反映に失敗しました: ${noteMaster.error}`, 'error', 8000);
     return;
   }
-  if (noteMaster.updated.length === 0) return;
+  if (noteMaster.updated.length === 0) { return; }
   toast(
     `注記マスタへ ${noteMaster.updated.length} パーツを反映しました（次回作成のテンプレートに適用されます）`,
     'default',
@@ -431,7 +431,7 @@ const requestRejectTooLong = computed(
   () => rejectReasonProblem(requestRejectText.value, REQUEST_REJECT_REASON_MAX) === 'tooLong',
 );
 watch(requestRejectText, (v) => {
-  if (v.trim()) requestRejectError.value = false;
+  if (v.trim()) { requestRejectError.value = false; }
 });
 
 /** 申請ごと却下の理由欄をカードの先頭に開き、入力欄へ移る(見出しのリンクから呼ばれる)。 */
@@ -447,7 +447,7 @@ function closeRequestReject(): void {
 }
 
 async function submitRequestReject(): Promise<void> {
-  if (busy.value || requestRejectTooLong.value) return;
+  if (busy.value || requestRejectTooLong.value) { return; }
   // 却下は申請者へ戻す操作 — 理由が残らないと編集者が直しようがないため必須にする。
   const reason = requestRejectText.value.trim();
   if (!reason) {
@@ -490,7 +490,7 @@ const pdfGenerating = ref(false);
  * クリック後に revoke してリークさせない。
  */
 async function openPdf() {
-  if (!review.value) return;
+  if (!review.value) { return; }
   pdfGenerating.value = true;
   try {
     // 申請版の本文は描画済み(または値入り)なので描画を通さない(理由は

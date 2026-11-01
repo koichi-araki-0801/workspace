@@ -51,22 +51,32 @@ vi.mock('../src/vivliostyle/build.js', async () => {
       user: unknown,
     ) => {
       buildUsers.push({ via: 'withBuildSlot', user });
-      if (buildFail.busy) throw buildBusyUserError();
+      if (buildFail.busy) {
+        throw buildBusyUserError();
+      }
       return fn(async () => {});
     },
     buildProjectInSlot: async () => {
-      if (buildFail.project) throw new Error('project build failed(テストの意図的失敗)');
+      if (buildFail.project) {
+        throw new Error('project build failed(テストの意図的失敗)');
+      }
       return Buffer.from('%PDF-1.4 project');
     },
     buildInlinePdf: async (_input: unknown, user: unknown) => {
       buildUsers.push({ via: 'buildInlinePdf', user });
-      if (buildFail.busy) throw buildBusyUserError();
-      if (buildFail.inline) throw new Error('inline build failed(テストの意図的失敗)');
+      if (buildFail.busy) {
+        throw buildBusyUserError();
+      }
+      if (buildFail.inline) {
+        throw new Error('inline build failed(テストの意図的失敗)');
+      }
       return Buffer.from('%PDF-1.4 inline');
     },
     buildMergedPdf: async (_input: unknown, user: unknown) => {
       buildUsers.push({ via: 'buildMergedPdf', user });
-      if (buildFail.merge) throw new Error('merge build failed(テストの意図的失敗)');
+      if (buildFail.merge) {
+        throw new Error('merge build failed(テストの意図的失敗)');
+      }
       return Buffer.from('%PDF-1.4 merged');
     },
     prepareInlineDoc: async () => ({

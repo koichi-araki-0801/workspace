@@ -35,7 +35,9 @@ const COMPANIES: CompanyOption[] = [
 const FUNDS: FundOption[] = [{ fundCode: '950037', fundName: 'ファンド' }];
 
 beforeEach(() => {
-  for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+  for (const k of Object.keys(routeQuery)) {
+    delete routeQuery[k];
+  }
 });
 
 function mountWith(listFunds: (rep1: string) => Promise<unknown>) {

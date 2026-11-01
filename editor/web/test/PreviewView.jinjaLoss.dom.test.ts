@@ -100,7 +100,9 @@ beforeEach(() => {
   sessionStorage.clear();
   loadForPreview.mockReset();
   vi.mocked(confirm).mockClear();
-  for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+  for (const k of Object.keys(routeQuery)) {
+    delete routeQuery[k];
+  }
 });
 
 describe('作成経路の申請の確認', () => {

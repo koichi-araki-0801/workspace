@@ -121,7 +121,9 @@ d('申請本文の編集用の印(両経路)', () => {
     const { writeReview } = await import('../src/files/reviewFiles.js');
     const { parseAnyTemplateFileName } = await import('@editor/shared');
     const attrs = parseAnyTemplateFileName(`${EDIT_ID}.html`);
-    if (!attrs) throw new Error('attrs');
+    if (!attrs) {
+      throw new Error('attrs');
+    }
     await writeReview({
       id: 'marker-dup-seed',
       templateId: EDIT_ID,

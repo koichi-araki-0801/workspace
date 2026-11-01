@@ -51,9 +51,11 @@ export function renderPartForInsert(
   }
   const { missing, unsupported } = rendered.diagnostics;
   const warnings: string[] = [];
-  if (!ctx.valuesFound) warnings.push(VALUES_NOT_FOUND);
-  else if (missing.length > 0)
+  if (!ctx.valuesFound) {
+    warnings.push(VALUES_NOT_FOUND);
+  } else if (missing.length > 0) {
     warnings.push(`次の値が見つからないため空欄で挿入しました: ${missing.join('、')}`);
+  }
   warnings.push(...unsupportedWarning(unsupported));
   return { ok: true, html: rendered.html, warnings };
 }

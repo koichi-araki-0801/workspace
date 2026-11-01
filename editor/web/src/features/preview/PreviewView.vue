@@ -120,10 +120,10 @@ const assetWarnings = computed(() =>
  */
 async function inspectServedImages(doc: string): Promise<void> {
   const refs = docFundImageRefs(doc, companyCodeOfTemplateId(props.id));
-  if (refs.length === 0) return;
+  if (refs.length === 0) { return; }
   try {
     const res = await fundAssets.inspect(refs);
-    if (isOk(res)) svgRejected.value = svgRejectedImages(res.value);
+    if (isOk(res)) { svgRejected.value = svgRejectedImages(res.value); }
   } catch {
     // 理由が分からないだけで、プレビューと申請は続けられる。
   }
@@ -174,7 +174,7 @@ const submitBlockedHint = computed(() =>
 
 // 実ファイルへは即時反映せず、精査者(承認者)の承認を経て反映する申請を出す。
 async function submitForReview() {
-  if (!template.value || submitting.value || waitingPreview.value) return;
+  if (!template.value || submitting.value || waitingPreview.value) { return; }
   // 作成経路だけ、範囲の印の両消しで黙って消えた Jinja のブロックと、承認画面で原文のまま見せる
   // 差し込みの件数を確認の説明で知らせる。
   const created = origin.value === 'create';
@@ -189,7 +189,7 @@ async function submitForReview() {
       (unrendered ?? ''),
     confirmLabel: '申請する',
   });
-  if (!proceed || submitting.value) return;
+  if (!proceed || submitting.value) { return; }
   preparing.value = true;
   let submitted: Awaited<ReturnType<typeof runSubmit>>;
   try {
@@ -236,7 +236,7 @@ async function exportPdf() {
       template.value?.meta.attributes.companyCode ?? null,
     ),
   );
-  if (isErr(res)) return;
+  if (isErr(res)) { return; }
   const url = URL.createObjectURL(res.value);
   const a = document.createElement('a');
   a.href = url;

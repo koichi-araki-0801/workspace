@@ -21,7 +21,7 @@ const open = computed({
   get: () => confirmState.value.open,
   // `reka-ui` は Esc / overlay クリックでの dismiss 時に update を emit する → キャンセル扱い。
   set: (v: boolean) => {
-    if (!v) resolveConfirm(false);
+    if (!v) { resolveConfirm(false); }
   },
 });
 </script>

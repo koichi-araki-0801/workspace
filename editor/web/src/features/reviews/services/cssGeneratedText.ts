@@ -38,7 +38,9 @@ export function cssMakesText(css: string): boolean {
       continue;
     }
     if (c === '"' || c === "'") {
-      if (!stringIsInert(head, blocks)) return true;
+      if (!stringIsInert(head, blocks)) {
+        return true;
+      }
       i = skipString(css, i);
       continue;
     }
@@ -47,16 +49,23 @@ export function cssMakesText(css: string): boolean {
       head += 'url()';
       continue;
     }
-    if (c === ':' && TEXT_PROPERTIES.has(head.trim().toLowerCase())) return true;
+    if (c === ':' && TEXT_PROPERTIES.has(head.trim().toLowerCase())) {
+      return true;
+    }
     if (c === '{') {
-      if (/^\s*@counter-style\b/i.test(head)) return true;
+      if (/^\s*@counter-style\b/i.test(head)) {
+        return true;
+      }
       blocks.push(/^\s*@font-face\b/i.test(head) || (blocks.at(-1) ?? false));
       head = '';
     } else if (c === '}') {
       blocks.pop();
       head = '';
-    } else if (c === ';') head = '';
-    else head += c;
+    } else if (c === ';') {
+      head = '';
+    } else {
+      head += c;
+    }
     i++;
   }
   return false;
@@ -64,11 +73,17 @@ export function cssMakesText(css: string): boolean {
 
 /** 文字列が文字を生まない文脈にあるか。 */
 function stringIsInert(head: string, blocks: readonly boolean[]): boolean {
-  if (blocks.at(-1)) return true; // @font-face の中
+  if (blocks.at(-1)) {
+    return true; // @font-face の中
+  }
   const h = head.trim();
-  if (h.startsWith('@')) return true; // @import・@charset などの前置き
+  if (h.startsWith('@')) {
+    return true; // @import・@charset などの前置き
+  }
   const colon = h.indexOf(':');
-  if (colon === -1) return false;
+  if (colon === -1) {
+    return false;
+  }
   return FONT_PROPERTIES.has(h.slice(0, colon).trim().toLowerCase());
 }
 
@@ -76,7 +91,9 @@ function stringIsInert(head: string, blocks: readonly boolean[]): boolean {
 function skipString(css: string, at: number): number {
   const q = css[at];
   let i = at + 1;
-  while (i < css.length && css[i] !== q) i += css[i] === '\\' ? 2 : 1;
+  while (i < css.length && css[i] !== q) {
+    i += css[i] === '\\' ? 2 : 1;
+  }
   return i + 1;
 }
 
@@ -84,8 +101,11 @@ function skipString(css: string, at: number): number {
 function skipUrl(css: string, from: number): number {
   let i = from;
   while (i < css.length && css[i] !== ')') {
-    if (css[i] === '"' || css[i] === "'") i = skipString(css, i);
-    else i += css[i] === '\\' ? 2 : 1;
+    if (css[i] === '"' || css[i] === "'") {
+      i = skipString(css, i);
+    } else {
+      i += css[i] === '\\' ? 2 : 1;
+    }
   }
   return i + 1;
 }

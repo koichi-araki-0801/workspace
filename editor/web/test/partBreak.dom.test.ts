@@ -17,7 +17,9 @@ function root(html: string): HTMLElement {
 
 function q(r: Element, sel: string): Element {
   const el = r.querySelector(sel);
-  if (!el) throw new Error(`no ${sel}`);
+  if (!el) {
+    throw new Error(`no ${sel}`);
+  }
   return el;
 }
 
@@ -132,7 +134,9 @@ describe('planBreakToggle', () => {
   it('区切りを 1 つ消した後も残っていれば ON のまま', () => {
     const r = root(`<p class="b"></p>${BR}${BR}<p class="c"></p>`);
     const plan = planBreakToggle(q(r, '.b'), r, 'after', false);
-    for (const el of plan?.remove ?? []) el.remove();
+    for (const el of plan?.remove ?? []) {
+      el.remove();
+    }
     expect(partBreakState(q(r, '.b'), r)?.after).toBe('div');
   });
 

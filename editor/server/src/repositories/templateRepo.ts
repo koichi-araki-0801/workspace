@@ -73,7 +73,11 @@ function metaMatches(m: TemplateMeta, q: DropdownQuery): boolean {
 /** 大文字小文字だけが違う値は最初の表記へまとめ、`localeCompare` で並べる。 */
 function uniqCi(values: string[]): string[] {
   const seen = new Map<string, string>();
-  for (const v of values) if (!seen.has(v.toLowerCase())) seen.set(v.toLowerCase(), v);
+  for (const v of values) {
+    if (!seen.has(v.toLowerCase())) {
+      seen.set(v.toLowerCase(), v);
+    }
+  }
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
@@ -98,7 +102,9 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
   // (例 ファンド_基準日_版種)はテンプレートの形に読めてしまうので、名前の形で先に外す。
   const files = (await listFilledFiles()).filter((f) => parseTemplateFileName(f) !== null);
   const confirmed = (await Promise.all(files.map((f) => fileToMeta(f, 'filled')))).filter(isMeta);
-  if (!includePending) return confirmed;
+  if (!includePending) {
+    return confirmed;
+  }
   // 照合は大文字小文字を区別しない。NTFS では承認が既存の綴りのファイルへ上書きするので、
   // 綴り違いの pending が消し残ると完全一致では同じテンプレが二重に出る。
   const confirmedIds = new Set(confirmed.map((m) => m.id.toLowerCase()));
@@ -162,7 +168,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       const want = companyAbbr.trim().toLowerCase();
       const company = rows.find((r) => asString(r.委託会社略称).trimEnd().toLowerCase() === want);
       // 会社が見つからなくても company.code にはファイル名の会社コードを被せる。
-      if (!company) return { companyCode: companyAbbr };
+      if (!company) {
+        return { companyCode: companyAbbr };
+      }
       const fund = (await listFunds(asString(company.委託会社コード))).find(
         (f) => f.fundCode.trim() === fundCode,
       );
@@ -239,7 +247,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         seriesRows.map((r) => [asString(r.ファンドコード), asStringOrNull(r.シリーズコード)]),
       );
       const series = seriesOf.get(fundCode) ?? null;
-      if (!series) return { editions, seriesFunds: [] };
+      if (!series) {
+        return { editions, seriesFunds: [] };
+      }
       const names = new Map(
         (await listFunds(rep1CompanyCode)).map((f) => [f.fundCode, f.fundName]),
       );
@@ -297,7 +307,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       const fileName = `${id}.html`;
       const isFilled = parseTemplateFileName(fileName) !== null;
       const meta = await fileToMeta(fileName, isFilled ? 'filled' : 'template');
-      if (!meta) throw notFound(`テンプレートが見つかりません: ${id}`);
+      if (!meta) {
+        throw notFound(`テンプレートが見つかりません: ${id}`);
+      }
       if (isFilled && (await filledExists(fileName))) {
         const html = await readFilledHtml(fileName);
         const [css, cssFound] = await Promise.all([readTemplateCss(id), templateCssExists(id)]);
@@ -309,7 +321,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
         return { meta, html, css, filled: '', ...(cssFound ? {} : { cssMissing: true }) };
       }
       const pending = await readPending(id);
-      if (!pending) throw notFound(`テンプレートが見つかりません: ${id}`);
+      if (!pending) {
+        throw notFound(`テンプレートが見つかりません: ${id}`);
+      }
       return {
         meta: { ...meta, status: 'draft', updatedAt: await pendingMtime(id) },
         html: pending.html,
@@ -326,7 +340,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
 
     async getDraft(templateId) {
       const draft = await readDraft(templateId);
-      if (!draft) return null;
+      if (!draft) {
+        return null;
+      }
       // 保存者はファイルからは判らない(下書きは作業コピー)。保存日時は mtime で代用。
       return {
         templateId,
@@ -350,7 +366,9 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
      */
     async getSampleData(templateId) {
       const attrs = parseAnyTemplateFileName(`${assertAnyTemplateId(templateId)}.html`);
-      if (!attrs) throw notFound(`テンプレートが見つかりません: ${templateId}`);
+      if (!attrs) {
+        throw notFound(`テンプレートが見つかりません: ${templateId}`);
+      }
       const rows = await sproc.callSproc(SP.sample, '共通一覧');
       const { sample, warnings } = mergeCommonSampleRows(
         rows.map((r) => ({

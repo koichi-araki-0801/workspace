@@ -50,7 +50,9 @@ describe('@vivliostyle/cli への渡し方', () => {
       const text = read(f);
       for (const m of text.matchAll(/(.{10})sharedInlineConfig\(\)/g)) {
         // 定義そのもの(`export async function sharedInlineConfig()`)は呼び出しではない。
-        if (m[1].includes('function ')) continue;
+        if (m[1].includes('function ')) {
+          continue;
+        }
         expect(m[1], `${f}: ${m[0]}`).toContain('await ');
       }
     }
@@ -76,9 +78,13 @@ describe('@vivliostyle/cli の PostCSS 設定の契約(実装を読んで固定�
     const dist = path.dirname(fileURLToPath(import.meta.resolve('@vivliostyle/cli/package.json')));
     const distDir = path.join(dist, 'dist');
     for (const name of fs.readdirSync(distDir)) {
-      if (!name.endsWith('.js')) continue;
+      if (!name.endsWith('.js')) {
+        continue;
+      }
       const text = fs.readFileSync(path.join(distDir, name), 'utf8');
-      if (text.includes('async function resolvePostcssConfig(')) return text;
+      if (text.includes('async function resolvePostcssConfig(')) {
+        return text;
+      }
     }
     throw new Error('`resolvePostcssConfig` を定義するチャンクが見つかりません');
   };
@@ -114,9 +120,13 @@ describe('@vivliostyle/cli の proxy 契約(実装を読んで固定する)', ()
     const dist = path.dirname(fileURLToPath(import.meta.resolve('@vivliostyle/cli/package.json')));
     const distDir = path.join(dist, 'dist');
     for (const name of fs.readdirSync(distDir)) {
-      if (!name.endsWith('.js')) continue;
+      if (!name.endsWith('.js')) {
+        continue;
+      }
       const text = fs.readFileSync(path.join(distDir, name), 'utf8');
-      if (text.includes('--proxy-server=')) return text;
+      if (text.includes('--proxy-server=')) {
+        return text;
+      }
     }
     throw new Error('`--proxy-server=` を組み立てるチャンクが見つかりません');
   };
@@ -293,7 +303,9 @@ describe('@vivliostyle/cli の配信ルート(doc/ のエントリと兄弟の�
     } finally {
       // mkdtemp や資産の書き出しで落ちても作業フォルダを残さない。
       await server?.close();
-      if (dir !== undefined) await fsp.rm(dir, { recursive: true, force: true });
+      if (dir !== undefined) {
+        await fsp.rm(dir, { recursive: true, force: true });
+      }
     }
   }, 120_000);
 });

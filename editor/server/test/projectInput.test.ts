@@ -31,19 +31,25 @@ vi.hoisted(() => {
 
 const created: string[] = [];
 afterEach(async () => {
-  while (created.length) await cleanupProject(created.pop() as string);
+  while (created.length) {
+    await cleanupProject(created.pop() as string);
+  }
   vi.unstubAllEnvs();
   vi.resetModules();
 });
 afterAll(async () => {
   // 隔離が効いていない(= 共有 `.tmp` を指している)ときに消しに行かないよう目印で確かめる。
-  if (!config.tmpDir.includes(TEST_TMP_MARKER)) return;
+  if (!config.tmpDir.includes(TEST_TMP_MARKER)) {
+    return;
+  }
   await fs.rm(config.tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
 async function zipOf(files: Record<string, string>, deflate = false): Promise<Buffer> {
   const zip = new JSZip();
-  for (const [name, content] of Object.entries(files)) zip.file(name, content);
+  for (const [name, content] of Object.entries(files)) {
+    zip.file(name, content);
+  }
   return zip.generateAsync({
     type: 'nodebuffer',
     ...(deflate ? { compression: 'DEFLATE' as const } : {}),
@@ -112,7 +118,9 @@ function eocdOnlyZip(opts: { entries: number; cdBytes: number; zip64?: boolean }
   eocd.writeUInt16LE(opts.zip64 ? 0xffff : opts.entries, 8);
   eocd.writeUInt16LE(opts.zip64 ? 0xffff : opts.entries, 10);
   eocd.writeUInt32LE(opts.zip64 ? 0xffffffff : opts.cdBytes, 12);
-  if (!opts.zip64) return eocd;
+  if (!opts.zip64) {
+    return eocd;
+  }
 
   const z64 = Buffer.alloc(56);
   z64.writeUInt32LE(0x06064b50, 0);
@@ -135,7 +143,9 @@ function eocdOnlyZip(opts: { entries: number; cdBytes: number; zip64?: boolean }
 async function importWithEnv(
   env: Record<string, string>,
 ): Promise<typeof import('../src/vivliostyle/projectInput.js')> {
-  for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+  for (const [k, v] of Object.entries(env)) {
+    vi.stubEnv(k, v);
+  }
   vi.resetModules();
   return import('../src/vivliostyle/projectInput.js');
 }

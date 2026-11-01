@@ -73,15 +73,25 @@ export function asBool(v: unknown): boolean {
 }
 /** SQL datetime2 → ISO 文字列(driver は Date か string を返しうる)。 */
 export function asIso(v: unknown): string | null {
-  if (v == null) return null;
-  if (v instanceof Date) return v.toISOString();
+  if (v == null) {
+    return null;
+  }
+  if (v instanceof Date) {
+    return v.toISOString();
+  }
   return String(v);
 }
 /** SQL varbinary → Buffer(driver は Buffer/Uint8Array を返す)。 */
 export function asBuffer(v: unknown): Buffer | null {
-  if (v == null) return null;
-  if (Buffer.isBuffer(v)) return v;
-  if (v instanceof Uint8Array) return Buffer.from(v);
+  if (v == null) {
+    return null;
+  }
+  if (Buffer.isBuffer(v)) {
+    return v;
+  }
+  if (v instanceof Uint8Array) {
+    return Buffer.from(v);
+  }
   return null;
 }
 export function asNumberOrNull(v: unknown): number | null {
@@ -109,11 +119,18 @@ function mapSqlError(e: unknown): AppError {
   const num = sqlNumber(e);
   // 自前 THROW 以外は、番号で分類できてもメッセージは使わない。
   const msg = num !== undefined && OWN_THROW_NUMBERS.has(num) ? sqlMessage(e) : undefined;
-  if (num === 50404) return notFound(msg ?? '対象が見つかりません');
-  if (num === 50409) return conflict(msg ?? 'すでに存在するか、競合しています');
-  if (num === 2627 || num === 2601)
+  if (num === 50404) {
+    return notFound(msg ?? '対象が見つかりません');
+  }
+  if (num === 50409) {
+    return conflict(msg ?? 'すでに存在するか、競合しています');
+  }
+  if (num === 2627 || num === 2601) {
     return conflict('すでに存在するか、競合しています', { cause: e });
-  if (num === 50000 || num === 50400) return validation(msg ?? '入力が正しくありません');
+  }
+  if (num === 50000 || num === 50400) {
+    return validation(msg ?? '入力が正しくありません');
+  }
   // 未知の SQL/driver 障害: 技術的詳細をユーザーへ漏らさない。
   return unexpected('データベース処理に失敗しました', { cause: e });
 }
@@ -130,12 +147,15 @@ function sqlNumber(e: unknown): number | undefined {
   if (e && typeof e === 'object') {
     const o = e as Record<string, unknown>;
     for (const key of ['number', 'code', 'sqlstate'] as const) {
-      if (typeof o[key] === 'number') return o[key] as number;
+      if (typeof o[key] === 'number') {
+        return o[key] as number;
+      }
     }
     // `msnodesqlv8` は SQL エラーを配列下にネストすることがある。
     const arr = o.odbcErrors ?? o.errors;
-    if (Array.isArray(arr) && arr.length > 0 && typeof arr[0]?.code === 'number')
+    if (Array.isArray(arr) && arr.length > 0 && typeof arr[0]?.code === 'number') {
       return arr[0].code as number;
+    }
   }
   return undefined;
 }
@@ -146,7 +166,9 @@ function sqlMessage(e: unknown): string | undefined {
     e && typeof e === 'object' && typeof (e as { message?: unknown }).message === 'string'
       ? (e as { message: string }).message
       : undefined;
-  if (!raw) return undefined;
+  if (!raw) {
+    return undefined;
+  }
   // "[Microsoft][ODBC Driver 17 for SQL Server][SQL Server]<本文>" → <本文>
   const stripped = raw.replace(/^(\[[^\]]*\])+/, '').trim();
   return stripped.length > 0 ? stripped : undefined;

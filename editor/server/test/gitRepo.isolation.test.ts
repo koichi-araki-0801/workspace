@@ -203,7 +203,9 @@ d('gitRepo はリポジトリ側の実行面を動かさない', () => {
       c.args.find((a, i) => i > 0 && c.args[i - 1] !== '-c' && !a.startsWith('-'));
     const commits = calls.filter((c) => sub(c) === 'commit');
     expect(commits.length).toBeGreaterThan(0);
-    for (const c of commits) expect(c.args).toContain('--no-verify');
+    for (const c of commits) {
+      expect(c.args).toContain('--no-verify');
+    }
     const reads = calls.filter((c) => ['diff', 'log', 'show'].includes(sub(c) ?? ''));
     expect(reads.length).toBeGreaterThanOrEqual(5);
     for (const c of reads) {

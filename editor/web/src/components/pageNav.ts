@@ -11,7 +11,9 @@
  * 小数は四捨五入する(入力欄に "3.7" や空文字が来ても安全化する)。
  */
 export function clampPage(page: number, count: number): number {
-  if (!Number.isFinite(page)) return 1;
+  if (!Number.isFinite(page)) {
+    return 1;
+  }
   const max = Math.max(1, Math.floor(count));
   return Math.min(Math.max(Math.round(page), 1), max);
 }
@@ -22,7 +24,9 @@ export function clampPage(page: number, count: number): number {
  * `count` へ `clampPage` で丸まる)。比率が範囲外でも端へクランプする。
  */
 export function fractionToPage(fraction: number, count: number): number {
-  if (count <= 0) return 1;
+  if (count <= 0) {
+    return 1;
+  }
   const f = Math.min(Math.max(fraction, 0), 1);
   return clampPage(Math.floor(f * count) + 1, count);
 }
@@ -32,6 +36,8 @@ export function fractionToPage(fraction: number, count: number): number {
  * 逆で、ページ区間の中央(`(page - 0.5) / count`)を返す(両端が track の端に寄り過ぎない)。
  */
 export function pageToFraction(page: number, count: number): number {
-  if (count <= 0) return 0;
+  if (count <= 0) {
+    return 0;
+  }
   return (clampPage(page, count) - 0.5) / count;
 }

@@ -43,7 +43,9 @@ vi.mock('../src/vivliostyle/buildWorkerServer.js', async () => {
 });
 vi.mock('../src/vivliostyle/egressGuard.js', () => ({
   reserveBuildOrigin: async () => {
-    if (reserve.fail) throw new Error('port pick failed');
+    if (reserve.fail) {
+      throw new Error('port pick failed');
+    }
     return { port: 0, ports: [0], proxyServer: 'http://127.0.0.1:9', release: () => {} };
   },
 }));

@@ -110,7 +110,9 @@ function normalizeCssForCompare(css: string): string {
 /** 着色済みマークアップから**表示テキスト**を取り出す。`textContent` は CSS を無視するので、
  *  `display:none` や `@media` で隠された本文もここには現れる(申請者スタイルで隠せない)。 */
 function htmlToText(html: string): string {
-  if (!html.trim()) return '';
+  if (!html.trim()) {
+    return '';
+  }
   return new DOMParser().parseFromString(html, 'text/html').body.textContent ?? '';
 }
 
@@ -132,12 +134,16 @@ function textWordOps(beforeHtml: string, afterHtml: string, budget: LcsBudget): 
  */
 function collectPaneStyleText(afterHtml: string, fundCss: string): string {
   const parts: string[] = [];
-  if (fundCss.trim()) parts.push(fundCss);
+  if (fundCss.trim()) {
+    parts.push(fundCss);
+  }
   try {
     const doc = new DOMParser().parseFromString(afterHtml, 'text/html');
     for (const el of Array.from(doc.querySelectorAll('style'))) {
       const t = el.textContent ?? '';
-      if (t.trim()) parts.push(t);
+      if (t.trim()) {
+        parts.push(t);
+      }
     }
   } catch {
     // パースできない場合でもファンド CSS 側の検査は生かす(黙って false に倒さない)。
@@ -147,7 +153,9 @@ function collectPaneStyleText(afterHtml: string, fundCss: string): string {
 
 /** 本文の `<style>` の中身と `style` 属性の値(申請者の CSS)。 */
 function bodyStyleSources(html: string): string[] {
-  if (!html.trim()) return [];
+  if (!html.trim()) {
+    return [];
+  }
   const doc = new DOMParser().parseFromString(html, 'text/html');
   return [
     ...Array.from(doc.querySelectorAll('style'), (el) => el.textContent ?? ''),
@@ -176,7 +184,9 @@ export function createReviewDiffService(
   return {
     async buildDiff(reqId) {
       const revRes = await reviews.getReview(reqId);
-      if (isErr(revRes)) return revRes;
+      if (isErr(revRes)) {
+        return revRes;
+      }
       const review = revRes.value;
 
       // after(申請版)は、編集経路は申請本文そのもの、作成経路はサーバが受付で Jinja 原文から描いた
@@ -188,10 +198,11 @@ export function createReviewDiffService(
       // 作成経路の CSS の比較元は、サーバが返す承認で上書きされる今の CSS(`baseCss`。無ければ空)。
       // 申請者の CSS を比較元にすると、CSS の変更が常に「なし」に見える。作成経路の `baseHtml` は
       // 申請時点の基準(Jinja の原文)で、描いた本文と比べる物ではないので before にしない。
-      if (review.origin === 'create' && review.renderedHtml === undefined)
+      if (review.origin === 'create' && review.renderedHtml === undefined) {
         return err(
           conflict(review.renderError ?? CREATE_RENDER_MISSING, { code: REVIEW_RENDER_ERROR }),
         );
+      }
       const pairRes =
         review.origin === 'create' && review.renderedHtml !== undefined
           ? ok({
@@ -205,7 +216,9 @@ export function createReviewDiffService(
               origin: review.origin,
             });
 
-      if (isErr(pairRes)) return pairRes;
+      if (isErr(pairRes)) {
+        return pairRes;
+      }
 
       const pair = pairRes.value;
       const after = pair.after;

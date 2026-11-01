@@ -54,9 +54,11 @@ describe('editor 2系統の原則: 差し込み値ハイライトのスコープ
       /data-jinja-loop-row|data-opaque-kind="frozen"|jinja-frozen-body\s*>/.test(r.selector),
     );
     expect(outlined.length).toBeGreaterThan(0);
-    for (const r of outlined)
-      for (const sel of r.selector.split(','))
+    for (const r of outlined) {
+      for (const sel of r.selector.split(',')) {
         expect(sel.trim().startsWith('.jinja-vars-highlight '), sel).toBe(true);
+      }
+    }
   });
 
   it('スコープの無い固めた要素の規則は見た目を持たない(レイアウトの規則だけ)', () => {
@@ -65,7 +67,9 @@ describe('editor 2系統の原則: 差し込み値ハイライトのスコープ
         /jinja-frozen|data-opaque|data-jinja-loop-row/.test(r.selector) &&
         !r.selector.split(',').every((s) => s.trim().startsWith('.jinja-vars-highlight ')),
     );
-    for (const r of bare) expect(r.body, r.selector).not.toMatch(/background|outline|border/);
+    for (const r of bare) {
+      expect(r.body, r.selector).not.toMatch(/background|outline|border/);
+    }
   });
 });
 
@@ -116,7 +120,9 @@ describe('editor 2系統の原則: カタログのパーツの挿入', () => {
       valuesFound: true,
     });
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
     expect(r.html).toContain(String((sample950037 as { fund: { name: string } }).fund.name));
     expect(r.html).not.toMatch(/jinja-chip|jinja-var|data-jinja|data-opaque/);
     expect(findEditingMarkers(r.html)).toEqual([]);
@@ -127,7 +133,9 @@ describe('editor 2系統の原則: カタログのパーツの挿入', () => {
   it('作成タブで挿入したパーツは共通サンプルの値で描かれる', () => {
     const r = renderPartForInsert(part, { route: 'create', sample: sampleCommon });
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
     expect(r.html).toContain(String((sampleCommon as { fund: { name: string } }).fund.name));
     // 作成経路の値は読み込み時の共通サンプル(`EditorLoad.sample`)で、値ファイルではない。
     expect(editorSrc()).toMatch(/\{ route: 'create', sample: res\.value\.sample \}/);
@@ -144,7 +152,7 @@ describe('editor 2系統の原則: rest 経路の値入り HTML', () => {
 
   it('比較の現行版は filled が非空なら描画を通さない', () => {
     const src = read('features/compare/services/compareService.ts');
-    expect(src).toMatch(/if \(tpl\.filled\) return ok\(\{ html: tpl\.filled/);
+    expect(src).toMatch(/if \(tpl\.filled\) \{\s*return ok\(\{ html: tpl\.filled/);
   });
 
   // local の既定 fixture は「値入り HTML が在るものだけが `published`」という rest と同じ

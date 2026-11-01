@@ -45,7 +45,9 @@ export { findExternalRefsInCss };
  */
 export function summarizeExternalCssRefs(css: string): string | null {
   const refs = findExternalRefsInCss(css);
-  if (refs.length === 0) return null;
+  if (refs.length === 0) {
+    return null;
+  }
   const head = refs.slice(0, MAX_REPORTED_REFS).join(', ');
   const rest = refs.length - MAX_REPORTED_REFS;
   return rest > 0 ? `${head} ほか${rest}件` : head;

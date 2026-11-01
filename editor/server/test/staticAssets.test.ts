@@ -53,7 +53,9 @@ describe('静的配信', () => {
         const res = await app.inject({ method, url: `/${rel}` });
         expect(res.statusCode, `${method} /${rel}`).toBe(200);
         expect(res.headers['content-type'], `${method} /${rel}`).toMatch(type);
-        if (method === 'GET') expect(res.body).toBe(body);
+        if (method === 'GET') {
+          expect(res.body).toBe(body);
+        }
         const cache = String(res.headers['cache-control'] ?? '');
         if (rel.startsWith('assets/')) {
           expect(cache).toBe('public, max-age=31536000, immutable');

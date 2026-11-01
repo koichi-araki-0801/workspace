@@ -64,7 +64,9 @@ function hasDotDotSegment(p: string): boolean {
 }
 
 function isAllowedPathPart(pathPart: string, docBase: string): boolean {
-  if (pathPart === '/') return true;
+  if (pathPart === '/') {
+    return true;
+  }
   return matchesPrefix(pathPart, VIEWER_ROOT_PREFIX) || matchesPrefix(pathPart, docBase);
 }
 
@@ -78,22 +80,34 @@ function isAllowedPathPart(pathPart: string, docBase: string): boolean {
  */
 export function allowForwardPath(residual: string, docBase: string): ForwardPath | undefined {
   // 絶対形リクエストライン(`http://evil/x`)と空文字を封じる。
-  if (!residual.startsWith('/')) return undefined;
+  if (!residual.startsWith('/')) {
+    return undefined;
+  }
   const cut = residual.search(/[?#]/);
   const pathPart = cut === -1 ? residual : residual.slice(0, cut);
-  if (!PATH_CHARSET_RE.test(pathPart)) return undefined;
-  if (ENCODED_SEPARATOR_RE.test(pathPart)) return undefined;
+  if (!PATH_CHARSET_RE.test(pathPart)) {
+    return undefined;
+  }
+  if (ENCODED_SEPARATOR_RE.test(pathPart)) {
+    return undefined;
+  }
   let decoded: string;
   try {
     decoded = decodeURIComponent(pathPart);
   } catch {
     return undefined; // 復号不能は fail-close
   }
-  if (hasDotDotSegment(pathPart) || hasDotDotSegment(decoded)) return undefined;
+  if (hasDotDotSegment(pathPart) || hasDotDotSegment(decoded)) {
+    return undefined;
+  }
   // 生でも復号後でも許可リストに載ることを要求する。`/%76ivliostyle/x`(生では外れる)も
   // 「生では通るが復号後に別物になる」形も、これで両方落ちる。
-  if (!isAllowedPathPart(pathPart, docBase)) return undefined;
-  if (!isAllowedPathPart(decoded, docBase)) return undefined;
+  if (!isAllowedPathPart(pathPart, docBase)) {
+    return undefined;
+  }
+  if (!isAllowedPathPart(decoded, docBase)) {
+    return undefined;
+  }
   return residual as ForwardPath;
 }
 
@@ -179,7 +193,9 @@ function pickRequestHeaders(req: IncomingMessage, host: string): Record<string, 
   const picked: Record<string, string> = { host };
   for (const name of FORWARDED_REQUEST_HEADERS) {
     const v = req.headers[name];
-    if (typeof v === 'string') picked[name] = v;
+    if (typeof v === 'string') {
+      picked[name] = v;
+    }
   }
   return picked;
 }
@@ -211,7 +227,9 @@ export function proxyToPreview(
       res.statusCode = up.statusCode ?? 502;
       for (const key of FORWARDED_RESPONSE_HEADERS) {
         const value = up.headers[key];
-        if (value !== undefined) res.setHeader(key, value);
+        if (value !== undefined) {
+          res.setHeader(key, value);
+        }
       }
       // upstream 由来のヘッダより後に置き、上流が同名ヘッダを返しても必ずこちらが勝つ。
       for (const [key, value] of Object.entries(previewSecurityHeaders(forwardPath))) {

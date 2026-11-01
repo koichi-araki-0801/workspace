@@ -89,7 +89,9 @@ export const JINJA_BLOCK_LOSS_MSG = (n: number): string =>
 export function jinjaBlockLossNotice(original: string, restored: string): string | null {
   const before = countJinjaBlockOpens(original);
   const after = countJinjaBlockOpens(restored);
-  if (before === null || after === null || after >= before) return null;
+  if (before === null || after === null || after >= before) {
+    return null;
+  }
   return JINJA_BLOCK_LOSS_MSG(before - after);
 }
 
@@ -143,7 +145,9 @@ export function createTemplatePreviewService(
   return {
     async loadForPreview(id, opts = {}) {
       const tplRes = await templates.getTemplate(id);
-      if (isErr(tplRes)) return tplRes;
+      if (isErr(tplRes)) {
+        return tplRes;
+      }
       const tpl = tplRes.value;
 
       // 値入り HTML(`tpl.filled`)は `toFilled` がテキストノードへ値を差し込んだ本文で、
@@ -159,13 +163,17 @@ export function createTemplatePreviewService(
       let sample: SampleData = {};
       if (!isFilled) {
         const sampleRes = await templates.getSampleData(id);
-        if (isErr(sampleRes)) return sampleRes;
+        if (isErr(sampleRes)) {
+          return sampleRes;
+        }
         // 版種・基準日(ファイル名由来)を被せる。getSampleData は版種・基準日を持たない。
         sample = applyTemplateAttributes(sampleRes.value.sample, tpl.meta.attributes);
       }
 
       const draftRes = await templates.getDraft(id);
-      if (isErr(draftRes)) return draftRes;
+      if (isErr(draftRes)) {
+        return draftRes;
+      }
       // 編集経路(`loadForEdit`)と同じ所属判定を通す。ブックマークや直 URL で編集画面を
       // 経由せずここへ来ても、別タブが残した下書きを申請本文にしないため。破棄そのものは
       // 編集経路に任せ、ここでは採用しない(確定版でプレビューする)だけに留める。
@@ -245,7 +253,9 @@ export function createTemplatePreviewService(
           skipJinja,
           companyCode,
         });
-        if (isErr(doc)) return doc;
+        if (isErr(doc)) {
+          return doc;
+        }
         return await postBuild(apiPaths.build, doc.value);
       } catch (e) {
         return err(conflict(PDF_ERROR_MSG, { cause: e }));

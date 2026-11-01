@@ -36,12 +36,16 @@ function fakeHost(doc: Document) {
   const handlers = new Map<string, Array<() => void>>();
   const host = {
     on: (event: string, cb: () => void) => {
-      for (const e of event.split(' ')) handlers.set(e, [...(handlers.get(e) ?? []), cb]);
+      for (const e of event.split(' ')) {
+        handlers.set(e, [...(handlers.get(e) ?? []), cb]);
+      }
     },
     Canvas: { getDocument: () => doc },
   } as unknown as FundImageHost;
   const emit = (event: string) => {
-    for (const cb of handlers.get(event) ?? []) cb();
+    for (const cb of handlers.get(event) ?? []) {
+      cb();
+    }
   };
   return { host, emit };
 }
@@ -168,7 +172,9 @@ describe('attachFundImages', () => {
     (host as { Canvas?: unknown }).Canvas = undefined;
     emit('component:remove');
     expect(() => {
-      for (const cb of queued) cb();
+      for (const cb of queued) {
+        cb();
+      }
       emit('load');
       layer.refresh();
     }).not.toThrow();
@@ -198,7 +204,9 @@ describe('先読みに失敗した画像の確認(SVG の検査の警告)', () =
   const preloadFailing =
     (failing: readonly string[]) =>
     async (url: string): Promise<void> => {
-      if (failing.includes(url)) throw new Error('404');
+      if (failing.includes(url)) {
+        throw new Error('404');
+      }
     };
 
   const inspectRejecting = (rejectFile: string) =>
@@ -643,10 +651,14 @@ describe('canvas の大きさの変化で測り直す', () => {
 
 /** class でモデル木を探す(`saveFormat.dom.test.ts` と同じ理由で view 依存の find を避ける)。 */
 function findByClass(root: Component, cls: string): Component | undefined {
-  if (root.getClasses().includes(cls)) return root;
+  if (root.getClasses().includes(cls)) {
+    return root;
+  }
   for (const child of root.components()) {
     const found = findByClass(child, cls);
-    if (found) return found;
+    if (found) {
+      return found;
+    }
   }
   return undefined;
 }
@@ -698,7 +710,9 @@ describe('useGrapes との結合', () => {
     // jsdom では canvas の iframe に document が無いので、複製の置き場を別の document で代える。
     const doc = document.implementation.createHTMLDocument('');
     const canvas = g.editor.value?.Canvas;
-    if (!canvas) throw new Error('editor が無い');
+    if (!canvas) {
+      throw new Error('editor が無い');
+    }
     vi.spyOn(canvas, 'getDocument').mockReturnValue(doc);
     expect(g.load(body, '.page{background:url(../images/950037_bg.svg)}')).toBe(true);
     const copy = doc.body.querySelector(`style[${CANVAS_CSS_ASSET_ATTR}]`)?.textContent;

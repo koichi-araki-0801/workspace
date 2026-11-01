@@ -20,8 +20,9 @@ const put = (dir: string, name: string) => {
 
 describe('findInProgressIds', () => {
   beforeEach(() => {
-    for (const d of ['pending', 'drafts'])
+    for (const d of ['pending', 'drafts']) {
       fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
+    }
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 

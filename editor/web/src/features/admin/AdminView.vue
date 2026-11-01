@@ -52,7 +52,7 @@ const errors = reactive<{ username?: string; displayName?: string }>({});
 const issued = ref<{ label: string; username: string; password: string } | null>(null);
 
 async function copyIssued() {
-  if (!issued.value) return;
+  if (!issued.value) { return; }
   try {
     await navigator.clipboard.writeText(issued.value.password);
     toastSuccess('一時パスワードをコピーしました');
@@ -64,7 +64,7 @@ async function copyIssued() {
 
 async function load() {
   const res = await run(() => repo.listUsers());
-  if (isOk(res)) rows.value = res.value;
+  if (isOk(res)) { rows.value = res.value; }
 }
 onMounted(load);
 
@@ -76,14 +76,14 @@ function validate(): boolean {
 }
 
 async function addUser() {
-  if (adding.value || !validate()) return;
+  if (adding.value || !validate()) { return; }
   adding.value = true;
   try {
     // 仮パスワード運用: 新規ユーザーは有効状態で作成し、初回ログイン時のパスワード再設定を必須にする。
     const res = await run(() =>
       repo.createUser({ ...form, disabled: false, mustChangePassword: true }),
     );
-    if (isErr(res)) return;
+    if (isErr(res)) { return; }
     issued.value = {
       label: `${form.displayName} を追加しました`,
       username: form.username,
@@ -116,9 +116,9 @@ async function toggleDisabled(u: User) {
     confirmLabel: disabling ? '無効化する' : '有効化する',
     variant: disabling ? 'destructive' : 'default',
   });
-  if (!ok) return;
+  if (!ok) { return; }
   const res = await run(() => repo.updateUser(u.id, { disabled: disabling }));
-  if (isErr(res)) return;
+  if (isErr(res)) { return; }
   toastSuccess(disabling ? `${u.displayName} を無効化しました` : `${u.displayName} を有効化しました`);
   await load();
 }
@@ -130,9 +130,9 @@ async function resetPw(u: User) {
     confirmLabel: '初期化する',
     variant: 'destructive',
   });
-  if (!ok) return;
+  if (!ok) { return; }
   const res = await run(() => repo.resetUserPassword(u.id));
-  if (isErr(res)) return;
+  if (isErr(res)) { return; }
   issued.value = {
     label: `${u.displayName} のパスワードを初期化しました`,
     username: u.username,

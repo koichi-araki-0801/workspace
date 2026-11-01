@@ -36,7 +36,9 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
  * (`web/src/lib/pdfDocument.ts`)が値そのものも照合しているためで、拾いすぎても害は無い。
  */
 function attrRefCandidates(name: string, value: string): string[] {
-  if (!MULTI_URL_ATTRS.has(name)) return [value];
+  if (!MULTI_URL_ATTRS.has(name)) {
+    return [value];
+  }
   return splitSrcsetUrls(value, { includeWhole: true });
 }
 
@@ -44,7 +46,9 @@ function attrRefCandidates(name: string, value: string): string[] {
 function addCssRefs(css: string, from: string, out: Set<string>): void {
   for (const candidate of collectCssUrlCandidates(css)) {
     const rel = resolveDocAssetPath(candidate, from);
-    if (rel !== undefined) out.add(rel);
+    if (rel !== undefined) {
+      out.add(rel);
+    }
   }
 }
 
@@ -64,10 +68,16 @@ export function collectDocumentAssetRefs(html: string, css: string): Set<string>
   const refs = new Set<string>();
   addCssRefs(css, DOC_DIR, refs);
   const scan = scanTags(html);
-  if (!scan.ok) return refs;
+  if (!scan.ok) {
+    return refs;
+  }
   for (const tag of scan.tags) {
-    if (tag.isEnd) continue;
-    if (tag.name === 'style' && tag.rawText !== undefined) addCssRefs(tag.rawText, DOC_DIR, refs);
+    if (tag.isEnd) {
+      continue;
+    }
+    if (tag.name === 'style' && tag.rawText !== undefined) {
+      addCssRefs(tag.rawText, DOC_DIR, refs);
+    }
     for (const a of tag.attrs) {
       if (a.name === 'style') {
         addCssRefs(a.value, DOC_DIR, refs);
@@ -75,7 +85,9 @@ export function collectDocumentAssetRefs(html: string, css: string): Set<string>
       }
       for (const candidate of attrRefCandidates(a.name, a.value)) {
         const rel = resolveDocAssetPath(candidate, DOC_DIR);
-        if (rel !== undefined) refs.add(rel);
+        if (rel !== undefined) {
+          refs.add(rel);
+        }
       }
     }
   }

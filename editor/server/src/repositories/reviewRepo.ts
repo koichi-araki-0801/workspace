@@ -161,7 +161,9 @@ export function cachedReviewIds(): { diffs: string[]; keys: string[]; reviewable
 function remember<V>(cache: Map<string, V>, size: number, key: string, value: V): V {
   if (!cache.has(key) && cache.size >= size) {
     const oldest = cache.keys().next().value;
-    if (oldest !== undefined) cache.delete(oldest);
+    if (oldest !== undefined) {
+      cache.delete(oldest);
+    }
   }
   cache.set(key, value);
   return value;
@@ -195,7 +197,9 @@ function reviewDiffOf(review: StoredReviewRequest & { baseHtml: string }): HtmlD
  * 判定のたびに取り直すと承認の押下が重くなるため)。
  */
 function decidablePartKeys(review: StoredReviewRequest): ReadonlySet<string> | null {
-  if (decidableKeysCache.has(review.id)) return decidableKeysCache.get(review.id) ?? null;
+  if (decidableKeysCache.has(review.id)) {
+    return decidableKeysCache.get(review.id) ?? null;
+  }
   return remember(
     decidableKeysCache,
     DECIDABLE_KEYS_CACHE_SIZE,
@@ -209,12 +213,18 @@ function computeDecidablePartKeys(review: StoredReviewRequest): ReadonlySet<stri
     // 走査の上限を超える原文だけは照合しない(最終確定の走査も同じ上限で止まる)。原文のパーツを
     // 読めないほかの失敗(パーツの境界・Jinja の識別子)は、照合を飛ばさずにその 400 を返す。投げた
     // ものは覚えないので、毎回同じ答えになる。
-    if (review.html.length > MAX_REVIEW_PART_SCAN_CHARS) return null;
+    if (review.html.length > MAX_REVIEW_PART_SCAN_CHARS) {
+      return null;
+    }
     return new Set(extractReviewParts(review.html).map((part) => part.partKey));
   }
-  if (review.baseHtml === undefined) return null;
+  if (review.baseHtml === undefined) {
+    return null;
+  }
   const diff = reviewDiffOf({ ...review, baseHtml: review.baseHtml });
-  if (diff.truncated) return null;
+  if (diff.truncated) {
+    return null;
+  }
   return new Set(
     diff.pages.flatMap((page) =>
       page.blocks.filter((block) => block.status !== 'same').map((block) => block.partKey),
@@ -261,7 +271,9 @@ function renderOldCreateReviewOnce(
   sampleOf: SampleOf,
 ): Promise<StoredReviewRequest> {
   const running = oldRenders.get(review.id);
-  if (running) return running;
+  if (running) {
+    return running;
+  }
   const p = renderOldCreateReview(review, sampleOf).finally(() => oldRenders.delete(review.id));
   oldRenders.set(review.id, p);
   return p;
@@ -286,7 +298,9 @@ async function renderOldCreateReview(
   try {
     return { ...review, ...renderCreateReview(review.html, sample, baseline) };
   } catch (e) {
-    if (!isAppError(e) || e.kind !== 'validation') throw e;
+    if (!isAppError(e) || e.kind !== 'validation') {
+      throw e;
+    }
     return { ...review, renderError: OLD_REVIEW_UNRENDERABLE };
   }
 }
@@ -340,8 +354,9 @@ const frameOptions = (origin: ReviewOrigin) => ({
 /** 受付: 本文の外側が基準と同じで、本文の中に骨格のタグが無いこと(違えば 400)。 */
 function assertDocumentFrame(html: string, baseline: string, origin: ReviewOrigin): void {
   const issue = findDocumentFrameIssue(html, baseline, frameOptions(origin));
-  if (issue !== null)
+  if (issue !== null) {
     throw validation(DOCUMENT_FRAME_MESSAGES[issue.code], { code: 'REVIEW_DOCUMENT_FRAME' });
+  }
 }
 
 const notReviewable = (cause: unknown): AppError =>
@@ -366,7 +381,9 @@ function reviewabilityError(
     issue = findDocumentFrameIssue(html, currentBase, frameOptions(review.origin));
   } catch (cause) {
     // 本文の範囲を読めない(body の開始・終了の片方だけなど)。
-    if (!isAppError(cause) || cause.kind !== 'validation') throw cause;
+    if (!isAppError(cause) || cause.kind !== 'validation') {
+      throw cause;
+    }
     return notReviewable(cause);
   }
   if (issue?.code === 'frame-changed') {
@@ -376,13 +393,19 @@ function reviewabilityError(
       ? conflict(REVIEW_BASE_CHANGED_MESSAGE, { code: REVIEW_BASE_CHANGED })
       : notReviewable(issue);
   }
-  if (issue !== null) return notReviewable(issue);
+  if (issue !== null) {
+    return notReviewable(issue);
+  }
   if (review.origin === 'create') {
     const [sourceIssue] = findReviewableIssues(stripLeadingBom(html), { document: true });
-    if (sourceIssue !== undefined) return notReviewable(sourceIssue);
+    if (sourceIssue !== undefined) {
+      return notReviewable(sourceIssue);
+    }
     // 往復用の印は `applyConfirmedWrite` も 400 で止めるが、判定の段から同じ 409 で知らせる。
     const [marker] = findEditingMarkers(html);
-    if (marker !== undefined) return notReviewable(marker);
+    if (marker !== undefined) {
+      return notReviewable(marker);
+    }
   }
   return null;
 }
@@ -411,7 +434,9 @@ async function assertReviewableForDecisions(review: StoredReviewRequest): Promis
           baseKey,
           error: reviewabilityError(review, review.html, currentBase),
         }).error;
-  if (error !== null) throw error;
+  if (error !== null) {
+    throw error;
+  }
 }
 
 /**
@@ -421,9 +446,12 @@ async function assertReviewableForDecisions(review: StoredReviewRequest): Promis
  * 承認側で止めるため。
  */
 async function assertFilledPresentForEdit(origin: ReviewOrigin, templateId: string) {
-  if (origin !== 'edit') return;
-  if (!(await filledExists(`${templateId}.html`)))
+  if (origin !== 'edit') {
+    return;
+  }
+  if (!(await filledExists(`${templateId}.html`))) {
     throw validation(`編集タブの申請には値入り HTML(filled/)が必要です: ${templateId}`);
+  }
 }
 
 /** 申請時点の現行版(現在のディスク本体)のコンテンツキー。承認時の並行性警告に使う。 */
@@ -442,10 +470,11 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
  * で拒む。`code` は 3 つの操作で共通にし、画面は文言ではなく `code` で「読み直す」へ分岐する。
  */
 function assertUndecided(review: ReviewRequest): void {
-  if (review.status === 'approved' || review.status === 'rejected')
+  if (review.status === 'approved' || review.status === 'rejected') {
     throw conflict(`この申請は既に${review.status === 'approved' ? '承認' : '却下'}済みです`, {
       code: REVIEW_ALREADY_DECIDED,
     });
+  }
 }
 
 /**
@@ -481,7 +510,9 @@ async function finalizeApprovedMeta(
       return;
     } catch (cause) {
       lastCause = cause;
-      if (attempt < ATTEMPTS) await new Promise((r) => setTimeout(r, 100 * attempt));
+      if (attempt < ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 100 * attempt));
+      }
     }
   }
   throw unexpected(
@@ -529,7 +560,9 @@ export function createReviewRepo({
     /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
     async submitReview(req, actor) {
       const attrs = parseAnyTemplateFileName(`${req.templateId}.html`);
-      if (!attrs) throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+      if (!attrs) {
+        throw notFound(`テンプレートが見つかりません: ${req.templateId}`);
+      }
       // 経路ごとに id の形が決まっている。作成タブはテンプレート(会社_ファンド_版種)、編集タブは
       // 値入り HTML(会社_ファンド_基準日_版種)。形が合わない申請は承認で書けないので入口で止める。
       if (req.origin === 'create' && !parseSkeletonFileName(`${req.templateId}.html`)) {
@@ -560,7 +593,9 @@ export function createReviewRepo({
 
       return withSubmitLock(async () => {
         const baseline = await baselineTemplateHtml(req.templateId, target);
-        if (req.origin === 'create' && baseline === '') throw validation(NO_BASELINE_MESSAGE);
+        if (req.origin === 'create' && baseline === '') {
+          throw validation(NO_BASELINE_MESSAGE);
+        }
         // 本文の外側は承認画面に出ないので、基準とバイト列で同じにさせる。sample(DB)を取る前に止める。
         assertDocumentFrame(req.html, baseline, req.origin);
         // 作成経路は承認画面の本文をここで描く(`renderCreateReview`)。描画は同期の計算なので、同時に
@@ -593,18 +628,20 @@ export function createReviewRepo({
           submittedBy: actor.username,
           contentHash: reviewContentHash(req.html, req.css),
         });
-        if (duplicate)
+        if (duplicate) {
           throw conflict(duplicateReviewMessage(duplicate.submittedAt), {
             code: 'REVIEW_DUPLICATE',
           });
+        }
         // 未処理申請の件数上限。作成は editor 1 ロールで撃て、1 件ごとに dataRoot へ書くので、
         // 上限が無いと 1 人で領域を埋めて承認フローごと止められる(`reviewsDir` は templates /
         // `.git` と同じボリューム)。判定は書き込みの前に置く — 通してから消すのでは遅い。
-        if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS)
+        if ((await countPendingReviews()) >= MAX_PENDING_REVIEWS) {
           throw validation(
             `未処理の確定保存申請が上限(${MAX_PENDING_REVIEWS} 件)に達しています。` +
               '精査者が既存の申請を処理してから、あらためて申請してください。',
           );
+        }
         const review: StoredReviewRequest = {
           id: randomUUID(),
           templateId: req.templateId,
@@ -654,14 +691,19 @@ export function createReviewRepo({
      */
     async getReview(reqId, actor) {
       const review = await readReview(reqId);
-      if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
-      if (!isApprover(actor) && review.submittedBy !== actor.username)
+      if (!review) {
+        throw notFound(`申請が見つかりません: ${reqId}`);
+      }
+      if (!isApprover(actor) && review.submittedBy !== actor.username) {
         throw forbidden('この申請を閲覧する権限がありません');
+      }
       let out = review;
-      if (review.origin === 'create' && review.renderedHtml === undefined)
+      if (review.origin === 'create' && review.renderedHtml === undefined) {
         out = await renderOldCreateReviewOnce(review, sampleOf);
-      if (review.origin === 'create' && review.status === 'pending')
+      }
+      if (review.origin === 'create' && review.status === 'pending') {
         out = { ...out, baseCss: await readTemplateCss(review.templateId) };
+      }
       return toReviewResponse(out);
     },
 
@@ -673,7 +715,9 @@ export function createReviewRepo({
     async updatePartDecisions(reqId, input, actor) {
       return withReviewLock(async () => {
         const review = await readReview(reqId);
-        if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+        if (!review) {
+          throw notFound(`申請が見つかりません: ${reqId}`);
+        }
 
         if (!isApprover(actor)) {
           throw forbidden('パーツ判定には精査者権限が必要です');
@@ -795,10 +839,13 @@ export function createReviewRepo({
     async approveReview(reqId, decision, actor) {
       return withReviewLock(async () => {
         const review = await readReview(reqId);
-        if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+        if (!review) {
+          throw notFound(`申請が見つかりません: ${reqId}`);
+        }
         assertUndecided(review);
-        if (review.submittedBy === actor.username && actor.role !== 'admin')
+        if (review.submittedBy === actor.username && actor.role !== 'admin') {
           throw forbidden('自分の申請は承認できません(職務分掌)');
+        }
         await assertFilledPresentForEdit(review.origin, review.templateId);
 
         // 反映前に現行版を再計測し、申請時点の baseHash と食い違えば警告する(申請後に別の確定が
@@ -820,7 +867,9 @@ export function createReviewRepo({
         // 判定の不足を 400 で返すので、後に回すと、未判定が残る古い申請に 409 より先に 400 が出る。
         const currentBase = await currentBaseOf(review);
         const unreviewable = reviewabilityError(review, review.html, currentBase);
-        if (unreviewable !== null) throw unreviewable;
+        if (unreviewable !== null) {
+          throw unreviewable;
+        }
         const confirmedHtml = confirmedHtmlOf(
           review,
           review.origin === 'edit'
@@ -829,7 +878,9 @@ export function createReviewRepo({
         );
         // 却下を当てた後の確定する本文にも掛ける(書くのはこちらなので、組んだ結果でも確かめる)。
         const unreviewableConfirmed = reviewabilityError(review, confirmedHtml, currentBase);
-        if (unreviewableConfirmed !== null) throw unreviewableConfirmed;
+        if (unreviewableConfirmed !== null) {
+          throw unreviewableConfirmed;
+        }
 
         const meta = await applyConfirmedWrite({
           kind: 'review-approve',
@@ -871,7 +922,9 @@ export function createReviewRepo({
     async rejectReview(reqId, decision, actor) {
       return withReviewLock(async () => {
         const review = await readReview(reqId);
-        if (!review) throw notFound(`申請が見つかりません: ${reqId}`);
+        if (!review) {
+          throw notFound(`申請が見つかりません: ${reqId}`);
+        }
         assertUndecided(review);
         const meta = await updateReviewMeta(reqId, {
           status: 'rejected',

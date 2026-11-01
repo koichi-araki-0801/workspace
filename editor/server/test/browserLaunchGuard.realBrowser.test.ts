@@ -58,7 +58,9 @@ async function pdfText(file: string): Promise<string> {
   const { findPackageDir, importTargetOf } = await import('../scripts/browserLaunchGuard.mjs');
   const cliEntry = fs.realpathSync(new URL(import.meta.resolve('@vivliostyle/cli')));
   const dir = findPackageDir(cliEntry, 'mupdf');
-  if (!dir) throw new Error('mupdf が見つかりません');
+  if (!dir) {
+    throw new Error('mupdf が見つかりません');
+  }
   const mupdf = await import(pathToFileURL(path.resolve(dir, importTargetOf(dir))).href);
   const doc = mupdf.Document.openDocument(fs.readFileSync(file), 'application/pdf');
   let text = '';

@@ -26,7 +26,9 @@ describe('scanTags — 長さの変わる大文字(`İ`)の後ろ', () => {
 function eventHandlerNames(html: string): string[] {
   const out: string[] = [];
   for (const tag of scanTags(html).tags) {
-    for (const m of tag.raw.matchAll(/[\s"'](on[a-z]+)\s*=/gi)) out.push(m[1].toLowerCase());
+    for (const m of tag.raw.matchAll(/[\s"'](on[a-z]+)\s*=/gi)) {
+      out.push(m[1].toLowerCase());
+    }
   }
   return out;
 }

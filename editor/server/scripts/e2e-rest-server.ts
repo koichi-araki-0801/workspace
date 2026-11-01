@@ -38,7 +38,9 @@ async function main(): Promise<void> {
   // 作成タブ(`POST /api/generate`)は生成器を子プロセスで呼ぶ。Windows は既定の PATH 上の
   // `python` を使う(開発機もユーザー環境変数 PATH の先頭に Python 3.13 を置く)。`python` が
   // Python 3 を指すとは限らない Linux(CI)だけ python3 を直接指す。
-  if (process.platform !== 'win32') process.env.PYTHON_BIN ??= 'python3';
+  if (process.platform !== 'win32') {
+    process.env.PYTHON_BIN ??= 'python3';
+  }
 
   await seedDataRoot(repoRoot);
 

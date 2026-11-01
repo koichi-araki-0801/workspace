@@ -45,13 +45,17 @@ export function createMergePdfService(
         const documents: { html: string; css: string }[] = [];
         for (const [i, id] of ids.entries()) {
           const doc = await renderOne(templates, id, i);
-          if (isErr(doc)) return doc;
+          if (isErr(doc)) {
+            return doc;
+          }
           documents.push(doc.value);
           onProgress?.(i + 1, ids.length);
         }
 
         const res = await postBuild(apiPaths.buildMerge, { documents });
-        if (isErr(res)) return res;
+        if (isErr(res)) {
+          return res;
+        }
         const blob = res.value;
 
         // PDF 出力履歴は単体出力(プレビュー画面)と揃えて各テンプレへ記録する。履歴は
@@ -59,7 +63,9 @@ export function createMergePdfService(
         await Promise.all(
           ids.map(async (id) => {
             const rec = await history.recordPdfExport(id);
-            if (isErr(rec)) logError(rec.error);
+            if (isErr(rec)) {
+              logError(rec.error);
+            }
           }),
         );
         return ok(blob);
@@ -103,7 +109,9 @@ async function renderOne(
         companyCode: tpl.meta.attributes.companyCode,
       },
     );
-    if (isErr(filledDoc)) return fail(filledDoc.error);
+    if (isErr(filledDoc)) {
+      return fail(filledDoc.error);
+    }
     return filledDoc;
   }
 
@@ -119,7 +127,9 @@ async function renderOne(
     cropMarks: false,
     companyCode: tpl.meta.attributes.companyCode,
   });
-  if (isErr(doc)) return fail(doc.error);
+  if (isErr(doc)) {
+    return fail(doc.error);
+  }
   return doc;
 }
 

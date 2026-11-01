@@ -102,7 +102,7 @@ function isDeletedPart(key: string): boolean {
 /** 行クリックの委譲。削除済みパーツは確定版の構造に無く移動先が無いため `focus` を emit
  * しない(`ReviewTabView.focusPart` 側の早期 return に重ねて、ここでも到達不能を明示する)。 */
 function onRowClick(key: string): void {
-  if (isDeletedPart(key)) return;
+  if (isDeletedPart(key)) { return; }
   emit('focus', key);
 }
 
@@ -110,8 +110,8 @@ function onRowClick(key: string): void {
 const draft = ref('');
 /** 入力欄の出し方。`blocked` は書けない理由、`collapsed` は宛先が決まる前の案内(承認タブ)。 */
 const inputMode = computed<'blocked' | 'collapsed' | 'input'>(() => {
-  if (props.addBlockedText) return 'blocked';
-  if (props.collapseInputUntilTarget && props.selectedKey === null) return 'collapsed';
+  if (props.addBlockedText) { return 'blocked'; }
+  if (props.collapseInputUntilTarget && props.selectedKey === null) { return 'collapsed'; }
   return 'input';
 });
 const addPlaceholder = computed(() =>
@@ -127,7 +127,7 @@ const scopeText = computed(() =>
 );
 function submitAdd(): void {
   const text = draft.value.trim();
-  if (text === '' || !props.canAdd) return;
+  if (text === '' || !props.canAdd) { return; }
   emit('add', draft.value);
   draft.value = '';
 }
@@ -158,7 +158,7 @@ function toggle(t: CommentThread): void {
   cancelEdit();
 }
 function submitReply(t: CommentThread): void {
-  if (replyDraft.value.trim() === '') return;
+  if (replyDraft.value.trim() === '') { return; }
   emit('reply', t.parent, replyDraft.value);
   replyDraft.value = '';
 }

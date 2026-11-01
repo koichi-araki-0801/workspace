@@ -25,7 +25,10 @@ export function undoable(h: UndoHistory, op: () => boolean): boolean {
     h.cancelUndo();
     throw e;
   }
-  if (changed) h.commitUndo();
-  else h.cancelUndo();
+  if (changed) {
+    h.commitUndo();
+  } else {
+    h.cancelUndo();
+  }
   return changed;
 }

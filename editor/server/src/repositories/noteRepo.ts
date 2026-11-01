@@ -62,9 +62,12 @@ export async function listNotes(templateId: string): Promise<PartNoteEntry[]> {
  */
 function requireParent(entries: readonly StoredNoteEntry[], replyTo: string): StoredNoteEntry {
   const parent = entries.find((e) => e.id === replyTo);
-  if (!parent)
+  if (!parent) {
     throw validation('返信先のコメントが見つかりません(すでに削除された可能性があります)');
-  if (parent.replyTo !== null) throw validation('返信への返信はできません');
+  }
+  if (parent.replyTo !== null) {
+    throw validation('返信への返信はできません');
+  }
   return parent;
 }
 
@@ -85,9 +88,13 @@ export async function addNote(
 ): Promise<PartNoteEntry> {
   return withNotesLock(templateId, async () => {
     const map = await readNotesStrict(templateId);
-    if (notesAtCapacity(map, pathKey)) notesCapacityError();
+    if (notesAtCapacity(map, pathKey)) {
+      notesCapacityError();
+    }
     const entries = Object.hasOwn(map, pathKey) ? map[pathKey] : [];
-    if (entriesAtCapacity(entries)) entriesCapacityError();
+    if (entriesAtCapacity(entries)) {
+      entriesCapacityError();
+    }
     const parent = opts.replyTo === null ? null : requireParent(entries, opts.replyTo);
     const stored: StoredNoteEntry = {
       id: randomUUID(),
@@ -112,7 +119,9 @@ export async function addNote(
 function locate(map: NoteEntriesMap, entryId: string): { pathKey: string; index: number } {
   for (const [pathKey, entries] of Object.entries(map)) {
     const index = entries.findIndex((e) => e.id === entryId);
-    if (index >= 0) return { pathKey, index };
+    if (index >= 0) {
+      return { pathKey, index };
+    }
   }
   throw validation('対象のコメントが見つかりません(すでに削除された可能性があります)');
 }
@@ -135,8 +144,9 @@ export async function updateNote(
     const map = await readNotesStrict(templateId);
     const { pathKey, index } = locate(map, entryId);
     const target = map[pathKey][index];
-    if (patch.status !== undefined && target.replyTo !== null)
+    if (patch.status !== undefined && target.replyTo !== null) {
       throw validation('状態は親のコメントでだけ切り替えられます');
+    }
     const updated: StoredNoteEntry = {
       ...target,
       ...(patch.content !== undefined
@@ -145,9 +155,12 @@ export async function updateNote(
       ...(patch.status !== undefined ? { status: patch.status } : {}),
     };
     map[pathKey] = map[pathKey].map((e) => {
-      if (e.id === entryId) return updated;
-      if (patch.status !== undefined && e.replyTo === entryId)
+      if (e.id === entryId) {
+        return updated;
+      }
+      if (patch.status !== undefined && e.replyTo === entryId) {
         return { ...e, status: patch.status };
+      }
       return e;
     });
     await writeNotes(templateId, map);
@@ -164,8 +177,11 @@ export async function deleteNote(templateId: string, entryId: string): Promise<v
     const map = await readNotesStrict(templateId);
     const { pathKey } = locate(map, entryId);
     const rest = map[pathKey].filter((e) => e.id !== entryId && e.replyTo !== entryId);
-    if (rest.length === 0) delete map[pathKey];
-    else map[pathKey] = rest;
+    if (rest.length === 0) {
+      delete map[pathKey];
+    } else {
+      map[pathKey] = rest;
+    }
     await writeNotes(templateId, map);
   });
 }

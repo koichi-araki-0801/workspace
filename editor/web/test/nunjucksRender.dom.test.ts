@@ -18,7 +18,9 @@ function expectNoEventHandlers(doc: Document): void {
   const offenders: string[] = [];
   for (const el of Array.from(doc.querySelectorAll('*'))) {
     for (const attr of Array.from(el.attributes)) {
-      if (/^on/i.test(attr.name)) offenders.push(`${el.tagName}[${attr.name}]`);
+      if (/^on/i.test(attr.name)) {
+        offenders.push(`${el.tagName}[${attr.name}]`);
+      }
     }
   }
   expect(offenders, `復活したイベントハンドラ: ${offenders.join(', ')}`).toEqual([]);

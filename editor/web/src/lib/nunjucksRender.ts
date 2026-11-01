@@ -52,7 +52,9 @@ export function assemblePreviewDocument(
   appendPreviewStyle(root, formatCss(rebaseCssForDoc(css)), {
     'data-preview-css': '',
   });
-  if (opts?.extraCss) appendPreviewStyle(root, opts.extraCss, { 'data-extra-css': '' });
+  if (opts?.extraCss) {
+    appendPreviewStyle(root, opts.extraCss, { 'data-extra-css': '' });
+  }
   return serializePreviewRoot(root);
 }
 

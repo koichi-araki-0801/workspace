@@ -122,7 +122,9 @@ export async function authGuard(
   to: RouteLocationNormalized,
   auth: AuthGuardState = useAuthStore(),
 ): Promise<boolean | RouteLocationRaw> {
-  if (!auth.ready) await auth.bootstrap();
+  if (!auth.ready) {
+    await auth.bootstrap();
+  }
 
   // 未宣言(付け忘れ)は fail closed で 'auth' 扱いにする(opt-in の admin フラグ方式だと
   // 付け忘れた新規ルートが全認証ユーザへ開いてしまう)。
@@ -130,8 +132,12 @@ export async function authGuard(
   // 認証済みでログイン画面へ来た場合(戻る操作・ブックマーク)は public でも素通しせず、
   // 下の認証済み向け判定へ合流させる — ログイン画面に留まらせない。
   const loginWhileAuthenticated = to.name === 'login' && auth.isAuthenticated;
-  if (access === 'public' && !loginWhileAuthenticated) return true;
-  if (!auth.isAuthenticated) return { name: 'login', query: { redirect: to.fullPath } };
+  if (access === 'public' && !loginWhileAuthenticated) {
+    return true;
+  }
+  if (!auth.isAuthenticated) {
+    return { name: 'login', query: { redirect: to.fullPath } };
+  }
   // 初回パスワード変更が未了なら、どの保護ルートへ来ても password-init へ強制する
   // (直 URL で初期化を回避して他画面に入る抜け道を塞ぐ)。完了で `mustChangePassword` が
   // 下りて通常遷移へ戻る。
@@ -141,8 +147,12 @@ export async function authGuard(
       query: { username: auth.user?.username ?? '', redirect: to.fullPath },
     };
   }
-  if (loginWhileAuthenticated) return { name: 'edit' };
-  if (access === 'admin' && !auth.isAdmin) return { name: 'edit' };
+  if (loginWhileAuthenticated) {
+    return { name: 'edit' };
+  }
+  if (access === 'admin' && !auth.isAdmin) {
+    return { name: 'edit' };
+  }
   return true;
 }
 

@@ -38,6 +38,8 @@ export function startedNow(): number {
  */
 export async function applyFailureFloor(startedAt: number): Promise<void> {
   const remaining = FAILED_AUTH_FLOOR_MS - (performance.now() - startedAt);
-  if (remaining <= 0) return;
+  if (remaining <= 0) {
+    return;
+  }
   await new Promise((resolve) => setTimeout(resolve, remaining));
 }

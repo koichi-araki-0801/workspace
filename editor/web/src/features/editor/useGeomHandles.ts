@@ -72,7 +72,9 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     null;
 
   function startHandle(kind: HandleKind, e: PointerEvent) {
-    if (!selectedGeom.value || !selectedRect.value) return;
+    if (!selectedGeom.value || !selectedRect.value) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     const target = e.currentTarget as Element | null;
@@ -99,14 +101,18 @@ export function useGeomHandles(deps: GeomHandleDeps) {
       window.removeEventListener('pointerup', onEarlyUp);
       window.removeEventListener('pointercancel', onEarlyUp);
       window.removeEventListener('lostpointercapture', onEarlyUp);
-      if (closed && !released) beginDrag(kind, x, y);
+      if (closed && !released) {
+        beginDrag(kind, x, y);
+      }
     });
   }
 
   function beginDrag(kind: HandleKind, x: number, y: number) {
     const g0 = selectedGeom.value;
     const r = selectedRect.value;
-    if (!g0 || !r) return;
+    if (!g0 || !r) {
+      return;
+    }
     // drag 1 回につき undo 1 ステップ。幾何が動かなければ `recordGeomDiff` が保留を捨てる。
     beginUndo();
     activeHandle.value = kind;
@@ -126,7 +132,9 @@ export function useGeomHandles(deps: GeomHandleDeps) {
   }
 
   function onHandleMove(e: PointerEvent) {
-    if (!drag) return;
+    if (!drag) {
+      return;
+    }
     const z = zoom.value;
     if (drag.kind === 'width' || drag.kind === 'width-left') {
       const sign = drag.kind === 'width-left' ? -1 : 1;
@@ -148,7 +156,9 @@ export function useGeomHandles(deps: GeomHandleDeps) {
   }
 
   function onHandleUp() {
-    if (drag) recordGeomDiff(drag.geom);
+    if (drag) {
+      recordGeomDiff(drag.geom);
+    }
     drag = null;
     activeHandle.value = null;
     window.removeEventListener('pointermove', onHandleMove);
@@ -162,10 +172,15 @@ export function useGeomHandles(deps: GeomHandleDeps) {
     const k = activeHandle.value;
     const r = selectedRect.value;
     const gm = selectedGeom.value;
-    if (!k || !r || !gm) return null;
-    if (k === 'mt') return { left: r.left + r.width / 2, top: r.top, text: `上 ${gm.marginTop}mm` };
-    if (k === 'mb')
+    if (!k || !r || !gm) {
+      return null;
+    }
+    if (k === 'mt') {
+      return { left: r.left + r.width / 2, top: r.top, text: `上 ${gm.marginTop}mm` };
+    }
+    if (k === 'mb') {
       return { left: r.left + r.width / 2, top: r.top + r.height, text: `下 ${gm.marginBottom}mm` };
+    }
     const left = k === 'width-left' ? r.left : r.left + r.width;
     return { left, top: r.top + r.height / 2, text: `${gm.widthPct}%` };
   });

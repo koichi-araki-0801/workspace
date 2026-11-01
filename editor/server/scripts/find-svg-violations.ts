@@ -23,7 +23,9 @@ export function imagesDirFromArgs(argv: readonly string[]): string | null {
     return i >= 0 ? argv[i + 1] : undefined;
   };
   const root = opt('root');
-  if (!root) return null;
+  if (!root) {
+    return null;
+  }
   return opt('images') ?? path.join(root, 'images');
 }
 
@@ -34,10 +36,15 @@ async function listSvgs(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
   const out: string[] = [];
   for (const e of entries) {
-    if (e.isFile() && isSvg(e.name)) out.push(e.name);
-    else if (e.isDirectory()) {
+    if (e.isFile() && isSvg(e.name)) {
+      out.push(e.name);
+    } else if (e.isDirectory()) {
       const sub = await fs.readdir(path.join(dir, e.name), { withFileTypes: true }).catch(() => []);
-      for (const s of sub) if (s.isFile() && isSvg(s.name)) out.push(`${e.name}/${s.name}`);
+      for (const s of sub) {
+        if (s.isFile() && isSvg(s.name)) {
+          out.push(`${e.name}/${s.name}`);
+        }
+      }
     }
   }
   return out.sort();
@@ -47,10 +54,13 @@ export async function scanImages(imagesDir: string): Promise<SvgFinding[]> {
   const out: SvgFinding[] = [];
   for (const rel of await listSvgs(imagesDir)) {
     const body = await fs.readFile(path.join(imagesDir, rel)).catch(() => null);
-    if (body === null) continue;
+    if (body === null) {
+      continue;
+    }
     const violations = inspectSvg(body.toString('utf8'));
-    if (violations.length > 0)
+    if (violations.length > 0) {
       out.push({ file: `images/${rel}`, violation: violations.join(' / ') });
+    }
   }
   return out;
 }
@@ -62,9 +72,13 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const found = await scanImages(dir);
-  for (const f of found) console.log(`${f.file}\t${f.violation}`);
+  for (const f of found) {
+    console.log(`${f.file}\t${f.violation}`);
+  }
   console.log(`違反 ${found.length} 件`);
   process.exit(found.length > 0 ? 1 : 0);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void main();
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  void main();
+}

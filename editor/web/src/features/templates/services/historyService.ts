@@ -31,9 +31,15 @@ function createHistoryService(repo: HistoryRepository): HistoryService {
         repo.getPdfHistory(),
         repo.getCreateHistory(),
       ]);
-      if (isErr(edits)) return edits;
-      if (isErr(pdfs)) return pdfs;
-      if (isErr(creates)) return creates;
+      if (isErr(edits)) {
+        return edits;
+      }
+      if (isErr(pdfs)) {
+        return pdfs;
+      }
+      if (isErr(creates)) {
+        return creates;
+      }
       return ok({ edits: edits.value, pdfs: pdfs.value, creates: creates.value });
     },
   };

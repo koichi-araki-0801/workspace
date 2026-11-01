@@ -122,7 +122,9 @@ describe('運用アルファベット外のログインID', () => {
   // 断つ位置が「レート制限の手前」であることの主張。DB(KDF)へ届かないこと、
   // そして表にキーが 1 つも増えないこと(増えるなら、断るためだけに表を埋められる)。
   it('DB へも KDF へも届かず、レート制限の表にキーを作らない', async () => {
-    for (const username of OUT_OF_ALPHABET) await post(username);
+    for (const username of OUT_OF_ALPHABET) {
+      await post(username);
+    }
     expect(login).not.toHaveBeenCalled();
     expect(entryCount()).toBe(0);
   });

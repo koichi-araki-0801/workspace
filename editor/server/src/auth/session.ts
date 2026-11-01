@@ -110,12 +110,18 @@ const SESSION_ID_RE = /^[0-9a-f]{64}$/;
  * 「解析できる cookie / できない cookie」で挙動が割れる面も無くなる。
  */
 export function sessionIdFrom(cookieHeader: string | undefined): string | undefined {
-  if (!cookieHeader) return undefined;
+  if (!cookieHeader) {
+    return undefined;
+  }
   const name = config.auth.cookieName;
   for (const part of cookieHeader.split(';')) {
     const eq = part.indexOf('=');
-    if (eq < 0) continue;
-    if (part.slice(0, eq).trim() !== name) continue;
+    if (eq < 0) {
+      continue;
+    }
+    if (part.slice(0, eq).trim() !== name) {
+      continue;
+    }
     const value = part.slice(eq + 1).trim();
     return SESSION_ID_RE.test(value) ? value : undefined;
   }

@@ -500,8 +500,11 @@ describe('buildApp へ差し込んだフェイク', { timeout: 60_000 }, () => {
   });
 
   afterAll(() => {
-    if (previousAuth === undefined) delete process.env.AUTH_REQUIRED;
-    else process.env.AUTH_REQUIRED = previousAuth;
+    if (previousAuth === undefined) {
+      delete process.env.AUTH_REQUIRED;
+    } else {
+      process.env.AUTH_REQUIRED = previousAuth;
+    }
     vi.resetModules();
     fs.rmSync(tmp, { recursive: true, force: true });
   });

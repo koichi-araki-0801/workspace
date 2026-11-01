@@ -61,12 +61,18 @@ export function insertTarget(
     (next !== undefined && el.contains(next)) || split.breakEls.some((b) => el.contains(b));
   for (let cur: Element = last; ; ) {
     for (let el = cur.nextElementSibling; el; el = el.nextElementSibling) {
-      if (isBoundary(el)) return beforeOrBlocked(el as HTMLElement);
-      if (holdsBoundary(el)) return { kind: 'blocked' };
+      if (isBoundary(el)) {
+        return beforeOrBlocked(el as HTMLElement);
+      }
+      if (holdsBoundary(el)) {
+        return { kind: 'blocked' };
+      }
     }
     const parent = cur.parentElement;
     // `parentElement` の型が null を含むので絞る。`cur` は `root` の子孫なので null にはならない。
-    if (!parent || parent === root) return { kind: 'end' };
+    if (!parent || parent === root) {
+      return { kind: 'end' };
+    }
     cur = parent;
   }
 }

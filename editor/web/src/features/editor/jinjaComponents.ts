@@ -185,7 +185,9 @@ export function registerJinjaComponents(editor: Editor): void {
   };
 
   for (const type of JINJA_COMPONENT_TYPES) {
-    if (FROZEN_TYPES.has(type)) continue;
+    if (FROZEN_TYPES.has(type)) {
+      continue;
+    }
     dc.addType(type, {
       isComponent: IS_COMPONENT[type],
       model: { defaults: { ...common, ...JINJA_TYPE_DEFAULTS[type] } },

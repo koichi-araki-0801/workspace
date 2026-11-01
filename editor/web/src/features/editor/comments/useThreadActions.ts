@@ -56,7 +56,9 @@ export function useThreadActions(deps: ThreadActionDeps): {
   }
 
   function commitEdit(entry: PartNoteEntry): void {
-    if (draft.value.trim() !== '') deps.update(entry, draft.value);
+    if (draft.value.trim() !== '') {
+      deps.update(entry, draft.value);
+    }
     editingKey.value = null;
   }
 
@@ -71,7 +73,9 @@ export function useThreadActions(deps: ThreadActionDeps): {
       confirmLabel: '削除する',
       variant: 'destructive',
     });
-    if (ok) deps.remove(entry);
+    if (ok) {
+      deps.remove(entry);
+    }
   }
 
   function toggleStatus(parent: PartNoteEntry): void {

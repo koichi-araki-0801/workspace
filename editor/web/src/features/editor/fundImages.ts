@@ -46,9 +46,13 @@ const FUND_CODE_EXPR_RE = /\{\{\s*fund\.code\s*\}\}/g;
  * ファンドコードが無いとき（参照を解けない）は null。
  */
 function substituteFundCode(src: string, ctx: FundImageContext): string | null {
-  if (ctx.mode !== 'jinja') return src;
+  if (ctx.mode !== 'jinja') {
+    return src;
+  }
   const { fundCode } = ctx;
-  if (fundCode === null) return null;
+  if (fundCode === null) {
+    return null;
+  }
   // 置換文字列に `$` を含むファンドコードでも置換記法として読ませない。
   return src.replace(FUND_CODE_EXPR_RE, () => fundCode);
 }
@@ -57,11 +61,17 @@ function substituteFundCode(src: string, ctx: FundImageContext): string | null {
 export function resolveFundImageSrc(src: string, ctx: FundImageContext): FundImageRef | null {
   const resolved = substituteFundCode(src, ctx);
   // 解いた後にも Jinja の開始記号が残る参照は、描画で決まるので解かない。
-  if (resolved === null || JINJA_OPEN_RE.test(resolved)) return null;
+  if (resolved === null || JINJA_OPEN_RE.test(resolved)) {
+    return null;
+  }
   const rel = resolveDocAssetPath(resolved, DOC_DIR);
-  if (rel === undefined) return null;
+  if (rel === undefined) {
+    return null;
+  }
   const ref = fundImageRefOf(rel);
-  if (ref === undefined || !companyFolderMatches(ref, ctx.companyCode)) return null;
+  if (ref === undefined || !companyFolderMatches(ref, ctx.companyCode)) {
+    return null;
+  }
   return ref;
 }
 
@@ -78,9 +88,13 @@ export function fundImageWarnings(
   const issues: Array<readonly [string, ImageRefIssue]> = [];
   for (const src of new Set(srcs)) {
     const resolved = substituteFundCode(src, ctx);
-    if (resolved === null || (ctx.mode === 'jinja' && JINJA_OPEN_RE.test(resolved))) continue;
+    if (resolved === null || (ctx.mode === 'jinja' && JINJA_OPEN_RE.test(resolved))) {
+      continue;
+    }
     const kind = imageRefIssue(resolved, DOC_DIR, ctx.companyCode);
-    if (kind !== null) issues.push([src, kind]);
+    if (kind !== null) {
+      issues.push([src, kind]);
+    }
   }
   return imageIssueMessages([...issues, ...cssIssues], ctx.companyCode);
 }
@@ -93,9 +107,13 @@ export function cssString(value: string): string {
   let out = '';
   for (const ch of value) {
     const cp = ch.codePointAt(0) as number;
-    if (ch === '"' || ch === '\\') out += `\\${ch}`;
-    else if (cp < 0x20 || cp === 0x7f || ch === '<' || ch === '>') out += `\\${cp.toString(16)} `;
-    else out += ch;
+    if (ch === '"' || ch === '\\') {
+      out += `\\${ch}`;
+    } else if (cp < 0x20 || cp === 0x7f || ch === '<' || ch === '>') {
+      out += `\\${cp.toString(16)} `;
+    } else {
+      out += ch;
+    }
   }
   return `"${out}"`;
 }
@@ -111,14 +129,20 @@ export function fundImageCss(
   const refOfUrl = new Map<string, FundImageRef>();
   const seen = new Set<string>();
   for (const src of srcs) {
-    if (seen.has(src)) continue;
+    if (seen.has(src)) {
+      continue;
+    }
     seen.add(src);
     const ref = resolveFundImageSrc(src, ctx);
-    if (ref === null) continue;
+    if (ref === null) {
+      continue;
+    }
     const url = fundImageUrl(ref);
     rules.push(`img[src=${cssString(src)}]{content:url(${cssString(url)})}`);
     rules.push(`:where(img[src=${cssString(src)}]){display:inline-block}`);
-    if (!urls.includes(url)) urls.push(url);
+    if (!urls.includes(url)) {
+      urls.push(url);
+    }
     refOfUrl.set(url, ref);
   }
   return { css: rules.join('\n'), urls, refOfUrl };

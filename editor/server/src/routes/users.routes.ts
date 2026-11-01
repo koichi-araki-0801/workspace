@@ -47,16 +47,24 @@ async function assertKeepsAdminSeat(
   targetId: string,
   patch: UserPatch,
 ): Promise<void> {
-  if (patch.role === undefined && patch.disabled === undefined) return;
+  if (patch.role === undefined && patch.disabled === undefined) {
+    return;
+  }
   const all = await users.listUsers();
   const target = all.find((u) => u.id === targetId);
-  if (!target) throw notFound(`ユーザーが見つかりません: ${targetId}`);
+  if (!target) {
+    throw notFound(`ユーザーが見つかりません: ${targetId}`);
+  }
   const next = { role: patch.role ?? target.role, disabled: patch.disabled ?? target.disabled };
-  if (next.role === target.role && next.disabled === target.disabled) return;
+  if (next.role === target.role && next.disabled === target.disabled) {
+    return;
+  }
   if (targetId === actorId) {
     throw forbidden('自分自身の権限・有効状態は変更できません', { code: 'USER_SELF_CHANGE' });
   }
-  if (!isActiveAdmin(target) || isActiveAdmin(next)) return;
+  if (!isActiveAdmin(target) || isActiveAdmin(next)) {
+    return;
+  }
   const remaining = all.filter((u) => u.id !== targetId && isActiveAdmin(u));
   if (remaining.length === 0) {
     throw conflict('有効な管理者が 1 人もいなくなるため変更できません', { code: 'LAST_ADMIN' });

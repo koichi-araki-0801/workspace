@@ -117,9 +117,15 @@ afterAll(async () => {
 function registeredKeys(): Set<string> {
   const out = new Set<string>();
   for (const route of REGISTERED) {
-    if (!route.url.startsWith('/api')) continue;
+    if (!route.url.startsWith('/api')) {
+      continue;
+    }
     const methods = Array.isArray(route.method) ? route.method : [route.method];
-    for (const m of methods) if (m !== 'HEAD') out.add(`${String(m)} ${route.url}`);
+    for (const m of methods) {
+      if (m !== 'HEAD') {
+        out.add(`${String(m)} ${route.url}`);
+      }
+    }
   }
   return out;
 }
@@ -187,7 +193,9 @@ describe('ロール別の実挙動', () => {
     it(`answers 403 exactly on the routes ${role} must not reach`, async () => {
       const mismatches: string[] = [];
       for (const [key, level] of Object.entries(ROUTE_POLICY)) {
-        if (level === 'public') continue;
+        if (level === 'public') {
+          continue;
+        }
         // approver は editor 以上のロールだが、`admin` は approver ルートも通す一方
         // `approver` は admin ルートを通さない。数値の順位で判定する。
         const [method, url] = key.split(' ');
@@ -208,10 +216,14 @@ describe('ロール別の実挙動', () => {
   it('answers 401 for an unauthenticated request on every guarded route', async () => {
     const unguarded: string[] = [];
     for (const [key, level] of Object.entries(ROUTE_POLICY)) {
-      if (level === 'public') continue;
+      if (level === 'public') {
+        continue;
+      }
       const [method, url] = key.split(' ');
       const res = await app.inject({ method: method as 'GET', url: concrete(url) });
-      if (res.statusCode !== 401) unguarded.push(`${key} → ${res.statusCode}`);
+      if (res.statusCode !== 401) {
+        unguarded.push(`${key} → ${res.statusCode}`);
+      }
     }
     expect(unguarded).toEqual([]);
   });
@@ -221,14 +233,18 @@ describe('ロール別の実挙動', () => {
   it('forbids an unknown role on every guarded route', async () => {
     const passed: string[] = [];
     for (const [key, level] of Object.entries(ROUTE_POLICY)) {
-      if (level === 'public' || level === 'auth') continue;
+      if (level === 'public' || level === 'auth') {
+        continue;
+      }
       const [method, url] = key.split(' ');
       const res = await app.inject({
         method: method as 'GET',
         url: concrete(url),
         headers: { cookie: 'editor.sid=superuser' },
       });
-      if (res.statusCode !== 403) passed.push(`${key} → ${res.statusCode}`);
+      if (res.statusCode !== 403) {
+        passed.push(`${key} → ${res.statusCode}`);
+      }
     }
     expect(passed).toEqual([]);
   });
