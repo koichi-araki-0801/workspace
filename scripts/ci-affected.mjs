@@ -109,7 +109,7 @@ export function classifyChanges(paths) {
     // 当たる領域はすべて選ぶ(editor のパッチの .ps1 は editor と offline の両方の段が要る)。
     const hits = Object.keys(AREAS).filter((k) => AREAS[k].match(p));
     if (hits.length > 0) {
-      for (const a of hits) selected.add(a);
+      for (const a of hits) { selected.add(a); }
       continue;
     }
     if (BENIGN_PREFIXES.some((pre) => p.startsWith(pre))) {
@@ -145,25 +145,25 @@ function git(args, { allowFail = false } = {}) {
   try {
     return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
   } catch (err) {
-    if (allowFail) return null;
+    if (allowFail) { return null; }
     throw err;
   }
 }
 
 function explicitBase() {
   const flagIdx = argv.indexOf('--base');
-  if (flagIdx !== -1 && argv[flagIdx + 1]) return argv[flagIdx + 1];
+  if (flagIdx !== -1 && argv[flagIdx + 1]) { return argv[flagIdx + 1]; }
   return process.env.CI_AFFECTED_BASE || null;
 }
 
 function resolveBase() {
   const explicit = explicitBase();
-  if (explicit) return explicit;
+  if (explicit) { return explicit; }
   // upstream の short ref(例: `origin/chore/...`)。未設定なら git が失敗するので null。
   const upstream = git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], {
     allowFail: true,
   });
-  if (upstream) return upstream;
+  if (upstream) { return upstream; }
   // origin/main があればそれ、無ければ main。いずれも無い極端な環境はフル CI に倒す(後段で処理)。
   if (git(['rev-parse', '--verify', '--quiet', 'origin/main'], { allowFail: true }) !== null) {
     return 'origin/main';
@@ -194,17 +194,17 @@ function pushRanges() {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  if (lines.length === 0) return null;
+  if (lines.length === 0) { return null; }
   const ranges = [];
   for (const line of lines) {
     const [, localSha, , remoteSha] = line.split(/\s+/);
-    if (!localSha || ZERO_SHA_RE.test(localSha)) continue;
+    if (!localSha || ZERO_SHA_RE.test(localSha)) { continue; }
     const remoteKnown =
       Boolean(remoteSha) &&
       !ZERO_SHA_RE.test(remoteSha) &&
       git(['cat-file', '-e', `${remoteSha}^{commit}`], { allowFail: true }) !== null;
     const from = remoteKnown ? `${remoteSha}^{commit}` : resolveBase();
-    if (!from) return undefined;
+    if (!from) { return undefined; }
     ranges.push(`${from}...${localSha}^{commit}`);
   }
   return ranges;
@@ -234,7 +234,7 @@ function runFullCi(reason) {
   // 倒れる経路でも取りこぼさないよう続けて走らせる(offline/ の変更と共有ファイルの変更が同じ
   // push に混ざると、領域別の発火だけでは Pester が一度も走らない)。
   runPnpm('ci:offline');
-  if (!DRY) console.log('\n[ci:affected] フル ci 完了。');
+  if (!DRY) { console.log('\n[ci:affected] フル ci 完了。'); }
   process.exit(0);
 }
 
@@ -248,12 +248,13 @@ export const SHARED_GATES = [
   'check:claude-hooks',
   'check:canon-summary',
   'check:ci',
+  'lint:blocks',
   'knip',
   'test:scripts',
 ];
 
 function runShared() {
-  for (const gate of SHARED_GATES) runPnpm(gate);
+  for (const gate of SHARED_GATES) { runPnpm(gate); }
 }
 
 // `--area <名前>`: 差分を見ずに共有ゲートと指定領域の段だけを走らせる。
@@ -265,7 +266,7 @@ function runArea() {
   }
   console.log(`[ci:affected] --area ${name}: 共有ゲートと ${AREAS[name].label} の段を実行します。`);
   runShared();
-  for (const stage of AREAS[name].stages) runPnpm(stage);
+  for (const stage of AREAS[name].stages) { runPnpm(stage); }
   console.log('\n[ci:affected] 完了。');
   process.exit(0);
 }
@@ -277,12 +278,12 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 function main() {
-  if (argv.includes('--area')) runArea();
-  if (argv.includes('--all')) runFullCi('--all 指定');
+  if (argv.includes('--area')) { runArea(); }
+  if (argv.includes('--all')) { runFullCi('--all 指定'); }
 
   // 明示のベース指定(`--base` / `CI_AFFECTED_BASE`)は pre-push の stdin より優先する。
   const pushed = argv.includes('--pre-push') && !explicitBase() ? pushRanges() : null;
-  if (pushed === undefined) runFullCi('ベース ref を解決できませんでした');
+  if (pushed === undefined) { runFullCi('ベース ref を解決できませんでした'); }
   if (pushed && pushed.length === 0) {
     console.log('[ci:affected] push 対象は ref の削除だけです。検査をスキップします。');
     process.exit(0);
@@ -290,7 +291,7 @@ function main() {
   let diffRanges = pushed;
   if (!diffRanges) {
     const base = resolveBase();
-    if (!base) runFullCi('ベース ref を解決できませんでした');
+    if (!base) { runFullCi('ベース ref を解決できませんでした'); }
     diffRanges = [`${base}...HEAD`];
   }
 
@@ -304,8 +305,8 @@ function main() {
     const out = git(['-c', 'core.quotePath=false', 'diff', '--name-only', '--no-renames', diffRange], {
       allowFail: true,
     });
-    if (out === null) runFullCi(`git diff ${diffRange} に失敗しました`);
-    for (const p of out.split('\n').filter(Boolean)) if (!changed.includes(p)) changed.push(p);
+    if (out === null) { runFullCi(`git diff ${diffRange} に失敗しました`); }
+    for (const p of out.split('\n').filter(Boolean)) { if (!changed.includes(p)) { changed.push(p); } }
     console.log(`[ci:affected] 差分範囲: ${diffRange}`);
   }
   console.log(`[ci:affected] 変更ファイル数: ${changed.length}`);
@@ -313,14 +314,14 @@ function main() {
 
   // 領域マッピング。無害でも領域でもないルート直下/共有変更を見つけたらフル CI へ。
   const { areas, benign, fullCi } = classifyChanges(changed);
-  if (fullCi) runFullCi(fullCi);
+  if (fullCi) { runFullCi(fullCi); }
 
   // ── 5. 実行計画の可視化と実行 ──
   const selected = new Set(areas);
   const skipped = Object.keys(AREAS).filter((a) => !selected.has(a));
   console.log(`[ci:affected] 実行領域: ${areas.length ? areas.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
   console.log(`[ci:affected] スキップ領域: ${skipped.length ? skipped.map((a) => AREAS[a].label).join(', ') : '(なし)'}`);
-  if (benign.length) console.log(`[ci:affected] 領域 CI 不要の変更: ${benign.length} 件 (${benign.join(', ')})`);
+  if (benign.length) { console.log(`[ci:affected] 領域 CI 不要の変更: ${benign.length} 件 (${benign.join(', ')})`); }
 
   runShared();
 
@@ -331,7 +332,7 @@ function main() {
 
   // 領域ごとに typecheck → test →(editor のみ)build → e2e。順序は AREAS の stages 定義どおり。
   for (const area of areas) {
-    for (const stage of AREAS[area].stages) runPnpm(stage);
+    for (const stage of AREAS[area].stages) { runPnpm(stage); }
   }
 
   console.log('\n[ci:affected] 完了。');

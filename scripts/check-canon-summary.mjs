@@ -68,10 +68,10 @@ if (markers.length === 0) {
 // どれを抜粋したか決まらないので落とす。
 function extractSection(srcPath, heading) {
   const abs = join(ROOT, srcPath);
-  if (!existsSync(abs)) return { error: `抜粋元が見つかりません: ${srcPath}` };
+  if (!existsSync(abs)) { return { error: `抜粋元が見つかりません: ${srcPath}` }; }
   const lines = readFileSync(abs, 'utf8').split(/\r?\n/);
   const hits = lines.flatMap((l, i) => (l.trim() === `## ${heading}` ? [i] : []));
-  if (hits.length === 0) return { error: `節が見つかりません: ${srcPath} の "## ${heading}"` };
+  if (hits.length === 0) { return { error: `節が見つかりません: ${srcPath} の "## ${heading}"` }; }
   if (hits.length > 1) {
     return {
       error: `節の見出しが ${hits.length} 個あります: ${srcPath} の "## ${heading}"(どれを抜粋したか決まらない)`,
@@ -117,9 +117,9 @@ function countSummaryItems(text, markerEnd) {
       inFence = !inFence;
       continue;
     }
-    if (inFence) continue;
-    if (/^#{1,3} /.test(line) || /^---\s*$/.test(line) || line.includes('canon-sync')) break;
-    if (/^\d+\.\s/.test(line)) count += 1;
+    if (inFence) { continue; }
+    if (/^#{1,3} /.test(line) || /^---\s*$/.test(line) || line.includes('canon-sync')) { break; }
+    if (/^\d+\.\s/.test(line)) { count += 1; }
   }
   return count;
 }
@@ -133,18 +133,18 @@ function malformedMarkers(text) {
 
 function missingCoverage() {
   const docs = join(ROOT, 'docs');
-  if (!existsSync(docs)) return [];
+  if (!existsSync(docs)) { return []; }
   const missing = [];
   const projects = readdirSync(docs, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
     .sort();
   for (const name of projects) {
-    if (!existsSync(join(docs, name, 'src', '設計正典.md'))) continue;
+    if (!existsSync(join(docs, name, 'src', '設計正典.md'))) { continue; }
     const src = `docs/${name}/src/設計正典.md`;
     const sections = markers.filter((m) => m.src === src).map((m) => m.section);
-    if (!sections.some((s) => REJECTED_HINT.test(s))) missing.push(`${src} の「却下」系の節`);
-    if (!sections.includes(CHECKLIST)) missing.push(`${src} の「${CHECKLIST}」`);
+    if (!sections.some((s) => REJECTED_HINT.test(s))) { missing.push(`${src} の「却下」系の節`); }
+    if (!sections.includes(CHECKLIST)) { missing.push(`${src} の「${CHECKLIST}」`); }
   }
   return missing;
 }
@@ -189,7 +189,7 @@ for (const m of markers) {
 
   if (m.sha === actual) {
     // 件数で落ちた節に OK を併記すると紛らわしいので、両方通ったときだけ OK を出す。
-    if (!markerFailed) console.log(`${TAG} OK: ${label}`);
+    if (!markerFailed) { console.log(`${TAG} OK: ${label}`); }
     continue;
   }
 
