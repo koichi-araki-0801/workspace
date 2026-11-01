@@ -133,11 +133,19 @@ function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): 
   let content: string | undefined;
   for (const a of attrs) {
     const name = a.name.toLowerCase();
-    if (name === 'http-equiv' && httpEquiv === undefined) httpEquiv = a.value;
-    if (name === 'content' && content === undefined) content = a.value;
+    if (name === 'http-equiv' && httpEquiv === undefined) {
+      httpEquiv = a.value;
+    }
+    if (name === 'content' && content === undefined) {
+      content = a.value;
+    }
   }
-  if (httpEquiv === undefined || content === undefined) return undefined;
-  if (decodeHtmlEntities(httpEquiv).trim().toLowerCase() !== 'refresh') return undefined;
+  if (httpEquiv === undefined || content === undefined) {
+    return undefined;
+  }
+  if (decodeHtmlEntities(httpEquiv).trim().toLowerCase() !== 'refresh') {
+    return undefined;
+  }
   const url = refreshUrlPart(decodeHtmlEntities(content)).trim();
   return url === '' ? undefined : url;
 }
@@ -158,26 +166,36 @@ function metaRefreshUrl(attrs: ReadonlyArray<{ name: string; value: string }>): 
 function refreshUrlPart(s: string): string {
   const skipSpaces = (from: number): number => {
     let j = from;
-    while (j < s.length && /\s/.test(s[j])) j++;
+    while (j < s.length && /\s/.test(s[j])) {
+      j++;
+    }
     return j;
   };
   // `url` → 空白 → `=` → 空白。途中で合わなければ、その位置から引用符の手順へ進む。
   const afterKeyword = (from: number): number => {
     let j = from;
     for (const c of 'url') {
-      if (s[j]?.toLowerCase() !== c) return j;
+      if (s[j]?.toLowerCase() !== c) {
+        return j;
+      }
       j++;
     }
     j = skipSpaces(j);
     return s[j] === '=' ? skipSpaces(j + 1) : j;
   };
   let i = skipSpaces(0);
-  while (i < s.length && /[0-9.]/.test(s[i])) i++;
+  while (i < s.length && /[0-9.]/.test(s[i])) {
+    i++;
+  }
   i = skipSpaces(i);
-  if (s[i] === ';' || s[i] === ',') i++;
+  if (s[i] === ';' || s[i] === ',') {
+    i++;
+  }
   i = afterKeyword(skipSpaces(i));
   const quote = s[i];
-  if (quote !== '"' && quote !== "'") return s.slice(i);
+  if (quote !== '"' && quote !== "'") {
+    return s.slice(i);
+  }
   const rest = s.slice(i + 1);
   const close = rest.indexOf(quote);
   return close === -1 ? rest : rest.slice(0, close);
@@ -203,7 +221,9 @@ export function splitSrcsetUrls(
 }
 
 function splitCandidateUrls(attrName: string, value: string): string[] {
-  if (!MULTI_URL_ATTRS.has(attrName)) return [value];
+  if (!MULTI_URL_ATTRS.has(attrName)) {
+    return [value];
+  }
   return splitSrcsetUrls(value, { allTokens: true });
 }
 
@@ -231,12 +251,18 @@ export function findExternalRefsInTag(
     }
   }
   const watched = fetchUrlAttrsFor(tagName);
-  if (watched.length === 0) return found;
+  if (watched.length === 0) {
+    return found;
+  }
   for (const attr of attrs) {
     const name = attr.name.toLowerCase();
-    if (!watched.includes(name)) continue;
+    if (!watched.includes(name)) {
+      continue;
+    }
     for (const url of splitCandidateUrls(name, normalizeHtmlUrlValue(attr.value))) {
-      if (!isSelfContainedUrl(url)) found.push(`<${tagName} ${name}="${url}">`);
+      if (!isSelfContainedUrl(url)) {
+        found.push(`<${tagName} ${name}="${url}">`);
+      }
     }
   }
   return found;
@@ -288,16 +314,24 @@ const SCHEME_PREFIX_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
  * 働かせず(ブラウザも同じ扱い)、そうなる形は `undefined` にする。
  */
 function decodedPathOf(value: string): string | undefined {
-  if (value === '' || !isSelfContainedUrl(value)) return undefined;
+  if (value === '' || !isSelfContainedUrl(value)) {
+    return undefined;
+  }
   // 断片・クエリは配信対象の識別に関与しない。
   const pathOnly = value.split(/[?#]/, 1)[0];
-  if (pathOnly === '' || pathOnly.startsWith('/')) return undefined;
+  if (pathOnly === '' || pathOnly.startsWith('/')) {
+    return undefined;
+  }
   try {
     const parts: string[] = [];
     for (const raw of pathOnly.split('/')) {
       const seg = decodeURIComponent(raw);
-      if (seg.includes('/') || seg.includes('\\')) return undefined;
-      if ((seg === '.' || seg === '..') && seg !== raw) return undefined;
+      if (seg.includes('/') || seg.includes('\\')) {
+        return undefined;
+      }
+      if ((seg === '.' || seg === '..') && seg !== raw) {
+        return undefined;
+      }
       parts.push(seg);
     }
     return parts.join('/');
@@ -311,12 +345,18 @@ function decodedPathOf(value: string): string | undefined {
  * NUL・`\` を含む形は `undefined`。
  */
 function resolveSegments(base: readonly string[], decoded: string): string[] | undefined {
-  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
+  if (decoded.includes('\0') || decoded.includes('\\')) {
+    return undefined;
+  }
   const segments = [...base];
   for (const seg of decoded.split('/')) {
-    if (seg === '' || seg === '.') continue;
+    if (seg === '' || seg === '.') {
+      continue;
+    }
     if (seg === '..') {
-      if (segments.length === 0) return undefined;
+      if (segments.length === 0) {
+        return undefined;
+      }
       segments.pop();
       continue;
     }
@@ -336,16 +376,24 @@ function resolveSegments(base: readonly string[], decoded: string): string[] | u
  * 形が変わる入力はどこを指すかを推測せずに拒む。戻り値は入力と同じ文字列。
  */
 export function resolveServedRoutePath(decoded: string): string | undefined {
-  if (decoded === '' || SCHEME_PREFIX_RE.test(decoded)) return undefined;
-  if (decoded.includes('\0') || decoded.includes('\\')) return undefined;
+  if (decoded === '' || SCHEME_PREFIX_RE.test(decoded)) {
+    return undefined;
+  }
+  if (decoded.includes('\0') || decoded.includes('\\')) {
+    return undefined;
+  }
   const segments = decoded.split('/');
-  if (segments.some((s) => s === '' || s === '.' || s === '..')) return undefined;
+  if (segments.some((s) => s === '' || s === '.' || s === '..')) {
+    return undefined;
+  }
   return segments.join('/');
 }
 
 /** 参照元ファイルの論理パスから、相対参照の基準になるディレクトリのセグメント列を作る。 */
 function baseSegmentsOf(from: string): string[] | undefined {
-  if (from === DOC_DIR) return [DOC_DIR];
+  if (from === DOC_DIR) {
+    return [DOC_DIR];
+  }
   const segments = resolveSegments([], from);
   return segments === undefined || segments.length === 0 ? undefined : segments.slice(0, -1);
 }
@@ -363,11 +411,19 @@ function baseSegmentsOf(from: string): string[] | undefined {
  */
 export function resolveDocAssetPath(url: string, from: string): string | undefined {
   const base = baseSegmentsOf(from);
-  if (base === undefined) return undefined;
+  if (base === undefined) {
+    return undefined;
+  }
   const decoded = decodedPathOf(normalizeHtmlUrlValue(url));
-  if (decoded === undefined || SCHEME_PREFIX_RE.test(decoded)) return undefined;
+  if (decoded === undefined || SCHEME_PREFIX_RE.test(decoded)) {
+    return undefined;
+  }
   const segments = resolveSegments(base, decoded);
-  if (segments === undefined || segments.length === 0) return undefined;
-  if (segments[0].toLowerCase() === DOC_DIR) return undefined;
+  if (segments === undefined || segments.length === 0) {
+    return undefined;
+  }
+  if (segments[0].toLowerCase() === DOC_DIR) {
+    return undefined;
+  }
   return segments.join('/');
 }

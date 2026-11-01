@@ -157,7 +157,9 @@ describe('生成器の骨組みの変数が、基準日の無いテンプレの�
     });
     for (const [, expr] of src.matchAll(/\{\{\s*([\w.]+)\s*\}\}/g)) {
       const [head, ...rest] = expr.split('.');
-      if (loopVars.has(head)) continue;
+      if (loopVars.has(head)) {
+        continue;
+      }
       const v = rest.reduce<unknown>(
         (o, k) => (o as Record<string, unknown> | undefined)?.[k],
         sample[head],

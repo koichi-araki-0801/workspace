@@ -103,8 +103,12 @@ const SET_RE = /^set\s+([A-Za-z]\w*)(\.[A-Za-z]\w*)?\s*=([\s\S]*)$/;
  */
 function inspectInert(src: string): JinjaExprInspection | null {
   const r = inspectJinjaExpr(src);
-  if (!r.ok) return null;
-  if (r.names.some((n) => n.startsWith('_'))) return null;
+  if (!r.ok) {
+    return null;
+  }
+  if (r.names.some((n) => n.startsWith('_'))) {
+    return null;
+  }
   return r.strings.every((s) => LITERAL_CHAR_RE.test(s.raw)) ? r : null;
 }
 
@@ -132,16 +136,22 @@ function atomsOf(r: JinjaExprInspection): Atom[] {
   }
   for (const x of r.refs) {
     const nested = x.inList || x.inCall;
-    if (GLOBAL_NAMES.has(x.name)) out.push({ nested, taint: true });
-    else if (x.name !== LOOP_NAME) continue;
-    else if (!x.member) out.push({ nested, taint: true });
-    else if (x.memberName === null || !LOOP_SAFE_MEMBERS.has(x.memberName)) {
+    if (GLOBAL_NAMES.has(x.name)) {
+      out.push({ nested, taint: true });
+    } else if (x.name !== LOOP_NAME) {
+    } else if (!x.member) {
+      out.push({ nested, taint: true });
+    } else if (x.memberName === null || !LOOP_SAFE_MEMBERS.has(x.memberName)) {
       out.push({ nested, taint: true });
     }
   }
   for (const f of r.filters) {
-    if (!GENERATOR_FILTERS.has(f.name)) continue;
-    if (f.next !== null && GENERATOR_SINKS.has(f.next)) continue;
+    if (!GENERATOR_FILTERS.has(f.name)) {
+      continue;
+    }
+    if (f.next !== null && GENERATOR_SINKS.has(f.next)) {
+      continue;
+    }
     out.push({ nested: f.inList || f.inCall, taint: false });
   }
   return out;
@@ -180,15 +190,22 @@ export class InertJinjaJudge {
       for (const x of r.refs) {
         const kind = x.member ? 'member' : x.inList || x.inCall ? 'nested' : bareTop;
         const list = edges.get(x.name);
-        if (list === undefined) edges.set(x.name, [{ to, kind }]);
-        else list.push({ to, kind });
+        if (list === undefined) {
+          edges.set(x.name, [{ to, kind }]);
+        } else {
+          list.push({ to, kind });
+        }
       }
     };
     const taint = (names: readonly string[]) => {
-      for (const n of names) seeds.push([n, 'tainted']);
+      for (const n of names) {
+        seeds.push([n, 'tainted']);
+      }
     };
     for (const tok of tokens) {
-      if (tok.kind !== 'stmt') continue;
+      if (tok.kind !== 'stmt') {
+        continue;
+      }
       if (tok.keyword === 'set') {
         const m = SET_RE.exec(tok.body);
         const r = m ? this.inspect(m[3] as string) : null;
@@ -200,11 +217,16 @@ export class InertJinjaJudge {
         const atoms = atomsOf(r);
         if (m[2] !== undefined) {
           // `{{ ns.x }}` はメンバの出力として通るので、属性へ置く値に危ない部品があれば ns ごと止める。
-          if (atoms.length > 0) taint([target]);
+          if (atoms.length > 0) {
+            taint([target]);
+          }
           link(r, target, 'nested');
         } else {
-          if (atoms.some((a) => a.taint || a.nested)) taint([target]);
-          else if (atoms.length > 0) seeds.push([target, 'bound']);
+          if (atoms.some((a) => a.taint || a.nested)) {
+            taint([target]);
+          } else if (atoms.length > 0) {
+            seeds.push([target, 'bound']);
+          }
           link(r, target, 'top');
         }
       } else if (tok.keyword === 'for') {
@@ -216,18 +238,29 @@ export class InertJinjaJudge {
         }
         // 取り出す要素がそのものになるのは、入れ物の中に置いたときだけ(`for g in [ns]`)。例外は
         // `loop` で、反復でき要素に自分自身を含むので、`taint` の部品として最上位でも伝わる。
-        if (atomsOf(r).some((a) => a.taint || a.nested)) taint(head.vars);
-        for (const v of head.vars) link(r, v, 'member');
-      } else taint(bindingTargets(tok));
+        if (atomsOf(r).some((a) => a.taint || a.nested)) {
+          taint(head.vars);
+        }
+        for (const v of head.vars) {
+          link(r, v, 'member');
+        }
+      } else {
+        taint(bindingTargets(tok));
+      }
     }
     for (let s = seeds.pop(); s !== undefined; s = seeds.pop()) {
       const [name, state] = s;
       const into = state === 'bound' ? this.bound : this.tainted;
-      if (into.has(name)) continue;
+      if (into.has(name)) {
+        continue;
+      }
       into.add(name);
       for (const e of edges.get(name) ?? []) {
-        if (state === 'tainted' || e.kind === 'nested') seeds.push([e.to, 'tainted']);
-        else if (e.kind === 'top') seeds.push([e.to, 'bound']);
+        if (state === 'tainted' || e.kind === 'nested') {
+          seeds.push([e.to, 'tainted']);
+        } else if (e.kind === 'top') {
+          seeds.push([e.to, 'bound']);
+        }
       }
     }
   }
@@ -252,8 +285,12 @@ export class InertJinjaJudge {
    * 単位にするのは呼び出し側(`server/src/security/templateScripts.ts` の `pushJinjaUnits`)の役目。
    */
   isInert(tok: JinjaToken): boolean {
-    if (tok.kind === 'comment') return true;
-    if (tok.kind === 'stmt') return this.inertStatement(tok);
+    if (tok.kind === 'comment') {
+      return true;
+    }
+    if (tok.kind === 'stmt') {
+      return this.inertStatement(tok);
+    }
     const r = this.inspect(tok.body);
     return r !== null && this.safeToOutput(r);
   }
@@ -269,15 +306,21 @@ export class InertJinjaJudge {
    * ここでは単位にしない。
    */
   private safeToOutput(r: JinjaExprInspection): boolean {
-    if (atomsOf(r).length > 0) return false;
+    if (atomsOf(r).length > 0) {
+      return false;
+    }
     return !r.refs.some((x) => this.tainted.has(x.name) || (!x.member && this.bound.has(x.name)));
   }
 
   private inertStatement(tok: JinjaToken): boolean {
     const kw = tok.keyword;
     const body = tok.body;
-    if (kw === null) return false;
-    if (BARE_KEYWORDS.has(kw)) return body === kw;
+    if (kw === null) {
+      return false;
+    }
+    if (BARE_KEYWORDS.has(kw)) {
+      return body === kw;
+    }
     if (kw === 'if' || kw === 'elif') {
       // 条件は何も出力しないので、出力の規則は掛けない。
       return this.inspect(body.slice(kw.length)) !== null;
@@ -285,14 +328,20 @@ export class InertJinjaJudge {
     if (kw === 'for') {
       // `for … if …` と `recursive` は対象の式の後ろに付き、評価器の文法の外として落ちる。
       const head = parseForHeader(body);
-      if (head === null || head.vars.some((v) => v.startsWith('_'))) return false;
+      if (head === null || head.vars.some((v) => v.startsWith('_'))) {
+        return false;
+      }
       return this.inspect(head.iter) !== null;
     }
     if (kw === 'set') {
       const m = SET_RE.exec(body);
-      if (!m) return false; // ブロックの set(`{% set x %}…{% endset %}`)を含む
+      if (!m) {
+        return false; // ブロックの set(`{% set x %}…{% endset %}`)を含む
+      }
       const r = this.inspect(m[3] as string);
-      if (r === null) return false;
+      if (r === null) {
+        return false;
+      }
       // 名前への代入は、束ねた名前の出力の側で止める。属性への代入(`set ns.x = …`)は
       // `{{ ns.x }}` がメンバの出力として通るので、右辺に出力の規則を掛ける。
       return m[2] === undefined || this.safeToOutput(r);

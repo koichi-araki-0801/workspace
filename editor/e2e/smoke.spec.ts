@@ -161,7 +161,9 @@ async function openHost(page: Page): Promise<void> {
     ];
     window.addEventListener('message', (e) => {
       const d = e.data as HostMsg | null;
-      if (d && kinds.includes(d.type)) w.__msgs.push(d);
+      if (d && kinds.includes(d.type)) {
+        w.__msgs.push(d);
+      }
     });
   });
 }

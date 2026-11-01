@@ -107,15 +107,21 @@ const IDENT_ASCII = /[a-zA-Z0-9_-]/;
 /** `\` エスケープを 1 つ消費し、実際の文字と次位置を返す(CSS Syntax Level 3 の consume escape)。 */
 function readEscape(css: string, at: number): { ch: string; next: number } {
   let i = at + 1;
-  if (i >= css.length) return { ch: '�', next: i };
-  if (!HEX.test(css[i])) return { ch: css[i], next: i + 1 };
+  if (i >= css.length) {
+    return { ch: '�', next: i };
+  }
+  if (!HEX.test(css[i])) {
+    return { ch: css[i], next: i + 1 };
+  }
   let hex = '';
   while (i < css.length && hex.length < 6 && HEX.test(css[i])) {
     hex += css[i];
     i++;
   }
   // 16 進エスケープの直後の空白 1 個は区切りとして食われる(`\68 ttp` ではなく `http`)。
-  if (i < css.length && WS.test(css[i])) i++;
+  if (i < css.length && WS.test(css[i])) {
+    i++;
+  }
   const cp = Number.parseInt(hex, 16);
   const ch = cp > 0 && cp <= 0x10ffff ? String.fromCodePoint(cp) : '�';
   return { ch, next: i };
@@ -134,7 +140,9 @@ function readIdent(css: string, at: number): { value: string; next: number } {
     } else if (IDENT_ASCII.test(c) || c.charCodeAt(0) >= 0x80) {
       value += c;
       i++;
-    } else break;
+    } else {
+      break;
+    }
   }
   return { value, next: i };
 }
@@ -158,7 +166,9 @@ interface PreprocessedCss {
  * 呼び出し側へ返す位置(置換範囲・規則分割)は原文に対するものなので、位置の対応表を持つ。
  */
 function preprocessCss(source: string): PreprocessedCss {
-  if (!/[\r\f\0]/.test(source)) return { css: source, toSource: (at) => at };
+  if (!/[\r\f\0]/.test(source)) {
+    return { css: source, toSource: (at) => at };
+  }
   let css = '';
   /** 前処理後の位置 → 原文の位置。末尾の 1 つ先も引けるよう `source.length` を足す。 */
   const map: number[] = [];
@@ -167,10 +177,16 @@ function preprocessCss(source: string): PreprocessedCss {
     map.push(i);
     if (c === '\r') {
       css += '\n';
-      if (source[i + 1] === '\n') i++;
-    } else if (c === '\f') css += '\n';
-    else if (c === '\0') css += '�';
-    else css += c;
+      if (source[i + 1] === '\n') {
+        i++;
+      }
+    } else if (c === '\f') {
+      css += '\n';
+    } else if (c === '\0') {
+      css += '�';
+    } else {
+      css += c;
+    }
   }
   map.push(source.length);
   return { css, toSource: (at) => map[at] ?? source.length };
@@ -193,8 +209,12 @@ function readString(css: string, at: number): { value: string; next: number; bad
   let value = '';
   while (i < css.length) {
     const c = css[i];
-    if (c === quote) return { value, next: i + 1, bad: false };
-    if (isCssNewline(c)) return { value, next: i, bad: true };
+    if (c === quote) {
+      return { value, next: i + 1, bad: false };
+    }
+    if (isCssNewline(c)) {
+      return { value, next: i, bad: true };
+    }
     if (c === '\\') {
       // `\` + 改行は行継続で、文字を 1 つも生まない(仕様どおり)。
       if (isCssNewline(css[i + 1] ?? '')) {
@@ -216,22 +236,32 @@ function readString(css: string, at: number): { value: string; next: number; bad
 function trimCssWhitespace(s: string): string {
   let start = 0;
   let end = s.length;
-  while (start < end && WS.test(s[start])) start++;
-  while (end > start && WS.test(s[end - 1])) end--;
+  while (start < end && WS.test(s[start])) {
+    start++;
+  }
+  while (end > start && WS.test(s[end - 1])) {
+    end--;
+  }
   return s.slice(start, end);
 }
 
 /** `url(` の直後から `)` までを読み、エスケープ解決後の URL と次位置を返す。 */
 function readUrlToken(css: string, at: number): { value: string; next: number } {
   let i = at;
-  while (i < css.length && WS.test(css[i])) i++;
+  while (i < css.length && WS.test(css[i])) {
+    i++;
+  }
   if (css[i] === '"' || css[i] === "'") {
     const s = readString(css, i);
     // 未終端文字列(改行終端)を含む `url()` は bad-url。閉じ括弧を探しに行かず、その場で
     // 走査を返す — 探しに行くと改行の先が丸ごと「url の中身」として検査から消える。
-    if (s.bad) return { value: s.value, next: s.next };
+    if (s.bad) {
+      return { value: s.value, next: s.next };
+    }
     let j = s.next;
-    while (j < css.length && css[j] !== ')') j++;
+    while (j < css.length && css[j] !== ')') {
+      j++;
+    }
     return { value: s.value, next: Math.min(j + 1, css.length) };
   }
   let value = '';
@@ -259,20 +289,28 @@ function readUrlToken(css: string, at: number): { value: string; next: number } 
  */
 export function isSelfContainedUrl(url: string): boolean {
   const v = stripUrlIgnoredChars(url).replace(/\\/g, '/');
-  if (v === '' || v.startsWith('#')) return true;
+  if (v === '' || v.startsWith('#')) {
+    return true;
+  }
   // `//host/x` は scheme 相対 = 外部。`:` より先に現れる `/` は path 区切りなので相対。
-  if (v.startsWith('//')) return false;
+  if (v.startsWith('//')) {
+    return false;
+  }
   const lower = v.toLowerCase();
   if (lower.startsWith('data:')) {
     return isAllowedDataUrl(lower);
   }
   const colon = v.indexOf(':');
-  if (colon < 0) return true;
+  if (colon < 0) {
+    return true;
+  }
   const beforeColon = v.slice(0, colon);
   const looksLikeScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*$/.test(beforeColon);
   const slash = v.search(/[/?#]/);
   // `a/b:c` のように `:` が path の中にあるだけなら相対参照。
-  if (slash >= 0 && slash < colon) return true;
+  if (slash >= 0 && slash < colon) {
+    return true;
+  }
   return !looksLikeScheme;
 }
 
@@ -292,11 +330,17 @@ export function findExternalRefsInCss(css: string): string[] {
   const found: string[] = [];
   walkCss(css, {
     atRule: (name) => {
-      if (!ALLOWED_AT_RULES.has(name.toLowerCase())) found.push(`@${name}`);
+      if (!ALLOWED_AT_RULES.has(name.toLowerCase())) {
+        found.push(`@${name}`);
+      }
     },
     value: ({ kind, value, ctx }) => {
-      if (ctx.namespace) return;
-      if (isSelfContainedUrl(value)) return;
+      if (ctx.namespace) {
+        return;
+      }
+      if (isSelfContainedUrl(value)) {
+        return;
+      }
       found.push(kind === 'url' ? `url(${value})` : `"${value}"`);
     },
   });
@@ -339,7 +383,9 @@ export function collectCssUrlSpans(css: string): CssUrlSpan[] {
   walkCss(css, {
     atRule: () => undefined,
     value: (v) => {
-      if (v.kind === 'url') found.push({ value: v.value, ...v.span });
+      if (v.kind === 'url') {
+        found.push({ value: v.value, ...v.span });
+      }
     },
   });
   return found;
@@ -392,7 +438,9 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
       declIsSrc = undefined;
     },
     value: (v) => {
-      if (v.kind !== 'url') return;
+      if (v.kind !== 'url') {
+        return;
+      }
       const { value, span, ctx } = v;
       const inFace = stack.length === 1 && stack[0] === true;
       // url() ごとに `slice` + 正規表現を掛け直すと、長い空白の後に `x:url()` を並べた入力で
@@ -407,12 +455,17 @@ export function collectCssUrlSpansInContext(css: string): CssUrlSpanInContext[] 
         inFontFaceSrc: isSrc,
         inNamespacePrelude: ctx.namespace,
       };
-      if (inFace) faceItems.push(item);
-      else found.push(item);
+      if (inFace) {
+        faceItems.push(item);
+      } else {
+        found.push(item);
+      }
     },
   });
   // 閉じていないブロックの url() は範囲が確定していないので false で返す。
-  for (const it of faceItems) found.push({ ...it, inFontFaceSrc: false });
+  for (const it of faceItems) {
+    found.push({ ...it, inFontFaceSrc: false });
+  }
   return found;
 }
 
@@ -443,7 +496,9 @@ export function collectCssStringsInFunctions(css: string): CssFunctionString[] {
   walkCss(css, {
     atRule: () => undefined,
     value: ({ kind, value, ctx }) => {
-      if (kind !== 'string') return;
+      if (kind !== 'string') {
+        return;
+      }
       if (ctx.fn !== undefined) {
         found.push({ value, fn: ctx.fn });
         return;
@@ -577,7 +632,9 @@ function walkCss(
   };
   /** URI を待っている段階なら値を保留して true を返す(呼び出し側はその場で渡さない)。 */
   const holdNamespaceUri = (v: CssValue): boolean => {
-    if (ns !== 'prefix' && ns !== 'uri') return false;
+    if (ns !== 'prefix' && ns !== 'uri') {
+      return false;
+    }
     nsHeld = v;
     ns = 'end';
     return true;
@@ -594,16 +651,22 @@ function walkCss(
     if (c === '"' || c === "'") {
       const s = readString(css, i);
       const ctx: CssStringContext = { fn: fns[fns.length - 1], decl, namespace: false };
-      if (ns === 'end') endNamespace(false);
+      if (ns === 'end') {
+        endNamespace(false);
+      }
       const v: CssValue = { kind: 'string', value: s.value, ctx };
-      if (!holdNamespaceUri(v)) visit.value(v);
+      if (!holdNamespaceUri(v)) {
+        visit.value(v);
+      }
       atDeclStart = false;
       afterDeclName = false;
       i = s.next;
       continue;
     }
     if (c === '@') {
-      if (ns !== undefined) endNamespace(false);
+      if (ns !== undefined) {
+        endNamespace(false);
+      }
       const id = readIdent(css, i + 1);
       if (id.next > i + 1) {
         visit.atRule(id.value, toSource(i));
@@ -635,19 +698,28 @@ function walkCss(
         // span は `url(` の先頭から閉じ括弧の直後まで = `url(…)` 式全体を置換できる範囲。
         const span = { start: toSource(i), end: toSource(u.next) };
         const ctx: CssStringContext = { fn: fns[fns.length - 1], decl, namespace: false };
-        if (ns === 'end') endNamespace(false);
+        if (ns === 'end') {
+          endNamespace(false);
+        }
         const v: CssValue = { kind: 'url', value: u.value, ctx, span };
-        if (!holdNamespaceUri(v)) visit.value(v);
+        if (!holdNamespaceUri(v)) {
+          visit.value(v);
+        }
         atDeclStart = false;
         afterDeclName = false;
         i = u.next;
         continue;
       }
       // `@namespace` の接頭辞は関数でない ident 1 つだけ。2 つ目の語や関数は形から外れる。
-      if (ns === 'prefix' && css[id.next] !== '(') ns = 'uri';
-      else if (ns !== undefined) endNamespace(false);
+      if (ns === 'prefix' && css[id.next] !== '(') {
+        ns = 'uri';
+      } else if (ns !== undefined) {
+        endNamespace(false);
+      }
       afterDeclName = atDeclStart && blocks.length === 0;
-      if (afterDeclName) decl = id.value;
+      if (afterDeclName) {
+        decl = id.value;
+      }
       atDeclStart = false;
       if (css[id.next] === '(') {
         blocks.push({ close: ')', fn: true });
@@ -660,12 +732,19 @@ function walkCss(
     }
     // 前置きの読みは空白とコメントだけを読み飛ばす。`;` で閉じたときだけ URI を名前空間 URI として
     // 渡す。`punct` より先に渡す(`collectCssUrlSpansInContext` は `;` で宣言の頭を進める)。
-    if (ns !== undefined && !WS.test(c)) endNamespace(c === ';' && ns === 'end');
-    if (c === '{' || c === '}' || c === ';') visit.punct?.(c, toSource(i));
+    if (ns !== undefined && !WS.test(c)) {
+      endNamespace(c === ';' && ns === 'end');
+    }
+    if (c === '{' || c === '}' || c === ';') {
+      visit.punct?.(c, toSource(i));
+    }
     const valueBlock = c === '{' && inSubstValue;
     if (blocks.length === 0 && !valueBlock) {
-      if (c === '{') ruleDepth++;
-      else if (c === '}' && ruleDepth > 0) ruleDepth--;
+      if (c === '{') {
+        ruleDepth++;
+      } else if (c === '}' && ruleDepth > 0) {
+        ruleDepth--;
+      }
     }
     if (blocks.length === 0 && !valueBlock && (c === '{' || c === '}' || c === ';')) {
       decl = undefined;
@@ -677,14 +756,19 @@ function walkCss(
       atDeclStart = false;
       afterDeclName = false;
     } else if (c === ')' || c === ']' || c === '}') {
-      if (blocks[blocks.length - 1]?.close === c && blocks.pop()?.fn === true) fns.pop();
+      if (blocks[blocks.length - 1]?.close === c && blocks.pop()?.fn === true) {
+        fns.pop();
+      }
     } else if (!WS.test(c)) {
-      if (c === ':' && afterDeclName && decl !== undefined)
+      if (c === ':' && afterDeclName && decl !== undefined) {
         inSubstValue = isSubstitutableDecl(decl);
+      }
       atDeclStart = false;
       afterDeclName = false;
     }
     i++;
   }
-  if (ns !== undefined) endNamespace(false);
+  if (ns !== undefined) {
+    endNamespace(false);
+  }
 }

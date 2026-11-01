@@ -60,11 +60,15 @@ const NAMED: Record<string, string> = {
 };
 
 function decodeRef(body: string): string | null {
-  if (body[0] !== '#') return NAMED[body] ?? null;
+  if (body[0] !== '#') {
+    return NAMED[body] ?? null;
+  }
   const hex = body[1] === 'x' || body[1] === 'X';
   const code = Number.parseInt(body.slice(hex ? 2 : 1), hex ? 16 : 10);
   // 0・サロゲート・範囲外はブラウザが別の文字へ置き換えるので解かない。
-  if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return null;
+  if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+    return null;
+  }
   return String.fromCodePoint(code);
 }
 
@@ -77,11 +81,15 @@ const UNRESOLVED_REF_RE = /&[A-Za-z#]/;
  * 手直しを「直していない」と取り違える。
  */
 function decode(s: string): string | null {
-  if (!s.includes('&')) return s;
+  if (!s.includes('&')) {
+    return s;
+  }
   const rest = s.replace(ENTITY_RE, (whole, body: string) =>
     decodeRef(body) === null ? whole : '',
   );
-  if (UNRESOLVED_REF_RE.test(rest)) return null;
+  if (UNRESOLVED_REF_RE.test(rest)) {
+    return null;
+  }
   return s.replace(ENTITY_RE, (_whole, body: string) => decodeRef(body) as string);
 }
 
@@ -96,15 +104,19 @@ const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
  * 区切りを読み違えうるので寄せずに返す。`;` は括弧の外でだけ区切る(`url(data:…;base64,…)`)。
  */
 function normalizeStyle(v: string): string {
-  if (/["'\\]|\/\*/.test(v)) return collapse(v).trim();
+  if (/["'\\]|\/\*/.test(v)) {
+    return collapse(v).trim();
+  }
   const decls: string[] = [];
   let depth = 0;
   let from = 0;
   for (let k = 0; k <= v.length; k++) {
     const c = v[k];
-    if (c === '(') depth++;
-    else if (c === ')') depth = Math.max(0, depth - 1);
-    else if (k === v.length || (c === ';' && depth === 0)) {
+    if (c === '(') {
+      depth++;
+    } else if (c === ')') {
+      depth = Math.max(0, depth - 1);
+    } else if (k === v.length || (c === ';' && depth === 0)) {
       decls.push(v.slice(from, k));
       from = k + 1;
     }
@@ -113,7 +125,9 @@ function normalizeStyle(v: string): string {
   for (const d of decls) {
     const colon = d.indexOf(':');
     if (colon < 0) {
-      if (d.trim() !== '') out += `${collapse(d).trim()};`;
+      if (d.trim() !== '') {
+        out += `${collapse(d).trim()};`;
+      }
       continue;
     }
     const prop = asciiLower(d.slice(0, colon).trim());
@@ -124,13 +138,18 @@ function normalizeStyle(v: string): string {
 
 function normalizeAttrValue(name: string, raw: string | null): string | null {
   const v = decode(raw ?? '');
-  if (v === null) return null;
-  if (name === 'class')
+  if (v === null) {
+    return null;
+  }
+  if (name === 'class') {
     return v
       .split(/[\t\n\f\r ]+/)
       .filter(Boolean)
       .join(' ');
-  if (name === 'style') return normalizeStyle(v);
+  }
+  if (name === 'style') {
+    return normalizeStyle(v);
+  }
   return v;
 }
 
@@ -140,8 +159,12 @@ function normalizeAttrValue(name: string, raw: string | null): string | null {
  */
 function normalizeText(s: string, keepSpace: boolean): string | null {
   const d = decode(s);
-  if (d === null) return null;
-  if (keepSpace) return escText(d);
+  if (d === null) {
+    return null;
+  }
+  if (keepSpace) {
+    return escText(d);
+  }
   const t = collapse(d);
   return t === ' ' ? '' : escText(t);
 }
@@ -170,7 +193,9 @@ const PRESERVE_SPACE = ['pre', 'listing'];
  * `null` 同士も一致とは見なさないこと(`samePartHtml`)。
  */
 export function normalizePartHtml(html: string): string | null {
-  if (html.length > MAX_INPUT_CHARS) return null;
+  if (html.length > MAX_INPUT_CHARS) {
+    return null;
+  }
   const out: string[] = [];
   const stack: OpenElement[] = [];
   // 開いている要素の名前ごとの数。閉じる相手の無い終了タグを、スタックを辿らずに捨てるため
@@ -182,7 +207,9 @@ export function normalizePartHtml(html: string): string | null {
   };
   const pop = (): OpenElement | undefined => {
     const e = stack.pop();
-    if (e) openCount.set(e.name, (openCount.get(e.name) ?? 1) - 1);
+    if (e) {
+      openCount.set(e.name, (openCount.get(e.name) ?? 1) - 1);
+    }
     return e;
   };
   const memo = newCommentEndMemo();
@@ -198,8 +225,11 @@ export function normalizePartHtml(html: string): string | null {
         text,
         PRESERVE_SPACE.some((p) => (openCount.get(p) ?? 0) > 0),
       );
-      if (t === null) unresolved = true;
-      else out.push(t);
+      if (t === null) {
+        unresolved = true;
+      } else {
+        out.push(t);
+      }
     }
     text = '';
   };
@@ -238,7 +268,9 @@ export function normalizePartHtml(html: string): string | null {
     flush();
     let k = lt + (endTag ? 2 : 1);
     const nameStart = k;
-    while (k < n && !isTagNameEnd(html[k])) k++;
+    while (k < n && !isTagNameEnd(html[k])) {
+      k++;
+    }
     const name = asciiLower(html.slice(nameStart, k));
     const attrs = new Map<string, string>();
     let selfClosing = false;
@@ -257,22 +289,30 @@ export function normalizePartHtml(html: string): string | null {
       // 同じ名前の 2 つ目以降はブラウザが捨てる。
       if (!attrs.has(a.name)) {
         const v = normalizeAttrValue(a.name, a.value);
-        if (v === null) return null;
+        if (v === null) {
+          return null;
+        }
         attrs.set(a.name, v);
       }
       k = a.next;
     }
     // `>` の前に入力が終わったタグは、ブラウザが丸ごと捨てる。寄せずに比べない側へ倒す。
-    if (k >= n) return null;
+    if (k >= n) {
+      return null;
+    }
     i = k + 1;
     if (endTag) {
       if (name === 'table' && stack[stack.length - 1]?.implicit) {
         out.push('</tbody>');
         pop();
       }
-      if ((name === 'svg' || name === 'math') && foreign > 0) foreign--;
+      if ((name === 'svg' || name === 'math') && foreign > 0) {
+        foreign--;
+      }
       // 相手があるときだけ後ろから閉じる。pop の合計は push の合計を超えないので全体で線形。
-      if ((openCount.get(name) ?? 0) > 0) while (pop()?.name !== name);
+      if ((openCount.get(name) ?? 0) > 0) {
+        while (pop()?.name !== name) {}
+      }
       out.push(`</${name}>`);
       continue;
     }
@@ -291,8 +331,12 @@ export function normalizePartHtml(html: string): string | null {
       out.push(`</${name}>`); // 外来要素の `<path/>` は `<path></path>` と同じ
       continue;
     }
-    if (isForeign && (name === 'svg' || name === 'math')) foreign++;
-    if (!isForeign && VOID_ELEMENTS.has(name)) continue;
+    if (isForeign && (name === 'svg' || name === 'math')) {
+      foreign++;
+    }
+    if (!isForeign && VOID_ELEMENTS.has(name)) {
+      continue;
+    }
     if (!isForeign && RAW_TEXT_ELEMENTS.has(name)) {
       lower ??= asciiLower(html);
       const close = findRawTextEnd(lower, name, i).at;
@@ -302,7 +346,9 @@ export function normalizePartHtml(html: string): string | null {
       i = end;
     }
     push({ name, implicit: false });
-    if (unresolved || stack.length > MAX_OPEN_ELEMENTS) return null;
+    if (unresolved || stack.length > MAX_OPEN_ELEMENTS) {
+      return null;
+    }
   }
   flush();
   return unresolved ? null : out.join('').trim();

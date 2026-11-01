@@ -347,14 +347,24 @@ export function inspectSvg(text: string): string[] {
   // 重複の判定は Set で行う(配列の `includes` だと、名前の違う違反を大量に並べた入力で二乗時間になる)。
   const seen = new Set<string>();
   const add: Report = (message) => {
-    if (seen.has(message)) return;
+    if (seen.has(message)) {
+      return;
+    }
     seen.add(message);
     found.push(message);
   };
-  if (text.includes('\u0000')) add('NUL 文字を含む(UTF-16 などの可能性)');
-  if (text.includes('�') || text.startsWith('￾')) add('UTF-8 として読めない');
-  if (/<!ENTITY/i.test(text)) add('<!ENTITY 宣言');
-  if (found.length > 0) return found;
+  if (text.includes('\u0000')) {
+    add('NUL 文字を含む(UTF-16 などの可能性)');
+  }
+  if (text.includes('�') || text.startsWith('￾')) {
+    add('UTF-8 として読めない');
+  }
+  if (/<!ENTITY/i.test(text)) {
+    add('<!ENTITY 宣言');
+  }
+  if (found.length > 0) {
+    return found;
+  }
 
   const stack: string[] = [];
   let pos = text.startsWith(BOM) ? 1 : 0;
@@ -371,40 +381,63 @@ export function inspectSvg(text: string): string[] {
       return found;
     }
     const decl = XML_DECL_RE.exec(text.slice(pos + 5, end));
-    if (decl === null) add('解釈できない XML 宣言');
-    else if (decl[3] !== undefined && decl[3].toLowerCase() !== 'utf-8') {
+    if (decl === null) {
+      add('解釈できない XML 宣言');
+    } else if (decl[3] !== undefined && decl[3].toLowerCase() !== 'utf-8') {
       add(`UTF-8 以外の encoding 宣言(${decl[3]})`);
     }
     pos = end + 2;
   }
 
   const takeText = (chunk: string): void => {
-    if (BAD_REFERENCE_RE.test(chunk)) add('定義されていない実体参照');
+    if (BAD_REFERENCE_RE.test(chunk)) {
+      add('定義されていない実体参照');
+    }
     if (stack.length === 0) {
-      if (chunk.trim() !== '') add('ルート要素の外の文字');
+      if (chunk.trim() !== '') {
+        add('ルート要素の外の文字');
+      }
       return;
     }
-    if (styleText !== null) styleText += decodeHtmlEntities(chunk);
+    if (styleText !== null) {
+      styleText += decodeHtmlEntities(chunk);
+    }
   };
 
   const openElement = (tag: StartTag): void => {
     if (stack.length === 0) {
-      if (sawRoot) add('ルート要素が 2 つ以上');
-      if (tag.name !== 'svg') add(`ルート要素が svg ではない <${tag.name}>`);
+      if (sawRoot) {
+        add('ルート要素が 2 つ以上');
+      }
+      if (tag.name !== 'svg') {
+        add(`ルート要素が svg ではない <${tag.name}>`);
+      }
       sawRoot = true;
     }
-    if (styleText !== null) add('style 要素の中の要素');
+    if (styleText !== null) {
+      add('style 要素の中の要素');
+    }
     checkElement(tag.name, metadataDepth > 0, add);
     const foreign = tag.name.includes(':');
-    for (const attr of tag.attrs) checkAttribute(tag.name, attr, foreign, add);
-    if (tag.selfClosing) return;
+    for (const attr of tag.attrs) {
+      checkAttribute(tag.name, attr, foreign, add);
+    }
+    if (tag.selfClosing) {
+      return;
+    }
     stack.push(tag.name);
-    if (tag.name === 'metadata') metadataDepth++;
-    if (tag.name === 'style') styleText = '';
+    if (tag.name === 'metadata') {
+      metadataDepth++;
+    }
+    if (tag.name === 'style') {
+      styleText = '';
+    }
   };
 
   const closeElement = (name: string): void => {
-    if (name === 'metadata') metadataDepth--;
+    if (name === 'metadata') {
+      metadataDepth--;
+    }
     if (name === 'style') {
       checkCss(styleText ?? '', 'style 要素', add);
       styleText = null;
@@ -419,7 +452,9 @@ export function inspectSvg(text: string): string[] {
     }
     const lt = text.indexOf('<', pos);
     takeText(text.slice(pos, lt < 0 ? text.length : lt));
-    if (lt < 0) break;
+    if (lt < 0) {
+      break;
+    }
     pos = lt;
     if (text.startsWith('<!--', pos)) {
       const end = text.indexOf('-->', pos + 4);
@@ -436,8 +471,12 @@ export function inspectSvg(text: string): string[] {
         add('閉じていない CDATA');
         return found;
       }
-      if (stack.length === 0) add('ルート要素の外の CDATA');
-      if (styleText !== null) styleText += text.slice(pos + 9, end);
+      if (stack.length === 0) {
+        add('ルート要素の外の CDATA');
+      }
+      if (styleText !== null) {
+        styleText += text.slice(pos + 9, end);
+      }
       pos = end + 3;
       continue;
     }
@@ -453,12 +492,18 @@ export function inspectSvg(text: string): string[] {
       if (bracket >= 0) {
         add('DOCTYPE の内部サブセット');
         const close = text.indexOf(']>', bracket);
-        if (close < 0) return found;
+        if (close < 0) {
+          return found;
+        }
         pos = close + 2;
         continue;
       }
-      if (sawRoot || sawDoctype) add('DOCTYPE の位置が不正');
-      if (!DOCTYPE_RE.test(text.slice(pos + 9, gt))) add('外部 ID だけの DOCTYPE ではない');
+      if (sawRoot || sawDoctype) {
+        add('DOCTYPE の位置が不正');
+      }
+      if (!DOCTYPE_RE.test(text.slice(pos + 9, gt))) {
+        add('外部 ID だけの DOCTYPE ではない');
+      }
       sawDoctype = true;
       pos = gt + 1;
       continue;
@@ -468,7 +513,9 @@ export function inspectSvg(text: string): string[] {
         text.startsWith('<?', pos) ? '処理命令(先頭の <?xml ?> 以外)' : '許可されていない宣言 <!…>',
       );
       const gt = text.indexOf('>', pos);
-      if (gt < 0) return found;
+      if (gt < 0) {
+        return found;
+      }
       pos = gt + 1;
       continue;
     }
@@ -497,8 +544,12 @@ export function inspectSvg(text: string): string[] {
     openElement(tag);
     pos = tag.end;
   }
-  if (stack.length > 0) add(`閉じていないタグ <${stack[stack.length - 1]}>`);
-  if (!sawRoot) add('svg 要素が無い');
+  if (stack.length > 0) {
+    add(`閉じていないタグ <${stack[stack.length - 1]}>`);
+  }
+  if (!sawRoot) {
+    add('svg 要素が無い');
+  }
   return found;
 }
 
@@ -506,34 +557,62 @@ export function inspectSvg(text: string): string[] {
 function readStartTag(text: string, at: number): StartTag | string {
   NAME_RE.lastIndex = at + 1;
   const m = NAME_RE.exec(text);
-  if (m === null) return '解釈できないタグ';
+  if (m === null) {
+    return '解釈できないタグ';
+  }
   const name = m[0];
   let p = NAME_RE.lastIndex;
   const attrs: SvgAttr[] = [];
   const names = new Set<string>();
   for (;;) {
     const before = p;
-    while (p < text.length && WS_RE.test(text[p])) p++;
-    if (p >= text.length) return `閉じていないタグ <${name}>`;
-    if (text[p] === '>') return { name, attrs, selfClosing: false, end: p + 1 };
-    if (text.startsWith('/>', p)) return { name, attrs, selfClosing: true, end: p + 2 };
-    if (p === before) return `属性の前に空白が無い <${name}>`;
+    while (p < text.length && WS_RE.test(text[p])) {
+      p++;
+    }
+    if (p >= text.length) {
+      return `閉じていないタグ <${name}>`;
+    }
+    if (text[p] === '>') {
+      return { name, attrs, selfClosing: false, end: p + 1 };
+    }
+    if (text.startsWith('/>', p)) {
+      return { name, attrs, selfClosing: true, end: p + 2 };
+    }
+    if (p === before) {
+      return `属性の前に空白が無い <${name}>`;
+    }
     NAME_RE.lastIndex = p;
     const an = NAME_RE.exec(text);
-    if (an === null) return `解釈できない属性 <${name}>`;
+    if (an === null) {
+      return `解釈できない属性 <${name}>`;
+    }
     const attrName = an[0];
     p = NAME_RE.lastIndex;
-    while (p < text.length && WS_RE.test(text[p])) p++;
-    if (text[p] !== '=') return `値の無い属性 ${attrName}`;
+    while (p < text.length && WS_RE.test(text[p])) {
+      p++;
+    }
+    if (text[p] !== '=') {
+      return `値の無い属性 ${attrName}`;
+    }
     p++;
-    while (p < text.length && WS_RE.test(text[p])) p++;
+    while (p < text.length && WS_RE.test(text[p])) {
+      p++;
+    }
     const quote = text[p];
-    if (quote !== '"' && quote !== "'") return `引用符の無い属性値 ${attrName}`;
+    if (quote !== '"' && quote !== "'") {
+      return `引用符の無い属性値 ${attrName}`;
+    }
     const close = text.indexOf(quote, p + 1);
-    if (close < 0) return `閉じていない属性値 ${attrName}`;
+    if (close < 0) {
+      return `閉じていない属性値 ${attrName}`;
+    }
     const raw = text.slice(p + 1, close);
-    if (raw.includes('<')) return `属性値に < を含む ${attrName}`;
-    if (names.has(attrName)) return `重複した属性 ${attrName}`;
+    if (raw.includes('<')) {
+      return `属性値に < を含む ${attrName}`;
+    }
+    if (names.has(attrName)) {
+      return `重複した属性 ${attrName}`;
+    }
     names.add(attrName);
     attrs.push({ name: attrName, raw });
     p = close + 1;
@@ -544,12 +623,17 @@ function checkElement(name: string, inMetadata: boolean, add: Report): void {
   const colon = name.indexOf(':');
   if (colon >= 0) {
     const prefix = name.slice(0, colon);
-    if (EDITOR_PREFIXES.has(prefix) || (inMetadata && METADATA_PREFIXES.has(prefix))) return;
+    if (EDITOR_PREFIXES.has(prefix) || (inMetadata && METADATA_PREFIXES.has(prefix))) {
+      return;
+    }
     add(`許可されていない要素 <${name}>`);
     return;
   }
-  if (FORBIDDEN_ELEMENTS.has(name)) add(`禁止された要素 <${name}>`);
-  else if (!ALLOWED_ELEMENTS.has(name)) add(`許可されていない要素 <${name}>`);
+  if (FORBIDDEN_ELEMENTS.has(name)) {
+    add(`禁止された要素 <${name}>`);
+  } else if (!ALLOWED_ELEMENTS.has(name)) {
+    add(`許可されていない要素 <${name}>`);
+  }
 }
 
 /**
@@ -558,7 +642,9 @@ function checkElement(name: string, inMetadata: boolean, add: Report): void {
  */
 function checkAttribute(el: string, attr: SvgAttr, foreign: boolean, add: Report): void {
   const { name, raw } = attr;
-  if (BAD_REFERENCE_RE.test(raw)) add(`定義されていない実体参照(${name})`);
+  if (BAD_REFERENCE_RE.test(raw)) {
+    add(`定義されていない実体参照(${name})`);
+  }
   const value = decodeHtmlEntities(raw);
   const colon = name.indexOf(':');
   const prefix = colon >= 0 ? name.slice(0, colon) : '';
@@ -568,7 +654,9 @@ function checkAttribute(el: string, attr: SvgAttr, foreign: boolean, add: Report
     return;
   }
   if (name === 'xmlns') {
-    if (value !== SVG_NS) add('既定の名前空間が SVG ではない');
+    if (value !== SVG_NS) {
+      add('既定の名前空間が SVG ではない');
+    }
     return;
   }
   if (prefix === 'xmlns') {
@@ -582,7 +670,9 @@ function checkAttribute(el: string, attr: SvgAttr, foreign: boolean, add: Report
     return;
   }
   if (prefix === 'xml') {
-    if (local !== 'space' && local !== 'lang') add(`許可されていない属性 ${name}`);
+    if (local !== 'space' && local !== 'lang') {
+      add(`許可されていない属性 ${name}`);
+    }
     return;
   }
   if (prefix !== '') {
@@ -592,16 +682,22 @@ function checkAttribute(el: string, attr: SvgAttr, foreign: boolean, add: Report
     add(`許可されていない属性 ${name}`);
     return;
   }
-  if (name.startsWith('data-') || foreign) return;
+  if (name.startsWith('data-') || foreign) {
+    return;
+  }
   if (name === 'style' || PRESENTATION_ATTRIBUTES.has(name)) {
     checkCss(value, `${name} 属性`, add);
     return;
   }
   if (el === 'style' && name === 'type') {
-    if (value.trim().toLowerCase() !== 'text/css') add('style 要素の type が text/css ではない');
+    if (value.trim().toLowerCase() !== 'text/css') {
+      add('style 要素の type が text/css ではない');
+    }
     return;
   }
-  if (!PLAIN_ATTRIBUTES.has(name)) add(`許可されていない属性 ${name}`);
+  if (!PLAIN_ATTRIBUTES.has(name)) {
+    add(`許可されていない属性 ${name}`);
+  }
 }
 
 /**
@@ -611,8 +707,12 @@ function checkAttribute(el: string, attr: SvgAttr, foreign: boolean, add: Report
  */
 function checkHref(el: string, raw: string, add: Report): void {
   const v = normalizeHtmlUrlValue(raw);
-  if (v.startsWith('#')) return;
-  if (DATA_HREF_ELEMENTS.has(el) && /^data:image\//i.test(v) && isAllowedDataUrl(v)) return;
+  if (v.startsWith('#')) {
+    return;
+  }
+  if (DATA_HREF_ELEMENTS.has(el) && /^data:image\//i.test(v) && isAllowedDataUrl(v)) {
+    return;
+  }
   add(`外部を指す href(<${el}>)`);
 }
 
@@ -667,8 +767,12 @@ const STRING_ARG_SAFE_FUNCTIONS = new Set([
 function isFragmentOnly(value: string): boolean {
   let start = 0;
   let end = value.length;
-  while (start < end && value.charCodeAt(start) <= 0x20) start++;
-  while (end > start && value.charCodeAt(end - 1) <= 0x20) end--;
+  while (start < end && value.charCodeAt(start) <= 0x20) {
+    start++;
+  }
+  while (end > start && value.charCodeAt(end - 1) <= 0x20) {
+    end--;
+  }
   const v = value.slice(start, end);
   return v.startsWith('#') && !/[\s\p{Cc}]/u.test(v);
 }
@@ -685,15 +789,23 @@ function isFragmentOnly(value: string): boolean {
  * `initial-value` の値の文字列も対象にする(`collectCssStringsInFunctions`)。
  */
 function checkCss(css: string, where: string, add: Report): void {
-  if (findExternalRefsInCss(css).length > 0) add(`外部参照を含む CSS(${where})`);
+  if (findExternalRefsInCss(css).length > 0) {
+    add(`外部参照を含む CSS(${where})`);
+  }
   const allowFont = where === 'style 要素';
   const bad = collectCssUrlSpansInContext(css).some((span) => {
-    if (span.inNamespacePrelude || isFragmentOnly(span.value)) return false;
+    if (span.inNamespacePrelude || isFragmentOnly(span.value)) {
+      return false;
+    }
     return !(allowFont && span.inFontFaceSrc && isEmbeddedFontData(span.value));
   });
-  if (bad) add(`url() が #id 以外を指す(${where})`);
+  if (bad) {
+    add(`url() が #id 以外を指す(${where})`);
+  }
   const badString = collectCssStringsInFunctions(css).some(
     (s) => !STRING_ARG_SAFE_FUNCTIONS.has(s.fn) && !isFragmentOnly(s.value),
   );
-  if (badString) add(`引用符の文字列が #id 以外を指す(${where})`);
+  if (badString) {
+    add(`引用符の文字列が #id 以外を指す(${where})`);
+  }
 }

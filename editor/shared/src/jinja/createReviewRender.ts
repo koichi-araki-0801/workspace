@@ -69,14 +69,16 @@ export function renderCreateReview(
   const src = stripLeadingBom(html);
   const sourceKeys = partKeysOf(src);
   const [issue] = findReviewableIssues(src, { document: true });
-  if (issue !== undefined)
+  if (issue !== undefined) {
     throw validation(`${reviewableIssueMessage(issue.code)}（位置 ${issue.at}）`, {
       code: 'REVIEW_SOURCE_UNREVIEWABLE',
     });
+  }
   const head = headFixedSources(src);
   const base = headFixedSources(stripLeadingBom(baselineHtml));
-  if (head.length !== base.length || head.some((h, i) => h !== base[i]))
+  if (head.length !== base.length || head.some((h, i) => h !== base[i])) {
     throw validation(HEAD_CHANGED_MESSAGE);
+  }
   let rendered: ReturnType<typeof renderPlainFilled>;
   try {
     rendered = renderPlainFilled(src, sample, {
@@ -85,19 +87,22 @@ export function renderCreateReview(
       maxOutputChars: MAX_DOCUMENT_HTML_CHARS,
     });
   } catch (cause) {
-    if (cause instanceof JinjaRenderSyntaxError)
+    if (cause instanceof JinjaRenderSyntaxError) {
       throw validation(`Jinja の書き方を読めないため申請できません（位置 ${cause.at}）`, { cause });
+    }
     throw cause;
   }
   const { diagnostics } = rendered;
-  if (diagnostics.limitReached || rendered.html.length > MAX_DOCUMENT_HTML_CHARS)
+  if (diagnostics.limitReached || rendered.html.length > MAX_DOCUMENT_HTML_CHARS) {
     throw validation(RENDER_LIMIT_MESSAGE);
+  }
   const renderedKeys = partKeysOf(rendered.html);
   if (
     sourceKeys.length !== renderedKeys.length ||
     sourceKeys.some((key, i) => key !== renderedKeys[i])
-  )
+  ) {
     throw validation('Jinja原文と描画結果のパーツ構造が一致しません');
+  }
   return {
     renderedHtml: rendered.html,
     renderNotes: {

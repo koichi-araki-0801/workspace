@@ -366,7 +366,9 @@ for (const shape of [
     // 初めは先頭から 50 行だけを描く。
     await expect.poll(() => renderedRange(scroller)).toEqual([1, 50]);
     // 不揃いの申請では行の高さが揃っていない(長い段落の行が数行に折り返す)。
-    if (shape.uneven) expect(await rowHeightKinds(scroller)).toBeGreaterThan(1);
+    if (shape.uneven) {
+      expect(await rowHeightKinds(scroller)).toBeGreaterThan(1);
+    }
 
     // 下へ進める。150 行を超えると上から外す(先頭の番号が進む)。どの一歩でも目印の行は動かない。
     const drifts: string[] = [];

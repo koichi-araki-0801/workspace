@@ -160,10 +160,16 @@ const out = (src: string) => revealOutput(src, DATA, new JinjaBudget());
 describe('revealOutput — Python Jinja2 の出力に合わせる', () => {
   it.each(PY)('%s', (src, py) => {
     const r = out(src);
-    if (MUST_VALUE.has(src)) expect(r.kind, src).toBe('value');
-    if (r.kind === 'value') expect(r.text).toBe(py);
+    if (MUST_VALUE.has(src)) {
+      expect(r.kind, src).toBe('value');
+    }
+    if (r.kind === 'value') {
+      expect(r.text).toBe(py);
+    }
     // Python がメソッドの repr・エラーを出す形は、値で描かない。
-    if (py === '<method>' || py.startsWith('ERR ')) expect(r.kind).toBe('source');
+    if (py === '<method>' || py.startsWith('ERR ')) {
+      expect(r.kind).toBe('source');
+    }
   });
 
   it('|safe の印を返し、未定義を missing に数える', () => {

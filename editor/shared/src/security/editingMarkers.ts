@@ -96,9 +96,15 @@ function readAttrs(html: string, from: number, at: number, onAttr: AttrSink | nu
   const n = html.length;
   let j = from;
   for (;;) {
-    while (j < n && (isHtmlSpace(html[j]) || html[j] === '/')) j++;
-    if (j >= n) return -1;
-    if (html[j] === '>') return j + 1;
+    while (j < n && (isHtmlSpace(html[j]) || html[j] === '/')) {
+      j++;
+    }
+    if (j >= n) {
+      return -1;
+    }
+    if (html[j] === '>') {
+      return j + 1;
+    }
     const attr = readAttr(html, j, n);
     onAttr?.(attr.name, attr.value ?? '', at);
     j = attr.next;
@@ -128,19 +134,26 @@ function scanStartTags(html: string, onAttr: AttrSink, skipComments: boolean): v
     if (isAsciiAlpha(c1)) {
       const at = i + 1;
       let j = at;
-      while (j < html.length && !isTagNameEnd(html[j])) j++;
+      while (j < html.length && !isTagNameEnd(html[j])) {
+        j++;
+      }
       const tagName = lower.slice(at, j);
       next = readAttrs(html, j, at, onAttr);
       // 閉じタグが無ければ伏せずに先を読み続ける(見落としより誤検出の側へ倒す)。
       if (next !== -1 && RAW_TEXT_ELEMENTS.has(tagName) && !unclosed.has(tagName)) {
         const end = findRawTextEnd(lower, tagName, next).at;
-        if (end === -1) unclosed.add(tagName);
-        else next = end;
+        if (end === -1) {
+          unclosed.add(tagName);
+        } else {
+          next = end;
+        }
       }
     } else if (c1 === '/' && isAsciiAlpha(html[i + 2])) {
       // 終了タグ。属性はブラウザが捨てるので報告しないが、引用符の範囲は同じく読み飛ばす。
       let j = i + 2;
-      while (j < html.length && !isTagNameEnd(html[j])) j++;
+      while (j < html.length && !isTagNameEnd(html[j])) {
+        j++;
+      }
       next = readAttrs(html, j, i + 2, null);
     } else if (html.startsWith('!--', i + 1)) {
       next = skipComments ? commentEnd(html, i + 4, commentSeen) : i + 4;
@@ -151,7 +164,9 @@ function scanStartTags(html: string, onAttr: AttrSink, skipComments: boolean): v
     } else {
       next = i + 1;
     }
-    if (next === -1) return;
+    if (next === -1) {
+      return;
+    }
     i = html.indexOf('<', next);
   }
 }
@@ -197,7 +212,9 @@ function jinjaRangesShortest(html: string): Range[] {
  * (`web/src/lib/htmlScan.ts` の `maskJinja`)も同じ伏せ方で読むので、ここを共有する。
  */
 export function maskRanges(html: string, ranges: readonly Range[], fill: string): string {
-  if (ranges.length === 0) return html;
+  if (ranges.length === 0) {
+    return html;
+  }
   const parts: string[] = [];
   let last = 0;
   for (const r of ranges) {
@@ -214,10 +231,12 @@ export function maskRanges(html: string, ranges: readonly Range[], fill: string)
 
 export function findEditingMarkers(html: string): EditingMarkerHit[] {
   const hits: EditingMarkerHit[] = [];
-  for (const m of html.matchAll(COMMENT_RE))
+  for (const m of html.matchAll(COMMENT_RE)) {
     hits.push({ marker: 'comment:jinja-rt', index: m.index });
-  for (const m of html.matchAll(PLACEHOLDER_RE))
+  }
+  for (const m of html.matchAll(PLACEHOLDER_RE)) {
     hits.push({ marker: 'placeholder', index: m.index });
+  }
   // 作成経路の本文は Jinja の原文で、エディタは Jinja を伏せてから読む。`{# <!-- #}` や
   // `{{ '<a title="' }}` のように Jinja の中の `<` や引用符が見かけのコメント・タグを作ると、原文を
   // ブラウザどおりに読むだけではその後ろの本物のタグを見落とす。そこで Jinja を伏せた写しも読む。
@@ -229,16 +248,25 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
   const onAttr: AttrSink = (name, value, at) => {
     const push = (marker: string) => {
       const key = `${marker}@${at}`;
-      if (seen.has(key)) return;
+      if (seen.has(key)) {
+        return;
+      }
       seen.add(key);
       hits.push({ marker, index: at });
     };
-    if ((EDITING_MARKER_ATTRS as readonly string[]).includes(name)) push(`attr:${name}`);
-    if (name === 'data-gjs-type' && value.toLowerCase().startsWith('jinja-'))
+    if ((EDITING_MARKER_ATTRS as readonly string[]).includes(name)) {
+      push(`attr:${name}`);
+    }
+    if (name === 'data-gjs-type' && value.toLowerCase().startsWith('jinja-')) {
       push('gjs-type:jinja');
-    if (name === 'class')
-      for (const c of MARKER_CLASSES)
-        if (value.split(HTML_SPACE_RUN).includes(c)) push(`class:${c}`);
+    }
+    if (name === 'class') {
+      for (const c of MARKER_CLASSES) {
+        if (value.split(HTML_SPACE_RUN).includes(c)) {
+          push(`class:${c}`);
+        }
+      }
+    }
   };
   scanStartTags(html, onAttr, true);
   // 区切り 2 通り × 伏せ字 2 通り。エディタ(`web/src/lib/htmlScan.ts` の `maskJinja`)は `J` で
@@ -250,10 +278,15 @@ export function findEditingMarkers(html: string): EditingMarkerHit[] {
   const shortest = jinjaRangesShortest(html);
   const rangeSets = lexed.ok ? [lexed.tokens, shortest] : [shortest];
   const copies = new Set<string>();
-  for (const ranges of rangeSets)
-    for (const fill of [' ', 'J']) copies.add(maskRanges(html, ranges, fill));
+  for (const ranges of rangeSets) {
+    for (const fill of [' ', 'J']) {
+      copies.add(maskRanges(html, ranges, fill));
+    }
+  }
   for (const masked of copies) {
-    if (masked !== html) scanStartTags(masked, onAttr, true);
+    if (masked !== html) {
+      scanStartTags(masked, onAttr, true);
+    }
     scanStartTags(masked, onAttr, false);
   }
   return hits.sort((x, y) => x.index - y.index);
@@ -267,7 +300,9 @@ export function editingMarkerMessage(
   hits: readonly EditingMarkerHit[],
   templateId: string,
 ): string | null {
-  if (hits.length === 0) return null;
+  if (hits.length === 0) {
+    return null;
+  }
   const kinds = [...new Set(hits.map((h) => h.marker))].join(', ');
   return `申請本文に編集用の印(${kinds})が残っています。編集画面を開き直してから申請してください: ${templateId}`;
 }

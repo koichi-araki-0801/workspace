@@ -50,11 +50,15 @@ const FORBIDDEN_SEGMENTS: ReadonlySet<string> = new Set(['__proto__', 'construct
 /** ドット区切りのパスへ値を置く。途中が object でなければ作る。原型汚染になる語を含むパスは無視する。 */
 function setPath(root: Record<string, unknown>, dotted: string, value: unknown): void {
   const segments = dotted.split('.');
-  if (segments.some((s) => s === '' || FORBIDDEN_SEGMENTS.has(s))) return;
+  if (segments.some((s) => s === '' || FORBIDDEN_SEGMENTS.has(s))) {
+    return;
+  }
   let cur = root;
   for (const seg of segments.slice(0, -1)) {
     const next = cur[seg];
-    if (next === null || typeof next !== 'object' || Array.isArray(next)) cur[seg] = {};
+    if (next === null || typeof next !== 'object' || Array.isArray(next)) {
+      cur[seg] = {};
+    }
     cur = cur[seg] as Record<string, unknown>;
   }
   cur[segments[segments.length - 1] as string] = value;
@@ -73,9 +77,15 @@ export function buildSampleData(
 ): SampleData {
   const out = JSON.parse(JSON.stringify(base)) as SampleData;
   setPath(out, keys.fundCode, fundCode);
-  if (master?.fundName !== undefined) setPath(out, keys.fundName, master.fundName);
-  if (master?.companyCode !== undefined) setPath(out, keys.companyCode, master.companyCode);
-  if (master?.companyName !== undefined) setPath(out, keys.companyName, master.companyName);
+  if (master?.fundName !== undefined) {
+    setPath(out, keys.fundName, master.fundName);
+  }
+  if (master?.companyCode !== undefined) {
+    setPath(out, keys.companyCode, master.companyCode);
+  }
+  if (master?.companyName !== undefined) {
+    setPath(out, keys.companyName, master.companyName);
+  }
   return out;
 }
 

@@ -42,8 +42,9 @@ test('編集タブ: placeholder が入力欄に収まる', async ({ page }) => {
   await page.getByText('ファンドコード').first().waitFor();
   const fields = await placeholderFits(page);
   expect(fields.length).toBeGreaterThanOrEqual(2);
-  for (const f of fields)
+  for (const f of fields) {
     expect(f.need, `${f.placeholder} が入力欄に収まらない`).toBeLessThanOrEqual(f.have);
+  }
 });
 
 test('比較タブ: 5 列でも placeholder が収まり、フィールド行が折り返さない', async ({ page }) => {
@@ -53,8 +54,9 @@ test('比較タブ: 5 列でも placeholder が収まり、フィールド行が
 
   const fields = await placeholderFits(page);
   expect(fields.length).toBeGreaterThanOrEqual(2);
-  for (const f of fields)
+  for (const f of fields) {
     expect(f.need, `${f.placeholder} が入力欄に収まらない`).toBeLessThanOrEqual(f.have);
+  }
 
   // 比較タブの絞り込みバーはフィールド 5 列 + `basis-full` のボタン行。フィールドどうしが
   // 折り返していないこと(= 上端が 1 種類)を見る。ボタン行は常に次行なので除く。
@@ -62,7 +64,9 @@ test('比較タブ: 5 列でも placeholder が収まり、フィールド行が
     const labels = Array.from(document.querySelectorAll('label'));
     const target = labels.find((l) => (l.textContent ?? '').includes('ファンドコード'));
     const row = target?.closest('div')?.parentElement;
-    if (!row) return -1;
+    if (!row) {
+      return -1;
+    }
     const tops = Array.from(row.children)
       .filter((c) => c.querySelector('input, [role="combobox"], button[aria-haspopup]'))
       .map((c) => Math.round(c.getBoundingClientRect().top));
@@ -82,7 +86,9 @@ test('編集タブ: 検索・クリアがフィールドと同じ行に並ぶ', 
       (b) => b.textContent?.trim() === '検索',
     );
     const field = document.querySelector('input[placeholder*="入力"]');
-    if (!button || !field) return null;
+    if (!button || !field) {
+      return null;
+    }
     const dy = button.getBoundingClientRect().top - field.getBoundingClientRect().top;
     return Math.abs(dy) < 20;
   });

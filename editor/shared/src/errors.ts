@@ -109,6 +109,8 @@ export function isAppError(value: unknown): value is AppError {
  * 公開している引数。
  */
 export function toAppError(cause: unknown, fallbackKind: AppErrorKind = 'unexpected'): AppError {
-  if (isAppError(cause)) return cause;
+  if (isAppError(cause)) {
+    return cause;
+  }
   return { kind: fallbackKind, message: DEFAULT_ERROR_MESSAGE, cause };
 }

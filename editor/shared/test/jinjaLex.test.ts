@@ -3,7 +3,9 @@ import { JINJA_DELIMS, jinjaCloserOf, lexJinja } from '../src/jinja/jinjaLex';
 
 const toks = (s: string) => {
   const r = lexJinja(s);
-  if (!r.ok) throw new Error(r.error.message);
+  if (!r.ok) {
+    throw new Error(r.error.message);
+  }
   return r.tokens.map((t) => [t.kind, t.source, t.keyword, t.trimLeft, t.trimRight]);
 };
 
@@ -83,6 +85,8 @@ describe('JINJA_DELIMS / jinjaCloserOf', () => {
   });
 
   it('Jinja の開き記号でなければ undefined', () => {
-    for (const s of ['{', '{x', '}}', '', '{{{']) expect(jinjaCloserOf(s)).toBeUndefined();
+    for (const s of ['{', '{x', '}}', '', '{{{']) {
+      expect(jinjaCloserOf(s)).toBeUndefined();
+    }
   });
 });

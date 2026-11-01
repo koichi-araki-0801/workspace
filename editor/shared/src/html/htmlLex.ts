@@ -49,13 +49,25 @@ export function newCommentEndMemo(): CommentEndMemo {
  * コメントとみなすかは走査器ごとに違うので、-1 のまま返して呼び出し側に決めさせる。
  */
 export function commentEnd(src: string, from: number, memo: CommentEndMemo): number {
-  if (src.startsWith('>', from)) return from + 1;
-  if (src.startsWith('->', from)) return from + 2;
-  if (memo.dash !== -1 && memo.dash < from) memo.dash = src.indexOf('-->', from);
-  if (memo.bang !== -1 && memo.bang < from) memo.bang = src.indexOf('--!>', from);
+  if (src.startsWith('>', from)) {
+    return from + 1;
+  }
+  if (src.startsWith('->', from)) {
+    return from + 2;
+  }
+  if (memo.dash !== -1 && memo.dash < from) {
+    memo.dash = src.indexOf('-->', from);
+  }
+  if (memo.bang !== -1 && memo.bang < from) {
+    memo.bang = src.indexOf('--!>', from);
+  }
   const { dash, bang } = memo;
-  if (dash === -1 && bang === -1) return -1;
-  if (bang === -1 || (dash !== -1 && dash < bang)) return dash + 3;
+  if (dash === -1 && bang === -1) {
+    return -1;
+  }
+  if (bang === -1 || (dash !== -1 && dash < bang)) {
+    return dash + 3;
+  }
   return bang + 4;
 }
 
@@ -78,21 +90,33 @@ export function readAttr(src: string, i: number, end: number): ReadAttrResult {
   let k = i + 1;
   while (k < end) {
     const c = src[k];
-    if (isHtmlSpace(c) || c === '/' || c === '=' || c === '>') break;
+    if (isHtmlSpace(c) || c === '/' || c === '=' || c === '>') {
+      break;
+    }
     k++;
   }
   const name = src.slice(start, k).toLowerCase();
-  while (k < end && isHtmlSpace(src[k])) k++;
-  if (k >= end || src[k] !== '=') return { name, value: null, next: k };
+  while (k < end && isHtmlSpace(src[k])) {
+    k++;
+  }
+  if (k >= end || src[k] !== '=') {
+    return { name, value: null, next: k };
+  }
   k++;
-  while (k < end && isHtmlSpace(src[k])) k++;
+  while (k < end && isHtmlSpace(src[k])) {
+    k++;
+  }
   const quote = k < end ? src[k] : undefined;
   if (quote === '"' || quote === "'") {
     const close = src.indexOf(quote, k + 1);
-    if (close === -1 || close >= end) return { name, value: src.slice(k + 1, end), next: end };
+    if (close === -1 || close >= end) {
+      return { name, value: src.slice(k + 1, end), next: end };
+    }
     return { name, value: src.slice(k + 1, close), next: close + 1 };
   }
   const valueStart = k;
-  while (k < end && !isHtmlSpace(src[k]) && src[k] !== '>') k++;
+  while (k < end && !isHtmlSpace(src[k]) && src[k] !== '>') {
+    k++;
+  }
   return { name, value: src.slice(valueStart, k), next: k };
 }

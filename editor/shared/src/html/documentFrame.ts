@@ -79,11 +79,17 @@ export function findDocumentFrameIssue(
   opts: { jinja: boolean; requireBody: boolean },
 ): DocumentFrameIssue | null {
   const frame = documentFrameOf(html);
-  if (opts.requireBody && !frame.hasBody) return { code: 'no-body' };
+  if (opts.requireBody && !frame.hasBody) {
+    return { code: 'no-body' };
+  }
   const at = findSkeletonTagInBody(stripLeadingBom(html), frame, opts);
-  if (at !== null) return { code: 'skeleton-in-body', at };
+  if (at !== null) {
+    return { code: 'skeleton-in-body', at };
+  }
   const base = documentFrameOf(baselineHtml);
-  if (frame.before !== base.before || frame.after !== base.after) return { code: 'frame-changed' };
+  if (frame.before !== base.before || frame.after !== base.after) {
+    return { code: 'frame-changed' };
+  }
   return null;
 }
 

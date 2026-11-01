@@ -245,7 +245,9 @@ describe('BOM と文言', () => {
       'skeleton',
       'control-char',
     ];
-    for (const c of all) expect(reviewableIssueMessage(c).length).toBeGreaterThan(10);
+    for (const c of all) {
+      expect(reviewableIssueMessage(c).length).toBeGreaterThan(10);
+    }
   });
 
   it('Jinja として読めない原文は空を返す(受付の描画が理由を返す)', () => {

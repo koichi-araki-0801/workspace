@@ -25,7 +25,9 @@ test('入れ子の @font-face は編集して保存しても下書きの CSS に
       const tpl = (await res.json()) as { html: string; css: string; filled?: string };
       tpl.css = CSS;
       tpl.html = swap(tpl.html);
-      if (tpl.filled) tpl.filled = swap(tpl.filled);
+      if (tpl.filled) {
+        tpl.filled = swap(tpl.filled);
+      }
       await route.fulfill({ response: res, json: tpl });
     },
   );

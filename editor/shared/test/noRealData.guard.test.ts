@@ -71,8 +71,9 @@ describe('テストデータに実データを戻さない', () => {
           WORDS.some((w) => line.includes(w)) ||
           COMPANY_CODES.test(line) ||
           FUND_CODES.test(line)
-        )
+        ) {
           hits.push(`${f}:${i + 1}`);
+        }
       });
     }
     expect(hits).toEqual([]);

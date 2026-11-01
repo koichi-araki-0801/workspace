@@ -62,7 +62,9 @@ describe('round-trip', () => {
   it('parse -> templateFileName reproduces the original filename', () => {
     const attrs = parseTemplateFileName(SAMPLE_FILE);
     expect(attrs).toEqual(SAMPLE);
-    if (attrs) expect(templateFileName(attrs)).toBe(SAMPLE_FILE);
+    if (attrs) {
+      expect(templateFileName(attrs)).toBe(SAMPLE_FILE);
+    }
   });
 
   it('attributes -> filename -> id is stable', () => {

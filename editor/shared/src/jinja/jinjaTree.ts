@@ -72,8 +72,12 @@ const OPAQUE_KEYWORDS = new Set(['macro', 'call', 'filter', 'block', 'with', 'au
 
 /** 中身を木にしないブロックの開きか。`set` は代入を持たない形(ブロック形)だけ。 */
 function opensOpaque(tok: JinjaToken): boolean {
-  if (tok.keyword === null) return false;
-  if (OPAQUE_KEYWORDS.has(tok.keyword)) return true;
+  if (tok.keyword === null) {
+    return false;
+  }
+  if (OPAQUE_KEYWORDS.has(tok.keyword)) {
+    return true;
+  }
   return tok.keyword === 'set' && !tok.body.includes('=');
 }
 
@@ -88,7 +92,9 @@ const OPEN_BLOCK_KEYWORDS = new Set(['if', 'for', 'raw', 'verbatim']);
  */
 export function countJinjaBlockOpens(src: string): number | null {
   const lexed = lexJinja(src);
-  if (!lexed.ok) return null;
+  if (!lexed.ok) {
+    return null;
+  }
   return lexed.tokens.filter(
     (t) => t.kind === 'stmt' && (OPEN_BLOCK_KEYWORDS.has(t.keyword ?? '') || opensOpaque(t)),
   ).length;
@@ -109,7 +115,9 @@ function newBranch(tag: JinjaToken): JinjaBranch {
 
 export function parseJinja(src: string): ParseResult {
   const lexed = lexJinja(src);
-  if (!lexed.ok) return lexed;
+  if (!lexed.ok) {
+    return lexed;
+  }
   const { tokens } = lexed;
   const fail = (message: string, at: number): ParseResult => ({
     ok: false,
@@ -128,14 +136,17 @@ export function parseJinja(src: string): ParseResult {
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     const f = top();
-    if (f.kind !== 'opaque' && tok.start > pos) push({ type: 'text', start: pos, end: tok.start });
+    if (f.kind !== 'opaque' && tok.start > pos) {
+      push({ type: 'text', start: pos, end: tok.start });
+    }
     pos = tok.end;
     const kw = tok.kind === 'stmt' ? tok.keyword : null;
 
     if (f.kind === 'opaque') {
       const name = f.open?.keyword;
-      if (kw && opensOpaque(tok) && kw === name) f.depth++;
-      else if (kw === `end${name}` && --f.depth === 0) {
+      if (kw && opensOpaque(tok) && kw === name) {
+        f.depth++;
+      } else if (kw === `end${name}` && --f.depth === 0) {
         stack.pop();
         push({
           type: 'opaqueBlock',
@@ -155,19 +166,28 @@ export function parseJinja(src: string): ParseResult {
     if (kw === 'if' || kw === 'for') {
       stack.push({ kind: kw, open: tok, branches: [newBranch(tok)], seenElse: false, depth: 0 });
     } else if (kw === 'elif' || kw === 'elseif') {
-      if (f.kind !== 'if') return fail(`対応する if が無い ${kw}`, tok.start);
-      if (f.seenElse) return fail(`else の後の ${kw}`, tok.start);
+      if (f.kind !== 'if') {
+        return fail(`対応する if が無い ${kw}`, tok.start);
+      }
+      if (f.seenElse) {
+        return fail(`else の後の ${kw}`, tok.start);
+      }
       cur(f).bodyEnd = tok.start;
       f.branches.push(newBranch(tok));
     } else if (kw === 'else') {
-      if (f.kind !== 'if' && f.kind !== 'for')
+      if (f.kind !== 'if' && f.kind !== 'for') {
         return fail('対応する if / for が無い else', tok.start);
-      if (f.seenElse) return fail('2 個目の else', tok.start);
+      }
+      if (f.seenElse) {
+        return fail('2 個目の else', tok.start);
+      }
       f.seenElse = true;
       cur(f).bodyEnd = tok.start;
       f.branches.push(newBranch(tok));
     } else if (kw === 'endif' || kw === 'endfor') {
-      if (f.kind !== kw.slice(3)) return fail(`対応しない ${kw}`, tok.start);
+      if (f.kind !== kw.slice(3)) {
+        return fail(`対応しない ${kw}`, tok.start);
+      }
       cur(f).bodyEnd = tok.start;
       stack.pop();
       const open = f.open as JinjaToken;
@@ -186,7 +206,9 @@ export function parseJinja(src: string): ParseResult {
       }
     } else if (kw === 'raw' || kw === 'verbatim') {
       const close = tokens[i + 1];
-      if (!close || close.keyword !== `end${kw}`) return fail(`閉じていない ${kw}`, tok.start);
+      if (!close || close.keyword !== `end${kw}`) {
+        return fail(`閉じていない ${kw}`, tok.start);
+      }
       push({ type: 'raw', open: tok, close, start: tok.start, end: close.end });
       pos = close.end;
       i++;
@@ -210,6 +232,8 @@ export function parseJinja(src: string): ParseResult {
     const open = last.open as JinjaToken;
     return fail(`閉じていない ${open.keyword}`, open.start);
   }
-  if (pos < src.length) push({ type: 'text', start: pos, end: src.length });
+  if (pos < src.length) {
+    push({ type: 'text', start: pos, end: src.length });
+  }
   return { ok: true, nodes: last.branches[0].children, tokens };
 }

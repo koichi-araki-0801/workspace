@@ -9,7 +9,9 @@ const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 
 function lexOrThrow(source: string): JinjaToken[] {
   const r = lexJinja(source);
-  if (!r.ok || r.tokens.length < 1) throw new Error(`読めない: ${source}`);
+  if (!r.ok || r.tokens.length < 1) {
+    throw new Error(`読めない: ${source}`);
+  }
   return r.tokens;
 }
 
@@ -107,7 +109,9 @@ describe('fixture のテキストの位置の Jinja はすべて不活性', () =
   it.each(sources)('%s', (_name, html) => {
     const r = lexJinja(html);
     expect(r.ok).toBe(true);
-    if (!r.ok) return;
+    if (!r.ok) {
+      return;
+    }
     // 文脈で絞らず全トークンを見る(属性値の中の `data-rank="{{ loop.index }}"` も不活性の形)。
     // 文脈ごとの単位の数は `server/test/templateScripts.test.ts` が fixture で固定している。
     const judge = new InertJinjaJudge(r.tokens);

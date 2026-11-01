@@ -11,7 +11,9 @@
 export function b64encodeUtf8(s: string): string {
   const bytes = new TextEncoder().encode(s);
   let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
+  for (const b of bytes) {
+    bin += String.fromCharCode(b);
+  }
   return btoa(bin);
 }
 

@@ -4,7 +4,11 @@ import { isAllowedSafeMarkup, textPositions } from '../src/jinja/safeMarkup';
 /** `html` の中の `@` の位置のうち、テキストの位置と判定されたものの番号(0 始まり)。 */
 const marks = (html: string) => {
   const at: number[] = [];
-  for (let i = 0; i < html.length; i++) if (html[i] === '@') at.push(i);
+  for (let i = 0; i < html.length; i++) {
+    if (html[i] === '@') {
+      at.push(i);
+    }
+  }
   const text = textPositions(html, at);
   return at.flatMap((p, k) => (text.has(p) ? [k] : []));
 };

@@ -36,7 +36,9 @@ test('Chromium の GrapesJS 0.23.8 の書き出しと原文で CSS 規則のキ�
   const outs = await page.evaluate((cases) => {
     // biome-ignore lint/suspicious/noExplicitAny: ページ側のグローバル(型を持たない)
     const g = (window as any).grapesjs;
-    if (g.version !== '0.23.8') throw new Error(`grapesjs ${g.version}`);
+    if (g.version !== '0.23.8') {
+      throw new Error(`grapesjs ${g.version}`);
+    }
     const ed = g.init({
       container: '#gjs',
       fromElement: false,

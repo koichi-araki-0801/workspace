@@ -454,7 +454,9 @@ test.describe('申請カードの操作', () => {
     // 判定の並びは保存の順に依るので、件数と中身だけを見る。
     const stored = body.partDecisions ?? [];
     expect(stored).toHaveLength(2);
-    for (const d of stored) expect([d.status, d.comment]).toEqual(['rejected', reason]);
+    for (const d of stored) {
+      expect([d.status, d.comment]).toEqual(['rejected', reason]);
+    }
   });
 
   test('すべて判定すると最終確定でき、却下したパーツは現行版のまま確定される', async ({ page }) => {
@@ -498,16 +500,24 @@ test.describe('1400px の画面', () => {
   test('1400px の画面でも左右の紙面のフィット倍率が下限に張り付かない', async ({ page }) => {
     test.setTimeout(180_000);
     await page.addInitScript(() => {
-      if (window.top !== window) return;
+      if (window.top !== window) {
+        return;
+      }
       const w = window as unknown as { __e2eZoom: Record<string, number> };
       w.__e2eZoom = {};
       window.addEventListener('message', (e) => {
         const d = e.data as { type?: string; state?: { ready?: boolean; zoom?: number } } | null;
-        if (d?.type !== 'editor:preview-state' || d.state?.ready !== true) return;
+        if (d?.type !== 'editor:preview-state' || d.state?.ready !== true) {
+          return;
+        }
         for (const f of document.querySelectorAll('iframe')) {
-          if (f.contentWindow !== e.source) continue;
+          if (f.contentWindow !== e.source) {
+            continue;
+          }
           const side = f.closest('[data-side]')?.getAttribute('data-side');
-          if (side) w.__e2eZoom[side] = Number(d.state.zoom);
+          if (side) {
+            w.__e2eZoom[side] = Number(d.state.zoom);
+          }
         }
       });
     });

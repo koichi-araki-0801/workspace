@@ -96,13 +96,17 @@ export function parseRevealPath(src: string): RevealPath | null {
     s = s.replace(/^\s+/, '');
   };
   const root = IDENT_RE.exec(s)?.[0];
-  if (root === undefined || KEYWORDS.has(root)) return null;
+  if (root === undefined || KEYWORDS.has(root)) {
+    return null;
+  }
   s = s.slice(root.length);
   const steps: Step[] = [];
   const filters: string[] = [];
   for (;;) {
     ws();
-    if (s === '') break;
+    if (s === '') {
+      break;
+    }
     if (s.startsWith('.')) {
       s = s.slice(1);
       ws();
@@ -113,7 +117,9 @@ export function parseRevealPath(src: string): RevealPath | null {
         continue;
       }
       const n = INT_RE.exec(s)?.[0];
-      if (n === undefined || Number(n) > MAX_INDEX) return null;
+      if (n === undefined || Number(n) > MAX_INDEX) {
+        return null;
+      }
       steps.push({ kind: 'index', index: Number(n) });
       s = s.slice(n.length);
       continue;
@@ -124,15 +130,21 @@ export function parseRevealPath(src: string): RevealPath | null {
       const n = INT_RE.exec(s)?.[0];
       const str = STR_RE.exec(s);
       if (n !== undefined) {
-        if (Number(n) > MAX_INDEX) return null;
+        if (Number(n) > MAX_INDEX) {
+          return null;
+        }
         steps.push({ kind: 'index', index: Number(n) });
         s = s.slice(n.length);
       } else if (str) {
         steps.push({ kind: 'key', name: str[1] ?? str[2] ?? '' });
         s = s.slice(str[0].length);
-      } else return null;
+      } else {
+        return null;
+      }
       ws();
-      if (!s.startsWith(']')) return null;
+      if (!s.startsWith(']')) {
+        return null;
+      }
       s = s.slice(1);
       continue;
     }
@@ -140,14 +152,18 @@ export function parseRevealPath(src: string): RevealPath | null {
       s = s.slice(1);
       ws();
       const f = IDENT_RE.exec(s)?.[0];
-      if (f === undefined || !REVEAL_FILTERS.has(f)) return null;
+      if (f === undefined || !REVEAL_FILTERS.has(f)) {
+        return null;
+      }
       s = s.slice(f.length);
       ws();
       // 引数は空の括弧だけを受ける(`default("…")` などの引数つきは原文で出す)。
       if (s.startsWith('(')) {
         s = s.slice(1);
         ws();
-        if (!s.startsWith(')')) return null;
+        if (!s.startsWith(')')) {
+          return null;
+        }
         s = s.slice(1);
       }
       filters.push(f);
@@ -211,31 +227,49 @@ const isDict = (v: unknown): v is Record<string, unknown> =>
 
 /** 1 段の参照。値・未定義(`undefined`)・原文で出す印のどれか。 */
 function step(value: unknown, s: Step): unknown {
-  if (value === REVEAL_UNBOUND || value === undefined) return REVEAL_SOURCE;
-  if (value === null) return undefined;
+  if (value === REVEAL_UNBOUND || value === undefined) {
+    return REVEAL_SOURCE;
+  }
+  if (value === null) {
+    return undefined;
+  }
   if (typeof value === 'object' && LOOP_OBJECTS.has(value)) {
-    if (s.kind === 'index' || !Object.hasOwn(value, s.name)) return REVEAL_SOURCE;
+    if (s.kind === 'index' || !Object.hasOwn(value, s.name)) {
+      return REVEAL_SOURCE;
+    }
     return (value as Record<string, unknown>)[s.name];
   }
   if (s.kind === 'index') {
-    if (Array.isArray(value)) return s.index < value.length ? value[s.index] : undefined;
-    if (typeof value === 'string') return REVEAL_SOURCE;
+    if (Array.isArray(value)) {
+      return s.index < value.length ? value[s.index] : undefined;
+    }
+    if (typeof value === 'string') {
+      return REVEAL_SOURCE;
+    }
     return undefined;
   }
   const { name } = s;
   if (isDict(value)) {
     // `a.b` は Python の getattr が先(dict のメソッドがキーに勝つ)。`a["b"]` は getitem が先。
     const own = Object.hasOwn(value, name);
-    if (s.kind === 'name' ? DICT_ATTRS.has(name) : !own && DICT_ATTRS.has(name))
+    if (s.kind === 'name' ? DICT_ATTRS.has(name) : !own && DICT_ATTRS.has(name)) {
       return REVEAL_SOURCE;
-    if (!own) return undefined;
+    }
+    if (!own) {
+      return undefined;
+    }
     const v = value[name];
     return typeof v === 'function' ? REVEAL_SOURCE : v;
   }
-  if (Array.isArray(value)) return LIST_ATTRS.has(name) ? REVEAL_SOURCE : undefined;
-  if (typeof value === 'string') return STR_ATTRS.has(name) ? REVEAL_SOURCE : undefined;
-  if (typeof value === 'number' || typeof value === 'boolean')
+  if (Array.isArray(value)) {
+    return LIST_ATTRS.has(name) ? REVEAL_SOURCE : undefined;
+  }
+  if (typeof value === 'string') {
+    return STR_ATTRS.has(name) ? REVEAL_SOURCE : undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
     return NUM_ATTRS.has(name) ? REVEAL_SOURCE : undefined;
+  }
   return REVEAL_SOURCE;
 }
 
@@ -246,11 +280,15 @@ function step(value: unknown, s: Step): unknown {
 export function revealValue(path: RevealPath, ctx: JinjaCtx, budget: JinjaBudget): unknown {
   const root = lookupJinjaName(ctx, path.root, budget);
   let value: unknown = root.found ? root.value : undefined;
-  if (value === REVEAL_UNBOUND) return REVEAL_SOURCE;
+  if (value === REVEAL_UNBOUND) {
+    return REVEAL_SOURCE;
+  }
   for (const s of path.steps) {
     budget.charge(1);
     value = step(value, s);
-    if (value === REVEAL_SOURCE) return REVEAL_SOURCE;
+    if (value === REVEAL_SOURCE) {
+      return REVEAL_SOURCE;
+    }
   }
   return value;
 }
@@ -262,7 +300,11 @@ const NOT_PRINTABLE_RE = /[\p{C}\p{Z}]/u;
 
 /** Python の `repr(str)`。印字できない文字を含むときは null(綴りを合わせきれないので原文で出す)。 */
 function pyStrRepr(s: string): string | null {
-  for (const ch of s) if (ch !== ' ' && NOT_PRINTABLE_RE.test(ch)) return null;
+  for (const ch of s) {
+    if (ch !== ' ' && NOT_PRINTABLE_RE.test(ch)) {
+      return null;
+    }
+  }
   const q = s.includes("'") && !s.includes('"') ? '"' : "'";
   const body = s.replace(/\\/g, '\\\\').replace(q === "'" ? /'/g : /"/g, `\\${q}`);
   return `${q}${body}${q}`;
@@ -275,10 +317,18 @@ const pyNum = (n: number): string | null =>
 /** Python の `repr`(list・dict の要素)。合わせきれない値は null。 */
 function pyRepr(v: unknown, budget: JinjaBudget): string | null {
   budget.charge(1);
-  if (v === null) return 'None';
-  if (v === true) return 'True';
-  if (v === false) return 'False';
-  if (typeof v === 'number') return pyNum(v);
+  if (v === null) {
+    return 'None';
+  }
+  if (v === true) {
+    return 'True';
+  }
+  if (v === false) {
+    return 'False';
+  }
+  if (typeof v === 'number') {
+    return pyNum(v);
+  }
   if (typeof v === 'string') {
     budget.charge(v.length);
     return pyStrRepr(v);
@@ -287,7 +337,9 @@ function pyRepr(v: unknown, budget: JinjaBudget): string | null {
     const items: string[] = [];
     for (const x of v) {
       const r = pyRepr(x, budget);
-      if (r === null) return null;
+      if (r === null) {
+        return null;
+      }
       items.push(r);
     }
     return `[${items.join(', ')}]`;
@@ -296,10 +348,14 @@ function pyRepr(v: unknown, budget: JinjaBudget): string | null {
     const items: string[] = [];
     for (const k of Object.keys(v)) {
       // 整数に見えるキーは JS の object が並びを変える(Python は入れた順のまま)。
-      if (/^[0-9]+$/.test(k)) return null;
+      if (/^[0-9]+$/.test(k)) {
+        return null;
+      }
       const kr = pyStrRepr(k);
       const vr = pyRepr(v[k], budget);
-      if (kr === null || vr === null) return null;
+      if (kr === null || vr === null) {
+        return null;
+      }
       items.push(`${kr}: ${vr}`);
     }
     return `{${items.join(', ')}}`;
@@ -309,7 +365,9 @@ function pyRepr(v: unknown, budget: JinjaBudget): string | null {
 
 /** Python の `str()`(出力の綴り)。未定義は空。合わせきれない値は null。 */
 export function pyStr(v: unknown, budget: JinjaBudget): string | null {
-  if (v === undefined) return '';
+  if (v === undefined) {
+    return '';
+  }
   if (typeof v === 'string') {
     budget.charge(v.length);
     return v;
@@ -335,17 +393,28 @@ export type RevealOutput =
  */
 export function revealOutput(src: string, ctx: JinjaCtx, budget: JinjaBudget): RevealOutput {
   const path = parseRevealPath(src);
-  if (path === null) return { kind: 'source' };
+  if (path === null) {
+    return { kind: 'source' };
+  }
   const value = revealValue(path, ctx, budget);
-  if (value === REVEAL_SOURCE) return { kind: 'source' };
+  if (value === REVEAL_SOURCE) {
+    return { kind: 'source' };
+  }
   let text = pyStr(value, budget);
-  if (text === null) return { kind: 'source' };
+  if (text === null) {
+    return { kind: 'source' };
+  }
   let safe = false;
   for (const f of path.filters) {
-    if (f === 'safe') safe = true;
-    else if (f === 'trim') text = text.trim();
-    else if (f === 'upper') text = text.toUpperCase();
-    else if (f === 'lower') text = text.toLowerCase();
+    if (f === 'safe') {
+      safe = true;
+    } else if (f === 'trim') {
+      text = text.trim();
+    } else if (f === 'upper') {
+      text = text.toUpperCase();
+    } else if (f === 'lower') {
+      text = text.toLowerCase();
+    }
     // `default`(引数なし)は未定義を空にするだけで、`pyStr` が既に空にしている。
   }
   return { kind: 'value', text, safe, missing: value === undefined };

@@ -24,7 +24,9 @@ import { findEditingMarkers } from '../src/security/editingMarkers';
 
 const show = (src: string, ctx: Record<string, unknown>, f = new Filler()) => {
   const r = parseJinja(src);
-  if (!r.ok) throw new Error(r.error.message);
+  if (!r.ok) {
+    throw new Error(r.error.message);
+  }
   return f.finalize(renderDisplay(src, r.nodes, ctx, f));
 };
 
@@ -32,7 +34,9 @@ describe('takenBranchIndex — elif を正しく選ぶ', () => {
   const src = '{% if a %}A{% elif b %}B{% else %}C{% endif %}';
   const node = (() => {
     const r = parseJinja(src);
-    if (!r.ok || r.nodes[0].type !== 'if') throw new Error();
+    if (!r.ok || r.nodes[0].type !== 'if') {
+      throw new Error();
+    }
     return r.nodes[0];
   })();
   it.each([
@@ -44,7 +48,9 @@ describe('takenBranchIndex — elif を正しく選ぶ', () => {
   });
   it('else が無く全部偽なら -1', () => {
     const r = parseJinja('{% if a %}A{% endif %}');
-    if (!r.ok || r.nodes[0].type !== 'if') throw new Error();
+    if (!r.ok || r.nodes[0].type !== 'if') {
+      throw new Error();
+    }
     expect(takenBranchIndex(r.nodes[0], {}, new Filler())).toBe(-1);
   });
   it('elseif と空白制御つきの枝も条件を読む', () => {
@@ -190,7 +196,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   it('finalize を掛けなければ safe の値は生では入らない', () => {
     const src = '<p>{{ a|safe }}</p>';
     const r = parseJinja(src);
-    if (!r.ok) throw new Error();
+    if (!r.ok) {
+      throw new Error();
+    }
     expect(renderDisplay(src, r.nodes, { a: '<b>x</b>' }, new Filler())).not.toContain('<b>');
   });
   it.each([
@@ -244,7 +252,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     '配列リテラルで同じ値を %i 回倍にしても、出力の上限以下で止まり unsupported になる(例外にしない)',
     (times) => {
       let src = '{% set b0 = range(1000) %}';
-      for (let k = 1; k <= times; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+      for (let k = 1; k <= times; k++) {
+        src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+      }
       src +=
         `<p>{{ b${times} }}</p><p>{{ b${times}|trim }}</p><p>{{ b${times}|safe }}</p>` +
         `{% if b${times} < "x" %}lt{% endif %}{% if "0" in b${times}|list %}{% endif %}` +
@@ -290,8 +300,11 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     ])('長い文字列同士の比較(%s)は長さを数え、上限で unsupported になる', (_, body, expr) => {
       const f = new Filler();
       show(grow + body, {}, f);
-      if (expr) expect([...f.unsupported]).toContain(expr);
-      else expect(f.unsupported.size).toBeGreaterThan(0);
+      if (expr) {
+        expect([...f.unsupported]).toContain(expr);
+      } else {
+        expect(f.unsupported.size).toBeGreaterThan(0);
+      }
       expect(f.exhausted).toBe(true);
     });
     it.each([
@@ -323,7 +336,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     );
     it('繰り返しの費用は文脈のキーの数に依らない(キー 500 個・300 行 × 20 列の入れ子の for を描ける)', () => {
       const ctx: Record<string, unknown> = {};
-      for (let k = 0; k < 500; k++) ctx[`k${k}`] = k;
+      for (let k = 0; k < 500; k++) {
+        ctx[`k${k}`] = k;
+      }
       ctx.rows = Array.from({ length: 300 }, (_, i) =>
         Array.from({ length: 20 }, (_, j) => `${i}-${j}`),
       );
@@ -413,7 +428,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     });
     it('namespace の倍化を何度も数えさせても、たどった量を払って上限で止まる', () => {
       let src = '{% set n0 = namespace(a=1) %}';
-      for (let i = 1; i <= 17; i++) src += `{% set n${i} = namespace(a=n${i - 1}, b=n${i - 1}) %}`;
+      for (let i = 1; i <= 17; i++) {
+        src += `{% set n${i} = namespace(a=n${i - 1}, b=n${i - 1}) %}`;
+      }
       src += '{% for j in range(600) %}{{ [n17,n17,n17,n17,n17,n17,n17,n17]|length }}{% endfor %}';
       const f = new Filler();
       show(src, {}, f);
@@ -422,7 +439,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     });
     it('ctx の深い dict を並びに入れ続けても、たどった量を払って上限で止まる', () => {
       let o: unknown = 1;
-      for (let i = 0; i < 21; i++) o = { a: o, b: o };
+      for (let i = 0; i < 21; i++) {
+        o = { a: o, b: o };
+      }
       const f = new Filler();
       show('{% for j in range(100) %}{{ [o]|length }}{% endfor %}', { o }, f);
       expect([...f.unsupported]).toContain('[o]|length');
@@ -451,7 +470,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   it('倍化の途中で上限に当たった set は unsupported に数え、以後の値は空になる', () => {
     const f = new Filler();
     let src = '{% set b0 = range(1000) %}';
-    for (let k = 1; k <= 12; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    for (let k = 1; k <= 12; k++) {
+      src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    }
     show(`${src}[{{ b12|length }}]`, {}, f);
     expect([...f.unsupported].some((e) => e.startsWith('set b'))).toBe(true);
   });
@@ -564,15 +585,17 @@ describe('renderPlainFilled の budget の共有', () => {
   it('budget を渡すと、複数の描画で評価の量を引き合い、使い切った描画は上限の印を残す', () => {
     const budget = new JinjaBudget();
     let last: ReturnType<typeof renderPlainFilled> | undefined;
-    for (let k = 0; k < 20 && !budget.exhausted; k++)
+    for (let k = 0; k < 20 && !budget.exhausted; k++) {
       last = renderPlainFilled(heavy, {}, { budget });
+    }
     expect(budget.exhausted).toBe(true);
     expect(last?.diagnostics.unsupported.join()).toContain('上限');
   });
 
   it('渡さなければ描画ごとに別の budget で、同じ描画を繰り返しても上限に届かない', () => {
-    for (let k = 0; k < 3; k++)
+    for (let k = 0; k < 3; k++) {
       expect(renderPlainFilled(heavy, {}).diagnostics.unsupported).toEqual([]);
+    }
   });
 });
 
@@ -813,8 +836,9 @@ describe('renderPlainFilled — reveal を付けない出力は fixtures/filled 
   // `web/scripts/genFilled.ts` の `resolveSample` と同じ手順で値を作る。
   const sampleOf = (fundCode: string, attrs: SampleTemplateAttributes): SampleData => {
     const file = path.join(root, 'sample', `${fundCode}.json`);
-    if (fs.existsSync(file))
+    if (fs.existsSync(file)) {
       return applyTemplateAttributes(JSON.parse(fs.readFileSync(file, 'utf8')), attrs);
+    }
     const f = funds[fundCode];
     const master = f && {
       fundName: f.name,
@@ -830,7 +854,9 @@ describe('renderPlainFilled — reveal を付けない出力は fixtures/filled 
   });
   it.each(files)('%s', (file) => {
     const attrs = parseTemplateFileName(file);
-    if (!attrs) throw new Error(file);
+    if (!attrs) {
+      throw new Error(file);
+    }
     const raw = fs.readFileSync(path.join(root, 'templates', file), 'utf8');
     const want = fs.readFileSync(path.join(root, 'filled', file), 'utf8');
     expect(renderPlainFilled(raw, sampleOf(attrs.fundCode, attrs)).html).toBe(want);

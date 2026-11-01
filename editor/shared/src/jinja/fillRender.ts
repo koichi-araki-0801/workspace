@@ -63,8 +63,13 @@ const PH_CLOSE = '\u{e001}';
 function newNonce(): string {
   const c = (globalThis as { crypto?: { getRandomValues(a: Uint32Array): Uint32Array } }).crypto;
   const a = new Uint32Array(2);
-  if (c) c.getRandomValues(a);
-  else for (let i = 0; i < a.length; i++) a[i] = Math.floor(Math.random() * 2 ** 32);
+  if (c) {
+    c.getRandomValues(a);
+  } else {
+    for (let i = 0; i < a.length; i++) {
+      a[i] = Math.floor(Math.random() * 2 ** 32);
+    }
+  }
   return Array.from(a, (x) => x.toString(16).padStart(8, '0')).join('');
 }
 
@@ -123,7 +128,9 @@ export class Filler {
 
   /** reveal で原文の文字のまま見せた場所を数える(`at` は原文の位置)。 */
   noteUnrendered(at: number, source: string): void {
-    if (!this.unrendered.has(at)) this.unrendered.set(at, source);
+    if (!this.unrendered.has(at)) {
+      this.unrendered.set(at, source);
+    }
   }
 
   /** 上限のどれかに当たったか(呼び出し側が「全体を描けていない」と知るため)。 */
@@ -136,7 +143,9 @@ export class Filler {
 
   /** `parseForHeader` を見出しの文字列ごとに 1 回だけ行う。 */
   forHeader(body: string): ReturnType<typeof parseForHeader> {
-    if (!this.forHeaders.has(body)) this.forHeaders.set(body, parseForHeader(body));
+    if (!this.forHeaders.has(body)) {
+      this.forHeaders.set(body, parseForHeader(body));
+    }
     return this.forHeaders.get(body) ?? null;
   }
 
@@ -155,7 +164,9 @@ export class Filler {
   charge(chars: number): void {
     const was = this.exhausted;
     this.emitted += chars;
-    if (!was && this.exhausted) this.noteLimit();
+    if (!was && this.exhausted) {
+      this.noteLimit();
+    }
   }
 
   /**
@@ -165,7 +176,9 @@ export class Filler {
   private output(expr: string, ctx: JinjaCtx): { v: unknown; s: string } | null {
     try {
       const v = evaluateJinjaExpr(expr, ctx, this.budget);
-      if (v === undefined || v === null) this.missing.add(expr);
+      if (v === undefined || v === null) {
+        this.missing.add(expr);
+      }
       return { v, s: stringifyJinjaValue(v, this.budget) };
     } catch {
       this.fail(expr);
@@ -194,7 +207,9 @@ export class Filler {
     }
     const r = this.reveal ? this.revealed(expr, ctx) : this.output(expr, ctx);
     if (r === null) {
-      if (!this.reveal || !tok) return '';
+      if (!this.reveal || !tok) {
+        return '';
+      }
       this.noteUnrendered(tok.start, tok.source);
       const shown = escapeHtmlFull(tok.source);
       this.charge(shown.length);
@@ -203,8 +218,9 @@ export class Filler {
     const { s } = r;
     const safe = 'safe' in r ? r.safe : isJinjaSafe(r.v);
     let out: string;
-    if (!safe) out = escapeText(s);
-    else if (isAllowedSafeMarkup(s)) {
+    if (!safe) {
+      out = escapeText(s);
+    } else if (isAllowedSafeMarkup(s)) {
       out = `${PH_OPEN}${this.nonce}${this.pending.length}${PH_CLOSE}`;
       this.pending.push({ expr, html: s });
     } else {
@@ -222,8 +238,12 @@ export class Filler {
   private revealed(expr: string, ctx: JinjaCtx): { s: string; safe: boolean } | null {
     try {
       const r = revealOutput(expr, ctx, this.budget);
-      if (r.kind === 'source') return null;
-      if (r.missing) this.missing.add(expr);
+      if (r.kind === 'source') {
+        return null;
+      }
+      if (r.missing) {
+        this.missing.add(expr);
+      }
       return { s: r.text, safe: r.safe };
     } catch {
       // 評価の量の上限(`JinjaBudget.charge` の例外)。上限の印は `exhausted` が立てる。
@@ -239,14 +259,20 @@ export class Filler {
    * 掛け忘れても仮置きの印が残るだけで、生の HTML は入らない。
    */
   finalize(html: string): string {
-    if (this.pending.length === 0) return html;
+    if (this.pending.length === 0) {
+      return html;
+    }
     const re = new RegExp(`${PH_OPEN}${this.nonce}(\\d+)${PH_CLOSE}`, 'g');
     const at = [...html.matchAll(re)].map((m) => m.index ?? -1);
     const text = textPositions(html, at);
     return html.replace(re, (whole, idx: string, offset: number) => {
       const p = this.pending[Number(idx)];
-      if (!p) return whole;
-      if (text.has(offset) && html[offset - 1] !== '<') return p.html;
+      if (!p) {
+        return whole;
+      }
+      if (text.has(offset) && html[offset - 1] !== '<') {
+        return p.html;
+      }
       const escaped = escapeHtmlFull(p.html);
       if (escaped !== p.html) {
         this.fail(p.expr);
@@ -286,14 +312,17 @@ export class Filler {
         this.fail(tok.body);
       }
     }
-    if (m)
+    if (m) {
       Object.defineProperty(ctx, m[1], {
         value: value === REVEAL_SOURCE ? REVEAL_UNBOUND : value,
         writable: true,
         enumerable: true,
         configurable: true,
       });
-    if (m && value !== REVEAL_SOURCE) return '';
+    }
+    if (m && value !== REVEAL_SOURCE) {
+      return '';
+    }
     this.noteUnrendered(tok.start, tok.source);
     const shown = escapeHtmlFull(tok.source);
     this.charge(shown.length);
@@ -336,7 +365,9 @@ export class Filler {
       const v = this.reveal
         ? this.revealIterable(expr, ctx)
         : evaluateJinjaExpr(expr, ctx, this.budget);
-      if (!Array.isArray(v)) return null;
+      if (!Array.isArray(v)) {
+        return null;
+      }
       this.loopItems += v.length;
       // 繰り返しのたびに変数と `loop` を持つ層を作る(`loopCtx`)ので、回数 × 変数の数を数える。
       this.budget.charge(v.length * (1 + varCount));
@@ -359,9 +390,13 @@ export class Filler {
   private revealIterable(expr: string, ctx: JinjaCtx): unknown {
     this.lastIterSource = true;
     const path = parseRevealPath(expr);
-    if (path === null || path.filters.length > 0) return null;
+    if (path === null || path.filters.length > 0) {
+      return null;
+    }
     const v = revealValue(path, ctx, this.budget);
-    if (v === REVEAL_SOURCE) return null;
+    if (v === REVEAL_SOURCE) {
+      return null;
+    }
     this.lastIterSource = false;
     return v;
   }
@@ -394,9 +429,13 @@ const MAX_FOR_VARS = 16;
  */
 export function parseForHeader(body: string): { vars: string[]; iter: string } | null {
   const m = FOR_HEADER_RE.exec(body);
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   const vars = m[1].split(',').map((v) => v.trim());
-  if (vars.length > MAX_FOR_VARS) return null;
+  if (vars.length > MAX_FOR_VARS) {
+    return null;
+  }
   return { vars, iter: m[2].trim() };
 }
 
@@ -409,8 +448,13 @@ export function parseForHeader(body: string): { vars: string[]; iter: string } |
 export function loopCtx(ctx: JinjaCtx, vars: string[], items: unknown[], i: number): JinjaCtx {
   const item = items[i];
   const layer = innerJinjaCtx(ctx);
-  if (vars.length === 1) layer[vars[0]] = item;
-  else for (const [k, v] of vars.entries()) layer[v] = Array.isArray(item) ? item[k] : undefined;
+  if (vars.length === 1) {
+    layer[vars[0]] = item;
+  } else {
+    for (const [k, v] of vars.entries()) {
+      layer[v] = Array.isArray(item) ? item[k] : undefined;
+    }
+  }
   layer.loop = {
     index: i + 1,
     index0: i,
@@ -433,9 +477,13 @@ export function takenBranchIndex(
 ): number {
   for (let i = 0; i < node.branches.length; i++) {
     const { keyword, body } = node.branches[i].tag;
-    if (keyword === 'else') return i;
+    if (keyword === 'else') {
+      return i;
+    }
     const cond = body.slice((keyword ?? '').length).trim();
-    if (f.cond(cond, ctx)) return i;
+    if (f.cond(cond, ctx)) {
+      return i;
+    }
   }
   return -1;
 }
@@ -485,36 +533,51 @@ export function renderDisplay(
         f.charge(n.end - n.start);
         break;
       case 'token':
-        if (n.token.kind === 'output') out += f.html(n.token.body, ctx, undefined, n.token);
-        else if (isSetStatement(n.token)) {
-          if (f.reveal) out += f.revealSet(n.token, ctx);
-          else f.assign(n.token, ctx);
-        } else if (f.reveal && n.token.kind === 'stmt')
+        if (n.token.kind === 'output') {
+          out += f.html(n.token.body, ctx, undefined, n.token);
+        } else if (isSetStatement(n.token)) {
+          if (f.reveal) {
+            out += f.revealSet(n.token, ctx);
+          } else {
+            f.assign(n.token, ctx);
+          }
+        } else if (f.reveal && n.token.kind === 'stmt') {
           out += revealSource(src, n.token.start, n.token.end, f);
+        }
         break;
       case 'raw':
         out += src.slice(n.open.end, n.close.start);
         f.charge(n.close.start - n.open.end);
         break;
       case 'opaqueBlock':
-        if (f.reveal) out += revealSource(src, n.start, n.end, f);
+        if (f.reveal) {
+          out += revealSource(src, n.start, n.end, f);
+        }
         break;
       case 'if': {
         if (f.reveal) {
-          for (const b of n.branches) out += renderDisplay(src, b.children, ctx, f);
+          for (const b of n.branches) {
+            out += renderDisplay(src, b.children, ctx, f);
+          }
           break;
         }
         const i = takenBranchIndex(n, ctx, f);
-        if (i >= 0) out += renderDisplay(src, n.branches[i].children, ctx, f);
+        if (i >= 0) {
+          out += renderDisplay(src, n.branches[i].children, ctx, f);
+        }
         break;
       }
       case 'for': {
         const header = f.forHeader(n.open.body);
         if (!header) {
           f.unsupported.add(n.open.body);
-          if (f.reveal) f.noteUnrendered(n.open.start, n.open.source);
+          if (f.reveal) {
+            f.noteUnrendered(n.open.start, n.open.source);
+          }
           out += renderDisplay(src, n.body.children, ctx, f);
-          if (f.reveal && n.elseBranch) out += renderDisplay(src, n.elseBranch.children, ctx, f);
+          if (f.reveal && n.elseBranch) {
+            out += renderDisplay(src, n.elseBranch.children, ctx, f);
+          }
           break;
         }
         if (f.reveal) {
@@ -529,8 +592,9 @@ export function renderDisplay(
           }
           out += renderDisplay(src, n.body.children, loopCtx(ctx, header.vars, items, i), f);
         }
-        if (items.length === 0 && n.elseBranch)
+        if (items.length === 0 && n.elseBranch) {
           out += renderDisplay(src, n.elseBranch.children, ctx, f);
+        }
         break;
       }
     }
@@ -572,13 +636,14 @@ function renderRevealFor(
       }
       // 1 回だけ描く本体のループ変数と `loop` は、値で描けない印にする(出すところで原文の文字)。
       const layer = innerJinjaCtx(ctx);
-      for (const v of [...header.vars, 'loop'])
+      for (const v of [...header.vars, 'loop']) {
         Object.defineProperty(layer, v, {
           value: REVEAL_UNBOUND,
           writable: true,
           enumerable: true,
           configurable: true,
         });
+      }
       out += renderDisplay(src, n.body.children, layer, f);
     }
   } else {
@@ -593,7 +658,9 @@ function renderRevealFor(
     }
   }
   // 上限に当たったあとは描かない(上限に当たった描画は呼び出し側が全体を捨てる)。
-  if (n.elseBranch && !f.limitReached) out += renderDisplay(src, n.elseBranch.children, ctx, f);
+  if (n.elseBranch && !f.limitReached) {
+    out += renderDisplay(src, n.elseBranch.children, ctx, f);
+  }
   return out;
 }
 
@@ -635,7 +702,9 @@ export function renderPlainFilled(
   opts: FillerOptions = {},
 ): { html: string; diagnostics: PlainFilledDiagnostics } {
   const r = parseJinja(raw);
-  if (!r.ok) throw new JinjaRenderSyntaxError(r.error.message, r.error.at);
+  if (!r.ok) {
+    throw new JinjaRenderSyntaxError(r.error.message, r.error.at);
+  }
   const f = new Filler(opts);
   const html = f.finalize(renderDisplay(raw, r.nodes, { ...sample } as JinjaCtx, f));
   const unrendered = [...f.unrendered.values()];

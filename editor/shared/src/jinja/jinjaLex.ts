@@ -52,11 +52,15 @@ function findClose(src: string, from: number, close: string, quoted: boolean): n
     const c = src[i];
     if (quoted && (c === '"' || c === "'")) {
       i++;
-      while (i < src.length && src[i] !== c) i += src[i] === '\\' ? 2 : 1;
+      while (i < src.length && src[i] !== c) {
+        i += src[i] === '\\' ? 2 : 1;
+      }
       i++;
       continue;
     }
-    if (src.startsWith(close, i)) return i;
+    if (src.startsWith(close, i)) {
+      return i;
+    }
     i++;
   }
   return -1;
@@ -67,8 +71,12 @@ function makeToken(src: string, start: number, end: number, kind: JinjaTokenKind
   let inner = source.slice(2, -2);
   const trimLeft = inner.startsWith('-');
   const trimRight = inner.endsWith('-');
-  if (inner.startsWith('-') || inner.startsWith('+')) inner = inner.slice(1);
-  if (inner.endsWith('-') || inner.endsWith('+')) inner = inner.slice(0, -1);
+  if (inner.startsWith('-') || inner.startsWith('+')) {
+    inner = inner.slice(1);
+  }
+  if (inner.endsWith('-') || inner.endsWith('+')) {
+    inner = inner.slice(0, -1);
+  }
   const body = inner.trim();
   const keyword = kind === 'stmt' ? (/^[A-Za-z_]\w*/.exec(body)?.[0] ?? null) : null;
   return { kind, start, end, source, trimLeft, trimRight, keyword, body };
@@ -79,15 +87,18 @@ export function lexJinja(src: string): LexResult {
   let i = 0;
   while (i < src.length) {
     const j = src.indexOf('{', i);
-    if (j < 0) break;
+    if (j < 0) {
+      break;
+    }
     const spec = OPEN.get(src.slice(j, j + 2));
     if (!spec) {
       i = j + 1;
       continue;
     }
     const c = findClose(src, j + 2, spec.close, spec.kind !== 'comment');
-    if (c < 0)
+    if (c < 0) {
       return { ok: false, error: { message: `閉じていない ${src.slice(j, j + 2)}`, at: j } };
+    }
     const tok = makeToken(src, j, c + 2, spec.kind);
     tokens.push(tok);
     i = tok.end;
@@ -95,8 +106,9 @@ export function lexJinja(src: string): LexResult {
     if (rawEnd) {
       rawEnd.lastIndex = i;
       const m = rawEnd.exec(src);
-      if (!m)
+      if (!m) {
         return { ok: false, error: { message: `閉じていない ${tok.keyword}`, at: tok.start } };
+      }
       tokens.push(makeToken(src, m.index, m.index + m[0].length, 'stmt'));
       i = m.index + m[0].length;
     }

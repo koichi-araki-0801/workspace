@@ -1431,7 +1431,9 @@ describe('canonicalCssRuleKeys — 同期状態に残った古いキーの読み
       '.c, .d{x:1}.e , .e{}';
     const keys = [...foldedCssRuleTexts(css).keys()];
     expect(keys).toEqual(expect.arrayContaining([k('.c'), k('.d'), k('.e,.e')]));
-    for (const key of keys) expect(canonicalCssRuleKeys(key)).toEqual([key]);
+    for (const key of keys) {
+      expect(canonicalCssRuleKeys(key)).toEqual([key]);
+    }
   });
 });
 
@@ -1469,7 +1471,9 @@ describe('firstSignificant — コメントと空白を除いた最初の文字'
   // `css` のコメントの開始位置 → 終わり(文字列を考えない簡易版)。
   const commentEnds = (css: string): Map<number, number> => {
     const m = new Map<number, number>();
-    for (const c of css.matchAll(/\/\*[\s\S]*?\*\//g)) m.set(c.index, c.index + c[0].length);
+    for (const c of css.matchAll(/\/\*[\s\S]*?\*\//g)) {
+      m.set(c.index, c.index + c[0].length);
+    }
     return m;
   };
   it.each([

@@ -65,7 +65,9 @@ export function decodeHtmlEntities(value: string): string {
         body[1] === 'x' || body[1] === 'X'
           ? Number.parseInt(body.slice(2), 16)
           : Number.parseInt(body.slice(1), 10);
-      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) return whole;
+      if (!Number.isFinite(code) || code < 0 || code > 0x10ffff) {
+        return whole;
+      }
       try {
         return String.fromCodePoint(code);
       } catch {

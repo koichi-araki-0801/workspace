@@ -64,7 +64,9 @@ async function narrowedLines(target: Locator): Promise<string[]> {
         r.setStart(n, i);
         r.setEnd(n, i + 1);
         const top = r.getClientRects()[0]?.top;
-        if (top === undefined) continue;
+        if (top === undefined) {
+          continue;
+        }
         if (top !== lastTop) {
           lines.push('');
           lastTop = top;
@@ -88,7 +90,9 @@ function splitOccurrences(lines: readonly string[], phrase: string): number {
   let split = 0;
   for (let i = text.indexOf(phrase); i >= 0; i = text.indexOf(phrase, i + 1)) {
     const last = i + phrase.length;
-    if (ends.some((e) => e > i && e < last)) split++;
+    if (ends.some((e) => e > i && e < last)) {
+      split++;
+    }
   }
   return split;
 }
@@ -112,7 +116,9 @@ async function openPendingReview(page: Page): Promise<void> {
   await login(page, 'approver');
   await page.goto('/reviews');
   await openReviewDetail(page, SEED_ID);
-  for (const t of TARGETS) await expect(t.locate(page)).toBeVisible({ timeout: 60_000 });
+  for (const t of TARGETS) {
+    await expect(t.locate(page)).toBeVisible({ timeout: 60_000 });
+  }
 }
 
 test('アプリの body には禁則と文節の改行の宣言が効き、紙面の iframe には効かない', async ({

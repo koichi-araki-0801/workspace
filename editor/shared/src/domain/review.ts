@@ -80,8 +80,12 @@ export const REVIEW_NOT_REVIEWABLE_MESSAGE =
 
 /** 申請し直しを求める 409 の code なら、その文言(ほかの code は null)。 */
 export function reviewResubmitMessage(code: string | undefined): string | null {
-  if (code === REVIEW_BASE_CHANGED) return REVIEW_BASE_CHANGED_MESSAGE;
-  if (code === REVIEW_NOT_REVIEWABLE) return REVIEW_NOT_REVIEWABLE_MESSAGE;
+  if (code === REVIEW_BASE_CHANGED) {
+    return REVIEW_BASE_CHANGED_MESSAGE;
+  }
+  if (code === REVIEW_NOT_REVIEWABLE) {
+    return REVIEW_NOT_REVIEWABLE_MESSAGE;
+  }
   return null;
 }
 

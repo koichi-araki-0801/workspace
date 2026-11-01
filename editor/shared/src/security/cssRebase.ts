@@ -59,7 +59,9 @@ export function replaceSpansFromEnd<S extends { start: number; end: number }>(
   for (let k = spans.length - 1; k >= 0; k--) {
     const span = spans[k];
     const next = f(span);
-    if (next === undefined) continue;
+    if (next === undefined) {
+      continue;
+    }
     out = `${out.slice(0, span.start)}${next}${out.slice(span.end)}`;
   }
   return out;
@@ -82,13 +84,19 @@ function rewriteUrlValue(
   resolve: (pathPart: string) => string | undefined,
 ): string | undefined {
   const v = value.trim();
-  if (v === '' || v.startsWith('#') || v.startsWith('/') || v.startsWith('\\')) return undefined;
-  if (!isSelfContainedUrl(v) || /^data:/i.test(v)) return undefined;
+  if (v === '' || v.startsWith('#') || v.startsWith('/') || v.startsWith('\\')) {
+    return undefined;
+  }
+  if (!isSelfContainedUrl(v) || /^data:/i.test(v)) {
+    return undefined;
+  }
   const cut = v.search(/[?#]/);
   const pathPart = cut < 0 ? v : v.slice(0, cut);
   const suffix = cut < 0 ? '' : v.slice(cut);
   const resolved = resolve(pathPart);
-  if (resolved === undefined) return undefined;
+  if (resolved === undefined) {
+    return undefined;
+  }
   try {
     // 値はエスケープ解決後の字面なので、`"` `\` 改行や `</style` を含みうる。各セグメントと
     // クエリ・断片を百分率符号化して、引用形の中で CSS・HTML のどちらとしても無害にする。

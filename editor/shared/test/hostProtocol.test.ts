@@ -36,7 +36,9 @@ describe('previewHostAssetUrl — 論理パス → プレビューホストの�
 
 describe('isPreviewPartNo', () => {
   it('isPreviewPartNo は 1 始まりの 1〜5 桁の数字の正規形だけ(番号は 1 から振る)', () => {
-    for (const ok of ['1', '7', '12345', '99999']) expect(isPreviewPartNo(ok)).toBe(true);
+    for (const ok of ['1', '7', '12345', '99999']) {
+      expect(isPreviewPartNo(ok)).toBe(true);
+    }
     // '01' と '1' が別のキーとして二重に通らないよう、先頭に 0 を持つ形は拒む。'0' は振らない番号。
     for (const ng of [
       '',

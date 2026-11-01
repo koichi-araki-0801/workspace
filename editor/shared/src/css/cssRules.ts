@@ -152,7 +152,9 @@ function canonicalAttrQuotes(sel: string): string {
       continue;
     }
     if (!inAttr) {
-      if (c === '[') inAttr = true;
+      if (c === '[') {
+        inAttr = true;
+      }
       out += c;
       i++;
       continue;
@@ -183,7 +185,9 @@ function canonicalAttrQuotes(sel: string): string {
       if (flag !== null) {
         out += ` ${flag[1].toLowerCase()}`;
         i += flag[0].length;
-      } else if (/[a-z]/i.test(sel[i] ?? '')) out += ' ';
+      } else if (/[a-z]/i.test(sel[i] ?? '')) {
+        out += ' ';
+      }
       continue;
     }
     out += c;
@@ -208,7 +212,9 @@ function readAttrValue(
   let k = from;
   while (k < sel.length) {
     const ch = sel[k];
-    if (quote !== undefined ? ch === quote : ch === ' ' || ch === ']') break;
+    if (quote !== undefined ? ch === quote : ch === ' ' || ch === ']') {
+      break;
+    }
     if (ch === '\\' && k + 1 < sel.length) {
       const hex = /^[0-9a-f]{1,6}/i.exec(sel.slice(k + 1, k + 7))?.[0];
       if (hex === undefined) {
@@ -221,7 +227,9 @@ function readAttrValue(
       const invalid = cp === 0 || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff);
       value += invalid ? '\ufffd' : String.fromCodePoint(cp);
       k += 1 + hex.length;
-      if (sel[k] === ' ') k++;
+      if (sel[k] === ' ') {
+        k++;
+      }
       continue;
     }
     value += ch;
@@ -239,9 +247,13 @@ const LEGACY_PSEUDO_ELEMENTS = new Set(['before', 'after', 'first-line', 'first-
 /** `s[k]` の `\` から始まるエスケープの長さ。16 進の後ろの空白 1 つ(CRLF も 1 つ)を含む。 */
 function escapeLength(s: string, k: number): number {
   const hex = /^[0-9a-f]{1,6}/i.exec(s.slice(k + 1, k + 7))?.[0];
-  if (hex === undefined) return Math.min(2, s.length - k);
+  if (hex === undefined) {
+    return Math.min(2, s.length - k);
+  }
   const after = k + 1 + hex.length;
-  if (s.startsWith('\r\n', after)) return 1 + hex.length + 2;
+  if (s.startsWith('\r\n', after)) {
+    return 1 + hex.length + 2;
+  }
   return 1 + hex.length + (/\s/.test(s[after] ?? '') ? 1 : 0);
 }
 
@@ -249,7 +261,9 @@ function escapeLength(s: string, k: number): number {
 function stringEnd(s: string, k: number): number {
   const quote = s[k];
   let j = k + 1;
-  while (j < s.length && s[j] !== quote) j += s[j] === '\\' ? escapeLength(s, j) : 1;
+  while (j < s.length && s[j] !== quote) {
+    j += s[j] === '\\' ? escapeLength(s, j) : 1;
+  }
   return Math.min(j + 1, s.length);
 }
 
@@ -267,7 +281,9 @@ function readIdent(s: string, k: number, lower: boolean): { ident: string; next:
       j += n;
       continue;
     }
-    if (!IDENT_CHAR_RE.test(s[j])) break;
+    if (!IDENT_CHAR_RE.test(s[j])) {
+      break;
+    }
     ident += lower ? s[j].toLowerCase() : s[j];
     j++;
   }
@@ -286,7 +302,9 @@ function lowerAttrName(attr: string): string {
       j += n;
       continue;
     }
-    if ('=~^$*]'.includes(c) || (c === '|' && attr[j + 1] === '=')) break;
+    if ('=~^$*]'.includes(c) || (c === '|' && attr[j + 1] === '=')) {
+      break;
+    }
     out += c.toLowerCase();
     j++;
   }
@@ -298,14 +316,24 @@ const AN_PLUS_B_RE = /^([+-]?\d*)n\s*(?:([+-])\s*(\d+))?$/;
 
 /** `An+B` を CSSOM の書き方へ直す(`a` が 0 なら `b` だけ、`a` が ±1 なら係数を省く)。 */
 function canonicalAnPlusB(arg: string): string | undefined {
-  if (arg === 'even') return '2n';
-  if (arg === 'odd') return '2n+1';
-  if (/^[+-]?\d+$/.test(arg)) return String(Number(arg));
+  if (arg === 'even') {
+    return '2n';
+  }
+  if (arg === 'odd') {
+    return '2n+1';
+  }
+  if (/^[+-]?\d+$/.test(arg)) {
+    return String(Number(arg));
+  }
   const m = AN_PLUS_B_RE.exec(arg);
-  if (m === null) return undefined;
+  if (m === null) {
+    return undefined;
+  }
   const a = m[1] === '' || m[1] === '+' ? 1 : m[1] === '-' ? -1 : Number(m[1]);
   const b = m[3] === undefined ? 0 : Number(m[3]) * (m[2] === '-' ? -1 : 1);
-  if (a === 0) return String(b);
+  if (a === 0) {
+    return String(b);
+  }
   const coef = a === 1 ? '' : a === -1 ? '-' : String(a);
   return `${coef}n${b === 0 ? '' : b > 0 ? `+${b}` : String(b)}`;
 }
@@ -314,9 +342,13 @@ function canonicalAnPlusB(arg: string): string | undefined {
 function canonicalNthArg(raw: string): string | undefined {
   const text = raw.trim().toLowerCase();
   const of = /\s+of\s+/.exec(text);
-  if (of === null) return canonicalAnPlusB(text);
+  if (of === null) {
+    return canonicalAnPlusB(text);
+  }
   const nth = canonicalAnPlusB(text.slice(0, of.index));
-  if (nth === undefined) return undefined;
+  if (nth === undefined) {
+    return undefined;
+  }
   const rest = raw.trim().slice(of.index + of[0].length);
   return `${nth} of ${canonicalSelector(rest.trim())}`;
 }
@@ -357,8 +389,11 @@ function parenEnd(s: string, k: number): number {
       j += escapeLength(s, j);
       continue;
     }
-    if (c === '(') depth++;
-    else if (c === ')' && --depth === 0) return j + 1;
+    if (c === '(') {
+      depth++;
+    } else if (c === ')' && --depth === 0) {
+      return j + 1;
+    }
     j++;
   }
   return s.length;
@@ -376,7 +411,9 @@ function canonicalSelector(sel: string): string {
   // 読み飛ばした空白。次の字が結合子・`)`・`,` なら捨て、それ以外なら子孫結合子として出す。
   let pendingSpace = false;
   const emit = (text: string, nextBoundary: boolean): void => {
-    if (pendingSpace) out += ' ';
+    if (pendingSpace) {
+      out += ' ';
+    }
     pendingSpace = false;
     out += text;
     boundary = nextBoundary;
@@ -386,7 +423,9 @@ function canonicalSelector(sel: string): string {
     if (c === ' ') {
       // 空白(子孫結合子)の後ろも複合セレクタの先頭。16 進エスケープの後ろの空白は
       // `escapeLength` が食うのでここへは来ない。
-      if (!boundary) pendingSpace = true;
+      if (!boundary) {
+        pendingSpace = true;
+      }
       boundary = true;
       i++;
       continue;
@@ -418,8 +457,11 @@ function canonicalSelector(sel: string): string {
     if (c === '[') {
       let j = i + 1;
       while (j < sel.length && sel[j] !== ']') {
-        if (sel[j] === '"' || sel[j] === "'") j = stringEnd(sel, j);
-        else j += sel[j] === '\\' ? escapeLength(sel, j) : 1;
+        if (sel[j] === '"' || sel[j] === "'") {
+          j = stringEnd(sel, j);
+        } else {
+          j += sel[j] === '\\' ? escapeLength(sel, j) : 1;
+        }
       }
       const end = Math.min(j + 1, sel.length);
       emit(lowerAttrName(sel.slice(i, end)), false);
@@ -488,7 +530,9 @@ function canonicalAtPrelude(prelude: string, name: string): string {
   const keyword = AT_KEYWORD_RE.exec(prelude)?.[0] ?? '';
   const rest = prelude.slice(keyword.length).trim();
   const head = keyword.toLowerCase();
-  if (!CONDITION_AT_RULES.has(name)) return rest === '' ? head : `${head} ${rest}`;
+  if (!CONDITION_AT_RULES.has(name)) {
+    return rest === '' ? head : `${head} ${rest}`;
+  }
   let out = '';
   let i = 0;
   // 直前に出したのが `:` か `(`(エスケープの一部でない)か。後ろの空白を捨てる。
@@ -544,7 +588,9 @@ function collapseOutsideStrings(s: string): string {
       let j = i;
       let comma = false;
       while (j < s.length && (/\s/.test(s[j]) || (s[j] === ',' && !comma))) {
-        if (s[j] === ',') comma = true;
+        if (s[j] === ',') {
+          comma = true;
+        }
         j++;
       }
       out += comma ? ',' : ' ';
@@ -575,7 +621,9 @@ export function firstSignificant(
       k = skip;
       continue;
     }
-    if (!/\s/.test(css[k])) return k;
+    if (!/\s/.test(css[k])) {
+      return k;
+    }
     k++;
   }
   return undefined;
@@ -610,9 +658,11 @@ function topLevelCommaSegments(
       k += escapeLength(s, k);
       continue;
     }
-    if (c === '(' || c === '[') depth++;
-    else if ((c === ')' || c === ']') && depth > 0) depth--;
-    else if (c === ',' && depth === 0) {
+    if (c === '(' || c === '[') {
+      depth++;
+    } else if ((c === ')' || c === ']') && depth > 0) {
+      depth--;
+    } else if (c === ',' && depth === 0) {
       segments.push([segFrom, k]);
       segFrom = k + 1;
     }
@@ -670,13 +720,18 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
     while (k < to) {
       const skip = commentEnd.get(k);
       const c = css[k];
-      if (skip !== undefined) k = skip;
-      else if (c === '"' || c === "'") k = stringEnd(css, k);
-      else if (c === '\\') k += escapeLength(css, k);
-      else if (/\s/.test(c)) {
+      if (skip !== undefined) {
+        k = skip;
+      } else if (c === '"' || c === "'") {
+        k = stringEnd(css, k);
+      } else if (c === '\\') {
+        k += escapeLength(css, k);
+      } else if (/\s/.test(c)) {
         k++;
         continue;
-      } else k++;
+      } else {
+        k++;
+      }
       last = Math.min(k, to);
     }
     return last;
@@ -699,7 +754,9 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
     at: number,
   ): Array<{ identity: string; head: string }> | undefined => {
     const segments = listSegments(start, at);
-    if (segments.length < 2) return undefined;
+    if (segments.length < 2) {
+      return undefined;
+    }
     const items = segments.map(([a, b]) => {
       const from = significantAt(a, b) ?? b;
       return {
@@ -708,7 +765,9 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
       };
     });
     const identities = new Set(items.map((x) => x.identity));
-    if (identities.has('') || identities.size !== items.length) return undefined;
+    if (identities.has('') || identities.size !== items.length) {
+      return undefined;
+    }
     return items;
   };
 
@@ -753,8 +812,11 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
         if (punct[j].ch === '{') {
           depth++;
           nested = true;
-        } else if (punct[j].ch === '}') depth--;
-        else if (depth === 1) semis.push(punct[j].at);
+        } else if (punct[j].ch === '}') {
+          depth--;
+        } else if (depth === 1) {
+          semis.push(punct[j].at);
+        }
       }
       const closeAt = depth === 0 ? punct[j - 1].at : css.length;
       const end = depth === 0 ? closeAt + 1 : css.length;
@@ -764,7 +826,9 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
         let from = at + 1;
         for (const to of [...semis, closeAt]) {
           const d = normalize(from, to);
-          if (d !== '') decls.push(d);
+          if (d !== '') {
+            decls.push(d);
+          }
           from = to + 1;
         }
       }
@@ -818,7 +882,11 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
     if (start !== undefined) {
       // `;` で終わる文は `;` まで。`}` の手前で終わる文は末尾の空白を含めない。
       let end = ch === ';' ? at + 1 : at;
-      if (ch === '}') while (end > start && /\s/.test(css[end - 1])) end--;
+      if (ch === '}') {
+        while (end > start && /\s/.test(css[end - 1])) {
+          end--;
+        }
+      }
       found.push({
         chain: [...chain],
         identity: normalize(start, at),
@@ -830,7 +898,9 @@ function scanCssRules(css: string, expandLists = false): ScannedRule[] {
       });
     }
     // 対応の無い `}` は最上位で現れ、pop は何もしない(読み飛ばす)。
-    if (ch === '}') chain.pop();
+    if (ch === '}') {
+      chain.pop();
+    }
     segStart = at + 1;
     i++;
   }
@@ -880,9 +950,13 @@ export function splitCssRules(css: string): CssRule[] {
 function canonicalKeyPart(part: string): string {
   // `@font-face` などセレクタを持たない at-rule の識別子(`{` を含む)は中身から作った値なので
   // 書き方の正規化の対象外。
-  if (part.startsWith('@') && part.includes('{')) return part;
+  if (part.startsWith('@') && part.includes('{')) {
+    return part;
+  }
   const text = collapseOutsideStrings(part);
-  if (!text.startsWith('@')) return canonicalSelector(text);
+  if (!text.startsWith('@')) {
+    return canonicalSelector(text);
+  }
   const name = (AT_KEYWORD_RE.exec(text)?.[0] ?? '@').slice(1).toLowerCase();
   return name === 'page' ? canonicalPagePrelude(text) : canonicalAtPrelude(text, name);
 }
@@ -918,13 +992,19 @@ export function canonicalCssRuleKeys(key: string): string[] {
   } catch {
     return [key];
   }
-  if (!Array.isArray(parts)) return [key];
+  if (!Array.isArray(parts)) {
+    return [key];
+  }
   const next = parts.map((p) => (typeof p === 'string' ? canonicalKeyPart(p) : p));
   let last = next.length - 1;
-  while (last >= 0 && typeof next[last] !== 'string') last--;
+  while (last >= 0 && typeof next[last] !== 'string') {
+    last--;
+  }
   const sel = last >= 0 ? (next[last] as string) : '';
   const list = sel.startsWith('@') ? undefined : splitSelectorList(sel);
-  if (list === undefined) return [JSON.stringify(next)];
+  if (list === undefined) {
+    return [JSON.stringify(next)];
+  }
   const chain = next.slice(0, last);
   return list.map((s) => JSON.stringify([...chain, s]));
 }
@@ -972,13 +1052,23 @@ function applyEdits(src: string, edits: Edit[]): string {
 function removalOf(src: string, rule: ScannedRule): Edit {
   let start = rule.start;
   let s = start;
-  while (s > 0 && (src[s - 1] === ' ' || src[s - 1] === '\t')) s--;
-  if (s === 0 || src[s - 1] === '\n') start = s;
+  while (s > 0 && (src[s - 1] === ' ' || src[s - 1] === '\t')) {
+    s--;
+  }
+  if (s === 0 || src[s - 1] === '\n') {
+    start = s;
+  }
   let end = rule.end;
   let e = end;
-  while (e < src.length && (src[e] === ' ' || src[e] === '\t')) e++;
-  if (src[e] === '\r') e++;
-  if (src[e] === '\n') end = e + 1;
+  while (e < src.length && (src[e] === ' ' || src[e] === '\t')) {
+    e++;
+  }
+  if (src[e] === '\r') {
+    e++;
+  }
+  if (src[e] === '\n') {
+    end = e + 1;
+  }
   return { start, end, text: '' };
 }
 
@@ -1015,7 +1105,9 @@ function sameOccurrences(a: readonly ScannedRule[], b: readonly ScannedRule[]): 
 /** `at` の行頭からの空白(行頭から空白だけが続くときのみ)。 */
 function indentBefore(src: string, at: number): string {
   let s = at;
-  while (s > 0 && (src[s - 1] === ' ' || src[s - 1] === '\t')) s--;
+  while (s > 0 && (src[s - 1] === ' ' || src[s - 1] === '\t')) {
+    s--;
+  }
   return s === 0 || src[s - 1] === '\n' ? src.slice(s, at) : '';
 }
 
@@ -1038,7 +1130,9 @@ function listRewrite(
 ): Edit {
   const physical = items[0];
   const results = items.map((p) => outcomes.get(p.listIndex ?? 0));
-  if (results.every((r) => r === 'remove')) return removalOf(src, physical);
+  if (results.every((r) => r === 'remove')) {
+    return removalOf(src, physical);
+  }
   const { start, end } = physical;
   const single = results.map((r) =>
     typeof r === 'object' && r.bodies.length === 1 ? r.bodies[0] : undefined,
@@ -1049,7 +1143,9 @@ function listRewrite(
   }
   const texts = items.flatMap((p, i) => {
     const r = results[i];
-    if (r === undefined) return [p.text];
+    if (r === undefined) {
+      return [p.text];
+    }
     return r === 'remove' ? [] : r.bodies.map((b) => p.head + b);
   });
   return { start, end, text: texts.join(`\n${indentBefore(src, start)}`) };
@@ -1063,9 +1159,13 @@ function anchorFor(
 ): MergeRule | undefined {
   const { chainKey } = rules[index];
   for (let k = index - 1; k >= 0; k--) {
-    if (rules[k].chainKey !== chainKey) continue;
+    if (rules[k].chainKey !== chainKey) {
+      continue;
+    }
     const hit = present.get(rules[k].key);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      return hit;
+    }
   }
   return undefined;
 }
@@ -1113,7 +1213,9 @@ function mergeRuleChanges(
   /** target が `ref` の形のままか。出現ごとに比べる(両方に無い場合も含む)。 */
   const untouched = (key: string, tr: MergeRule | undefined): boolean => {
     const r = ref.get(key);
-    if (r === undefined || tr === undefined) return r === tr;
+    if (r === undefined || tr === undefined) {
+      return r === tr;
+    }
     return sameOccurrences(occurrencesOf(tr), occurrencesOf(r));
   };
   /** 物理の規則(`listOf`)→ 並びの番号 → そのセレクタの結果。 */
@@ -1134,25 +1236,32 @@ function mergeRuleChanges(
     const nr = nMap.get(fr.key);
     const F = occurrencesOf(fr);
     const N = nr === undefined ? undefined : occurrencesOf(nr);
-    if (N !== undefined && sameOccurrences(F, N)) continue;
+    if (N !== undefined && sameOccurrences(F, N)) {
+      continue;
+    }
     const tr = tMap.get(fr.key);
     if (!ref.has(fr.key)) {
       // 削除は target に無いことしか分からないので、既に当たっているとは判定できない。
-      if (N !== undefined && tr !== undefined && sameOccurrences(occurrencesOf(tr), N)) continue;
+      if (N !== undefined && tr !== undefined && sameOccurrences(occurrencesOf(tr), N)) {
+        continue;
+      }
       unmatched.push(fr.key);
       continue;
     }
     if (
       N === undefined ? tr === undefined : tr !== undefined && sameOccurrences(occurrencesOf(tr), N)
-    )
+    ) {
       continue;
+    }
     // `ref` にあるキーなので、target に無ければ(ペア側が消してある)それも競合。
     if (tr === undefined || !untouched(fr.key, tr)) {
       conflicts.push(fr.key);
       continue;
     }
     if (N === undefined) {
-      for (const p of tr.parts) rewrite(p, undefined, () => []);
+      for (const p of tr.parts) {
+        rewrite(p, undefined, () => []);
+      }
       applied.push(fr.key);
       continue;
     }
@@ -1166,8 +1275,11 @@ function mergeRuleChanges(
       continue;
     }
     for (const [i, p] of L.entries()) {
-      if (i >= N.length) rewrite(p, undefined, () => []);
-      else if (!sameCssRule(F[i].text, N[i].text)) rewrite(p, N[i].text, () => [N[i].body]);
+      if (i >= N.length) {
+        rewrite(p, undefined, () => []);
+      } else if (!sameCssRule(F[i].text, N[i].text)) {
+        rewrite(p, N[i].text, () => [N[i].body]);
+      }
     }
     applied.push(fr.key);
   }
@@ -1178,10 +1290,14 @@ function mergeRuleChanges(
     { anchor: MergeRule | undefined; atRules: string[]; texts: string[] }
   >();
   for (const [index, nr] of n.entries()) {
-    if (fromKeys.has(nr.key)) continue;
+    if (fromKeys.has(nr.key)) {
+      continue;
+    }
     const tr = tMap.get(nr.key);
     if (tr !== undefined) {
-      if (sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) continue;
+      if (sameOccurrences(occurrencesOf(tr), occurrencesOf(nr))) {
+        continue;
+      }
       // 原文の空の規則(`getCss` に出ないので baseline に無い)に宣言を足した編集。ペア側も原文と
       // 同じ空の形(空の規則の数も同じ)なら、最後の空の出現を next の出現で置き換える(前の空の出現は残す)。
       const last = tr.parts[tr.parts.length - 1];
@@ -1195,7 +1311,9 @@ function mergeRuleChanges(
           occurrences.map((p) => p.body),
         );
         applied.push(nr.key);
-      } else conflicts.push(nr.key);
+      } else {
+        conflicts.push(nr.key);
+      }
       continue;
     }
     if (!untouched(nr.key, tr)) {
@@ -1229,7 +1347,9 @@ function mergeRuleChanges(
   if (listOutcomes.size > 0) {
     const items = new Map<number, ScannedRule[]>();
     for (const p of t.flatMap((r) => r.parts)) {
-      if (p.listOf !== undefined) items.set(p.listOf, [...(items.get(p.listOf) ?? []), p]);
+      if (p.listOf !== undefined) {
+        items.set(p.listOf, [...(items.get(p.listOf) ?? []), p]);
+      }
     }
     for (const [listOf, outcomes] of listOutcomes) {
       const list = (items.get(listOf) ?? []).sort(
@@ -1271,7 +1391,9 @@ function asIs(css: string): MergeRule[] {
 function folded(css: string): MergeRule[] {
   const rules = scanCssRules(css, true);
   const groups = new Map<string, ScannedRule[]>();
-  for (const r of rules) groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
+  for (const r of rules) {
+    groups.set(r.group, [...(groups.get(r.group) ?? []), r]);
+  }
   const out: MergeRule[] = [];
   for (const parts of groups.values()) {
     const last = parts[parts.length - 1];
@@ -1282,15 +1404,21 @@ function folded(css: string): MergeRule[] {
 }
 
 function foldedText(parts: ScannedRule[]): string {
-  if (parts.length === 1) return parts[0].text;
-  if (parts.some((p) => p.decls === undefined)) return parts[parts.length - 1].text;
+  if (parts.length === 1) {
+    return parts[0].text;
+  }
+  if (parts.some((p) => p.decls === undefined)) {
+    return parts[parts.length - 1].text;
+  }
   const winners = new Map<string, { decl: string; important: boolean }>();
   for (const p of parts) {
     for (const decl of (p.decls ?? []).filter(isValidDecl)) {
       const colon = decl.indexOf(':');
       const prop = colon === -1 ? decl : decl.slice(0, colon).trim().toLowerCase();
       const important = /!\s*important$/i.test(decl);
-      if (winners.get(prop)?.important && !important) continue;
+      if (winners.get(prop)?.important && !important) {
+        continue;
+      }
       winners.set(prop, { decl, important });
     }
   }
