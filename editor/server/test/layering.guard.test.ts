@@ -36,7 +36,10 @@ function sourceFiles(dir: string, exts: readonly string[]): string[] {
   return out;
 }
 
-/** `./db/…`・`../db/…`・`../../db/…` のような、db 層を指す相対指定子。 */
+/**
+ * `./db/…`・`../db/…`・`../../db/…` のような、db 層を指す相対指定子。
+ * ESM の指定子は拡張子 `.js` まで書く前提なので、`.js` で終わるものだけを拾う。
+ */
 const DB_SPECIFIER = String.raw`['"]\.\.?\/(?:\.\.\/)*db\/[^'"]+\.js['"]`;
 
 // 値として db 層を読む形を 3 つ数える。
@@ -166,6 +169,7 @@ describe('操作名は OP の定数で渡す', () => {
     };
     visit(sf);
     expect(literals.length).toBeGreaterThan(0);
+    // 区切りの `/` と、最後の `${…}` の後ろに残る末尾スパンの空文字だけを許す。
     expect(literals.filter((s) => !/^\/?$/.test(s))).toEqual([]);
   });
 });
