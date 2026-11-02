@@ -9,7 +9,7 @@
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
 import { OP, SP } from '../db/sprocNames.js';
 
-export interface NoteMasterRow {
+interface NoteMasterRow {
   partId: string;
   noteHtml: string | null;
 }
