@@ -40,7 +40,7 @@ import yaml
 from markdown_it import MarkdownIt
 
 # ── デザイントークン（docs 共通・ライト固定）──
-CSS_TOKENS = {
+_CSS_TOKENS = {
     "accent": "#1F5C99",   # 見出しバー・表ヘッダ・番号バッジ・縦バー
     "ink": "#20242C",      # 本文・見出し文字
     "muted": "#606874",    # サブタイトル・キャプション
@@ -53,27 +53,27 @@ CSS_TOKENS = {
     "rule2": "#CDD5DD",    # 見出し下罫線
     "ng_txt": "#B3403F", "ng_fill": "#FDECEC",   # 警告文字・地（callout-WARN / 画像未取得）
 }
-# callout-NOTE の中立地 #EFF1F4 は CALLOUT_STYLE["NOTE"] が持つ（トークン化しない）。
+# callout-NOTE の中立地 #EFF1F4 は _CALLOUT_STYLE["NOTE"] が持つ（トークン化しない）。
 # callout の `[!TAG]` → 地色 / 枠色。意味で色を分ける: WARN=赤 / INFO=青(情報) /
 # NOTE=中立グレー(補足) / TIP=金。NOTE を中立グレーにするのは INFO と同系色だと判別不能になるため。
-CALLOUT_STYLE = {
+_CALLOUT_STYLE = {
     "WARN": ("#FDECEC", "#E4A9A9"),
     "INFO": ("#EAF2FB", "#B9D3EE"),
     "NOTE": ("#EFF1F4", "#CDD5DD"),
     "TIP": ("#FFF6E5", "#F0D9A0"),
 }
-CALLOUT_DEFAULT = "INFO"
+_CALLOUT_DEFAULT = "INFO"
 
-JP = '"BIZ UDPGothic", "Yu Gothic UI", sans-serif'
-MONO = '"BIZ UDGothic", "Consolas", monospace'
+_JP = '"BIZ UDPGothic", "Yu Gothic UI", sans-serif'
+_MONO = '"BIZ UDGothic", "Consolas", monospace'
 
-VENDOR_MERMAID = pathlib.Path(__file__).resolve().parent / "vendor" / "mermaid.min.js"
+_VENDOR_MERMAID = pathlib.Path(__file__).resolve().parent / "vendor" / "mermaid.min.js"
 # ELK レイアウトエンジン（`@mermaid-js/layout-elk` を単一 IIFE へ自前バンドルしたもの。
 # global `mermaidLayoutElk` = レイアウト loader 配列）。未配置なら dagre + step へフォールバック。
-VENDOR_ELK = pathlib.Path(__file__).resolve().parent / "vendor" / "mermaid-layout-elk.min.js"
+_VENDOR_ELK = pathlib.Path(__file__).resolve().parent / "vendor" / "mermaid-layout-elk.min.js"
 
 # 読者別の冊子定義: (audience キー, 出力名サフィックス, 冊子タイトルサフィックス)。
-BOOKS = (("guide", "手引き"), ("spec", "設計"))
+_BOOKS = (("guide", "手引き"), ("spec", "設計"))
 
 # 冊子内の連結順（ファイル名キーワード → 優先度）。小さいほど先。既定 40。
 # spec 冊子は 設計書 → デプロイ運用手順書 → 仕様一覧 の導線になる（設計正典は _build_spec_book で
@@ -108,15 +108,15 @@ def audience_of(src: pathlib.Path, meta: dict | None) -> str:
     return "guide" if ("操作手順書" in src.name or "利用手引き" in src.name) else "spec"
 
 
-def esc(s: str) -> str:
-    """要素の**内容**へ埋める文字列のエスケープ。属性値には使わない(`esc_attr` を使う)。"""
+def _esc(s: str) -> str:
+    """要素の**内容**へ埋める文字列のエスケープ。属性値には使わない(`_esc_attr` を使う)。"""
     return html.escape(str(s), quote=False)
 
 
-def esc_attr(s: str) -> str:
+def _esc_attr(s: str) -> str:
     """属性値へ埋める文字列のエスケープ。引用符も落とす。
 
-    `esc` は `quote=False` なので二重引用符を通す。`alt="{esc(...)}"` のように属性文脈へ
+    `_esc` は `quote=False` なので二重引用符を通す。`alt="{esc(...)}"` のように属性文脈へ
     使うと、原稿の 1 行で属性を閉じて `onerror=` を持ち込める。生成器は
     `MarkdownIt(..., {"html": False})` で本文中の生 HTML を禁じているので、属性文脈での
     取りこぼしがその宣言の唯一の穴になる。**属性値はこちらを通す。**
@@ -145,7 +145,7 @@ def _image_data_uri(img_dir: pathlib.Path, name: str):
 # ブロック解釈（見出し・リスト・表・段落・blockquote・フェンス）は markdown-it-py へ委譲し、docs
 # 固有の描画（見出しの階層シフト + id/TOC・mermaid フェンス・callout・base64 画像図）だけを自前で
 # 組む。`html:False` で本文へ生 HTML は通さない。インラインは `emphasis`/`backticks`/`escape` の
-# 規則を**無効化**し、`` `code` `` と `**bold**` の 2 種だけを素朴な自前 `inline_html` で処理する。
+# 規則を**無効化**し、`` `code` `` と `**bold**` の 2 種だけを素朴な自前 `_inline_html` で処理する。
 # 理由: (1) CommonMark の強調 flanking は CJK 句読点隣接の `**「x」**` を bold 化せず literal `**`
 # が残る、(2) escape 規則はコード span 内の Windows パス `` `C:\Users\<name>` `` の `\<` を食う。
 # 原稿は素の Markdown リンク `[..](..)` や `*em*` を使わず、画像はすべて `![..]`。
@@ -196,18 +196,18 @@ def _strip_comments(body: str) -> str:
     return "\n".join(out)
 
 
-def inline_html(text: str) -> str:
+def _inline_html(text: str) -> str:
     """text ノードのインライン装飾。`` `code` `` と `**bold**` のみ対応（他は HTML エスケープ）。"""
     out, pos = [], 0
     for m in _INLINE_RE.finditer(text):
         if m.start() > pos:
-            out.append(esc(text[pos:m.start()]))
+            out.append(_esc(text[pos:m.start()]))
         if m.group(1) is not None:
-            out.append(f"<code>{esc(m.group(1))}</code>")
+            out.append(f"<code>{_esc(m.group(1))}</code>")
         else:
-            out.append(f"<strong>{esc(m.group(2))}</strong>")
+            out.append(f"<strong>{_esc(m.group(2))}</strong>")
         pos = m.end()
-    out.append(esc(text[pos:]))
+    out.append(_esc(text[pos:]))
     return "".join(out)
 
 # markdown-it のブロック開閉トークン → HTML タグ（リスト・表はそのまま素の要素へ）。
@@ -223,25 +223,25 @@ _BLOCK_CLOSE = {"bullet_list_close": "</ul>", "ordered_list_close": "</ol>",
 def _render_inline(children, env) -> str:
     """インライン子トークン列 → HTML。emphasis/backticks 無効のため現れるのは text/softbreak/image。
 
-    画像を含まない通常インラインは「全体を空白連結 → `inline_html`」で処理する。段落全体を
+    画像を含まない通常インラインは「全体を空白連結 → `_inline_html`」で処理する。段落全体を
     空白連結してから装飾を当てることで、`**bold**` が軟改行をまたぐ場合も 1 度で拾う。
     """
     children = children or []
     if not any(c.type == "image" for c in children):
         text = "".join(" " if c.type in ("softbreak", "hardbreak") else c.content
                        for c in children if c.type in ("text", "softbreak", "hardbreak"))
-        return inline_html(text)
+        return _inline_html(text)
     # 画像混在（稀）: トークン毎に処理し、画像は base64 図として差し込む
     out = []
     for t in children:
         if t.type == "text":
-            out.append(inline_html(t.content))
+            out.append(_inline_html(t.content))
         elif t.type in ("softbreak", "hardbreak"):
             out.append(" ")
         elif t.type == "image":
             out.append(_img_html(t, env))
         else:
-            out.append(esc(t.content or ""))
+            out.append(_esc(t.content or ""))
     return "".join(out)
 
 
@@ -257,9 +257,9 @@ def _img_html(tok, env) -> str:
     cap = tok.content or ""
     uri = _image_data_uri(env["img_dir"], name)
     if uri:
-        return f'<img alt="{esc_attr(cap)}" src="{uri}">'
+        return f'<img alt="{_esc_attr(cap)}" src="{uri}">'
     env["warnings"].append(f'{env["src_name"]}: 画像未取得 {name}')
-    return f'<div class="img-missing">画像未取得: {esc(name)}</div>'
+    return f'<div class="img-missing">画像未取得: {_esc(name)}</div>'
 
 
 def _lone_image(inline_token):
@@ -311,8 +311,8 @@ def _callout_html(tokens, start, end, env) -> str:
         if k and is_para and pieces[k - 1][0]:
             body += " "
         body += piece
-    tagkey = tag if tag in CALLOUT_STYLE else CALLOUT_DEFAULT
-    badge = f'<span class="callout-tag">{esc(tagkey)}</span>' if tag else ""
+    tagkey = tag if tag in _CALLOUT_STYLE else _CALLOUT_DEFAULT
+    badge = f'<span class="callout-tag">{_esc(tagkey)}</span>' if tag else ""
     return f'<div class="callout callout-{tagkey}">{badge}{body}</div>'
 
 
@@ -322,8 +322,8 @@ def _fence_html(tok) -> str:
     src = tok.content[:-1] if tok.content.endswith("\n") else tok.content
     if lang.lower() == "mermaid":
         return f'<pre class="mermaid">{_mermaid_escape(src)}</pre>'
-    label = f'<span class="code-lang">{esc(lang)}</span>' if lang else ""
-    return f'<div class="code">{label}<pre><code>{esc(src)}</code></pre></div>'
+    label = f'<span class="code-lang">{_esc(lang)}</span>' if lang else ""
+    return f'<div class="code">{label}<pre><code>{_esc(src)}</code></pre></div>'
 
 
 def render_markdown(body: str, doc_idx: int, img_dir: pathlib.Path, warnings, src_name: str,
@@ -365,7 +365,7 @@ def _render_blocks(tokens, start: int, n: int, env) -> str:
                 if img is not None:
                     inner = _img_html(img, env)
                     cap = img.content or ""
-                    caphtml = (f"<figcaption>{esc(cap)}</figcaption>"
+                    caphtml = (f"<figcaption>{_esc(cap)}</figcaption>"
                                if cap and inner.startswith("<img") else "")
                     parts.append(f"<figure>{inner}{caphtml}</figure>"
                                  if inner.startswith("<img") else inner)
@@ -417,7 +417,7 @@ def _render_blocks(tokens, start: int, n: int, env) -> str:
 
 
 def _css() -> str:
-    t = CSS_TOKENS
+    t = _CSS_TOKENS
     return f"""
 :root {{
   --accent:{t['accent']}; --ink:{t['ink']}; --muted:{t['muted']}; --bg:{t['bg']};
@@ -427,12 +427,12 @@ def _css() -> str:
 * {{ box-sizing:border-box; }}
 html {{ scroll-behavior:smooth; }}
 html,body {{ margin:0; background:var(--bg); color:var(--ink);
-  font-family:{JP}; font-size:15px; line-height:1.75;
+  font-family:{_JP}; font-size:15px; line-height:1.75;
   /* 日本語の禁則を厳格化し、長い識別子は語中で折り返してはみ出しを防ぐ */
   line-break:strict; overflow-wrap:break-word; }}
 a {{ color:var(--accent); text-decoration:none; }}
 a:hover {{ text-decoration:underline; }}
-code, pre {{ font-family:{MONO}; }}
+code, pre {{ font-family:{_MONO}; }}
 .layout {{ display:flex; align-items:flex-start; }}
 /* 左固定 TOC */
 nav.toc {{ position:sticky; top:0; align-self:flex-start; width:290px; min-width:290px;
@@ -454,7 +454,7 @@ h1 {{ font-size:30px; border-left:8px solid var(--accent); padding-left:16px;
 /* 版チップ + 最終改訂日のメタ行。下に締め罫を入れて扉(masthead)を本文から分離する */
 .docmeta {{ display:flex; gap:10px; align-items:center; color:var(--muted); font-size:13px;
   margin:2px 0 26px; padding-bottom:16px; border-bottom:2px solid var(--rule2); }}
-.docmeta .ver {{ font-family:{MONO}; font-size:12px; font-weight:700; color:var(--accent);
+.docmeta .ver {{ font-family:{_MONO}; font-size:12px; font-weight:700; color:var(--accent);
   background:var(--card); border:1px solid var(--hair); border-radius:4px; padding:0 8px; }}
 /* 設計正典章の役割リード（規範の要約であることの宣言） */
 h2 {{ font-size:23px; margin:40px 0 12px; padding-bottom:6px; border-bottom:2px solid var(--rule2); }}
@@ -472,7 +472,7 @@ p {{ margin:10px 0; }}
    灰色ピルの塊になって過密なので、セル内は枠・地なしのプレーン等幅にする（識別子は語中で割らない）。 */
 p code, li code {{ background:var(--code-bg); border:1px solid var(--hair);
   border-radius:3px; padding:0 4px; font-size:0.92em; overflow-wrap:anywhere; }}
-td code {{ font-family:{MONO}; font-size:0.92em; color:var(--ink);
+td code {{ font-family:{_MONO}; font-size:0.92em; color:var(--ink);
   word-break:keep-all; overflow-wrap:normal; }}
 ul, ol {{ margin:8px 0; padding-left:26px; }}
 li {{ margin:3px 0; }}
@@ -482,7 +482,7 @@ li {{ margin:3px 0; }}
   border-radius:0 4px 4px 0; padding:12px 14px; overflow-x:auto; margin:0; font-size:13px;
   line-height:1.6; }}
 .code-lang {{ position:absolute; top:0; right:0; background:var(--accent); color:#fff;
-  font-size:11px; padding:1px 8px; border-radius:0 4px 0 6px; font-family:{MONO}; }}
+  font-size:11px; padding:1px 8px; border-radius:0 4px 0 6px; font-family:{_MONO}; }}
 /* テーブル。chrome を減らすため四辺罫線は引かず横罫のみ + ゼブラ + ネイビーヘッダで構成する
    （列追跡は整列とゼブラで足りる。罫線とゼブラの二重掛けは過多）。 */
 table {{ border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px;
@@ -508,10 +508,10 @@ figcaption::before {{ content:"図 " counter(fig) "　"; font-weight:700; }}
 .callout-tag {{ display:inline-block; font-weight:700; font-size:11px; color:#fff;
   background:var(--accent); border-radius:3px; padding:0 7px; margin-right:8px;
   vertical-align:1px; }}
-.callout-WARN {{ background:{CALLOUT_STYLE['WARN'][0]}; border-color:{CALLOUT_STYLE['WARN'][1]}; }}
-.callout-INFO {{ background:{CALLOUT_STYLE['INFO'][0]}; border-color:{CALLOUT_STYLE['INFO'][1]}; }}
-.callout-NOTE {{ background:{CALLOUT_STYLE['NOTE'][0]}; border-color:{CALLOUT_STYLE['NOTE'][1]}; }}
-.callout-TIP {{ background:{CALLOUT_STYLE['TIP'][0]}; border-color:{CALLOUT_STYLE['TIP'][1]}; }}
+.callout-WARN {{ background:{_CALLOUT_STYLE['WARN'][0]}; border-color:{_CALLOUT_STYLE['WARN'][1]}; }}
+.callout-INFO {{ background:{_CALLOUT_STYLE['INFO'][0]}; border-color:{_CALLOUT_STYLE['INFO'][1]}; }}
+.callout-NOTE {{ background:{_CALLOUT_STYLE['NOTE'][0]}; border-color:{_CALLOUT_STYLE['NOTE'][1]}; }}
+.callout-TIP {{ background:{_CALLOUT_STYLE['TIP'][0]}; border-color:{_CALLOUT_STYLE['TIP'][1]}; }}
 .callout-WARN .callout-tag {{ background:{t['ng_txt']}; }}
 .callout-NOTE .callout-tag {{ background:var(--muted); }}
 .callout-TIP .callout-tag {{ background:#B8860B; }}
@@ -570,16 +570,16 @@ def _mermaid_script(has_mermaid: bool) -> str:
     HTML パーサ自体が大小文字非依存のため `</SCRIPT` 等の表記も塞ぐ必要がある）。
 
     レイアウトは **ELK**（`layout:'elk'`）を使う。ELK の直交ルーティングは矢印終点の向きが自然で
-    不要な直角ジグザグが出ないため。ELK バンドル（`VENDOR_ELK`）を先にインラインして
+    不要な直角ジグザグが出ないため。ELK バンドル（`_VENDOR_ELK`）を先にインラインして
     `registerLayoutLoaders` で登録する。未配置なら dagre へフォールバックし、その場合のみ
     `curve:'step'`（直角ステップ）で dagre の曲線を直角化する。
     """
-    if not has_mermaid or not VENDOR_MERMAID.exists():
+    if not has_mermaid or not _VENDOR_MERMAID.exists():
         return ""
-    js = _SCRIPT_CLOSE_RE.sub("<\\/", VENDOR_MERMAID.read_text(encoding="utf-8"))
-    use_elk = VENDOR_ELK.exists()
+    js = _SCRIPT_CLOSE_RE.sub("<\\/", _VENDOR_MERMAID.read_text(encoding="utf-8"))
+    use_elk = _VENDOR_ELK.exists()
     if use_elk:
-        elk = _SCRIPT_CLOSE_RE.sub("<\\/", VENDOR_ELK.read_text(encoding="utf-8"))
+        elk = _SCRIPT_CLOSE_RE.sub("<\\/", _VENDOR_ELK.read_text(encoding="utf-8"))
         reg = (f"<script>{elk}</script>\n"
                "<script>if(window.mermaidLayoutElk)"
                "mermaid.registerLayoutLoaders(window.mermaidLayoutElk);</script>\n")
@@ -626,7 +626,7 @@ def _order_key(path: pathlib.Path):
     return (40, name)
 
 
-def discover_srcs(proj_dir: pathlib.Path):
+def _discover_srcs(proj_dir: pathlib.Path):
     """`docs/<project>/src/` の原稿（.md）を冊子内の導線順に列挙する。"""
     src = proj_dir / "src"
     if not src.is_dir():
@@ -639,11 +639,11 @@ def _doc_meta_row(version, revs) -> str:
     """版チップ + 最終改訂日のメタ行。rev（`版 | 日付 | 内容`）の末尾要素から日付を取る。"""
     parts = []
     if version:
-        parts.append(f'<span class="ver">v{esc(version)}</span>')
+        parts.append(f'<span class="ver">v{_esc(version)}</span>')
     if revs:
         cols = [c.strip() for c in str(revs[-1]).split("|")]
         if len(cols) >= 2 and cols[1]:
-            parts.append(f'<span class="revdate">最終改訂 {esc(cols[1])}</span>')
+            parts.append(f'<span class="revdate">最終改訂 {_esc(cols[1])}</span>')
     return f'<p class="docmeta">{"".join(parts)}</p>' if parts else ""
 
 
@@ -654,11 +654,11 @@ def _page(book_title: str, body_class: str, nav_html: str, main_html: str,
         "<!doctype html>\n"
         '<html lang="ja"><head><meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f"<title>{esc(book_title)}</title>\n"
+        f"<title>{_esc(book_title)}</title>\n"
         f"<style>{_css()}</style>\n</head><body class=\"{body_class}\">\n"
         '<div class="layout">\n'
         f'<nav class="toc"><div class="doc" style="border:none;color:var(--ink)">'
-        f"{esc(book_title)}</div>{nav_html}</nav>\n"
+        f"{_esc(book_title)}</div>{nav_html}</nav>\n"
         f"<main>{main_html}</main>\n"
         "</div>\n"
         f"{_mermaid_script(has_mermaid)}\n"
@@ -667,7 +667,7 @@ def _page(book_title: str, body_class: str, nav_html: str, main_html: str,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(doc, encoding="utf-8")
-    if has_mermaid and not VENDOR_MERMAID.exists():
+    if has_mermaid and not _VENDOR_MERMAID.exists():
         warnings.append(f"{out_path.name}: mermaid 図があるが vendor/mermaid.min.js 未配置"
                         "（整形表示のみ・描画は未有効）")
     return out_path
@@ -682,13 +682,13 @@ def _build_guide_book(book_title, srcs, img_dir, out_path, warnings):
         if "```mermaid" in body:
             has_mermaid = True
         frag, toc = render_markdown(body, di, img_dir, warnings, src.name)
-        sub = f'<p class="subtitle">{esc(meta.get("subtitle"))}</p>' if meta.get("subtitle") else ""
+        sub = f'<p class="subtitle">{_esc(meta.get("subtitle"))}</p>' if meta.get("subtitle") else ""
         sections.append(
-            f'<section class="doc" id="doc{di}"><h1>{esc(title)}</h1>{sub}'
+            f'<section class="doc" id="doc{di}"><h1>{_esc(title)}</h1>{sub}'
             f'{_doc_meta_row(meta.get("version"), meta.get("rev"))}{frag}</section>')
-        nav.append(f'<div class="doc"><a href="#doc{di}">{esc(title)}</a></div>')
+        nav.append(f'<div class="doc"><a href="#doc{di}">{_esc(title)}</a></div>')
         for lv, hid, text in toc:
-            nav.append(f'<a class="h{lv}" href="#{hid}">{esc(text)}</a>')
+            nav.append(f'<a class="h{lv}" href="#{hid}">{_esc(text)}</a>')
     return _page(book_title, "book-guide", "".join(nav), "".join(sections),
                  has_mermaid, out_path, warnings)
 
@@ -700,7 +700,7 @@ def _build_spec_book(book_title, srcs, img_dir, out_path, warnings):
     設計書本文 → そのまま各章 / デプロイ運用手順書・仕様一覧 → 後半章。従文書の内部見出しは
     +2 シフト（h4 頭打ち）。
 
-    掲載既定は「`discover_srcs` が拾う `docs/<project>/src/*.md` は全件、既定で冊子に載る」
+    掲載既定は「`_discover_srcs` が拾う `docs/<project>/src/*.md` は全件、既定で冊子に載る」
     （`build_project` 参照）。除外はファイル名に「設計正典」を含むものだけの**部分一致**判定
     （下記 `if`）で、これは CLAUDE.md へ @import される正典のためファイルは残しつつ読者向け
     冊子からだけ外す例外。front-matter による掲載可否の切替（`publish` 等）は持たない —
@@ -712,8 +712,8 @@ def _build_spec_book(book_title, srcs, img_dir, out_path, warnings):
     has_mermaid = False
 
     # 冊子ヘッダ（主文書のメタ）。h1 は 1 つだけ
-    sub = f'<p class="subtitle">{esc(pmeta.get("subtitle"))}</p>' if pmeta.get("subtitle") else ""
-    header = (f'<section class="doc" id="top"><h1>{esc(pmeta.get("title") or book_title)}</h1>'
+    sub = f'<p class="subtitle">{_esc(pmeta.get("subtitle"))}</p>' if pmeta.get("subtitle") else ""
+    header = (f'<section class="doc" id="top"><h1>{_esc(pmeta.get("title") or book_title)}</h1>'
               f'{sub}{_doc_meta_row(pmeta.get("version"), pmeta.get("rev"))}</section>')
 
     for di, (src, meta, body) in enumerate(srcs):
@@ -726,7 +726,7 @@ def _build_spec_book(book_title, srcs, img_dir, out_path, warnings):
             frag, toc = render_markdown(body, di, img_dir, warnings, src.name, shift=1)
             sections.append(f'<section class="chapter" id="doc{di}">{frag}</section>')
             for lv, hid, text in toc:
-                nav.append(f'<a class="h{lv}" href="#{hid}">{esc(text)}</a>')
+                nav.append(f'<a class="h{lv}" href="#{hid}">{_esc(text)}</a>')
             continue
 
         # 従文書（デプロイ運用手順書・仕様一覧）: タイトル由来の h2 章ヘッダの下へ格納
@@ -734,10 +734,10 @@ def _build_spec_book(book_title, srcs, img_dir, out_path, warnings):
         frag, toc = render_markdown(body, di, img_dir, warnings, src.name, shift=2)
         hid = f"doc{di}-t"
         sections.append(f'<section class="chapter" id="doc{di}">'
-                        f'<h2 id="{hid}">{esc(chap_title)}</h2>{frag}</section>')
-        nav.append(f'<a class="h1" href="#{hid}">{esc(chap_title)}</a>')
+                        f'<h2 id="{hid}">{_esc(chap_title)}</h2>{frag}</section>')
+        nav.append(f'<a class="h1" href="#{hid}">{_esc(chap_title)}</a>')
         for lv, hid2, text in toc:
-            nav.append(f'<a class="h{lv}" href="#{hid2}">{esc(text)}</a>')
+            nav.append(f'<a class="h{lv}" href="#{hid2}">{_esc(text)}</a>')
 
     return _page(book_title, "book-spec", "".join(nav), header + "".join(sections),
                  has_mermaid, out_path, warnings)
@@ -751,13 +751,13 @@ def build_project(proj_dir: pathlib.Path, warnings=None):
 
     # 原稿を一度だけ読み、audience（front-matter）で振り分ける。
     grouped = {"guide": [], "spec": []}
-    for src in discover_srcs(proj_dir):
+    for src in _discover_srcs(proj_dir):
         text = src.read_text(encoding="utf-8")
         meta, body = parse_frontmatter(text, src.name)
         grouped[audience_of(src, meta)].append((src, meta, body))
 
     built = []
-    for aud, suffix in BOOKS:
+    for aud, suffix in _BOOKS:
         srcs = grouped[aud]
         if not srcs:
             continue   # 片群が空のプロジェクトはその冊子を出さない

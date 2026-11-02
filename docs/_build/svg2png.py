@@ -23,7 +23,7 @@ import pathlib
 import re
 import sys
 
-DOCS = pathlib.Path(__file__).resolve().parents[1]   # <repo>/docs
+_DOCS = pathlib.Path(__file__).resolve().parents[1]   # <repo>/docs
 
 # viewBox="minX minY width height" から実寸を拾う（自作図版は width/height 属性も持つが、
 # viewport 決定は viewBox を正とする）。
@@ -42,7 +42,7 @@ def main(argv=None):
     ap.add_argument("--project", help="対象プロジェクト名（docs 直下のフォルダ名）")
     args = ap.parse_args(argv)
 
-    targets = sorted(DOCS.glob("*/images/*.svg"))
+    targets = sorted(_DOCS.glob("*/images/*.svg"))
     if args.project:
         targets = [p for p in targets if p.parents[1].name == args.project]
     if not targets:
@@ -59,7 +59,7 @@ def main(argv=None):
             # 止める（SVG 内の http(s) 外部参照による保守者マシンからの SSRF 面を閉じる）。
             shot.capture(browser, svg.resolve().as_uri(), w, h, out, selector="svg",
                          allowed_schemes=("file", "data"))
-            print(f"  [ok] {out.relative_to(DOCS)}")
+            print(f"  [ok] {out.relative_to(_DOCS)}")
     return 0
 
 

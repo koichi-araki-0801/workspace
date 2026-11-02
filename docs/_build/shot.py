@@ -3,7 +3,7 @@
 
 `svg2png.py` / `docs/pie-chart/_build/capture_examples.py` が個別に持っていた
 「launch → new_context(device_scale_factor=2) → goto → networkidle → screenshot」の作法を
-集約する。解像度規約（`DEVICE_SCALE_FACTOR` = 印刷時ににじまない 2 倍）の変更を 1 箇所で
+集約する。解像度規約（`_DEVICE_SCALE_FACTOR` = 印刷時ににじまない 2 倍）の変更を 1 箇所で
 済ませるため。オフライン制約により依存は追加しない（playwright は導入済みのものを遅延
 import）。サーバ起動・UI 操作などスクリプト固有の撮影本体は共通化しない。
 
@@ -17,7 +17,7 @@ import pathlib
 from urllib.parse import urlsplit
 
 # 印刷時ににじまない解像度の規約値。全図版・撮影で共通（変更はここだけ）。
-DEVICE_SCALE_FACTOR = 2
+_DEVICE_SCALE_FACTOR = 2
 
 
 def _is_scheme_allowed(url: str, allowed: frozenset[str]) -> bool:
@@ -53,7 +53,7 @@ def page_context(browser, width: int, height: int, *, allowed_schemes):
     撮影など、意図した取得がある経路向け）。"""
     ctx = browser.new_context(
         viewport={"width": width, "height": height},
-        device_scale_factor=DEVICE_SCALE_FACTOR,
+        device_scale_factor=_DEVICE_SCALE_FACTOR,
     )
     if allowed_schemes is not None:
         allowed = frozenset(allowed_schemes)

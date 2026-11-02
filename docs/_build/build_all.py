@@ -22,14 +22,14 @@ import sys
 
 import md2html
 
-DOCS = pathlib.Path(__file__).resolve().parents[1]   # <repo>/docs
-SKIP_DIRS = {"_build"}
+_DOCS = pathlib.Path(__file__).resolve().parents[1]   # <repo>/docs
+_SKIP_DIRS = {"_build"}
 
 
-def discover_projects():
+def _discover_projects():
     """`docs/<project>/src/` を持つプロジェクトディレクトリを列挙する。"""
-    for proj in sorted(DOCS.iterdir()):
-        if not proj.is_dir() or proj.name in SKIP_DIRS:
+    for proj in sorted(_DOCS.iterdir()):
+        if not proj.is_dir() or proj.name in _SKIP_DIRS:
             continue
         if (proj / "src").is_dir():
             yield proj
@@ -42,7 +42,7 @@ def main(argv=None):
 
     warnings: list[str] = []
     built = failed = 0
-    for proj in discover_projects():
+    for proj in _discover_projects():
         if args.project and proj.name != args.project:
             continue
         try:

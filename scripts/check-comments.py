@@ -11,7 +11,7 @@
 
 検査ロジックは monorepo `scripts/check-comments.mjs` と同一実装であり、リポジトリ間の
 差異は本ファイル冒頭の `REPO_CONFIGS` にだけ閉じる。他リポで使う場合は新しいキーを
-`REPO_CONFIGS` へ足し `ACTIVE_REPO` を切り替えるだけでよい (ロジック本体は変更しない)。
+`REPO_CONFIGS` へ足し `_ACTIVE_REPO` を切り替えるだけでよい (ロジック本体は変更しない)。
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ REPO_CONFIGS: dict[str, dict] = {
     },
     # monorepo (workspace リポジトリ) 用。あちらの旧 `scripts/check-comments.mjs` の設定を
     # 1:1 で移植したもので、monorepo 側の複製 `scripts/check-comments.py` は本ファイルと
-    # `ACTIVE_REPO` の 1 行だけが異なる。設定・ロジックの改善は入れた側が他方へ必ず反映する。
+    # `_ACTIVE_REPO` の 1 行だけが異なる。設定・ロジックの改善は入れた側が他方へ必ず反映する。
     "workspace": {
         "skip_dir_names": frozenset(
             {
@@ -127,39 +127,39 @@ REPO_CONFIGS: dict[str, dict] = {
         "finding_id_skip_prefixes": (),
     },
 }
-ACTIVE_REPO = "workspace"
-CFG = REPO_CONFIGS[ACTIVE_REPO]
+_ACTIVE_REPO = "workspace"
+_CFG = REPO_CONFIGS[_ACTIVE_REPO]
 
-LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
+_LINE_SPLIT_RE = re.compile(r"\r\n|\r|\n")
 
 
-def rel(f: Path) -> str:
+def _rel(f: Path) -> str:
     """`ROOT` 基準の相対パスを `/` 区切りで返す。"""
     return f.relative_to(ROOT).as_posix()
 
 
 # ── 1. ファイル収集 (§4 box header・§5 所見番号 共用) ──
 def _is_skip_dir(name: str) -> bool:
-    if name in CFG["skip_dir_names"]:
+    if name in _CFG["skip_dir_names"]:
         return True
-    return any(name.startswith(p) for p in CFG["skip_dir_prefixes"])
+    return any(name.startswith(p) for p in _CFG["skip_dir_prefixes"])
 
 
-def walk(directory: Path, acc: list[Path]) -> None:
+def _walk(directory: Path, acc: list[Path]) -> None:
     """`directory` 配下のファイルを再帰収集する (`skip_dir_names` 等は降りない)。"""
     for entry in sorted(directory.iterdir(), key=lambda p: p.name):
         if entry.is_dir():
             if _is_skip_dir(entry.name):
                 continue
-            walk(entry, acc)
+            _walk(entry, acc)
         else:
             acc.append(entry)
 
 
 # ── 2. PowerShell 検査 (§3: forbid / check の 2 モード) ──
 def _find_ps1_files() -> list[Path]:
-    skip_names = CFG["ps1_skip_dir_names"]
-    skip_prefixes = CFG["ps1_skip_dir_prefixes"]
+    skip_names = _CFG["ps1_skip_dir_names"]
+    skip_prefixes = _CFG["ps1_skip_dir_prefixes"]
 
     def is_skip(name: str) -> bool:
         if name in skip_names:
@@ -181,18 +181,18 @@ def _find_ps1_files() -> list[Path]:
     return acc
 
 
-def check_ps1(errors: list[str], restrict_to: frozenset[str] | None = None) -> None:
-    mode = CFG["ps1_mode"]
+def _check_ps1(errors: list[str], restrict_to: frozenset[str] | None = None) -> None:
+    mode = _CFG["ps1_mode"]
     ps1_files = _find_ps1_files()
     if restrict_to is not None:
-        ps1_files = [f for f in ps1_files if rel(f) in restrict_to]
+        ps1_files = [f for f in ps1_files if _rel(f) in restrict_to]
 
     if mode == "forbid":
         # このリポは Python + `.bat` ランチャだけで構成する方針 (設計正典参照)。
         # `.ps1` が 1 つでも見つかったら、置き場を間違えたコードとして落とす。
         for f in ps1_files:
             errors.append(
-                f"{rel(f)}: .ps1 は使用しない方針 (このリポは Python + .bat ランチャで統一する。"
+                f"{_rel(f)}: .ps1 は使用しない方針 (このリポは Python + .bat ランチャで統一する。"
                 ".py へ書き換えるか、.ps1 が要るリポの config へ移す)"
             )
         return
@@ -201,9 +201,9 @@ def check_ps1(errors: list[str], restrict_to: frozenset[str] | None = None) -> N
         # 非 ASCII を含む `.ps1` は cp932 環境での文字化け回避のため UTF-8 BOM 必須。
         # 併せて、単体起動する `.ps1` には同名 `.bat` ランチャの併設を要求する
         # (dot-source 専用ライブラリ・Pester テストは `bat_pairing_exceptions` で免除)。
-        exceptions = CFG["bat_pairing_exceptions"]
+        exceptions = _CFG["bat_pairing_exceptions"]
         for f in ps1_files:
-            r = rel(f)
+            r = _rel(f)
             buf = f.read_bytes()
             has_non_ascii = any(b > 0x7F for b in buf)
             has_bom = buf[:3] == b"\xef\xbb\xbf"
@@ -221,12 +221,12 @@ def check_ps1(errors: list[str], restrict_to: frozenset[str] | None = None) -> N
 
 
 # ── 3. TS/JS のファイル先頭装飾ボックスヘッダ (§4: 警告のみ) ──
-TSJS_EXT = {".ts", ".tsx", ".js", ".cjs", ".mjs"}
+_TSJS_EXT = {".ts", ".tsx", ".js", ".cjs", ".mjs"}
 
 
 def _starts_with_box_header(text: str) -> bool:
     # 先頭の shebang / triple-slash 指示子 / 'use strict' 行は読み飛ばして判定する。
-    lines = LINE_SPLIT_RE.split(text)
+    lines = _LINE_SPLIT_RE.split(text)
     i = 0
     while i < len(lines):
         t = lines[i].strip()
@@ -241,17 +241,17 @@ def _starts_with_box_header(text: str) -> bool:
 
 
 def _in_box_root(r: str) -> bool:
-    roots = CFG["box_header_roots"]
+    roots = _CFG["box_header_roots"]
     if roots is None:
         return True
     return any(r == root or r.startswith(f"{root}/") for root in roots)
 
 
-def check_box_headers(warnings: list[str], all_files: list[Path]) -> None:
+def _check_box_headers(warnings: list[str], all_files: list[Path]) -> None:
     for f in all_files:
-        if f.suffix not in TSJS_EXT:
+        if f.suffix not in _TSJS_EXT:
             continue
-        r = rel(f)
+        r = _rel(f)
         if not _in_box_root(r):
             continue
         if r.endswith(".d.ts"):
@@ -281,7 +281,7 @@ FINDING_ID_CODE = [
 ]
 # docs 原稿は mermaid のノード ID (英字 + 番号) やキー名を含むため、番号単独では見ず
 # 所見参照の言い回しだけを拾う。
-FINDING_ID_DOCS = [
+_FINDING_ID_DOCS = [
     re.compile(r"所見\s*[A-Z]?\d"),
     re.compile(r"旧 P\d{3}"),
     re.compile(r"前回 R\d"),
@@ -290,19 +290,19 @@ FINDING_ID_DOCS = [
         r"(判断|経路|脅威|仕様|主張|実害|再発)"
     ),
 ]
-TEST_NAME_RE = re.compile(
+_TEST_NAME_RE = re.compile(
     r"(?<![A-Za-z0-9_.])(?:describe|it|test)(?:\.\w+)*\(\s*(['\"`])((?:\\.|(?!\1).)*)\1"
 )
 
 # 拡張子ごとの行コメント接頭辞とブロックコメントの開閉。ブロック内の行は全部コメント行。
-COMMENT_SYNTAX = {
+_COMMENT_SYNTAX = {
     "ts": {"line": ["//"], "block": [("/*", "*/"), ("<!--", "-->")]},
     "py": {"line": ["#"], "block": [('"""', '"""'), ("'''", "'''")]},
     "ps1": {"line": ["#"], "block": [("<#", "#>")]},
     "sh": {"line": ["#"], "block": []},
     "sql": {"line": ["--"], "block": [("/*", "*/")]},
 }
-EXT_SYNTAX = {
+_EXT_SYNTAX = {
     ".ts": "ts",
     ".tsx": "ts",
     ".js": "ts",
@@ -315,17 +315,17 @@ EXT_SYNTAX = {
     ".sh": "sh",
     ".sql": "sql",
 }
-IS_TEST_FILE_RE = re.compile(r"(\.test\.|\.e2e\.|\.spec\.|/test_[^/]*\.py$)")
+_IS_TEST_FILE_RE = re.compile(r"(\.test\.|\.e2e\.|\.spec\.|/test_[^/]*\.py$)")
 
 
 def _is_test_file(r: str) -> bool:
-    return bool(IS_TEST_FILE_RE.search(r))
+    return bool(_IS_TEST_FILE_RE.search(r))
 
 
 def _syntax_key_for(r: str, ext: str) -> str | None:
-    if ext in EXT_SYNTAX:
-        return EXT_SYNTAX[ext]
-    if ext == "" and any(r.startswith(p) for p in CFG["shell_shim_prefixes"]):
+    if ext in _EXT_SYNTAX:
+        return _EXT_SYNTAX[ext]
+    if ext == "" and any(r.startswith(p) for p in _CFG["shell_shim_prefixes"]):
         return "sh"
     return None
 
@@ -334,7 +334,7 @@ def _comment_lines(text: str, syntax: dict) -> list[tuple[int, str]]:
     """コメント行を列挙する。ブロックコメントは開始行〜終了行までを丸ごと拾う。"""
     out: list[tuple[int, str]] = []
     open_end: str | None = None
-    lines = LINE_SPLIT_RE.split(text)
+    lines = _LINE_SPLIT_RE.split(text)
     for i, raw in enumerate(lines):
         t = raw.strip()
         if open_end is not None:
@@ -364,7 +364,7 @@ def _comment_lines(text: str, syntax: dict) -> list[tuple[int, str]]:
 
 
 def _check_finding_ids(errors: list[str], r: str, text: str, syntax_key: str, patterns: list) -> None:
-    syntax = COMMENT_SYNTAX[syntax_key]
+    syntax = _COMMENT_SYNTAX[syntax_key]
     for ln, line in _comment_lines(text, syntax):
         hit = next((p for p in patterns if p.search(line)), None)
         if hit:
@@ -373,7 +373,7 @@ def _check_finding_ids(errors: list[str], r: str, text: str, syntax_key: str, pa
                 "現在形の理由へ書き換える"
             )
     if _is_test_file(r):
-        for m in TEST_NAME_RE.finditer(text):
+        for m in _TEST_NAME_RE.finditer(text):
             name = m.group(2)
             hit = next((p for p in patterns if p.search(name)), None)
             if not hit:
@@ -385,11 +385,11 @@ def _check_finding_ids(errors: list[str], r: str, text: str, syntax_key: str, pa
             )
 
 
-def check_finding_ids_all(errors: list[str], all_files: list[Path]) -> None:
-    docs_pattern = CFG["docs_src_pattern"]
-    skip_prefixes = CFG["finding_id_skip_prefixes"]
+def _check_finding_ids_all(errors: list[str], all_files: list[Path]) -> None:
+    docs_pattern = _CFG["docs_src_pattern"]
+    skip_prefixes = _CFG["finding_id_skip_prefixes"]
     for f in all_files:
-        r = rel(f)
+        r = _rel(f)
         if any(r.startswith(p) for p in skip_prefixes):
             continue
         ext = f.suffix
@@ -408,8 +408,8 @@ def check_finding_ids_all(errors: list[str], all_files: list[Path]) -> None:
                 text = f.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            for i, line in enumerate(LINE_SPLIT_RE.split(text)):
-                hit = next((p for p in FINDING_ID_DOCS if p.search(line)), None)
+            for i, line in enumerate(_LINE_SPLIT_RE.split(text)):
+                hit = next((p for p in _FINDING_ID_DOCS if p.search(line)), None)
                 if hit:
                     errors.append(
                         f"{r}:{i + 1}: docs 原稿にレビュー所見番号が残っている ({hit.pattern}) — "
@@ -474,14 +474,14 @@ def main() -> int:
         all_files = [f for p in restrict if (f := ROOT / p).is_file()]
     else:
         all_files = []
-        walk(ROOT, all_files)
+        _walk(ROOT, all_files)
 
     errors: list[str] = []
     warnings: list[str] = []
 
-    check_ps1(errors, restrict_to=restrict)
-    check_box_headers(warnings, all_files)
-    check_finding_ids_all(errors, all_files)
+    _check_ps1(errors, restrict_to=restrict)
+    _check_box_headers(warnings, all_files)
+    _check_finding_ids_all(errors, all_files)
 
     for w in warnings:
         print(f"WARN  {w}", file=sys.stderr)
