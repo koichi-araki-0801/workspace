@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -78,5 +79,93 @@ describe('db 層を import してよいファイル', () => {
     expect(found).toContain('repositories/partRepo.ts');
     expect(found).not.toContain('deps.ts');
     expect(found).not.toContain('serve.ts');
+  });
+});
+
+const SERVER_SCRIPTS = path.join(HERE, '..', 'scripts');
+
+/** 第 2 引数(操作名)が文字列リテラルの `callSproc` 呼び出しを `ファイル:行` で集める。 */
+function literalOpCalls(): string[] {
+  const hits: string[] = [];
+  for (const file of [
+    ...sourceFiles(SERVER_SRC, ['.ts']),
+    ...sourceFiles(SERVER_SCRIPTS, ['.ts']),
+  ]) {
+    const sf = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        const callee = node.expression;
+        const name = ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : ts.isIdentifier(callee)
+            ? callee.text
+            : '';
+        const op = node.arguments[1];
+        if (
+          name === 'callSproc' &&
+          op !== undefined &&
+          (ts.isStringLiteral(op) || ts.isNoSubstitutionTemplateLiteral(op))
+        ) {
+          const line = sf.getLineAndCharacterOfPosition(op.getStart(sf)).line + 1;
+          hits.push(
+            `${path.relative(path.join(HERE, '..'), file).split(path.sep).join('/')}:${line}`,
+          );
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+  }
+  return hits.sort();
+}
+
+describe('操作名は OP の定数で渡す', () => {
+  it('callSproc の第 2 引数に文字列リテラルを直書きしない', () => {
+    expect(literalOpCalls()).toEqual([]);
+  });
+
+  // 読み取り専用の許可リストは `${SP.x}/${OP.x.y}` の形で組む。操作名を直書きすると、
+  // 区切りの `/` 以外の文字がテンプレートの文字列部分に残る。
+  it('measure-review-gates の READ_ONLY_OPS は操作名を直書きしない', () => {
+    const file = path.join(SERVER_SCRIPTS, 'measure-review-gates.ts');
+    const sf = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+    );
+    const literals: string[] = [];
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === 'READ_ONLY_OPS' &&
+        node.initializer !== undefined
+      ) {
+        const set = node.initializer;
+        if (
+          ts.isNewExpression(set) &&
+          set.arguments?.[0] &&
+          ts.isArrayLiteralExpression(set.arguments[0])
+        ) {
+          for (const el of set.arguments[0].elements) {
+            if (ts.isTemplateExpression(el)) {
+              literals.push(...el.templateSpans.map((s) => s.literal.text));
+            } else if (ts.isNoSubstitutionTemplateLiteral(el) || ts.isStringLiteral(el)) {
+              literals.push(el.text);
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    expect(literals.length).toBeGreaterThan(0);
+    expect(literals.filter((s) => !/^\/?$/.test(s))).toEqual([]);
   });
 });

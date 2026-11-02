@@ -7,7 +7,7 @@
 // そのまま写した形なので、差し替えのときに変わらない。
 // 列を型へ写すだけで行は選ばない(`注記HTML` が NULL の行を捨てるのはサービスの判断)。
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
+import { OP, SP } from '../db/sprocNames.js';
 
 export interface NoteMasterRow {
   partId: string;
@@ -28,7 +28,7 @@ export interface NoteMasterRepo {
 export function createNoteMasterRepo(sproc: SprocClient): NoteMasterRepo {
   return {
     async upsertNoteMaster(row) {
-      await sproc.callSproc(SP.noteMaster, '反映', [
+      await sproc.callSproc(SP.noteMaster, OP.noteMaster.reflect, [
         p('パーツID', row.partId),
         p('ファンドコード', row.fundCode),
         p('版種', row.editionType),
@@ -38,7 +38,7 @@ export function createNoteMasterRepo(sproc: SprocClient): NoteMasterRepo {
     },
 
     async listNoteMasters(fundCode, editionType) {
-      const rows = await sproc.callSproc(SP.noteMaster, '取得', [
+      const rows = await sproc.callSproc(SP.noteMaster, OP.noteMaster.get, [
         p('ファンドコード', fundCode),
         p('版種', editionType),
       ]);

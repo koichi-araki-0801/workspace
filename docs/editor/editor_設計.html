@@ -294,6 +294,10 @@ export const SP = {
   template: gw('テンプレート'), user: gw('ユーザー'), session: gw('セッション'),
   part: gw('パーツ'), sample: gw('サンプルデータ'), audit: gw('監査ログ'),
   noteMaster: gw('注記マスタ'),   // 注記文言のマスタ(仮組)
+} as const;</code></pre></div><p><code>@操作</code> の値も同じファイルの <code>OP</code> に集約する。キーは <code>SP</code> と同じで、<code>callSproc(SP.session, OP.session.create, …)</code> のように対で渡す。<code>OP</code> の値は <code>server/db/sproc/&lt;キー&gt;.sql</code> の分岐と過不足なく一致させる（<code>sprocOps.test.ts</code> が突き合わせる）。<code>callSproc</code> に操作名を文字列リテラルで直書きすることは <code>layering.guard.test.ts</code> が止める。</p><div class="code"><span class="code-lang">ts</span><pre><code>export const OP = {
+  session: { create: '作成', get: '取得', revoke: '失効', revokeAll: '全失効', purge: '掃除' },
+  audit: { insert: '登録' },
+  // …template / user / part / sample / noteMaster / series
 } as const;</code></pre></div><p><code>callSproc</code> は <code>EXEC &lt;proc&gt; @操作=?, ...</code> を<strong>位置指定バインド</strong>で発行する（SQL インジェクション回避）。SQL エラーは <code>Result</code> の <code>kind</code> へマップする:</p><div class="code"><span class="code-lang">ts</span><pre><code>function mapSqlError(e: unknown): AppError {
   const num = sqlNumber(e);
   const msg = sqlMessage(e);

@@ -29,7 +29,7 @@ import {
 } from '@editor/shared';
 import { config } from '../config.js';
 import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
+import { OP, SP } from '../db/sprocNames.js';
 import { deleteDraft, draftMtime, readDraft, writeDraft } from '../files/draftFiles.js';
 import { inProgressLookup } from '../files/inProgress.js';
 import { listPendingIds, pendingMtime, readPending } from '../files/pendingFiles.js';
@@ -145,7 +145,7 @@ export interface TemplateRepo {
 
 export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
   async function listFunds(rep1CompanyCode: string): Promise<FundOption[]> {
-    const rows = await sproc.callSproc(SP.template, 'ファンド一覧', [
+    const rows = await sproc.callSproc(SP.template, OP.template.fundList, [
       p('委託会社コード', rep1CompanyCode),
     ]);
     return rows.map((r) => ({
@@ -164,7 +164,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     fundCode: string,
   ): Promise<FundMaster | undefined> {
     try {
-      const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+      const rows = await sproc.callSproc(SP.template, OP.template.companyList);
       const want = companyAbbr.trim().toLowerCase();
       const company = rows.find((r) => asString(r.委託会社略称).trimEnd().toLowerCase() === want);
       // 会社が見つからなくても company.code にはファイル名の会社コードを被せる。
@@ -190,7 +190,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
 
   return {
     async listCompanies() {
-      const rows = await sproc.callSproc(SP.template, '委託会社一覧');
+      const rows = await sproc.callSproc(SP.template, OP.template.companyList);
       return rows.map((r) => ({
         companyCode: asString(r.委託会社略称),
         companyName: asString(r.委託会社名),
@@ -240,7 +240,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
             : { editionType: e, state: 'inProgress', templateId: inProgressId },
         );
       }
-      const seriesRows = await sproc.callSproc(SP.series, '一覧', [
+      const seriesRows = await sproc.callSproc(SP.series, OP.series.list, [
         p('委託会社コード', rep1CompanyCode),
       ]);
       const seriesOf = new Map(
@@ -369,7 +369,7 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
       if (!attrs) {
         throw notFound(`テンプレートが見つかりません: ${templateId}`);
       }
-      const rows = await sproc.callSproc(SP.sample, '共通一覧');
+      const rows = await sproc.callSproc(SP.sample, OP.sample.commonList);
       const { sample, warnings } = mergeCommonSampleRows(
         rows.map((r) => ({
           id: Number(r.共通サンプルID),

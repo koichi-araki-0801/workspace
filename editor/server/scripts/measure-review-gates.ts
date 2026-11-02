@@ -37,7 +37,7 @@ import {
   templateIdFromFileName,
 } from '@editor/shared';
 import type { Row, SprocClient } from '../src/db/sproc.js';
-import { SP } from '../src/db/sprocNames.js';
+import { OP, SP } from '../src/db/sprocNames.js';
 import type { PartRepo } from '../src/repositories/partRepo.js';
 import type { TemplateRepo } from '../src/repositories/templateRepo.js';
 import { collectExecutableUnits } from '../src/security/templateScripts.js';
@@ -202,10 +202,10 @@ export function measurePart(part: PartCatalogItem, sample: SampleData): PartMeas
 
 /** 計測が呼んでよい sproc の操作(どれも読み取り)。ほかは呼ぶ前に止める。 */
 const READ_ONLY_OPS: ReadonlySet<string> = new Set([
-  `${SP.sample}/共通一覧`,
-  `${SP.template}/委託会社一覧`,
-  `${SP.template}/ファンド一覧`,
-  `${SP.part}/一覧`,
+  `${SP.sample}/${OP.sample.commonList}`,
+  `${SP.template}/${OP.template.companyList}`,
+  `${SP.template}/${OP.template.fundList}`,
+  `${SP.part}/${OP.part.list}`,
 ]);
 
 /** 許可リストの読み取りの操作だけを通す sproc の呼び出し口。 */

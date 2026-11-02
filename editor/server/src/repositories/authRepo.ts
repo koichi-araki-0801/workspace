@@ -37,7 +37,7 @@ import {
   type Row,
   type SprocClient,
 } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
+import { OP, SP } from '../db/sprocNames.js';
 import { audit } from '../logger.js';
 import { rowToUser } from './userRow.js';
 
@@ -60,7 +60,9 @@ async function verifyCredential(
   loginId: string,
   password: string,
 ): Promise<{ row: Row | null; ok: boolean; disabled: boolean }> {
-  const row = firstRow(await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]));
+  const row = firstRow(
+    await sproc.callSproc(SP.user, OP.user.getCredentials, [p('ログインID', loginId)]),
+  );
   const disabled = row ? asBool(row.無効) : false;
   const ok = row
     ? await verifyPassword(
@@ -135,7 +137,7 @@ export function createAuthRepo({
         throw validation('新しいパスワードが短すぎます');
       }
       const { hash, salt, iterations } = await hashPassword(req.newPassword);
-      await sproc.callSproc(SP.user, 'PW初期化', [
+      await sproc.callSproc(SP.user, OP.user.initPassword, [
         p('ログインID', loginId),
         p('PWハッシュ', hash),
         p('PWソルト', salt),

@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { type CreatedUser, notFound, type PasswordResetResult, type User } from '@editor/shared';
 import { generateTemporaryPassword, hashPassword } from '../auth/password.js';
 import { firstRow, type Param, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
+import { OP, SP } from '../db/sprocNames.js';
 import { rowToUser } from './userRow.js';
 
 /** 払い出す一時パスワードと、それをハッシュ化して sproc へ渡す 3 パラメータ。 */
@@ -32,7 +32,7 @@ export interface UserRepo {
 
 export function createUserRepo(sproc: SprocClient): UserRepo {
   const listUsers = async (): Promise<User[]> => {
-    const rows = await sproc.callSproc(SP.user, '一覧');
+    const rows = await sproc.callSproc(SP.user, OP.user.list);
     return rows.map(rowToUser);
   };
 
@@ -44,7 +44,7 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
       // 初期パスワードは払い出しごとに新しいランダム値。初回ログインで変更を強制する。
       const { temporaryPassword, pwParams } = await issueTemporaryPassword();
       const row = firstRow(
-        await sproc.callSproc(SP.user, '作成', [
+        await sproc.callSproc(SP.user, OP.user.create, [
           p('公開ID', id),
           p('ログインID', input.username),
           p('表示名', input.displayName),
@@ -63,7 +63,7 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
     async updateUser(id, patch) {
       const bit = (b: boolean | undefined) => (b == null ? null : b ? 1 : 0);
       const row = firstRow(
-        await sproc.callSproc(SP.user, '更新', [
+        await sproc.callSproc(SP.user, OP.user.update, [
           p('公開ID', id),
           p('表示名', patch.displayName),
           p('ロール', patch.role),
@@ -84,7 +84,7 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
         throw notFound(`ユーザーが見つかりません: ${id}`);
       }
       const { temporaryPassword, pwParams } = await issueTemporaryPassword();
-      await sproc.callSproc(SP.user, 'PWリセット', [p('公開ID', id), ...pwParams]);
+      await sproc.callSproc(SP.user, OP.user.resetPassword, [p('公開ID', id), ...pwParams]);
       return { temporaryPassword };
     },
   };

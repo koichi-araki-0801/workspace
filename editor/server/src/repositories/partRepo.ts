@@ -12,7 +12,7 @@ import type {
   PartSyncDefault,
 } from '@editor/shared';
 import { asIso, asString, asStringOrNull, type Param, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
+import { OP, SP } from '../db/sprocNames.js';
 
 function classParams(q: PartClassificationQuery): Param[] {
   return [
@@ -35,7 +35,7 @@ export interface PartRepo {
 export function createPartRepo(sproc: SprocClient): PartRepo {
   return {
     async getPartClassificationOptions(q) {
-      const rows = await sproc.callSproc(SP.part, '分類候補', classParams(q));
+      const rows = await sproc.callSproc(SP.part, OP.part.classOptions, classParams(q));
       // 実DBには未使用の分類階層が空文字で入る。空値をSelect候補へ渡すとUIが例外になるため除外し、
       // 前後空白だけが異なる候補も同じ分類としてまとめる。一覧側の分類値は変更しない。
       const pick = (kbn: string) =>
@@ -57,7 +57,7 @@ export function createPartRepo(sproc: SprocClient): PartRepo {
     },
 
     async listParts(q) {
-      const rows = await sproc.callSproc(SP.part, '一覧', classParams(q));
+      const rows = await sproc.callSproc(SP.part, OP.part.list, classParams(q));
       return rows.map((r) => ({
         id: asString(r.パーツID),
         classification: {
