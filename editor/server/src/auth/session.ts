@@ -8,9 +8,7 @@ import { randomBytes } from 'node:crypto';
 import type { User } from '@editor/shared';
 import type { CookieSerializeOptions } from '@fastify/cookie';
 import { config } from '../config.js';
-import { firstRow, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
-import { rowToUser } from '../repositories/userRepo.js';
+import type { SessionRepo } from '../repositories/sessionRepo.js';
 
 const TTL_MS = config.auth.sessionTtlHours * 3_600_000;
 
@@ -50,28 +48,21 @@ declare module 'fastify' {
   }
 }
 
-export function createSessionStore(sproc: SprocClient): SessionStore {
+export function createSessionStore(repo: SessionRepo): SessionStore {
   return {
     async createSession(loginId: string): Promise<string> {
       const id = randomBytes(32).toString('hex');
-      await sproc.callSproc(SP.session, '作成', [
-        p('セッションID', id),
-        p('ログインID', loginId),
-        p('有効期限', new Date(Date.now() + TTL_MS)),
-      ]);
+      await repo.insertSession(id, loginId, new Date(Date.now() + TTL_MS));
       return id;
     },
 
     /** 有効(未期限切れ・未失効)なセッションに紐づくユーザー、無ければ null。 */
     async getSessionUser(sessionId: string): Promise<User | null> {
-      const row = firstRow(
-        await sproc.callSproc(SP.session, '取得', [p('セッションID', sessionId)]),
-      );
-      return row ? rowToUser(row) : null;
+      return repo.findSessionUser(sessionId);
     },
 
     async destroySession(sessionId: string): Promise<void> {
-      await sproc.callSproc(SP.session, '失効', [p('セッションID', sessionId)]);
+      await repo.revokeSession(sessionId);
     },
 
     /**
@@ -79,7 +70,7 @@ export function createSessionStore(sproc: SprocClient): SessionStore {
      * セッション(DB は再起動耐性なので残る)を無効化して全員に再ログインを強制する。
      */
     async invalidateAllSessions(): Promise<void> {
-      await sproc.callSproc(SP.session, '全失効', []);
+      await repo.revokeAllSessions();
     },
 
     /**
@@ -89,7 +80,7 @@ export function createSessionStore(sproc: SprocClient): SessionStore {
      * 行まで巻き込む書き方に一歩で退行しうる(全員が突然ログアウトする可用性事故)。
      */
     async purgeExpiredSessions(retentionDays = 7): Promise<void> {
-      await sproc.callSproc(SP.session, '掃除', [p('保持日数', retentionDays)]);
+      await repo.purgeSessions(retentionDays);
     },
   };
 }

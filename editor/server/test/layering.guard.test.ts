@@ -1,0 +1,82 @@
+// =============================================================================
+// layering.guard.test.ts — server の層(routes → repositories → db)を飛ばす import を止める
+// =============================================================================
+// db 層(`db/` 配下の sproc ゲートウェイ)を値として import してよいのは、repositories/ と
+// db/ 自身、組み立て(合成ルート)、監査ログ複写を動的 import する `logger.ts` だけにする。
+// サービス(`auth/`・`sync/` など)が db を直接呼ぶと、DB の呼び方が repositories の外へ
+// 散り、差し替えやテストの差し込み口が複数になる。
+//
+// 本ファイルはソースの字面を読む(書き方は `guardCoverage.guard.test.ts` に揃える)。
+// `import type` だけの行は実行時の依存を作らないので数えない。
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SERVER_SRC = path.join(HERE, '..', 'src');
+
+/** 拡張子で絞ってソースを再帰列挙する(生成物は見ない)。 */
+function sourceFiles(dir: string, exts: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === 'dist') {
+        continue;
+      }
+      out.push(...sourceFiles(full, exts));
+      continue;
+    }
+    if (exts.includes(path.extname(entry.name))) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+/** `./db/…`・`../db/…`・`../../db/…` のような、db 層を指す相対指定子。 */
+const DB_SPECIFIER = String.raw`['"]\.\.?\/(?:\.\.\/)*db\/[^'"]+\.js['"]`;
+
+// 値として db 層を読む形を 3 つ数える。
+//   - `import { a, type B } from '../db/x.js'`(`import type` で始まるものは除く)
+//   - `export { a } from '../db/x.js'`(`export type` で始まるものは除く)
+//   - `import '../db/x.js'` と `import('../db/x.js')`(副作用 import と動的 import)
+// 句の部分に引用符と `;` を許さないことで、別の import 文から次の文の指定子までを
+// 1 つの文として誤って跨がないようにする。
+const DB_VALUE_IMPORT = new RegExp(
+  [
+    String.raw`\b(?:import|export)\s+(?!type\s)[^'";]*?\bfrom\s*${DB_SPECIFIER}`,
+    String.raw`\bimport\s*${DB_SPECIFIER}`,
+    String.raw`\bimport\(\s*${DB_SPECIFIER}\s*\)`,
+  ].join('|'),
+);
+
+/** db 層を値として import している `src/` 相対のファイル名(区切りは `/`)。 */
+function importersOfDb(): string[] {
+  return sourceFiles(SERVER_SRC, ['.ts'])
+    .filter((file) => DB_VALUE_IMPORT.test(fs.readFileSync(file, 'utf8')))
+    .map((file) => path.relative(SERVER_SRC, file).split(path.sep).join('/'))
+    .sort();
+}
+
+describe('db 層を import してよいファイル', () => {
+  it('db 層を値として import するのは repositories/・db/・合成ルート・logger だけ', () => {
+    const allowed = (rel: string) =>
+      rel.startsWith('repositories/') ||
+      rel.startsWith('db/') ||
+      ['app.ts', 'deps.ts', 'serve.ts', 'logger.ts'].includes(rel);
+    expect(importersOfDb().filter((rel) => !allowed(rel))).toEqual([]);
+  });
+
+  // 字面の検出が緩すぎて何も拾わないと、上のテストは常に通ってしまう。既知の importer を
+  // 拾えていることで検出そのものが働いていることを確かめる。
+  it('検出は静的・動的の両方の import を拾い、import type だけのファイルは拾わない', () => {
+    const found = importersOfDb();
+    expect(found).toContain('app.ts');
+    expect(found).toContain('logger.ts');
+    expect(found).toContain('repositories/partRepo.ts');
+    expect(found).not.toContain('deps.ts');
+    expect(found).not.toContain('serve.ts');
+  });
+});

@@ -38,6 +38,7 @@ import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { docsRoutes, openapiRoutes } from './openapi/index.js';
 import { renderHostRoutes } from './render/renderHost.js';
+import { createSessionRepo } from './repositories/sessionRepo.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { fundAssetsRoutes } from './routes/fundAssets.routes.js';
 import { generateRoutes } from './routes/generate.routes.js';
@@ -104,7 +105,7 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.decorateRequest('user', undefined);
   // セッションストアはインスタンスへ載せる。ガード関数は参照同一性を保つ必要があるため
   // (`routes/routeGuards.ts` の `levelOf`)、注入はガードの引数でなくここで行う。
-  const sessionStore = createSessionStore(sproc);
+  const sessionStore = createSessionStore(createSessionRepo(sproc));
   app.decorate('sessionStore', sessionStore);
   // 監査ログの DB 複写は logger 経由(グローバル)なので、宛先だけをここで差し込む。
   // sink はプロセスグローバルな 1 つの変数で、複数の buildApp を呼ぶと最後に呼んだものの

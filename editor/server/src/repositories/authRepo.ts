@@ -39,7 +39,7 @@ import {
 } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
 import { audit } from '../logger.js';
-import { rowToUser } from './userRepo.js';
+import { rowToUser } from './userRow.js';
 
 export interface AuthRepo {
   login(loginId: string, password: string): Promise<{ result: LoginResult; sessionId: string }>;

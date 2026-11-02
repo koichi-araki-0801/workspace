@@ -7,27 +7,11 @@
 // 平文は戻り値で 1 回だけ呼び出し元へ渡し、DB にも監査ログにも残さない — ログインID を
 // 初期パスワードにする形は、ID を知る者が未活性アカウントを乗っ取れてしまう。
 import { randomUUID } from 'node:crypto';
-import {
-  type CreatedUser,
-  notFound,
-  type PasswordResetResult,
-  type User,
-  type UserRole,
-} from '@editor/shared';
+import { type CreatedUser, notFound, type PasswordResetResult, type User } from '@editor/shared';
 import { generateTemporaryPassword, hashPassword } from '../auth/password.js';
-import { asBool, asString, firstRow, type Param, p, type SprocClient } from '../db/sproc.js';
+import { firstRow, type Param, p, type SprocClient } from '../db/sproc.js';
 import { SP } from '../db/sprocNames.js';
-
-export function rowToUser(r: Record<string, unknown>): User {
-  return {
-    id: asString(r.公開ID),
-    username: asString(r.ログインID),
-    displayName: asString(r.表示名),
-    role: asString(r.ロール) as UserRole,
-    disabled: asBool(r.無効),
-    mustChangePassword: asBool(r.要パスワード変更),
-  };
-}
+import { rowToUser } from './userRow.js';
 
 /** 払い出す一時パスワードと、それをハッシュ化して sproc へ渡す 3 パラメータ。 */
 async function issueTemporaryPassword(): Promise<{ temporaryPassword: string; pwParams: Param[] }> {

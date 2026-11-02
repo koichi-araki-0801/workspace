@@ -14,6 +14,7 @@ import type { PartCatalogItem, PartMasterReflectDefault } from '@editor/shared';
 import type { Param, SprocClient } from '../src/db/sproc.js';
 import { SP } from '../src/db/sprocNames.js';
 import { readFilledHtml, readTemplateHtml } from '../src/files/templateFiles.js';
+import { createNoteMasterRepo } from '../src/repositories/noteMasterRepo.js';
 import type { PartRepo } from '../src/repositories/partRepo.js';
 import { createNoteMasterService } from '../src/sync/noteMasterService.js';
 
@@ -34,7 +35,7 @@ const parts: PartRepo = {
 };
 const sproc: SprocClient = { callSproc: (...a) => callSprocMock(...(a as [])) };
 const { reflectNoteMasterAfterConfirm, applyNoteMasterToHtml } = createNoteMasterService({
-  sproc,
+  noteMasters: createNoteMasterRepo(sproc),
   parts,
 });
 
