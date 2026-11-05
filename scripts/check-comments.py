@@ -168,16 +168,16 @@ def _find_ps1_files() -> list[Path]:
 
     acc: list[Path] = []
 
-    def _walk(directory: Path) -> None:
+    def walk_ps1(directory: Path) -> None:
         for entry in sorted(directory.iterdir(), key=lambda p: p.name):
             if entry.is_dir():
                 if is_skip(entry.name):
                     continue
-                _walk(entry)
+                walk_ps1(entry)
             elif entry.suffix == ".ps1":
                 acc.append(entry)
 
-    _walk(ROOT)
+    walk_ps1(ROOT)
     return acc
 
 
