@@ -25,6 +25,14 @@ import {
   wrapComputeLaunchArguments,
 } from '../scripts/browserLaunchGuard.mjs';
 
+// 関所に止められて実際には起動しないブラウザのパス。knip は `spawn` に字面で渡したパスを
+// スクリプトの参照として解決しにいき、Linux では `C:/` が絶対パスにならず未解決の import に
+// 数える。定数を通して渡せば字面の解決に掛からない。
+const MISSING_EDGE = 'C:/nowhere/msedge.exe';
+const FAKE_EDGE = 'C:/fake/msedge.exe';
+const RENAMED_BROWSER = 'C:/custom/renamed-browser.exe';
+const ODD_NAME_BROWSER = 'C:/custom/odd-name.exe';
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-launch-guard-'));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -128,7 +136,7 @@ describe('フラグの名前', () => {
     const off = installSpawnGate(new Set());
     try {
       expect(() =>
-        childProcess.spawn('C:/nowhere/msedge.exe', [
+        childProcess.spawn(MISSING_EDGE, [
           '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
         ]),
       ).toThrow(WEBRTC_FLAG);
@@ -189,8 +197,8 @@ describe('spawn の関所', () => {
 
   it('フラグの無いブラウザの起動は、子を起こす前にその場で投げる(名前付きの import も)', async () => {
     uninstall = installSpawnGate(new Set());
-    expect(() => childProcess.spawn('C:/nowhere/msedge.exe', ['--headless'])).toThrow(WEBRTC_FLAG);
-    expect(() => childProcess.spawn('C:/nowhere/msedge.exe')).toThrow(WEBRTC_FLAG);
+    expect(() => childProcess.spawn(MISSING_EDGE, ['--headless'])).toThrow(WEBRTC_FLAG);
+    expect(() => childProcess.spawn(MISSING_EDGE)).toThrow(WEBRTC_FLAG);
     const { spawn } = await import('node:child_process');
     expect(() => spawn('/opt/google/chrome/chrome', ['--a'])).toThrow(WEBRTC_FLAG);
   });
@@ -198,8 +206,8 @@ describe('spawn の関所', () => {
   it('覚えた実行ファイルは名前が違ってもブラウザとして関所に掛ける', () => {
     const known = new Set<string>();
     uninstall = installSpawnGate(known);
-    known.add(normalizeExecutable('C:/custom/renamed-browser.exe'));
-    expect(() => childProcess.spawn('C:/custom/renamed-browser.exe', [])).toThrow(WEBRTC_FLAG);
+    known.add(normalizeExecutable(RENAMED_BROWSER));
+    expect(() => childProcess.spawn(RENAMED_BROWSER, [])).toThrow(WEBRTC_FLAG);
   });
 
   it('フラグがあるブラウザの起動と、ブラウザ以外の起動は素通しする', async () => {
@@ -251,7 +259,7 @@ describe('hardenBrowserLaunch(ワーカーが起動時に呼ぶ)', () => {
       const res = await mod.ChromeLauncher.prototype.computeLaunchArguments.call(
         {},
         {
-          executablePath: 'C:/fake/msedge.exe',
+          executablePath: FAKE_EDGE,
           ignoreDefaultArgs: true,
           args: ['--user-data-dir=C:/fake/profile', '--proxy-server=http://127.0.0.1:1'],
         },
@@ -259,10 +267,10 @@ describe('hardenBrowserLaunch(ワーカーが起動時に呼ぶ)', () => {
       expect(res.args).toContain(WEBRTC_FLAG);
       expect(res.args).toContain('--proxy-server=http://127.0.0.1:1');
       // ジョブの `executableBrowser` を覚えさせれば、名前が違っても関所に掛かる。
-      guard.rememberBrowser('C:/custom/odd-name.exe');
+      guard.rememberBrowser(ODD_NAME_BROWSER);
       guard.rememberBrowser(undefined);
-      expect(() => childProcess.spawn('C:/custom/odd-name.exe', [])).toThrow(WEBRTC_FLAG);
-      expect(() => childProcess.spawn('C:/fake/msedge.exe', [])).toThrow(WEBRTC_FLAG);
+      expect(() => childProcess.spawn(ODD_NAME_BROWSER, [])).toThrow(WEBRTC_FLAG);
+      expect(() => childProcess.spawn(FAKE_EDGE, [])).toThrow(WEBRTC_FLAG);
     } finally {
       guard.uninstall();
     }
