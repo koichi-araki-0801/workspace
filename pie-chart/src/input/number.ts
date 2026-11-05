@@ -1,5 +1,5 @@
 // =============================================================================
-// input/number.ts — 入力値の数値解釈(xlsx / DB / JSON の 3 経路で共有)
+// input/number.ts — 入力値の数値解釈(DB / JSON の経路で共有)
 // -----------------------------------------------------------------------------
 // `load.ts` は `db.ts` を import しているので、両方が使う判定を片方に置くと逆向きの
 // import が循環になる。どちらにも依存しない本ファイルへ置き、規則を 1 箇所に保つ。
@@ -32,7 +32,7 @@ export function parseDecimalText(raw: string, allowGrouping: boolean): number | 
 }
 
 /**
- * セル値(xlsx)・列値(DB)を数値として読む。読めなければ null。
+ * 列値(DB)を数値として読む。読めなければ null。
  * 数値型は有限ならそのまま、それ以外は文字列化して `parseDecimalText`(桁区切り可)へ回す。
  * 空白だけの値も「読めない値」— `Number('   ')` は 0 なので、素通しすると値の欠落が
  * 0.0% のスライスとして帳票に載る。
@@ -48,10 +48,10 @@ export function cellValueAsNumber(v: unknown): number | null {
 }
 
 /**
- * 1 行ぶんの名前と値を `[name, value]` にする(xlsx / DB の 2 経路で共有)。名前も値も空の行は
+ * 1 行ぶんの名前と値を `[name, value]` にする。名前も値も空の行は
  * 区切りとして null を返し、名前だけ空・値が読めない行は行番号付きで明示エラーにする。`name` は
- * 呼び出し側で正規化済みの文字列、`valueRaw` は包みを剥がした素の値。エラー文の値表記は経路ごとに
- * 違う(xlsx はセル表示、DB は列値の文字列化)ため `describeValue` で受け取る。
+ * 呼び出し側で正規化済みの文字列、`valueRaw` は包みを剥がした素の値。エラー文の値表記は呼び出し側が
+ * 決める(DB は列値の文字列化)ため `describeValue` で受け取る。
  */
 export function rowToItem(
   name: string,

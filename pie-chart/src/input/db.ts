@@ -226,7 +226,7 @@ export function pickSingleResultSet(res: MsSqlResults): unknown[][] {
   return rows as unknown[][];
 }
 
-/** 行(列順の配列)を `[name, value][]` にする。名前と値の解釈は xlsx 経路と共有。 */
+/** 行(列順の配列)を `[name, value][]` にする。名前と値の解釈は `number.ts` の `rowToItem`。 */
 export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
   if (rows.length === 0) {
     throw new DbStageError('query', 'The stored procedure returned no rows.');

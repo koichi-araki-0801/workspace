@@ -1260,7 +1260,7 @@ export async function renderPdfStylePieToSvg(
     throw new Error('At least one item with a non-zero value is required.');
   }
   // 上限は「割り当ての直前」= 唯一の funnel であるここに置く。全入力経路
-  // (sample / data / dataJson / xlsx / sql)がここを通るので 1 箇所で覆える。
+  // (sample / data / dataJson / sql)がここを通るので 1 箇所で覆える。
   assertItemCount(items.length);
   // 総和も同じ funnel で見る。件数と違い上限ではなく「割合が計算できる数か」の検査で、
   // 各項目が有限でも総和が `Infinity` へ溢れると全項目 0.0% の SVG が黙って出る(下の

@@ -55,7 +55,7 @@ describe('normalizeInputItems', () => {
   });
   it('値の欠落 (null / 空文字 / 空白のみ) は 0 と見なさず項目名付きで投げる', () => {
     // `Number(null)` も `Number('')` も `Number('   ')` も 0 なので、欠落した値が
-    // 「0.0% のスライス」として無警告で帳票へ載る。xlsx / DB 経路が空欄を明示エラーに
+    // 「0.0% のスライス」として無警告で帳票へ載る。DB 経路が空欄を明示エラーに
     // するのと揃える。
     expect(() => normalizeInputItems([{ name: '株式', value: null }])).toThrow(
       /Non-numeric value for "株式"/,
@@ -82,7 +82,7 @@ describe('normalizeInputItems', () => {
     expect(() => normalizeInputItems([['B', '0b11']])).toThrow(/Non-numeric value for "B"/);
     expect(() => normalizeInputItems([['C', '0o7']])).toThrow(/Non-numeric value for "C"/);
   });
-  it('name の欠落 (null / undefined / 空文字 / 空白のみ) は xlsx / DB 経路と同じく投げる', () => {
+  it('name の欠落 (null / undefined / 空文字 / 空白のみ) は DB 経路と同じく投げる', () => {
     expect(() => normalizeInputItems([[null, 1]])).toThrow(/Empty name at item 1/);
     expect(() => normalizeInputItems([{ name: undefined, value: 1 }])).toThrow(
       /Empty name at item 1/,

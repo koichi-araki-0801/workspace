@@ -255,8 +255,7 @@ mkdirSync(distDir, { recursive: true });
 /**
  * `subset-font/index.js` からの `require('fs')` **だけ**を `src/runtime/subsetFontFs.ts` へ
  * 向ける esbuild plugin。依存のソース文字列は書き換えず、モジュールグラフ上の辺だけを
- * 差し替える。グローバル `fs` の monkeypatch はしない(exceljs の xlsx 読み込みなど
- * 無関係な経路へ副作用が漏れる)。
+ * 差し替える。グローバル `fs` の monkeypatch はしない(無関係な経路へ副作用が漏れる)。
  */
 const subsetFontFsPlugin = {
   name: 'subset-font-fs',

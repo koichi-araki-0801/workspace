@@ -18,7 +18,6 @@
     "build:exe": "node scripts/build-exe.mjs"
   },
   "dependencies": {
-    "exceljs": "^4.4.0",
     "subset-font": "^2.9.0"
   },
   "optionalDependencies": {

@@ -79,31 +79,11 @@ export function assertTotalValue(total: number): void {
 /** ラベル 1 件の最大文字数。切り詰めると出力が黙って変わるためエラーにする。 */
 export const MAX_LABEL_CHARS = envPositiveInt('PIE_MAX_LABEL_CHARS', 256);
 
-/** `--range` が跨げる行数。実データ最終行とは別に、指定そのものの正気度を見る。 */
-export const MAX_RANGE_ROWS = envPositiveInt('PIE_MAX_RANGE_ROWS', 10_000);
-
-/**
- * 読み込む xlsx の**圧縮後**ファイルサイズ上限。exceljs は zip 内の全エントリを無条件に
- * 展開して JS 文字列へ載せる(必要判定は展開の**後**)ため、展開バイト数の予算を pie-chart
- * 側から掛ける手段が無い。つまりこの値は**展開後サイズの上限ではない** — 高圧縮率の XML を
- * 詰めた小さな .xlsx は展開後に何桁も大きくなり、`--range` が 10 行しか指していなくても
- * range 検査へ到達する前にメモリを食い潰せる(zip 爆弾)。
- *
- * 運用条件(この上限が守れない部分を人が守る): **信用できない .xlsx を開かない。**
- * 業務入力は「2 列 × 数十行の集計表」で、実ファイルは百 KB 台に収まる。既定はそれに対して
- * 十分な余裕を持たせた 4 MiB へ下げ、圧縮率 1000:1 の細工でも展開が数 GB 規模に留まるように
- * している(それでも落ちうるので、上の運用条件が主で本値は緩和)。他所から受け取った
- * .xlsx を扱う運用が要るなら、上限を上げるのではなく exceljs を「必要なエントリだけを
- * inflate 出力バイト数の予算付きで読む」実装へ置き換えること。
- */
-export const MAX_XLSX_BYTES = envPositiveInt('PIE_MAX_XLSX_BYTES', 4 * 1024 * 1024);
-
 /** `--data-json` の文字列長上限。 */
 export const MAX_JSON_BYTES = envPositiveInt('PIE_MAX_JSON_BYTES', 8 * 1024 * 1024);
 
 /**
- * ストアドの結果セットが持てる行数。`MAX_RANGE_ROWS` と同水準で、意味も同じ
- * 「指定そのものの正気度を見る」— 集計を忘れたストアドが明細を数十万行返すと、行 → 項目の
+ * ストアドの結果セットが持てる行数。集計を忘れたストアドが明細を数十万行返すと、行 → 項目の
  * 変換とそれに続く `Object.keys` / 文字列化で待たされたうえ、最後に `PIE_MAX_ITEMS` で
  * 落ちる。どこで落ちたか分かるよう、行の変換に入る前に行数で切る。
  *
