@@ -2,8 +2,9 @@ import { findEditingMarkers } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import { toFilled } from '../src/lib/fillJinja';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
-import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
+import { normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { REPRO_CASES } from './helpers/jinjaReproCases';
+import { extractJinjaTokens } from './helpers/jinjaTokens';
 
 /** jsdom のパーサで一度読み直してから戻す(キャンバスの読み込みに近づける)。 */
 function viaParser(filled: string): string {

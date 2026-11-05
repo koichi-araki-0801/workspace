@@ -31,7 +31,6 @@ import {
   DATA_JINJA_LOOP_ROW,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
-  JINJA_TOKEN_RE,
   parseRtCommentData,
   type RtMarker,
 } from './jinjaAttrs';
@@ -54,11 +53,6 @@ export const LEGACY_ATTR_SELECTOR = [
 ]
   .map((a) => `[${a}]`)
   .join(',');
-
-/** テンプレ文字列から Jinja のトークン(`{{ }}` / `{% %}` / `{# #}`)を出現順に取り出す。テストから直接検証するために公開する。 */
-export function extractJinjaTokens(s: string): string[] {
-  return s.match(JINJA_TOKEN_RE) ?? [];
-}
 
 export function htmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

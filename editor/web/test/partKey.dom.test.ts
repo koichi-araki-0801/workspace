@@ -1,3 +1,4 @@
+import { occurrenceKey } from '@editor/shared';
 import type { Editor } from 'grapesjs';
 import { describe, expect, it, vi } from 'vitest';
 import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
@@ -7,13 +8,12 @@ import {
   legacyPartKeyCount,
   pagesOf,
   partLabelMap,
-  partOf,
   partPageIndexMap,
   partPathKeyFor,
   partsOf,
 } from '@/features/editor/partKey';
 import { partMapsFromHtml } from '@/features/reviews/reviewPartMaps';
-import { occurrenceKey, occurrenceKeys, rawKey, rawKeyFromParts } from '@/lib/blockKey';
+import { occurrenceKeys, rawKey, rawKeyFromParts } from '@/lib/blockKey';
 import { b64encodeUtf8 } from '@/lib/jinjaAttrs';
 
 /** innerHTML から canvas wrapper 相当の root 要素を作る(jsdom)。 */
@@ -132,7 +132,7 @@ describe('partPathKeyFor — 版を跨いで安定', () => {
   });
 });
 
-describe('partsOf / partOf / pagesOf', () => {
+describe('partsOf / pagesOf', () => {
   it('partsOf は区切りと数えない要素を除いた根の直下のパーツ', () => {
     const r = root(
       '<style>.a{}</style><p class="a">A</p><div class=pagebreak></div>' +
@@ -142,10 +142,10 @@ describe('partsOf / partOf / pagesOf', () => {
     expect(pagesOf(r).map((p) => p.map((e) => e.className))).toEqual([['a'], ['b']]);
   });
 
-  it('partOf は根の直下のパーツまでさかのぼり、パーツでなければ null', () => {
+  it('partPathKeyFor は区切りなどパーツでない要素に null を返す', () => {
     const r = root('<div class="x"><span>in</span></div><div class=pagebreak></div>');
-    expect(partOf(q(r, 'span'), r)).toBe(q(r, '.x'));
-    expect(partOf(q(r, '.pagebreak'), r)).toBeNull();
+    expect(partPathKeyFor(q(r, 'span'), r, rawKey)).toBe('.x#1');
+    expect(partPathKeyFor(q(r, '.pagebreak'), r, rawKey)).toBeNull();
   });
 
   it('パーツが無い根は 1 ページ・0 パーツ', () => {
@@ -475,11 +475,10 @@ describe('本文全体を固めた canvas も、保存した文書と同じパ�
 
   it('包みの中の要素から、そのパーツとキーを引ける。包み・チップはパーツではない', () => {
     const canvas = root(canvasHtml);
-    expect(partOf(q(canvas, '.s'), canvas)).toBe(q(canvas, '.s'));
     expect(partPathKeyFor(q(canvas, '.s'), canvas, rawKey)).toBe('.s#1');
-    expect(partOf(q(canvas, '.jinja-frozen-body'), canvas)).toBeNull();
-    expect(partOf(q(canvas, '.jinja-stmt'), canvas)).toBeNull();
-    expect(partOf(q(root(html), '.s'), canvas)).toBeNull();
+    expect(partPathKeyFor(q(canvas, '.jinja-frozen-body'), canvas, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(canvas, '.jinja-stmt'), canvas, rawKey)).toBeNull();
+    expect(partPathKeyFor(q(root(html), '.s'), canvas, rawKey)).toBeNull();
   });
 });
 

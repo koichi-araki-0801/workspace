@@ -54,17 +54,8 @@ export function partsOf(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * `el` を含む根の直下のパーツ。区切り自身、数えない要素(`<style>`・赤入れの削除要素など)と
- * その中、根そのもの、根の外は null。テストから直接検証するために公開する。
- */
-export function partOf(el: HTMLElement, root: HTMLElement): HTMLElement | null {
-  const parts = partsOf(root);
-  const i = partIndex(el, root, parts);
-  return i < 0 ? null : parts[i];
-}
-
-/**
- * `el` を含むパーツの `parts` の中の位置。パーツでなければ -1。パーツは根の直下か、固めた範囲の
+ * `el` を含むパーツの `parts` の中の位置。区切り自身、数えない要素(`<style>`・赤入れの削除要素
+ * など)とその中、根そのもの、根の外は -1。パーツは根の直下か、固めた範囲の
  * 包みの直下(`@/lib/pageBreaks` の `rootBlocks`)にあるので、根へ向かって最初に当たるパーツを採る。
  */
 function partIndex(el: HTMLElement, root: HTMLElement, parts: readonly HTMLElement[]): number {

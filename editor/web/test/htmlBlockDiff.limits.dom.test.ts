@@ -8,6 +8,12 @@
 //   2. 落ちても差分表示自体は必ず出ること(承認者が「差分が見られない」状態を作らない)
 //   3. 上限内では従来どおり語句単位で着色されること
 // を対にして固定する。
+import {
+  MAX_LCS_CELLS,
+  MAX_LCS_DIM,
+  MAX_LCS_TOTAL_CELLS,
+  MAX_TOP_LEVEL_BLOCKS,
+} from '@editor/shared';
 import { describe, expect, it } from 'vitest';
 import {
   buildDiffDoc,
@@ -19,10 +25,6 @@ import {
   HL_DEL,
   HL_INS,
   hasPrintOnlyRules,
-  MAX_LCS_CELLS,
-  MAX_LCS_DIM,
-  MAX_LCS_TOTAL_CELLS,
-  MAX_TOP_LEVEL_BLOCKS,
 } from '@/features/compare/htmlBlockDiff';
 
 /** 全トークンが互いに異なる長さ `len` の列(共通 prefix トリムが効かない最悪形)。 */

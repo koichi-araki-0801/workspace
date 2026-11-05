@@ -4,9 +4,10 @@ import { parseTemplateFileName } from '@editor/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { toFilled, toFilledWithDiagnostics } from '../src/lib/fillJinja';
 import { defaultHtmlParser } from '../src/lib/htmlParser';
-import { extractJinjaTokens, normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
+import { normalizeForRoundTrip, toTemplate } from '../src/lib/jinjaMask';
 import { getBodyInner } from '../src/lib/templateDoc';
 import { fixtureSample } from './helpers/fundSample';
+import { extractJinjaTokens } from './helpers/jinjaTokens';
 
 const sample = {
   company: { code: 'XX01', name: 'アセットマネジメント株式会社' },

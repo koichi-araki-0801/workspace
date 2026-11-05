@@ -36,10 +36,6 @@ export {
   HL_REMOVED,
   type HtmlDiff,
   type LcsBudget,
-  MAX_LCS_CELLS,
-  MAX_LCS_DIM,
-  MAX_LCS_TOTAL_CELLS,
-  MAX_TOP_LEVEL_BLOCKS,
   type PagePair,
   tokenize,
 } from '@editor/shared';
