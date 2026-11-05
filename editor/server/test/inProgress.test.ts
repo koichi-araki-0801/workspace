@@ -18,7 +18,7 @@ const put = (dir: string, name: string) => {
   fs.writeFileSync(path.join(tmp, dir, name), '<p>x</p>', 'utf8');
 };
 
-describe('findInProgressIds', () => {
+describe('inProgressLookup', () => {
   beforeEach(() => {
     for (const d of ['pending', 'drafts']) {
       fs.rmSync(path.join(tmp, d), { recursive: true, force: true });
@@ -31,25 +31,25 @@ describe('findInProgressIds', () => {
     put('drafts', 'Xx01_950037_交付版.html');
     put('drafts', 'Xx01_950037_交付版.css');
     put('pending', 'XX01_950037_全体版.html'); // 版種違いは数えない
-    const { findInProgressIds } = await import('../src/files/inProgress.js');
-    expect(await findInProgressIds('XX01_950037_交付版')).toEqual({
+    const { inProgressLookup } = await import('../src/files/inProgress.js');
+    expect((await inProgressLookup())('XX01_950037_交付版')).toEqual({
       pending: ['xx01_950037_交付版'],
       drafts: ['Xx01_950037_交付版'],
     });
   });
 
   it('どちらにも無ければ空、置き場が無くても落ちない', async () => {
-    const { findInProgressIds } = await import('../src/files/inProgress.js');
-    expect(await findInProgressIds('XX01_950037_交付版')).toEqual({ pending: [], drafts: [] });
+    const { inProgressLookup } = await import('../src/files/inProgress.js');
+    expect((await inProgressLookup())('XX01_950037_交付版')).toEqual({ pending: [], drafts: [] });
   });
 
-  it('inProgressLookup は一覧を 1 度取り、id ごとに findInProgressIds と同じ結果を返す', async () => {
+  it('一覧を 1 度取れば、複数の id をそれぞれ照合する', async () => {
     put('pending', 'xx01_950037_交付版.html');
     put('drafts', 'XX01_950037_全体版.html');
-    const { findInProgressIds, inProgressLookup } = await import('../src/files/inProgress.js');
+    const { inProgressLookup } = await import('../src/files/inProgress.js');
     const lookup = await inProgressLookup();
-    for (const id of ['XX01_950037_交付版', 'XX01_950037_全体版', 'XX01_950003_交付版']) {
-      expect(lookup(id)).toEqual(await findInProgressIds(id));
-    }
+    expect(lookup('XX01_950037_交付版')).toEqual({ pending: ['xx01_950037_交付版'], drafts: [] });
+    expect(lookup('XX01_950037_全体版')).toEqual({ pending: [], drafts: ['XX01_950037_全体版'] });
+    expect(lookup('XX01_950003_交付版')).toEqual({ pending: [], drafts: [] });
   });
 });
