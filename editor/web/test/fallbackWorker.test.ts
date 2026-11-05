@@ -131,7 +131,9 @@ describe('createFallbackWorker', () => {
   it('成功実績があっても実行時エラーは従来どおり恒久フォールバックする', async () => {
     let fail = false;
     const remoteFn = vi.fn(async () => {
-      if (fail) throw new Error('boom');
+      if (fail) {
+        throw new Error('boom');
+      }
       return 'from-remote';
     });
     const remote = makeWorker({ toFilled: remoteFn });

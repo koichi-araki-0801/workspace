@@ -165,7 +165,9 @@ export function appendPreviewStyle(
     root.insertBefore(head, root.firstChild);
   }
   const style = doc.createElement('style');
-  for (const [name, value] of Object.entries(attrs)) style.setAttribute(name, value);
+  for (const [name, value] of Object.entries(attrs)) {
+    style.setAttribute(name, value);
+  }
   style.textContent = sanitizeStyleContent(css);
   head.appendChild(style);
   return style;
@@ -200,8 +202,9 @@ function pdfPurifier(): ReturnType<typeof DOMPurify> {
   if (pdfPurifierInstance === undefined) {
     const purifier = DOMPurify(window);
     purifier.addHook('uponSanitizeElement', (node, data) => {
-      if (data.tagName === 'meta' && !isCharsetOnlyMeta(node as Element))
+      if (data.tagName === 'meta' && !isCharsetOnlyMeta(node as Element)) {
         node.parentNode?.removeChild(node);
+      }
     });
     pdfPurifierInstance = purifier;
   }
@@ -499,8 +502,12 @@ function splitNsName(name: string): { prefix: string; local: string } {
  * 落ちれば削除する(fail closed)。`data-gjs-*` はここへ来る前に結論が出ている。
  */
 function isAllowedAttrName(lower: string): boolean {
-  if (ALLOWED_ATTR_PREFIXES.some((p) => lower.startsWith(p))) return true;
-  if (!ALLOWED_ATTRS.has(lower)) return false;
+  if (ALLOWED_ATTR_PREFIXES.some((p) => lower.startsWith(p))) {
+    return true;
+  }
+  if (!ALLOWED_ATTRS.has(lower)) {
+    return false;
+  }
   const { prefix, local } = splitNsName(lower);
   return prefix === '' || ALLOWED_ATTRS.has(local);
 }
@@ -512,21 +519,35 @@ function isAllowedAttrName(lower: string): boolean {
  */
 function isAllowedUrlValue(value: string): boolean {
   const normalized = [...value].filter((c) => c > ' ').join('');
-  if (normalized === '') return true;
+  if (normalized === '') {
+    return true;
+  }
   // Jinja トークンを含む値は描画時に実値へ置き換わる。ここで「トークンで始まるなら
   // 無条件で通す」とすると `{{''}}javascript:alert(1)` が通る(実測)。トークンを
   // 空へ潰してから判定し、残りが危険なスキームを名乗るなら落とす
   // (サーバ側の `security/templateScripts.ts` の `isInertUrl` と同じ形)。
   const stripped = normalized.replace(JINJA_TOKEN_RE, '');
-  if (stripped !== normalized) return stripped === '' || isAllowedUrlValue(stripped);
+  if (stripped !== normalized) {
+    return stripped === '' || isAllowedUrlValue(stripped);
+  }
   const lower = normalized.toLowerCase();
-  if (lower.startsWith('#')) return true;
-  if (lower.startsWith('//')) return false; // scheme 相対 = 外部
-  if (lower.startsWith('data:')) return ALLOWED_DATA_URL_PREFIXES.some((p) => lower.startsWith(p));
+  if (lower.startsWith('#')) {
+    return true;
+  }
+  if (lower.startsWith('//')) {
+    return false; // scheme 相対 = 外部
+  }
+  if (lower.startsWith('data:')) {
+    return ALLOWED_DATA_URL_PREFIXES.some((p) => lower.startsWith(p));
+  }
   const colon = lower.indexOf(':');
-  if (colon < 0) return true; // 相対参照
+  if (colon < 0) {
+    return true; // 相対参照
+  }
   const slash = lower.search(/[/?#]/);
-  if (slash >= 0 && slash < colon) return true; // `a/b:c` = path の中の `:`
+  if (slash >= 0 && slash < colon) {
+    return true; // `a/b:c` = path の中の `:`
+  }
   const scheme = lower.slice(0, colon);
   return /^[a-z][a-z0-9+.-]*$/.test(scheme) && ALLOWED_URL_SCHEMES.has(scheme);
 }
@@ -534,7 +555,9 @@ function isAllowedUrlValue(value: string): boolean {
 /** 要素名(namespace 込み)が canvas に置いてよいか。 */
 function isAllowedElement(node: ParsedHtmlNode): boolean {
   const name = (node.tagName ?? '').toLowerCase();
-  if (name === '') return false;
+  if (name === '') {
+    return false;
+  }
   return node.namespaceURI === SVG_NS ? ALLOWED_SVG_TAGS.has(name) : ALLOWED_HTML_TAGS.has(name);
 }
 
@@ -556,7 +579,9 @@ export function pruneCanvasActiveContent(root: ParsedHtmlNode, opts: PruneOption
   const report: PruneReport = { droppedElements: [], droppedAttrs: [], droppedCount: 0 };
   const note = (bucket: string[], name: string): void => {
     report.droppedCount++;
-    if (bucket.length < REPORT_LIMIT) bucket.push(name);
+    if (bucket.length < REPORT_LIMIT) {
+      bucket.push(name);
+    }
   };
 
   const pruneAttrs = (attrs: Record<string, string>): void => {
@@ -566,7 +591,9 @@ export function pruneCanvasActiveContent(root: ParsedHtmlNode, opts: PruneOption
         // 捕まえるのは小文字化した名前で広く、通すのは元の名前が正確に一致するものだけ。
         // GrapesJS 側の prop 名解決は完全一致の小文字接頭辞しか剥がさないので、この
         // 非対称が「GrapesJS は prop として読むのに prune は素通し」の隙間を埋める。
-        if (name === ALLOWED_GJS_ATTR && opts.allowedGjsTypes.has(attrs[name])) continue;
+        if (name === ALLOWED_GJS_ATTR && opts.allowedGjsTypes.has(attrs[name])) {
+          continue;
+        }
         delete attrs[name];
         note(report.droppedAttrs, lower);
         continue;
@@ -575,24 +602,38 @@ export function pruneCanvasActiveContent(root: ParsedHtmlNode, opts: PruneOption
       const ok = isUrlAttr
         ? isAllowedAttrName(lower) && isAllowedUrlValue(attrs[name])
         : isAllowedAttrName(lower);
-      if (ok) continue;
+      if (ok) {
+        continue;
+      }
       delete attrs[name];
       note(report.droppedAttrs, lower);
     }
   };
 
   const visit = (node: ParsedHtmlNode): void => {
-    if (node.nodeType === NODE_TYPE_ELEMENT && node.attributes) pruneAttrs(node.attributes);
+    if (node.nodeType === NODE_TYPE_ELEMENT && node.attributes) {
+      pruneAttrs(node.attributes);
+    }
     const kids = node.childNodes;
-    if (!kids) return;
+    if (!kids) {
+      return;
+    }
     const kept = kids.filter((kid) => {
-      if (kid.nodeType !== NODE_TYPE_ELEMENT) return true;
-      if (isAllowedElement(kid)) return true;
+      if (kid.nodeType !== NODE_TYPE_ELEMENT) {
+        return true;
+      }
+      if (isAllowedElement(kid)) {
+        return true;
+      }
       note(report.droppedElements, (kid.tagName ?? '?').toLowerCase());
       return false;
     });
-    if (kept.length !== kids.length) node.childNodes = kept;
-    for (const kid of kept) visit(kid);
+    if (kept.length !== kids.length) {
+      node.childNodes = kept;
+    }
+    for (const kid of kept) {
+      visit(kid);
+    }
   };
 
   visit(root);

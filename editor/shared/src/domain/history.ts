@@ -47,15 +47,23 @@ export function matchFilter(
   filter: HistoryFilter,
   haystacks: string[],
 ): boolean {
-  if (filter.user && entry.user !== filter.user) return false;
+  if (filter.user && entry.user !== filter.user) {
+    return false;
+  }
 
   const ts = new Date(entry.timestamp).getTime();
-  if (filter.from && ts < new Date(`${filter.from}T00:00:00`).getTime()) return false;
-  if (filter.to && ts > new Date(`${filter.to}T23:59:59.999`).getTime()) return false;
+  if (filter.from && ts < new Date(`${filter.from}T00:00:00`).getTime()) {
+    return false;
+  }
+  if (filter.to && ts > new Date(`${filter.to}T23:59:59.999`).getTime()) {
+    return false;
+  }
 
   if (filter.keyword) {
     const kw = filter.keyword.toLowerCase();
-    if (!haystacks.some((h) => h.toLowerCase().includes(kw))) return false;
+    if (!haystacks.some((h) => h.toLowerCase().includes(kw))) {
+      return false;
+    }
   }
   return true;
 }

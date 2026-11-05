@@ -15,7 +15,9 @@ interface PartMaps {
 
 /** HTML 文字列から承認タブのパーツラベル・ページ index マップを作る。空文字は空マップ。 */
 export function partMapsFromHtml(html: string): PartMaps {
-  if (!html.trim()) return { labels: new Map(), pages: new Map() };
+  if (!html.trim()) {
+    return { labels: new Map(), pages: new Map() };
+  }
   const body = new DOMParser().parseFromString(html, 'text/html').body;
   return { labels: partLabelMap(body), pages: partPageIndexMap(body) };
 }

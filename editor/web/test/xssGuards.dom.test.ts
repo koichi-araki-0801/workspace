@@ -256,19 +256,25 @@ describe('compareService の描画結果', () => {
   it('keeps active content in the current version (baseline path)', async () => {
     const res = await service.renderVersionHtml(`baseline:${TEMPLATE_ID}`);
     expect(res.ok).toBe(true);
-    if (res.ok) expectActiveKept(res.value.html);
+    if (res.ok) {
+      expectActiveKept(res.value.html);
+    }
   });
 
   it('keeps active content in a confirmed snapshot', async () => {
     const res = await service.renderVersionHtml('some-history-id');
     expect(res.ok).toBe(true);
-    if (res.ok) expectActiveKept(res.value.html);
+    if (res.ok) {
+      expectActiveKept(res.value.html);
+    }
   });
 
   it('keeps active content in a submitted body (approval screen)', async () => {
     const res = await service.renderTemplateBody(ACTIVE, '', '950037', 'create');
     expect(res.ok).toBe(true);
-    if (res.ok) expectActiveKept(res.value.html);
+    if (res.ok) {
+      expectActiveKept(res.value.html);
+    }
   });
 
   it('keeps the report markup that the diff relies on', async () => {

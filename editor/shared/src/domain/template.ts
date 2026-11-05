@@ -26,7 +26,9 @@ export type SkeletonAttributes = Omit<TemplateAttributes, 'baseDate'>;
 /** 値入り HTML のファイル名(4 つ区切り)を解析する。3 つ区切りは null。 */
 export function parseTemplateFileName(fileName: string): FilledTemplateAttributes | null {
   const m = TEMPLATE_FILENAME_RE.exec(fileName);
-  if (!m?.groups) return null;
+  if (!m?.groups) {
+    return null;
+  }
   const { companyCode, fundCode, baseDate, editionType } = m.groups;
   return { companyCode, fundCode, baseDate, editionType };
 }
@@ -42,7 +44,9 @@ export const SKELETON_FILENAME_RE =
 /** テンプレートのファイル名(3 つ区切り)を解析する。4 つ区切りは null。 */
 export function parseSkeletonFileName(fileName: string): SkeletonAttributes | null {
   const m = SKELETON_FILENAME_RE.exec(fileName);
-  if (!m?.groups) return null;
+  if (!m?.groups) {
+    return null;
+  }
   const { companyCode, fundCode, editionType } = m.groups;
   return { companyCode, fundCode, editionType };
 }
@@ -76,9 +80,13 @@ export function templateIdFromFileName(fileName: string): string {
  * CSS の変更が同じテンプレの他の基準日にも効く)。規約外・安全でない ID は null。
  */
 export function cssFileNameOf(templateId: string): string | null {
-  if (!isValidAnyTemplateId(templateId)) return null;
+  if (!isValidAnyTemplateId(templateId)) {
+    return null;
+  }
   const a = parseAnyTemplateFileName(`${templateId}.html`);
-  if (!a) return null;
+  if (!a) {
+    return null;
+  }
   return `${a.companyCode}_${a.fundCode}_${a.editionType}.css`;
 }
 
@@ -115,9 +123,13 @@ export const EDITION_SYNC_PAIRS: Readonly<Record<string, string>> = Object.assig
  */
 export function pairedTemplateId(templateId: string): string | null {
   const attrs = parseAnyTemplateFileName(`${templateId}.html`);
-  if (!attrs) return null;
+  if (!attrs) {
+    return null;
+  }
   const paired = EDITION_SYNC_PAIRS[attrs.editionType];
-  if (!paired) return null;
+  if (!paired) {
+    return null;
+  }
   return templateIdFromFileName(anyTemplateFileName({ ...attrs, editionType: paired }));
 }
 
@@ -138,7 +150,9 @@ export function templatePairKey(a: TemplateAttributes): string {
  */
 export function formatBaseDate(baseDate: string): string {
   const m = /^(\d{4})(\d{2})(\d{2})$/.exec(baseDate);
-  if (!m) return baseDate;
+  if (!m) {
+    return baseDate;
+  }
   return `${m[1]}年${Number(m[2])}月${Number(m[3])}日`;
 }
 
@@ -158,15 +172,27 @@ export const WINDOWS_RESERVED_RE = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$
  * 特別扱いされる字面(ドライブ指定子 `:`・ワイルドカード・末尾ドット/空白)も落とす。
  */
 function isSafeFileNameSegment(s: string): boolean {
-  if (s.length === 0 || s.length > 200) return false;
-  if (/[/\\:*?"<>|]/.test(s)) return false;
+  if (s.length === 0 || s.length > 200) {
+    return false;
+  }
+  if (/[/\\:*?"<>|]/.test(s)) {
+    return false;
+  }
   // biome-ignore lint/suspicious/noControlCharactersInRegex: NUL 混入によるパス切り詰めを防ぐ意図的な検査。
-  if (/[\u0000-\u001f]/.test(s)) return false;
-  if (s.includes('..')) return false;
+  if (/[\u0000-\u001f]/.test(s)) {
+    return false;
+  }
+  if (s.includes('..')) {
+    return false;
+  }
   // 末尾のドット/空白は Windows が黙って落とすため、検査をすり抜けた別名になりうる。
-  if (s !== s.trim() || s.endsWith('.')) return false;
+  if (s !== s.trim() || s.endsWith('.')) {
+    return false;
+  }
   // Windows の予約デバイス名は拡張子付き(`CON.html`)でもデバイスとして扱われる。
-  if (WINDOWS_RESERVED_RE.test(s)) return false;
+  if (WINDOWS_RESERVED_RE.test(s)) {
+    return false;
+  }
   return true;
 }
 
@@ -186,7 +212,9 @@ export function isValidTemplateToken(token: string): boolean {
 /** `TemplateAttributes` のトークン(基準日は持つときだけ)がすべて安全か。 */
 function attributesAreSafe(a: TemplateAttributes): boolean {
   const tokens = [a.companyCode, a.fundCode, a.editionType];
-  if (a.baseDate !== undefined) tokens.push(a.baseDate);
+  if (a.baseDate !== undefined) {
+    tokens.push(a.baseDate);
+  }
   return tokens.every(isValidTemplateToken);
 }
 
@@ -250,7 +278,9 @@ export function assertAnyTemplateId(templateId: string): string {
  * 検査を各ルートのローカル関数へ複製すると、複製されなかった入口だけが緩む。
  */
 export function assertTemplateAttributeToken(label: string, value: string): string {
-  if (!isValidTemplateToken(value)) throw validation(`不正な${label}です: ${value}`);
+  if (!isValidTemplateToken(value)) {
+    throw validation(`不正な${label}です: ${value}`);
+  }
   return value;
 }
 

@@ -117,6 +117,9 @@ export type ReviewOrigin = z.infer<typeof sch.ReviewOrigin>;
  */
 export type ReviewChangedSummary = z.infer<typeof sch.ReviewChangedSummary>;
 
+/** 作成経路の承認画面の描画(サーバが受付で描く)の注意の件数。 */
+export type ReviewRenderNotes = z.infer<typeof sch.ReviewRenderNotes>;
+
 /** 確定保存申請のメタデータ(本文 html/css を除く軽量行)。申請一覧の表示に使う。 */
 export type ReviewRequestMeta = z.infer<typeof sch.ReviewRequestMeta>;
 
@@ -293,6 +296,8 @@ export * from './domain/user.js';
 export * from './errors.js';
 // チップの原文を運ぶ base64(作成タブの往復と改ページの判定が読む)。
 export * from './html/base64Utf8.js';
+// 本文の外側(head・html と body の開始タグ)の固定。両経路の受付と承認が使う。
+export * from './html/documentFrame.js';
 // HTML の字句解析の小さな部品と raw text の終わり探し。タグを読む走査器 7 本が共有する。
 export * from './html/htmlLex.js';
 // パーツの HTML の比較用の正規形(承認後のペア同期の「直していない」の判定)。
@@ -308,13 +313,16 @@ export * from './html/reviewDiff/partMarks.js';
 export * from './html/reviewDiff/reviewedCandidate.js';
 export * from './html/reviewDiff/reviewPaper.js';
 export * from './html/reviewParts.js';
-
-// Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
 export * from './jinja/containsJinja.js';
+export * from './jinja/createReviewRender.js';
 export * from './jinja/fillRender.js';
+export * from './jinja/inertJinja.js';
 export * from './jinja/jinjaExpr.js';
 export * from './jinja/jinjaLex.js';
 export * from './jinja/jinjaTree.js';
+export * from './jinja/revealExpr.js';
+// Jinja の字句解析。web の往復と関所の印の検出が同じ区切りで読む。
+export * from './jinja/reviewableSource.js';
 // `safe` の値を生で置く許可リスト。web の canvas の刈り取りと server の関所が部分集合かを検査する。
 export { SAFE_MARKUP_ATTRS, SAFE_MARKUP_TAGS } from './jinja/safeMarkup.js';
 // プレビュー iframe(隔離されたビューアホストページ)と親の postMessage 契約。

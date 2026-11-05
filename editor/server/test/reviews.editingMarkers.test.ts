@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 // config を import する前に一時ディレクトリへ向ける。
@@ -43,13 +44,27 @@ d('申請本文の編集用の印(両経路)', () => {
   beforeAll(async () => {
     fs.mkdirSync(path.join(tmp, 'pending'), { recursive: true });
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'pending', `${CREATE_ID}.html`), '<p>{{ fund.name }}</p>');
-    fs.writeFileSync(path.join(tmp, 'filled', `${EDIT_ID}.html`), '<p>日本株式オープン</p>');
+    // 作成経路の基準(生成物)。本文の外側は申請と同じにする(外側は基準とバイト列で比べる)。
+    fs.writeFileSync(
+      path.join(tmp, 'pending', `${CREATE_ID}.html`),
+      '<html><head></head><body><p>{{ fund.name }}</p></body></html>',
+    );
+    fs.writeFileSync(
+      path.join(tmp, 'filled', `${EDIT_ID}.html`),
+      filledDoc('<p>日本株式オープン</p>'),
+    );
     // DB(sproc)は対象外。決定的に失敗する実行面を渡し、開発機の LocalDB へ触れないようにする。
     // helper は動的に取る — 静的 import だと冒頭の env 設定より先に `config.js` が読まれる。
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createDeps } = await import('../src/deps.js');
-    reviews = createDeps(createOfflineSproc(), createSessionStub()).reviews;
+    const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
+    const deps = createDeps(createOfflineSproc(), createSessionStub());
+    // 作成経路の受付は sample で描く。DB は使わないので、固定の値を返す取得口を渡す。
+    reviews = createReviewRepo({
+      noteMaster: deps.noteMaster,
+      pairSync: deps.pairSync,
+      sampleOf: async () => ({ fund: { name: '日本株式オープン' } }),
+    });
   });
   afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -64,21 +79,25 @@ d('申請本文の編集用の印(両経路)', () => {
     ).rejects.toMatchObject({ kind: 'validation', message: expect.stringContaining('編集用の印') });
   });
 
-  it('filledHtml(プレビュー文書)に印があっても拒否する', async () => {
-    await expect(
-      reviews.submitReview(
-        { templateId: EDIT_ID, html: '<p>値</p>', filledHtml: CHIP, css: '', origin: 'edit' },
-        submitter,
-      ),
-    ).rejects.toMatchObject({ kind: 'validation' });
+  it('filledHtml は使わないので、印のある filledHtml を付けても受付は html だけで判定する', async () => {
+    const created = await reviews.submitReview(
+      {
+        templateId: CREATE_ID,
+        html: '<html><head></head><body><p>{{ fund.name }} 別</p></body></html>',
+        filledHtml: CHIP,
+        css: '',
+        origin: 'create',
+      },
+      submitter,
+    );
+    expect(created.status).toBe('pending');
   });
 
   it('印の無い申請は両経路とも通る', async () => {
     const created = await reviews.submitReview(
       {
         templateId: CREATE_ID,
-        html: '<p>{{ fund.name }}</p>',
-        filledHtml: '<p>日本株式オープン</p>',
+        html: '<html><head></head><body><p>{{ fund.name }}</p></body></html>',
         css: '',
         origin: 'create',
       },
@@ -86,7 +105,12 @@ d('申請本文の編集用の印(両経路)', () => {
     );
     expect(created.status).toBe('pending');
     const edited = await reviews.submitReview(
-      { templateId: EDIT_ID, html: '<p>日本株式オープン(改)</p>', css: '', origin: 'edit' },
+      {
+        templateId: EDIT_ID,
+        html: filledDoc('<p>日本株式オープン(改)</p>'),
+        css: '',
+        origin: 'edit',
+      },
       submitter,
     );
     expect(edited.status).toBe('pending');
@@ -97,7 +121,9 @@ d('申請本文の編集用の印(両経路)', () => {
     const { writeReview } = await import('../src/files/reviewFiles.js');
     const { parseAnyTemplateFileName } = await import('@editor/shared');
     const attrs = parseAnyTemplateFileName(`${EDIT_ID}.html`);
-    if (!attrs) throw new Error('attrs');
+    if (!attrs) {
+      throw new Error('attrs');
+    }
     await writeReview({
       id: 'marker-dup-seed',
       templateId: EDIT_ID,

@@ -51,17 +51,27 @@ export function fundImageMime(file: string): string | undefined {
  */
 export function fundImageRefOf(rel: string): FundImageRef | undefined {
   const segments = rel.split('/');
-  if (segments[0] !== FUND_IMAGES_DIR) return undefined;
-  if (segments.length !== 2 && segments.length !== 3) return undefined;
-  if (segments.some((s) => s === '')) return undefined;
+  if (segments[0] !== FUND_IMAGES_DIR) {
+    return undefined;
+  }
+  if (segments.length !== 2 && segments.length !== 3) {
+    return undefined;
+  }
+  if (segments.some((s) => s === '')) {
+    return undefined;
+  }
   const file = segments[segments.length - 1];
-  if (fundImageMime(file) === undefined) return undefined;
+  if (fundImageMime(file) === undefined) {
+    return undefined;
+  }
   return { dir: segments.length === 3 ? segments[1] : null, file };
 }
 
 /** ref → 単体配信ルートの URL(同一オリジン。cookie が付く)。 */
 export function fundImageUrl(ref: FundImageRef): string {
-  if (ref.dir === null) return `/api${buildPath(apiPaths.fundAssetImage, { file: ref.file })}`;
+  if (ref.dir === null) {
+    return `/api${buildPath(apiPaths.fundAssetImage, { file: ref.file })}`;
+  }
   return `/api${buildPath(apiPaths.fundAssetImageInDir, { dir: ref.dir, file: ref.file })}`;
 }
 
@@ -70,7 +80,9 @@ export function fundImageUrl(ref: FundImageRef): string {
  * 常に true。会社コードが分からないときに会社フォルダの画像は出さない(照合できないため)。
  */
 export function companyFolderMatches(ref: FundImageRef, companyCode: string | null): boolean {
-  if (ref.dir === null) return true;
+  if (ref.dir === null) {
+    return true;
+  }
   return companyCode !== null && ref.dir.toLowerCase() === companyCode.toLowerCase();
 }
 
@@ -101,9 +113,13 @@ export function classifyImageRel(
   rel: string | undefined,
   companyCode: string | null,
 ): ImageRelClass {
-  if (rel === undefined || !rel.startsWith(`${FUND_IMAGES_DIR}/`)) return { kind: 'outside' };
+  if (rel === undefined || !rel.startsWith(`${FUND_IMAGES_DIR}/`)) {
+    return { kind: 'outside' };
+  }
   const ref = fundImageRefOf(rel);
-  if (ref === undefined) return { kind: 'other' };
+  if (ref === undefined) {
+    return { kind: 'other' };
+  }
   return { kind: 'fundImage', ref, companyMatches: companyFolderMatches(ref, companyCode) };
 }
 
@@ -131,7 +147,9 @@ const MULTI_URL_ATTRS = new Set(['srcset', 'imagesrcset']);
  * PDF 文書(`pdfDocument.ts`)は値そのものも照合し、サーバが解く形を取りこぼさない。
  */
 export function attrUrlCandidates(name: string, value: string): string[] {
-  if (!MULTI_URL_ATTRS.has(name.toLowerCase())) return [value];
+  if (!MULTI_URL_ATTRS.has(name.toLowerCase())) {
+    return [value];
+  }
   return splitSrcsetUrls(value);
 }
 

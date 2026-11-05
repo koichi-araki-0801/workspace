@@ -58,7 +58,9 @@ describe('relaxNameCondense', () => {
     const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
     let expected = 0.7;
     for (let g = 0.7; g <= 1 + 1e-9; g = Math.round((g + 0.025) * 1000) / 1000) {
-      if (p.x + widthAt(p, g, cfg) <= xmax + tol) expected = g;
+      if (p.x + widthAt(p, g, cfg) <= xmax + tol) {
+        expected = g;
+      }
     }
     expect(p.nameScaleX).toBeCloseTo(expected, 6);
     expect(p.nameScaleX!).toBeLessThan(1);
@@ -75,7 +77,9 @@ describe('relaxNameCondense', () => {
     expect(placementBox(a, cfg).right).toBeLessThanOrEqual(b.x + 1e-6);
     let expected = 0.7;
     for (let g = 0.7; g <= 1 + 1e-9; g = Math.round((g + 0.025) * 1000) / 1000) {
-      if (a.x + widthAt(a, g, cfg) <= b.x + 1e-9) expected = g;
+      if (a.x + widthAt(a, g, cfg) <= b.x + 1e-9) {
+        expected = g;
+      }
     }
     expect(a.nameScaleX).toBeCloseTo(expected, 6);
   });

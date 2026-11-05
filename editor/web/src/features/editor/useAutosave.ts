@@ -57,13 +57,17 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
     const gen = cancelGen;
     try {
       const res = await save();
-      if (isErr(res)) throw res.error;
+      if (isErr(res)) {
+        throw res.error;
+      }
       lastSavedAt.value = new Date();
       return true;
     } catch (e) {
       logError(toAppError(e));
       // 失敗した変更は未保存へ戻す。戻さないと再試行(`flush`)が保存するものが無いと判断する。
-      if (gen === cancelGen) unsaved = true;
+      if (gen === cancelGen) {
+        unsaved = true;
+      }
       state.value = 'error';
       return false;
     }
@@ -74,10 +78,14 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
    * 保存中に呼ぶと、保存中に入った変更の保存し直しまで含めて待つ。
    */
   function flush(): Promise<boolean> {
-    if (drain) return drain;
+    if (drain) {
+      return drain;
+    }
     // 保存すべき変更が無い flush は何もしない。手動 flush は画面遷移のたびに呼ばれるため、
     // 素通しすると何も編集していないのに draft が生成される。
-    if (!pending.value && !unsaved) return Promise.resolve(true);
+    if (!pending.value && !unsaved) {
+      return Promise.resolve(true);
+    }
     drain = (async () => {
       try {
         while (await saveOnce()) {
@@ -107,14 +115,18 @@ export function useAutosave(save: () => Promise<Result<void>>, debounceMs = 800)
 
   /** 実行中の保存の流れ(保存し直しを含む)の終わりを待つ(保存中でなければ即時解決)。 */
   async function settled(): Promise<void> {
-    if (drain) await drain;
+    if (drain) {
+      await drain;
+    }
   }
 
   function trigger() {
     pending.value = true;
     unsaved = true;
     // saved は「未保存が無い」の意味なので下ろす。error は再試行の導線なので残す。
-    if (state.value === 'saved') state.value = 'idle';
+    if (state.value === 'saved') {
+      state.value = 'idle';
+    }
     clearTimer();
     timer = setTimeout(flush, debounceMs);
   }

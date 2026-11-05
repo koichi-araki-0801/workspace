@@ -147,13 +147,17 @@ export function useTemplateEditor(
   const selectedPartBreak = computed<{ before: boolean; after: boolean } | null>(() => {
     void g.revision.value;
     void g.pageBlocks.value;
-    if (!g.selected.value) return null;
+    if (!g.selected.value) {
+      return null;
+    }
     const st = g.partBreakOf(g.editor.value?.getSelected());
     return st ? { before: st.before !== null, after: st.after !== null } : null;
   });
 
   const autosave = useAutosave(async () => {
-    if (!template.value) return ok(undefined);
+    if (!template.value) {
+      return ok(undefined);
+    }
     return service.saveDraft(id, g.getBodyHtml(), g.getCss());
   });
 
@@ -179,7 +183,9 @@ export function useTemplateEditor(
     sessionStore.persist(id);
   }
   function debouncedPersistUndo(): void {
-    if (persistTimer) clearTimeout(persistTimer);
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+    }
     persistTimer = setTimeout(() => {
       persistTimer = null;
       persistUndo();
@@ -201,7 +207,9 @@ export function useTemplateEditor(
     (s) => {
       // snapshot は localStorage ミラー由来でもありうる。CSS 拒否で canvas が入れ替わって
       // いないのに autosave すると、汚染 snapshot 側の内容で draft を壊す。
-      if (!g.load(s.html, s.css)) return;
+      if (!g.load(s.html, s.css)) {
+        return;
+      }
       // load() は既定フラグで component を再構築する — lock state を再適用する。
       g.setEditable(allowEdit.value);
       autosave.trigger();
@@ -238,7 +246,9 @@ export function useTemplateEditor(
     // セッション内エントリは既に表示済みで、autosave 済み draft が内容を保持するため。
     (partKey, change, entryId) => {
       service.recordPartChange(id, partKey, change, entryId).then((res) => {
-        if (isErr(res)) logError(res.error);
+        if (isErr(res)) {
+          logError(res.error);
+        }
       });
     },
     // セッション内修正履歴もストア管理にし、プレビュー往復で右下の履歴を維持する。
@@ -255,7 +265,9 @@ export function useTemplateEditor(
     const ed = g.editor.value;
     const el = ed?.getSelected()?.getEl?.() as HTMLElement | undefined;
     const root = canvasRoot(g.editor);
-    if (!ed || !el || !root) return null;
+    if (!ed || !el || !root) {
+      return null;
+    }
     return partPathKeyFor(el, root, canvasRawKey(ed));
   }
 
@@ -339,14 +351,22 @@ export function useTemplateEditor(
   function selectPartByKey(key: string): void {
     const ed = g.editor.value;
     const root = canvasRoot(g.editor);
-    if (!ed || !root) return;
+    if (!ed || !root) {
+      return;
+    }
     // ページ番号は `useGrapes.ts` の `pageBlocks` と同じ `splitPages` の番号なので、`goToPage` へ
     // そのまま渡せる。
     const hit = partEntries(root, canvasRawKey(ed)).find((e) => e.key === key);
-    if (!hit) return;
-    if (g.singlePageMode.value) g.goToPage(hit.page);
+    if (!hit) {
+      return;
+    }
+    if (g.singlePageMode.value) {
+      g.goToPage(hit.page);
+    }
     const comp = hit.part.id ? ed.Components.getById(hit.part.id) : undefined;
-    if (comp) ed.select(comp);
+    if (comp) {
+      ed.select(comp);
+    }
     hit.part.scrollIntoView({ block: 'center' });
   }
 
@@ -359,13 +379,21 @@ export function useTemplateEditor(
    */
   function applyGeom(patch: Partial<LayoutGeom>, record = true) {
     const cur = selectedGeom.value;
-    if (!cur) return;
+    if (!cur) {
+      return;
+    }
     const after = { ...cur, ...patch };
     const label = geomChangeLabel(cur, after);
-    if (!label) return;
-    if (record) pushUndo();
+    if (!label) {
+      return;
+    }
+    if (record) {
+      pushUndo();
+    }
     g.patchSelectedStyle(geomToStyle(after));
-    if (record) recordChange(label);
+    if (record) {
+      recordChange(label);
+    }
   }
 
   /**
@@ -374,7 +402,9 @@ export function useTemplateEditor(
    * 置けない選択では保留を捨てる — 無変更でも積むと Redo が失われる。
    */
   function setPartBreak(edge: BreakEdge, on: boolean) {
-    if (!undoable(undoStep, () => g.setPartBreak(g.editor.value?.getSelected(), edge, on))) return;
+    if (!undoable(undoStep, () => g.setPartBreak(g.editor.value?.getSelected(), edge, on))) {
+      return;
+    }
     // 挿入した区切りも現在の lock state に従わせる(`onPartInsert` と同じ)。
     g.setEditable(allowEdit.value);
     recordChange(partBreakLabel(edge, on));
@@ -421,10 +451,14 @@ export function useTemplateEditor(
 
   /** 選択の layout style を全消去する(既定配置へ戻す)。 */
   function resetGeom() {
-    if (!g.selected.value) return;
+    if (!g.selected.value) {
+      return;
+    }
     // 既定の配置のパーツや区切りの帯(style を持たない)では何も変わらない。無変更でも積むと Redo が
     // 消え、修正履歴に実際には無い変更が残るので、変わったときだけ確定する。
-    if (!undoable(undoStep, () => g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM)))) return;
+    if (!undoable(undoStep, () => g.patchSelectedStyle(geomToStyle(DEFAULT_GEOM)))) {
+      return;
+    }
     recordChange('配置を初期化');
     toastUndoable('配置を初期化しました');
   }
@@ -440,7 +474,9 @@ export function useTemplateEditor(
    */
   function onPartInsert(p: PartCatalogItem) {
     const ctx = partRenderCtx;
-    if (!ctx) return;
+    if (!ctx) {
+      return;
+    }
     insertPartUndoable(
       {
         canInsert: () => g.canInsertPart.value,
@@ -454,7 +490,11 @@ export function useTemplateEditor(
             return false;
           }
           const inserted = g.insertPart(r.html, partId);
-          if (inserted) for (const w of r.warnings) toast(w);
+          if (inserted) {
+            for (const w of r.warnings) {
+              toast(w);
+            }
+          }
           return inserted;
         },
         // 挿入直後の part も現在の lock state に従わせる。
@@ -477,7 +517,9 @@ export function useTemplateEditor(
   /** 現在の選択を削除する(history を考慮)。 */
   function deletePart() {
     const sel = g.selected.value;
-    if (!sel) return;
+    if (!sel) {
+      return;
+    }
     // パーツ名と修正履歴の記録は、削除後に選択が消えてキー解決できなくなるため削除前に行う。
     // 履歴へ残すことで、確定保存申請の精査時に承認者が編集者の削除操作を追える。
     const name = canvasPart.value?.name ?? sel.name;
@@ -510,9 +552,13 @@ export function useTemplateEditor(
   watch(
     () => g.pageBlocks.value,
     (pages) => {
-      if (restoredSelection || pages.every((page) => page.length === 0)) return;
+      if (restoredSelection || pages.every((page) => page.length === 0)) {
+        return;
+      }
       restoredSelection = true;
-      if (sess.ui.selectedKey) selectPartByKey(sess.ui.selectedKey);
+      if (sess.ui.selectedKey) {
+        selectPartByKey(sess.ui.selectedKey);
+      }
     },
   );
 
@@ -548,12 +594,16 @@ export function useTemplateEditor(
       syncUndoFlags(); // 空にした配列へボタンの活性を追随させる
     }
     // 旧形式の下書きの破棄は利用者の編集を捨てるので、黙らずに知らせる。
-    if (res.value.discardedLegacyDraft) toast(LEGACY_DRAFT_MESSAGE);
+    if (res.value.discardedLegacyDraft) {
+      toast(LEGACY_DRAFT_MESSAGE);
+    }
     partsById.value = new Map(res.value.parts.map((p) => [p.id, p]));
 
     const canvas = canvasEl.value;
     const layers = layersEl.value;
-    if (!canvas || !layers) return;
+    if (!canvas || !layers) {
+      return;
+    }
     g.init({ canvas, layers });
     // ファンド別画像の文脈。値入り本文(`filled` が非空 = 編集タブの本文)は描画を通らないので
     // 確定パスだけを差し、Jinja 本文は `{{ fund.code }}` をテンプレ ID のファンドコードで解く。
@@ -576,7 +626,11 @@ export function useTemplateEditor(
       ? { route: 'create', sample: res.value.sample }
       : { route: 'edit', values: res.value.values ?? {}, valuesFound: res.value.valuesFound };
     // 共通サンプルの合成の警告(キーの重複・壊れた行)は作成経路の読み込みで 1 回だけ知らせる。
-    if (isCreateRoute.value) for (const w of res.value.sampleWarnings) toast(w);
+    if (isCreateRoute.value) {
+      for (const w of res.value.sampleWarnings) {
+        toast(w);
+      }
+    }
     const tplUpdatedAt = res.value.template.meta.updatedAt;
     // 本文の読み込みと、確定版の正規形・CSS の baseline の測定(下書きから開くときは確定版を
     // 先に quiet load する)。順序と測る時点の理由は `openCanvas.ts` を見よ。
@@ -596,8 +650,9 @@ export function useTemplateEditor(
       return;
     }
     confirmedCanonical = opened.canonical;
-    if (opened.measuredCanonical && confirmedCanonical)
+    if (opened.measuredCanonical && confirmedCanonical) {
       writeConfirmedCanonical(id, tplUpdatedAt, confirmedCanonical);
+    }
     // 申請(プレビュー画面)へ渡す。プレビュー往復では編集セッションと同じく残る。
     sessionStore.setCssBaseline(id, opened.cssBaseline);
     // 確定版の quiet load 失敗時は、確定版との同一判定(`scheduleCleanCheck`)を起動しない。
@@ -605,7 +660,9 @@ export function useTemplateEditor(
     // ページ送りの復元は `load` の再レイアウト後(rAF)に行う — 直後はページの数え直しがまだ
     // 確定しておらず `goToPage` の clamp がページ総数 1 として効いてしまう。
     requestAnimationFrame(() => {
-      if (g.singlePageMode.value && sess.ui.currentPage > 0) g.goToPage(sess.ui.currentPage);
+      if (g.singlePageMode.value && sess.ui.currentPage > 0) {
+        g.goToPage(sess.ui.currentPage);
+      }
     });
     // 差し込み値ハイライトは作成経路(`?created=1`)でのみ出す。編集経路(query なし)は実値編集
     // なので出さない。設計正典.md「編集 2 系統」を参照。
@@ -630,13 +687,18 @@ export function useTemplateEditor(
     // 当該版インスタンスの全パーツ履歴を一度だけロードする。表示は `displayHistory` が
     // 選択キーで絞る(リロード後も安定構造キーで一致するため右下の履歴が復元される)。
     void service.listPartHistory(id).then((res) => {
-      if (isOk(res)) allPartHistory.value = res.value;
-      else logError(res.error);
+      if (isOk(res)) {
+        allPartHistory.value = res.value;
+      } else {
+        logError(res.error);
+      }
     });
     // ペア同期の競合バナー用。作成経路(`?created=1`)でも取る — CSS の競合はテンプレ単位で記録され、
     // 作成タブでも見える必要がある(パーツの競合は値入り HTML のペアだけが持つので作成経路では空)。
     void service.getSyncStatus(id).then((res) => {
-      if (isOk(res)) syncStatus.value = res.value;
+      if (isOk(res)) {
+        syncStatus.value = res.value;
+      }
     });
     // canvas の全変更はここを通る — dirty を立て、autosave を起動する。`g.onChange` は
     // load() より後に張るため、初期ロードでは発火せず純粋なユーザー編集だけを拾う。
@@ -644,13 +706,17 @@ export function useTemplateEditor(
     // 前回セッションの draft が確定版と同じ内容なら、開いた時点で「変更なし」へ戻す。
     // `confirmedLoadFailed` 時は正規形を作っていない(`cleanCheck.settle` は正規形が null なら
     // 元々 return する)が、フラグでも起動自体を止めて二重に安全側へ倒す。
-    if (res.value.hasDraft && !confirmedLoadFailed) scheduleCleanCheck();
+    if (res.value.hasDraft && !confirmedLoadFailed) {
+      scheduleCleanCheck();
+    }
     // ロック中(編集不許可)にダブルクリック(編集ジェスチャ)をした場合、解除導線を案内する。
     // 既定ロック開始のため「編集を許可」トグルに気付かないと何も編集できない — その発見性を補う。
     // 騒音にならないようセッション中 1 回だけ出す。
     let lockGuideShown = false;
     g.onCanvasDblClick(() => {
-      if (allowEdit.value || lockGuideShown) return;
+      if (allowEdit.value || lockGuideShown) {
+        return;
+      }
       lockGuideShown = true;
       toast('編集はロックされています。上部バーまたは左パネルの「編集を許可」をオンにしてください');
     });
@@ -690,7 +756,9 @@ export function useTemplateEditor(
    * 判定は、変更の通知の待ちのあとに読む本文で行う(`cleanCheck.bodyReader`)。
    */
   function scheduleCleanCheck(): void {
-    if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
+    if (cleanCheckTimer) {
+      clearTimeout(cleanCheckTimer);
+    }
     cleanCheckTimer = setTimeout(() => {
       cleanCheckTimer = null;
       void cleanCheck.settle();
@@ -702,13 +770,19 @@ export function useTemplateEditor(
    */
   async function discardSettledDraft(): Promise<void> {
     autosave.cancel();
-    if (!draftMayExist) return;
+    if (!draftMayExist) {
+      return;
+    }
     await autosave.settled();
     // 待っている間に編集が入っていれば、その変更の判定に任せる(消してはいけない draft を消さない)。
-    if (dirty.value) return;
+    if (dirty.value) {
+      return;
+    }
     draftMayExist = false;
     const res = await service.discardDraft(id);
-    if (isErr(res)) logError(res.error);
+    if (isErr(res)) {
+      logError(res.error);
+    }
   }
 
   // autosave の失敗はステータス行だけでは見逃しうる(狭幅ではアイコンのみになる)ため、
@@ -735,7 +809,9 @@ export function useTemplateEditor(
 
   // タブ切替/最小化の時点で debounce を待たず保存を確定し、「未保存の窓」自体を短くする。
   function onVisibilityChange() {
-    if (document.visibilityState === 'hidden' && autosave.pending.value) void autosave.flush();
+    if (document.visibilityState === 'hidden' && autosave.pending.value) {
+      void autosave.flush();
+    }
   }
   document.addEventListener('visibilitychange', onVisibilityChange);
 
@@ -743,9 +819,13 @@ export function useTemplateEditor(
     window.removeEventListener('beforeunload', beforeUnload);
     document.removeEventListener('visibilitychange', onVisibilityChange);
     // 保留中の Undo 永続ミラーを確定する(プレビュー往復の再マウント/リロード前)。
-    if (persistTimer) clearTimeout(persistTimer);
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+    }
     persistUndo();
-    if (cleanCheckTimer) clearTimeout(cleanCheckTimer);
+    if (cleanCheckTimer) {
+      clearTimeout(cleanCheckTimer);
+    }
     changeWire.unmounted();
     g.destroy();
   });

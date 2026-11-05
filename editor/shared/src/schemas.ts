@@ -559,6 +559,26 @@ export const ReviewChangedSummary = z
   })
   .meta({ id: 'ReviewChangedSummary' });
 
+/** `ReviewRenderNotes.unrenderedSources` に載せる原文の件数と 1 件の長さの上限。 */
+export const MAX_RENDER_NOTE_SOURCES = 20;
+export const MAX_RENDER_NOTE_SOURCE_CHARS = 200;
+
+/**
+ * 作成経路の承認画面の描画(サーバが受付で描く)の注意。承認画面の注意の帯が件数を出す。
+ * `unrendered` は値を計算できず原文の文字のまま見せた差し込みの数、`escapedSafe` は HTML として
+ * 出す差し込み(`|safe`)のうち文字のまま見せたものの数。
+ */
+export const ReviewRenderNotes = z
+  .object({
+    unrendered: z.number().int().min(0),
+    escapedSafe: z.number().int().min(0),
+    unrenderedSources: z
+      .array(z.string().max(MAX_RENDER_NOTE_SOURCE_CHARS))
+      .max(MAX_RENDER_NOTE_SOURCES)
+      .meta({ description: '原文の文字のまま見せた差し込みの先頭の原文(長いものは切る)' }),
+  })
+  .meta({ id: 'ReviewRenderNotes' });
+
 /** 確定保存申請のメタ(本体 html/css を除く軽量行)。申請一覧の表示に使う。 */
 export const ReviewRequestMeta = z
   .object({
@@ -578,6 +598,9 @@ export const ReviewRequestMeta = z
       description:
         'パーツ単位の現在判定と変更履歴。旧reviewでは欠落し、読取り境界で空配列として扱う',
     }),
+    renderNotes: ReviewRenderNotes.optional().meta({
+      description: '作成経路の承認画面の描画の注意(サーバが受付で描いたときの件数)',
+    }),
   })
   .meta({ id: 'ReviewRequestMeta' });
 
@@ -585,15 +608,36 @@ export const ReviewRequestMeta = z
 export const ReviewRequest = ReviewRequestMeta.extend({
   html: z.string().meta({ description: '確定保存しようとしている生 Jinja2 HTML' }),
   css: z.string(),
-  filledHtml: z.string().optional().meta({ description: '値差込済みの成果物(任意)' }),
-  baseHtml: z.string().optional().meta({
+  renderedHtml: z
+    .string()
+    .max(MAX_DOCUMENT_HTML_CHARS)
+    .optional()
+    .meta({
+      description:
+        '作成経路の承認画面に見せる本文。サーバが受付で html から描いたもの(全部の枝を描き、' +
+        '描けない差し込みは原文の文字で出す)。申請者が送る値入り HTML は使わない',
+    }),
+  renderError: z.string().optional().meta({
     description:
-      '申請時点の比較元HTML。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+      '作成経路の古い申請で、承認画面の本文を描けないときの理由(このとき renderedHtml は無い)',
   }),
-  baseCss: z.string().optional().meta({
-    description:
-      '申請時点の比較元CSS。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
-  }),
+  baseHtml: z
+    .string()
+    .optional()
+    .meta({
+      description:
+        '申請時点の比較元HTML。編集経路は申請時点の値入り HTML、作成経路は申請時点の基準(確定テンプレート' +
+        'または生成物。承認画面の差分には使わず、承認時に「基準が変わった」を見分けるのに使う。旧作成経路は' +
+        '空)。旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+    }),
+  baseCss: z
+    .string()
+    .optional()
+    .meta({
+      description:
+        '比較元CSS(承認で上書きされる CSS)。作成経路の承認待ちは取得のたびに今のディスクの CSS を返す。' +
+        '旧reviewでは欠落し、読取り側が従来のbaseline取得へフォールバックする',
+    }),
 }).meta({ id: 'ReviewRequest' });
 
 /**
@@ -606,7 +650,10 @@ export const SubmitReviewBody = z
     templateId: TemplateId,
     html: z.string().max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '復元済みの生 Jinja2 HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS),
-    filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional(),
+    filledHtml: z.string().max(MAX_DOCUMENT_HTML_CHARS).optional().meta({
+      description:
+        '互換のため受理し、使わない(古い画面が送る値入り HTML。承認画面はサーバが html から描く)',
+    }),
     cssBaseline: z.string().max(MAX_DOCUMENT_CSS_CHARS).optional().meta({
       description:
         '確定版の CSS を `css` と同じ書き出しの形にしたもの。無ければ承認時のペアへの CSS 転写を飛ばす',
@@ -1099,6 +1146,27 @@ export const SaveDraftRequest = z
   })
   .meta({ id: 'SaveDraftRequest' });
 
+/**
+ * ページサイズの許可リスト。vivliostyle CLI は `size` をビューア用スタイルシートの
+ * `@page{size:...}` へエスケープ無しで埋め込むので、字面を用紙名か「幅,高さ」に限る。
+ * 用紙名は CLI が preset として示す 10 種だけにする(core はほかの名前も読むが、CLI の契約の外)。
+ * 寸法は 0 で始めない(0 の寸法と `0297mm` のような書き方を通さない。小数は 1 以上になる)。
+ */
+const PAGE_SIZE_RE =
+  /^(?:A[345]|B[45]|JIS-B[45]|letter|legal|ledger|[1-9]\d{0,3}(?:\.\d{1,3})?(?:mm|cm|in|pt|pc|px|Q),[1-9]\d{0,3}(?:\.\d{1,3})?(?:mm|cm|in|pt|pc|px|Q))$/i;
+
+export function isValidPageSize(size: string): boolean {
+  return PAGE_SIZE_RE.test(size);
+}
+
+const PageSize = z
+  .string()
+  .refine(
+    isValidPageSize,
+    'ページサイズは用紙名(A4 など)か「幅,高さ」(210mm,297mm など)で指定します',
+  )
+  .meta({ description: 'ページサイズ (既定 A4)。用紙名か「幅,高さ」', example: 'A4' });
+
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z
   .object({
@@ -1108,7 +1176,7 @@ export const BuildInlineRequest = z
       .max(MAX_DOCUMENT_HTML_CHARS)
       .meta({ description: 'レンダリング済み(nunjucks)HTML' }),
     css: z.string().max(MAX_DOCUMENT_CSS_CHARS).default(''),
-    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+    size: PageSize.optional(),
     singleDoc: z.boolean().optional().meta({
       description:
         '受け付けるが無視する(inline の build と preview は entry 1 本の config で、既に単一文書として組む)',
@@ -1139,7 +1207,7 @@ export const BuildMergeRequest = z
       .min(1)
       .max(30)
       .meta({ description: '結合する文書。配列順に連結し通しページ番号を振る' }),
-    size: z.string().optional().meta({ description: 'ページサイズ (既定 A4)', example: 'A4' }),
+    size: PageSize.optional(),
   })
   .meta({ id: 'BuildMergeRequest' });
 

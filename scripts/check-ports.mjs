@@ -38,7 +38,7 @@ export async function findBusyPorts(ports) {
   const busy = [];
   for (const port of ports) {
     for (const host of LOOPBACKS) {
-      if (await isListening(port, host)) busy.push({ port, host });
+      if (await isListening(port, host)) { busy.push({ port, host }); }
     }
   }
   return busy;

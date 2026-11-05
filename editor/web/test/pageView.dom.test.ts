@@ -20,7 +20,9 @@ function marked(html: string): HTMLElement {
 /** 根の直下の要素ごとの `PV_ATTR`(`id` → 値)。 */
 function marks(root: HTMLElement): Record<string, string | null> {
   const out: Record<string, string | null> = {};
-  for (const el of Array.from(root.children)) out[el.id] = el.getAttribute(PV_ATTR);
+  for (const el of Array.from(root.children)) {
+    out[el.id] = el.getAttribute(PV_ATTR);
+  }
   return out;
 }
 

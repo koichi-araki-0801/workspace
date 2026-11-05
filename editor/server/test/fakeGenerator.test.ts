@@ -54,7 +54,9 @@ function run(
   };
   for (const key of ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP']) {
     const value = process.env[key];
-    if (value !== undefined) env[key] = value;
+    if (value !== undefined) {
+      env[key] = value;
+    }
   }
   return new Promise((resolve) => {
     execFile(

@@ -17,7 +17,9 @@ import { isErr, type PartRepository } from '@editor/shared';
  */
 export function partIdFromBlockKey(key: string): string | null {
   const base = key.replace(/#\d+$/, '');
-  if (!base || base.startsWith('.')) return null;
+  if (!base || base.startsWith('.')) {
+    return null;
+  }
   // 小文字英字のみの短い語はタグ名由来の可能性が高いが、確定はできないので通し、
   // name 表との突合(businessLabel)に委ねる。div/table 等の頻出タグだけは明確に落とす。
   const COMMON_TAGS = new Set([
@@ -32,7 +34,9 @@ export function partIdFromBlockKey(key: string): string | null {
     'ol',
     'figure',
   ]);
-  if (COMMON_TAGS.has(base)) return null;
+  if (COMMON_TAGS.has(base)) {
+    return null;
+  }
   return base;
 }
 
@@ -52,7 +56,9 @@ export function businessLabel(
   nameById: ReadonlyMap<string, string>,
 ): string {
   const name = partNameOf(key, nameById);
-  if (!name) return fallbackLabel;
+  if (!name) {
+    return fallbackLabel;
+  }
   const page = /ページ(\d+)/.exec(fallbackLabel)?.[1];
   return page ? `${name}（${page} ページ目）` : name;
 }
@@ -63,6 +69,8 @@ export function businessLabel(
  */
 export async function loadPartNameMap(parts: PartRepository): Promise<ReadonlyMap<string, string>> {
   const res = await parts.listParts({});
-  if (isErr(res)) return new Map();
+  if (isErr(res)) {
+    return new Map();
+  }
   return new Map(res.value.map((p) => [p.id, p.name]));
 }

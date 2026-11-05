@@ -17,8 +17,11 @@ function sourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) found.push(...sourceFiles(full));
-    else if (/\.(ts|vue)$/.test(name)) found.push(full);
+    if (statSync(full).isDirectory()) {
+      found.push(...sourceFiles(full));
+    } else if (/\.(ts|vue)$/.test(name)) {
+      found.push(full);
+    }
   }
   return found;
 }

@@ -65,7 +65,9 @@ export function audit(ev: AuditEvent): void {
   const record = { type: 'audit', ...ev };
   auditFileLogger.info(record);
   logger.info(record, `audit ${ev.event} ${ev.outcome}`);
-  if (config.auditToDb) void mirrorToDb(ev);
+  if (config.auditToDb) {
+    void mirrorToDb(ev);
+  }
 }
 
 /**
@@ -77,7 +79,9 @@ export function audit(ev: AuditEvent): void {
 let dbMirror: ((ev: AuditEvent) => Promise<void>) | undefined;
 async function mirrorToDb(ev: AuditEvent): Promise<void> {
   try {
-    if (!dbMirror) dbMirror = (await import('./db/audit.js')).auditToDb;
+    if (!dbMirror) {
+      dbMirror = (await import('./db/audit.js')).auditToDb;
+    }
     await dbMirror(ev);
   } catch (e) {
     logger.warn({ err: e }, '[audit] DB ミラー失敗（ファイルログは記録済み）');

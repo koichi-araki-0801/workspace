@@ -99,7 +99,9 @@ export function createCompareService(
   // 現れる。listVersions/listCandidates 共用。
   async function versionsWithBaseline(templateId: string): Promise<Result<TemplateVersionMeta[]>> {
     const res = await history.listVersions(templateId);
-    if (isErr(res)) return res;
+    if (isErr(res)) {
+      return res;
+    }
     return ok([baselineVersion(templateId), ...res.value]);
   }
 
@@ -110,7 +112,9 @@ export function createCompareService(
 
     async listCandidates(query) {
       const metasRes = await templates.listTemplates(query);
-      if (isErr(metasRes)) return metasRes;
+      if (isErr(metasRes)) {
+        return metasRes;
+      }
       const candidates: CompareCandidate[] = [];
       // 比較は確定済み同士で行う。`listTemplates` は編集タブが生成直後のテンプレへ到達
       // できるよう pending(`status:'draft'`)も返すため、ここで承認済みだけへ絞る。
@@ -119,7 +123,9 @@ export function createCompareService(
         // 確定版が無くても原本「現行版」が 1 件あるので、未編集の配信テンプレート
         // (例: ダミー高利回り債券)も比較対象に出せる(版リスト側は status で絞らない)。
         const versRes = await versionsWithBaseline(meta.id);
-        if (isErr(versRes)) return versRes;
+        if (isErr(versRes)) {
+          return versRes;
+        }
         candidates.push({
           meta,
           versions: versRes.value,
@@ -151,20 +157,30 @@ export function createCompareService(
       // 原本 <-> 確定版の比較で見せかけの差分が出ないようにする。
       if (isBaselineId(historyId)) {
         const tplRes = await templates.getTemplate(baselineTemplateId(historyId));
-        if (isErr(tplRes)) return tplRes;
+        if (isErr(tplRes)) {
+          return tplRes;
+        }
         const tpl = tplRes.value;
         // 値入り HTML は完成した文書そのもの。描画を通さずそのまま比較に使う(理由は
         // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
-        if (tpl.filled) return ok({ html: tpl.filled, css: tpl.css });
+        if (tpl.filled) {
+          return ok({ html: tpl.filled, css: tpl.css });
+        }
         const sampleRes = await templates.getSampleData(tpl.meta.id);
-        if (isErr(sampleRes)) return sampleRes;
+        if (isErr(sampleRes)) {
+          return sampleRes;
+        }
         const rendered = await renderJinjaIsolated(tpl.html, sampleRes.value.sample);
-        if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
+        if (rendered.error) {
+          return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
+        }
         return ok({ html: rendered.html, css: tpl.css });
       }
 
       const snapRes = await history.getSnapshot(historyId, templateId);
-      if (isErr(snapRes)) return snapRes;
+      if (isErr(snapRes)) {
+        return snapRes;
+      }
       const snap = snapRes.value;
       // 版履歴は値入り HTML(`filled/`)のコミットなので、スナップショットも完成した文書。
       // block diff がこの HTML を直接パースするため、PDF 化やサーバ往復も要らない。
@@ -174,12 +190,18 @@ export function createCompareService(
     async renderTemplateBody(html, css, templateId, origin) {
       // 編集タブ由来の申請本文は値入り HTML で、描画を通さない(通すと地の文の `{{` 風の
       // 字面まで式として解釈され本文が静かに欠ける)。
-      if (origin === 'edit') return ok({ html, css });
+      if (origin === 'edit') {
+        return ok({ html, css });
+      }
       const sampleRes = await templates.getSampleData(templateId);
-      if (isErr(sampleRes)) return sampleRes;
+      if (isErr(sampleRes)) {
+        return sampleRes;
+      }
       // baseline 経路と同じく素の sample で描画する(版種を被せない)。現行版と土俵を揃える。
       const rendered = await renderJinjaIsolated(html, sampleRes.value.sample);
-      if (rendered.error) return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
+      if (rendered.error) {
+        return err(conflict(COMPARE_RENDER_ERROR, { cause: rendered.error }));
+      }
       return ok({ html: rendered.html, css });
     },
   };
@@ -206,12 +228,16 @@ export async function renderReviewPair(
     input.templateId,
     input.origin,
   );
-  if (isErr(afterRes)) return afterRes;
+  if (isErr(afterRes)) {
+    return afterRes;
+  }
   const after = afterRes.value;
   let before: RenderedVersion = { html: '', css: after.css };
   if (input.origin === 'edit') {
     const beforeRes = await render.renderVersionHtml(baselineHistoryId(input.templateId));
-    if (!isErr(beforeRes)) before = beforeRes.value;
+    if (!isErr(beforeRes)) {
+      before = beforeRes.value;
+    }
   }
   return ok({ before, after });
 }

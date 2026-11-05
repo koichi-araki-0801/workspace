@@ -132,21 +132,29 @@ function loginIdDigest(loginId: string): string {
  */
 function prune(now: number, force: boolean): void {
   for (const [serial, startedAt] of inFlight) {
-    if (now - startedAt <= IN_FLIGHT_TTL_MS) break;
+    if (now - startedAt <= IN_FLIGHT_TTL_MS) {
+      break;
+    }
     inFlight.delete(serial);
   }
   if (force) {
-    if (now - lastForcedPruneAt < FORCED_PRUNE_INTERVAL_MS) return;
+    if (now - lastForcedPruneAt < FORCED_PRUNE_INTERVAL_MS) {
+      return;
+    }
     lastForcedPruneAt = now;
   } else if (now - lastPrunedAt < PRUNE_INTERVAL_MS) {
     return;
   }
   lastPrunedAt = now;
   for (const [key, state] of counting) {
-    if (now - state.firstAt > WINDOW_MS) counting.delete(key);
+    if (now - state.firstAt > WINDOW_MS) {
+      counting.delete(key);
+    }
   }
   for (const [key, until] of blocked) {
-    if (until <= now) blocked.delete(key);
+    if (until <= now) {
+      blocked.delete(key);
+    }
   }
 }
 
@@ -158,7 +166,9 @@ function tableIsFull(): boolean {
 /** 拒否中なら残り待ち時間(ms)、そうでなければ null。 */
 function blockedFor(key: string, now: number): number | null {
   const until = blocked.get(key);
-  if (until === undefined) return null;
+  if (until === undefined) {
+    return null;
+  }
   if (until <= now) {
     blocked.delete(key);
     return null;
@@ -184,7 +194,9 @@ function charge(
     return null;
   }
   state.attempts += 1;
-  if (state.attempts <= max) return null;
+  if (state.attempts <= max) {
+    return null;
+  }
   counting.delete(key);
   blocked.set(key, now + blockMs);
   return blockMs;
@@ -237,14 +249,22 @@ export function beginCredentialAttempt(
   }
 
   const ipBlocked = blockedFor(ipKey, now);
-  if (ipBlocked !== null) return { ok: false, error: rateLimited(ipBlocked) };
+  if (ipBlocked !== null) {
+    return { ok: false, error: rateLimited(ipBlocked) };
+  }
   const idBlocked = blockedFor(idKey, now);
-  if (idBlocked !== null) return { ok: false, error: rateLimited(idBlocked) };
+  if (idBlocked !== null) {
+    return { ok: false, error: rateLimited(idBlocked) };
+  }
 
   const ipOver = charge(ipKey, now, IP_MAX_ATTEMPTS, IP_WINDOW_MS, IP_BLOCK_MS);
-  if (ipOver !== null) return { ok: false, error: rateLimited(ipOver) };
+  if (ipOver !== null) {
+    return { ok: false, error: rateLimited(ipOver) };
+  }
   const idOver = charge(idKey, now, LOGIN_MAX_FAILURES, WINDOW_MS, BLOCK_MS);
-  if (idOver !== null) return { ok: false, error: rateLimited(idOver) };
+  if (idOver !== null) {
+    return { ok: false, error: rateLimited(idOver) };
+  }
 
   const serial = nextSerial;
   nextSerial += 1;
@@ -265,7 +285,9 @@ export function settleCredentialAttempt(
   outcome: 'success' | 'failure',
 ): void {
   inFlight.delete(ticket.serial);
-  if (outcome === 'success') counting.delete(ticket.idKey);
+  if (outcome === 'success') {
+    counting.delete(ticket.idKey);
+  }
 }
 
 /** 現在保持しているエントリ数。件数上限が本当に効いているかを外から観測するための口。 */

@@ -70,12 +70,16 @@ export function validateNewUser(
 ): NewUserErrors {
   const errors: NewUserErrors = {};
   const username = form.username.trim();
-  if (!username) errors.username = 'ユーザーIDを入力してください';
-  else if (!isValidUsername(username))
+  if (!username) {
+    errors.username = 'ユーザーIDを入力してください';
+  } else if (!isValidUsername(username)) {
     errors.username = '半角英数字とアンダースコアのみ使用できます';
-  else if (existingUsernames.some((u) => u.toLowerCase() === username.toLowerCase()))
+  } else if (existingUsernames.some((u) => u.toLowerCase() === username.toLowerCase())) {
     errors.username = 'このユーザーIDは既に使われています';
-  if (!form.displayName.trim()) errors.displayName = '表示名を入力してください';
+  }
+  if (!form.displayName.trim()) {
+    errors.displayName = '表示名を入力してください';
+  }
   return errors;
 }
 

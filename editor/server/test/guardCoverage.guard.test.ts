@@ -24,11 +24,15 @@ function sourceFiles(dir: string, exts: readonly string[]): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'dist') continue;
+      if (entry.name === 'node_modules' || entry.name === 'dist') {
+        continue;
+      }
       out.push(...sourceFiles(full, exts));
       continue;
     }
-    if (exts.includes(path.extname(entry.name))) out.push(full);
+    if (exts.includes(path.extname(entry.name))) {
+      out.push(full);
+    }
   }
   return out;
 }

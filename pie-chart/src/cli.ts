@@ -5,7 +5,6 @@
 //   list                              組み込みサンプル名一覧を表示
 //   one --output-file path [...]      1 件だけ SVG を生成
 //                                     入力は --sample / --data-file / --data-json /
-//                                     --xlsx + --sheet + --range /
 //                                     --fund + --base-date + --chart-type(ストアド)のいずれか
 //   batch --output-dir dir [...]      まとめて SVG を生成
 //   db-check [--db-name db]           DB ドライバを読み込めるか(と接続できるか)を確かめる
@@ -57,7 +56,9 @@ function parseArgs(argv: string[]): ParsedArgs {
   const options: Record<string, string | boolean> = {};
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
-    if (!token.startsWith('--')) continue;
+    if (!token.startsWith('--')) {
+      continue;
+    }
     const key = token.slice(2);
     const next = rest[index + 1];
     if (!next || next.startsWith('--')) {
@@ -85,9 +86,6 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
     'sample',
     'data-file',
     'data-json',
-    'xlsx',
-    'sheet',
-    'range',
     'fund',
     'base-date',
     'chart-type',
@@ -105,9 +103,13 @@ const KNOWN_FLAGS: Record<string, readonly string[]> = {
 /** 認識できないフラグを stderr へ警告する(コマンド未知の場合は表が無いので何もしない)。 */
 function warnUnknownFlags(command: string, options: Record<string, string | boolean>): void {
   const known = KNOWN_FLAGS[command];
-  if (known === undefined) return;
+  if (known === undefined) {
+    return;
+  }
   const unknown = Object.keys(options).filter((key) => !known.includes(key));
-  if (unknown.length === 0) return;
+  if (unknown.length === 0) {
+    return;
+  }
   console.warn(
     `[pie-chart] ${command} が知らないフラグを無視しました: ${unknown.map((k) => `--${k}`).join(', ')}` +
       `${known.length > 0 ? ` (使えるのは ${known.map((k) => `--${k}`).join(' / ')})` : ''}`,
@@ -125,7 +127,9 @@ function buildRenderOverrides(options: Record<string, string | boolean>): Partia
   // 隣の `--stroke-ratio` が形式を検査しているのに、ここだけ `typeof` で素通ししていた。
   // 入口と出口(`assertConfigValues`)の両方で検証する — 入口だけだと別の入口が生えたときに
   // 漏れ、出口だけだとエラーが「SVG を書く瞬間」に出て原因が遠い。
-  if (typeof fw === 'string') overrides.fontWeight = assertFontWeight('--font-weight', fw);
+  if (typeof fw === 'string') {
+    overrides.fontWeight = assertFontWeight('--font-weight', fw);
+  }
   const sr = options['stroke-ratio'];
   if (typeof sr === 'string') {
     const ratio = Number(sr);
@@ -139,7 +143,7 @@ function buildRenderOverrides(options: Record<string, string | boolean>): Partia
 
 function readJsonFile(filePath: string): unknown {
   const raw = fs.readFileSync(filePath, 'utf-8');
-  // xlsx / dataJson と同じ funnel 思想: JSON.parse の前に byte 長を見る
+  // dataJson と同じ funnel 思想: JSON.parse の前に byte 長を見る
   // (`--data-file` はファイルなので `.length`(文字数)でなく実際の byte 数を見る)。
   const byteLength = Buffer.byteLength(raw, 'utf-8');
   if (byteLength > MAX_JSON_BYTES) {
@@ -173,14 +177,13 @@ function optionString(options: Record<string, string | boolean>, key: string): s
 }
 
 /**
- * --sample / --data-file / --data-json / --xlsx / ストアド(--fund ほか)のうち **1 つだけ** が
+ * --sample / --data-file / --data-json / ストアド(--fund ほか)のうち **1 つだけ** が
  * 指定されていることを検査し、対応する入力 variant を組み立てる。0 個や複数指定は明示的に拒否する。
  */
 function buildResolveOpts(options: Record<string, string | boolean>): OneInput {
   const sample = typeof options.sample === 'string' ? options.sample : undefined;
   const dataFile = typeof options['data-file'] === 'string' ? options['data-file'] : undefined;
   const dataJson = typeof options['data-json'] === 'string' ? options['data-json'] : undefined;
-  const xlsx = typeof options.xlsx === 'string' ? options.xlsx : undefined;
   const sprocRaw: RawSprocArgs = {
     fund: optionString(options, 'fund'),
     baseDate: optionString(options, 'base-date'),
@@ -190,44 +193,35 @@ function buildResolveOpts(options: Record<string, string | boolean>): OneInput {
     sample !== undefined ? '--sample' : null,
     dataFile !== undefined ? '--data-file' : null,
     dataJson !== undefined ? '--data-json' : null,
-    xlsx !== undefined ? '--xlsx' : null,
     hasSprocArgs(sprocRaw) ? '--fund / --base-date / --chart-type' : null,
   ].filter((flag): flag is string => flag !== null);
   if (provided.length === 0) {
     throw new Error(
-      'Provide one input source: --sample / --data-file / --data-json / --xlsx / --fund + --base-date + --chart-type.',
+      'Provide one input source: --sample / --data-file / --data-json / --fund + --base-date + --chart-type.',
     );
   }
   if (provided.length > 1) {
     throw new Error(`Conflicting input sources (specify only one): ${provided.join(', ')}.`);
   }
-  if (sample !== undefined) return { kind: 'sample', sample };
+  if (sample !== undefined) {
+    return { kind: 'sample', sample };
+  }
   if (dataFile !== undefined) {
     return {
       kind: 'data',
       data: extractDataItems(readJsonFile(dataFile), `--data-file "${dataFile}"`),
     };
   }
-  if (dataJson !== undefined) return { kind: 'dataJson', dataJson };
-  if (hasSprocArgs(sprocRaw)) {
-    return {
-      kind: 'sproc',
-      raw: sprocRaw,
-      server: optionString(options, 'db-server'),
-      database: optionString(options, 'db-name'),
-    };
+  if (dataJson !== undefined) {
+    return { kind: 'dataJson', dataJson };
   }
-  // ここに来る時点で xlsx !== undefined が provided.length===1 から確定するが、
-  // TS の narrowing では追えないので明示的に再確認する。
-  if (xlsx === undefined) {
-    throw new Error('internal: input source not resolved');
-  }
-  const sheet = typeof options.sheet === 'string' ? options.sheet : undefined;
-  const range = typeof options.range === 'string' ? options.range : undefined;
-  if (!sheet || !range) {
-    throw new Error('--xlsx requires --sheet and --range.');
-  }
-  return { kind: 'xlsx', xlsx, sheet, range };
+  // ここに来る時点で、provided.length === 1 からストアドの指定が確定している。
+  return {
+    kind: 'sproc',
+    raw: sprocRaw,
+    server: optionString(options, 'db-server'),
+    database: optionString(options, 'db-name'),
+  };
 }
 
 async function renderOne(options: Record<string, string | boolean>): Promise<void> {
@@ -340,8 +334,12 @@ async function dbCheck(options: Record<string, string | boolean>): Promise<void>
     connect: database !== undefined,
     conn: { server, database },
   });
-  for (const line of lines) console.log(formatDbCheckLine(line));
-  if (!ok) process.exitCode = 1;
+  for (const line of lines) {
+    console.log(formatDbCheckLine(line));
+  }
+  if (!ok) {
+    process.exitCode = 1;
+  }
 }
 
 async function main(): Promise<void> {
@@ -373,7 +371,6 @@ async function main(): Promise<void> {
         '  pnpm run cli list',
         '  pnpm run cli one --sample asset_gbca_pdf_like --output-file out/test.svg',
         '  pnpm run cli one --data-file data/example.json --output-file out/test.svg',
-        '  pnpm run cli one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg',
         '  pnpm run cli batch --output-dir out/svg',
         '  pnpm run cli batch --input-dir data --output-dir out/svg',
         '  pnpm run cli license',

@@ -158,7 +158,9 @@ describe('buildReviewPaper', () => {
       expect(html).toContain('<div id="a" style="color:red">');
       const ghosts = html.match(/<div data-review-ghost[^>]*>/g) ?? [];
       expect(ghosts.length).toBeGreaterThan(0);
-      for (const g of ghosts) expect(g).not.toContain('style');
+      for (const g of ghosts) {
+        expect(g).not.toContain('style');
+      }
     }
   });
 
@@ -316,7 +318,9 @@ describe('buildReviewPaper', () => {
         '<p id="r">地<span class="cmp&#45;ins">偽の追加</span>' +
         '<span class="x cmp&#x2d;del">偽の削除</span><span class="&#99;mp-ins">偽</span></p>';
       const base = diff.pages[0].blocks.find((x) => x.status === 'same');
-      if (base === undefined) throw new Error('same block not found');
+      if (base === undefined) {
+        throw new Error('same block not found');
+      }
       const spelled: Diff = {
         ...diff,
         pages: [
@@ -368,7 +372,9 @@ describe('buildReviewPaper', () => {
 
     it('着色の断片と原文の形が食い違うときは、着色を捨てて原文から外したものを出す', () => {
       const base = d.pages[0].blocks.find((x) => x.status === 'changed');
-      if (base === undefined) throw new Error('changed block not found');
+      if (base === undefined) {
+        throw new Error('changed block not found');
+      }
       const broken: Diff = {
         ...d,
         pages: [

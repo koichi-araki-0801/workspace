@@ -37,9 +37,9 @@ import {
   type Row,
   type SprocClient,
 } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
+import { OP, SP } from '../db/sprocNames.js';
 import { audit } from '../logger.js';
-import { rowToUser } from './userRepo.js';
+import { rowToUser } from './userRow.js';
 
 export interface AuthRepo {
   login(loginId: string, password: string): Promise<{ result: LoginResult; sessionId: string }>;
@@ -60,7 +60,9 @@ async function verifyCredential(
   loginId: string,
   password: string,
 ): Promise<{ row: Row | null; ok: boolean; disabled: boolean }> {
-  const row = firstRow(await sproc.callSproc(SP.user, '認証情報取得', [p('ログインID', loginId)]));
+  const row = firstRow(
+    await sproc.callSproc(SP.user, OP.user.getCredentials, [p('ログインID', loginId)]),
+  );
   const disabled = row ? asBool(row.無効) : false;
   const ok = row
     ? await verifyPassword(
@@ -91,13 +93,14 @@ export function createAuthRepo({
       const { row, ok, disabled } = await verifyCredential(sproc, loginId, password);
       if (!row || !ok || disabled) {
         // 無効アカウントへの試行は応答からは判別できないが、運用が追えるよう証跡は残す。
-        if (row && ok && disabled)
+        if (row && ok && disabled) {
           audit({
             event: 'auth.login',
             outcome: 'failure',
             actor: loginId,
             error: 'account_disabled',
           });
+        }
         throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
       }
 
@@ -107,7 +110,9 @@ export function createAuthRepo({
     },
 
     async logout(sessionId) {
-      if (sessionId) await sessionStore.destroySession(sessionId);
+      if (sessionId) {
+        await sessionStore.destroySession(sessionId);
+      }
     },
 
     /**
@@ -124,12 +129,15 @@ export function createAuthRepo({
         ok: owns,
         disabled,
       } = await verifyCredential(sproc, loginId, req.currentPassword);
-      if (!row || !owns || disabled) throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
+      if (!row || !owns || disabled) {
+        throw unauthorized(INVALID_CREDENTIALS_MESSAGE);
+      }
       // 閾値は UI と同じ `PASSWORD_MIN_LENGTH`。空白のみ(実質空)も弾くため trim 後で測る。
-      if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH)
+      if (req.newPassword.trim().length < PASSWORD_MIN_LENGTH) {
         throw validation('新しいパスワードが短すぎます');
+      }
       const { hash, salt, iterations } = await hashPassword(req.newPassword);
-      await sproc.callSproc(SP.user, 'PW初期化', [
+      await sproc.callSproc(SP.user, OP.user.initPassword, [
         p('ログインID', loginId),
         p('PWハッシュ', hash),
         p('PWソルト', salt),

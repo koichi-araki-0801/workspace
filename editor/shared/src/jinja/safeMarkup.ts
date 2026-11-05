@@ -114,11 +114,15 @@ const SAFE_STYLE_RE = /^[\p{L}\p{N}\t\n\f\r #%.,:;!'-]*$/u;
 const DENIED_STYLE_PROPS: ReadonlySet<string> = new Set(['position']);
 
 function styleAllowed(style: string): boolean {
-  if (!SAFE_STYLE_RE.test(style)) return false;
+  if (!SAFE_STYLE_RE.test(style)) {
+    return false;
+  }
   for (const decl of style.split(';')) {
     const colon = decl.indexOf(':');
     const prop = (colon < 0 ? decl : decl.slice(0, colon)).trim().toLowerCase();
-    if (DENIED_STYLE_PROPS.has(prop)) return false;
+    if (DENIED_STYLE_PROPS.has(prop)) {
+      return false;
+    }
   }
   return true;
 }
@@ -129,8 +133,12 @@ const unquote = (v: string) => (/^["']/.test(v) ? v.slice(1, -1) : v);
 function attrsAllowed(attrs: string): boolean {
   for (const m of attrs.matchAll(ATTR_RE)) {
     const name = m[1].toLowerCase();
-    if (!SAFE_MARKUP_ATTRS.has(name)) return false;
-    if (name === 'style' && !styleAllowed(unquote(m[2] ?? ''))) return false;
+    if (!SAFE_MARKUP_ATTRS.has(name)) {
+      return false;
+    }
+    if (name === 'style' && !styleAllowed(unquote(m[2] ?? ''))) {
+      return false;
+    }
   }
   return true;
 }
@@ -150,23 +158,35 @@ export function isAllowedSafeMarkup(html: string): boolean {
   let i = 0;
   while (i < html.length) {
     const lt = html.indexOf('<', i);
-    if (QUOTE_RE.test(html.slice(i, lt < 0 ? html.length : lt))) return false;
-    if (lt < 0) break;
+    if (QUOTE_RE.test(html.slice(i, lt < 0 ? html.length : lt))) {
+      return false;
+    }
+    if (lt < 0) {
+      break;
+    }
     END_TAG_RE.lastIndex = lt;
     const end = END_TAG_RE.exec(html);
     if (end) {
       const name = end[1].toLowerCase();
-      if (VOID_TAGS.has(name) || stack.pop() !== name) return false;
+      if (VOID_TAGS.has(name) || stack.pop() !== name) {
+        return false;
+      }
       i = END_TAG_RE.lastIndex;
       continue;
     }
     START_TAG_RE.lastIndex = lt;
     const start = START_TAG_RE.exec(html);
-    if (!start) return false;
+    if (!start) {
+      return false;
+    }
     const name = start[1].toLowerCase();
-    if (!SAFE_MARKUP_TAGS.has(name) || !attrsAllowed(start[2])) return false;
+    if (!SAFE_MARKUP_TAGS.has(name) || !attrsAllowed(start[2])) {
+      return false;
+    }
     // `<b/>` も HTML では開くので、空要素でなければ閉じを求める。
-    if (!VOID_TAGS.has(name)) stack.push(name);
+    if (!VOID_TAGS.has(name)) {
+      stack.push(name);
+    }
     i = START_TAG_RE.lastIndex;
   }
   return stack.length === 0 && findEditingMarkers(html).length === 0;
@@ -244,16 +264,20 @@ export function textPositions(html: string, at: readonly number[]): ReadonlySet<
   };
   while (i < n) {
     if (html[i] !== '<') {
-      if (want.has(i) && inText()) out.add(i);
+      if (want.has(i) && inText()) {
+        out.add(i);
+      }
       i++;
       continue;
     }
     const c1 = html[i + 1];
     if (html.startsWith('<!--', i)) {
       // `<!-->` と `<!--->` はそこで閉じる(ブラウザの abrupt-closing-of-empty-comment)。
-      if (html[i + 4] === '>') i += 5;
-      else if (html.startsWith('->', i + 4)) i += 6;
-      else {
+      if (html[i + 4] === '>') {
+        i += 5;
+      } else if (html.startsWith('->', i + 4)) {
+        i += 6;
+      } else {
         let k = i + 4;
         for (;;) {
           const a = html.indexOf('--', k);
@@ -288,7 +312,9 @@ export function textPositions(html: string, at: readonly number[]): ReadonlySet<
       continue;
     }
     if (!isAlpha(c1) && c1 !== '/') {
-      if (want.has(i) && inText()) out.add(i);
+      if (want.has(i) && inText()) {
+        out.add(i);
+      }
       i++; // 名前で始まらない `<` は文字
       continue;
     }
@@ -296,7 +322,9 @@ export function textPositions(html: string, at: readonly number[]): ReadonlySet<
     const endTag = c1 === '/';
     let k = i + (endTag ? 2 : 1);
     const nameStart = k;
-    while (k < n && !isWs(html[k]) && html[k] !== '/' && html[k] !== '>') k++;
+    while (k < n && !isWs(html[k]) && html[k] !== '/' && html[k] !== '>') {
+      k++;
+    }
     const name = lower(html.slice(nameStart, k));
     let selfClosing = false;
     // 属性(ブラウザの before/after attribute name・attribute value の状態に揃える)。
@@ -313,35 +341,55 @@ export function textPositions(html: string, at: readonly number[]): ReadonlySet<
       }
       // 属性名。先頭の `=` は名前の一部になる。
       k++;
-      while (k < n && !isWs(html[k]) && html[k] !== '/' && html[k] !== '>' && html[k] !== '=') k++;
-      while (k < n && isWs(html[k])) k++;
-      if (html[k] !== '=') continue;
+      while (k < n && !isWs(html[k]) && html[k] !== '/' && html[k] !== '>' && html[k] !== '=') {
+        k++;
+      }
+      while (k < n && isWs(html[k])) {
+        k++;
+      }
+      if (html[k] !== '=') {
+        continue;
+      }
       k++;
-      while (k < n && isWs(html[k])) k++;
+      while (k < n && isWs(html[k])) {
+        k++;
+      }
       const q = html[k];
       if (q === '"' || q === "'") {
         const close = html.indexOf(q, k + 1);
         k = close < 0 ? n : close + 1;
       } else {
-        while (k < n && !isWs(html[k]) && html[k] !== '>') k++;
+        while (k < n && !isWs(html[k]) && html[k] !== '>') {
+          k++;
+        }
       }
     }
     i = Math.min(n, k + 1);
     if (endTag) {
-      if ((name === 'svg' || name === 'math') && foreign > 0) foreign--;
+      if ((name === 'svg' || name === 'math') && foreign > 0) {
+        foreign--;
+      }
       const at = stack.lastIndexOf(name);
-      if (at >= 0) stack.length = at;
+      if (at >= 0) {
+        stack.length = at;
+      }
       continue;
     }
     if (foreign > 0) {
-      if ((name === 'svg' || name === 'math') && !selfClosing) foreign++;
+      if ((name === 'svg' || name === 'math') && !selfClosing) {
+        foreign++;
+      }
       continue;
     }
     if (name === 'svg' || name === 'math') {
-      if (!selfClosing) foreign++;
+      if (!selfClosing) {
+        foreign++;
+      }
       continue;
     }
-    if (name === 'plaintext') break; // 以後はすべて文字データ
+    if (name === 'plaintext') {
+      break; // 以後はすべて文字データ
+    }
     if (RAW_TEXT_TAGS.has(name)) {
       // 閉じタグ `</name` の後ろが空白・`/`・`>` のものまで飛ばす(大文字小文字を区別しない)。
       low ??= lower(html);
@@ -362,7 +410,9 @@ export function textPositions(html: string, at: readonly number[]): ReadonlySet<
       i = k2;
       continue;
     }
-    if (!HTML_VOID.has(name)) stack.push(name);
+    if (!HTML_VOID.has(name)) {
+      stack.push(name);
+    }
   }
   return out;
 }

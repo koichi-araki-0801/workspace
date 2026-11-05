@@ -99,40 +99,64 @@ function blockTags(b: Block): JinjaToken[] {
 /** HTML として閉じていなければならない本文の範囲。raw は中身が文字どおり出るので同じ扱い。 */
 function bodies(b: Block): { start: number; end: number }[] {
   const of = (br: JinjaBranch) => ({ start: br.bodyStart, end: br.bodyEnd });
-  if (b.type === 'if') return b.branches.map(of);
-  if (b.type === 'for') return [of(b.body), ...(b.elseBranch ? [of(b.elseBranch)] : [])];
-  if (b.type === 'raw') return [{ start: b.open.end, end: b.close.start }];
+  if (b.type === 'if') {
+    return b.branches.map(of);
+  }
+  if (b.type === 'for') {
+    return [of(b.body), ...(b.elseBranch ? [of(b.elseBranch)] : [])];
+  }
+  if (b.type === 'raw') {
+    return [{ start: b.open.end, end: b.close.start }];
+  }
   return [];
 }
 
 function collect(nodes: readonly JinjaNode[], blocks: Block[], singles: JinjaToken[]): void {
   for (const n of nodes) {
-    if (n.type === 'text') continue;
+    if (n.type === 'text') {
+      continue;
+    }
     if (n.type === 'token') {
       singles.push(n.token);
       continue;
     }
     blocks.push(n);
-    if (n.type === 'if') for (const br of n.branches) collect(br.children, blocks, singles);
+    if (n.type === 'if') {
+      for (const br of n.branches) {
+        collect(br.children, blocks, singles);
+      }
+    }
     if (n.type === 'for') {
       collect(n.body.children, blocks, singles);
-      if (n.elseBranch) collect(n.elseBranch.children, blocks, singles);
+      if (n.elseBranch) {
+        collect(n.elseBranch.children, blocks, singles);
+      }
     }
   }
 }
 
 function* ancestors(el: ScannedElement | null): Generator<ScannedElement> {
-  for (let e = el; e; e = e.parent) yield e;
+  for (let e = el; e; e = e.parent) {
+    yield e;
+  }
 }
 
 function outermost(el: ScannedElement | null, test: (e: ScannedElement) => boolean) {
   let hit: ScannedElement | null = null;
-  for (const e of ancestors(el)) if (test(e)) hit = e;
+  for (const e of ancestors(el)) {
+    if (test(e)) {
+      hit = e;
+    }
+  }
   return hit;
 }
 
 function nearest(el: ScannedElement | null, test: (e: ScannedElement) => boolean) {
-  for (const e of ancestors(el)) if (test(e)) return e;
+  for (const e of ancestors(el)) {
+    if (test(e)) {
+      return e;
+    }
+  }
   return null;
 }
 
@@ -207,71 +231,108 @@ export function analyzeFill(raw: string): FillAnalysis {
 
   // 生テキスト要素の中。script は opaque として要素ごと運ぶので固めない。
   for (const i of info.values()) {
-    if (i.ctx.kind === 'rawText' && CHIP_TAGS.has(i.ctx.element.tag)) add(i.el, 'rawtext');
+    if (i.ctx.kind === 'rawText' && CHIP_TAGS.has(i.ctx.element.tag)) {
+      add(i.el, 'rawtext');
+    }
   }
 
   // SVG の中の、属性値以外のトークン(ブロックの文を含む)。
   for (const i of info.values()) {
-    if (sealed(i) || i.ctx.kind === 'attrValue') continue;
+    if (sealed(i) || i.ctx.kind === 'attrValue') {
+      continue;
+    }
     const svg = outermost(i.el, (e) => e.tag === 'svg');
-    if (svg) add(svg, 'svg');
+    if (svg) {
+      add(svg, 'svg');
+    }
   }
 
   // 表・select の子として置かれる出力とテキスト。範囲を持たない文と Jinja コメントは `t` の印で済む。
   const gapTarget = (parent: ScannedElement | null): Candidate | null => {
-    if (!parent || outermost(parent, isOpaqueElement)) return null;
-    if (TABLE_CONTEXT.has(parent.tag))
+    if (!parent || outermost(parent, isOpaqueElement)) {
+      return null;
+    }
+    if (TABLE_CONTEXT.has(parent.tag)) {
       return { el: nearest(parent, (e) => e.tag === 'table'), reason: 'table-gap' };
-    if (SELECT_CONTEXT.has(parent.tag))
+    }
+    if (SELECT_CONTEXT.has(parent.tag)) {
       return {
         el: nearest(parent, (e) => e.tag === 'select' || e.tag === 'datalist'),
         reason: 'select-gap',
       };
+    }
     return null;
   };
   for (const t of singles) {
     const i = at(t);
-    if (sealed(i) || i.ctx.kind !== 'text') continue;
+    if (sealed(i) || i.ctx.kind !== 'text') {
+      continue;
+    }
     const g = gapTarget(i.ctx.parent);
-    if (!g) continue;
-    if (t.kind === 'output') add(g.el, g.reason);
-    else commentOnly.add(t.start);
+    if (!g) {
+      continue;
+    }
+    if (t.kind === 'output') {
+      add(g.el, g.reason);
+    } else {
+      commentOnly.add(t.start);
+    }
   }
   let pos = 0;
   for (const t of [...parse.tokens, { start: raw.length, end: raw.length }]) {
     for (; pos < t.start; pos++) {
-      if (isHtmlSpace(raw[pos])) continue;
+      if (isHtmlSpace(raw[pos])) {
+        continue;
+      }
       const ctx = scan.contextAt(pos);
       const g = ctx.kind === 'text' ? gapTarget(ctx.parent) : null;
-      if (g) add(g.el, g.reason);
+      if (g) {
+        add(g.el, g.reason);
+      }
     }
     pos = t.end;
   }
 
   // 開始・終了タグの中の、引用符で囲んだ属性値以外の位置。
   for (const i of info.values()) {
-    if (sealed(i)) continue;
-    if (i.ctx.kind === 'tagOther' || i.fake) add(i.el, 'tag-position');
-    else if (i.ctx.kind === 'attrValue') attrTokens.add(i.tok.start);
+    if (sealed(i)) {
+      continue;
+    }
+    if (i.ctx.kind === 'tagOther' || i.fake) {
+      add(i.el, 'tag-position');
+    } else if (i.ctx.kind === 'attrValue') {
+      attrTokens.add(i.tok.start);
+    }
   }
 
   // 属性値の中のブロック。全部が同じ 1 個の値に収まれば原文のまま残す。
   const inAttr = new Set<Block>();
   for (const b of blocks) {
     const tags = blockTags(b).map(at);
-    if (tags.every(sealed)) continue;
+    if (tags.every(sealed)) {
+      continue;
+    }
     const ctxs = tags.filter((i) => i.ctx.kind === 'attrValue').map((i) => i.ctx);
-    if (ctxs.length === 0) continue;
+    if (ctxs.length === 0) {
+      continue;
+    }
     inAttr.add(b);
     if (ctxs.length === tags.length && new Set(ctxs).size === 1) {
-      for (const t of parse.tokens)
-        if (t.start >= b.start && t.end <= b.end) attrTokens.add(t.start);
-    } else add(scan.innermostContaining(b.start, b.end, true), 'attr-crossing');
+      for (const t of parse.tokens) {
+        if (t.start >= b.start && t.end <= b.end) {
+          attrTokens.add(t.start);
+        }
+      }
+    } else {
+      add(scan.innermostContaining(b.start, b.end, true), 'attr-crossing');
+    }
   }
 
   // 枝の本文が HTML として閉じていない。
   for (const b of blocks) {
-    if (inAttr.has(b) || crosses(b) || blockTags(b).every((t) => sealed(at(t)))) continue;
+    if (inAttr.has(b) || crosses(b) || blockTags(b).every((t) => sealed(at(t)))) {
+      continue;
+    }
     const broken = bodies(b).some(({ start, end }) =>
       scan.elements.some(
         (e) =>
@@ -282,22 +343,31 @@ export function analyzeFill(raw: string): FillAnalysis {
             e.end <= end),
       ),
     );
-    if (broken) add(scan.innermostContaining(b.start, b.end), 'unbalanced-branch');
+    if (broken) {
+      add(scan.innermostContaining(b.start, b.end), 'unbalanced-branch');
+    }
   }
 
   // 中身を描かないブロックと、表の文脈で中身が文字どおり出る raw。
   for (const b of blocks) {
-    if ((b.type !== 'raw' && b.type !== 'opaqueBlock') || crosses(b)) continue;
+    if ((b.type !== 'raw' && b.type !== 'opaqueBlock') || crosses(b)) {
+      continue;
+    }
     const i = at(b.open);
-    if (sealed(i)) continue;
+    if (sealed(i)) {
+      continue;
+    }
     const tableRaw = b.type === 'raw' && i.ctx.kind === 'text' && gapTarget(i.ctx.parent) !== null;
-    if (b.type === 'opaqueBlock' || tableRaw)
+    if (b.type === 'opaqueBlock' || tableRaw) {
       add(scan.innermostContaining(b.start, b.end), 'opaque-block');
+    }
   }
 
   // コメント・生テキスト要素・script / math の境界をまたぐブロック。
   for (const b of blocks) {
-    if (crosses(b)) add(scan.innermostContaining(b.start, b.end), 'crossing');
+    if (crosses(b)) {
+      add(scan.innermostContaining(b.start, b.end), 'crossing');
+    }
   }
 
   const frozen = outerOnly(cands.map((c) => toRegion(c, raw.length)));
@@ -324,8 +394,9 @@ function toRegion({ el, reason }: Candidate, len: number): FrozenRegion {
   // SVG の内側の要素だけを固めると、外側の svg を GrapesJS が組み直すときに崩れるため、外側まで広げる。
   const svg = outermost(el, (e) => e.tag === 'svg');
   const target = svg ?? el;
-  if (!target || target.tag === 'body' || target.tag === 'html')
+  if (!target || target.tag === 'body' || target.tag === 'html') {
     return { start: 0, end: len, tag: 'body', reason, form: 'body' };
+  }
   const form = svg ? 'element-svg' : CHIP_TAGS.has(target.tag) ? 'chip' : 'element';
   return { start: target.start, end: target.end, tag: target.tag, reason, form };
 }
@@ -342,7 +413,9 @@ function outerOnly(regions: FrozenRegion[]): FrozenRegion[] {
   const out: FrozenRegion[] = [];
   for (const { r } of sorted) {
     const last = out[out.length - 1];
-    if (last && r.start >= last.start && r.end <= last.end) continue;
+    if (last && r.start >= last.start && r.end <= last.end) {
+      continue;
+    }
     out.push(r);
   }
   return out;
@@ -358,10 +431,11 @@ function findOpaque(
 ): OpaqueRegion[] {
   const out: OpaqueRegion[] = [];
   for (const e of scan.elements) {
-    if (e.tag === 'script' && e.foreign === null)
+    if (e.tag === 'script' && e.foreign === null) {
       out.push({ start: e.start, end: e.end, kind: 'script' });
-    else if (e.tag === 'math' && !nearest(e.parent, (p) => p.tag === 'math'))
+    } else if (e.tag === 'math' && !nearest(e.parent, (p) => p.tag === 'math')) {
       out.push({ start: e.start, end: e.end, kind: 'math' });
+    }
   }
   const branchTags = blocks.flatMap(blockTags);
   for (const m of raw.matchAll(MATH_TEX_RE)) {
@@ -369,12 +443,22 @@ function findOpaque(
     const end = start + m[0].length;
     const ctx = scan.contextAt(start);
     const overlaps = (t: { start: number; end: number }) => t.start < end && start < t.end;
-    if (ctx.kind !== 'text' || m[0].includes('<')) continue;
-    if (nearest(ctx.parent, (e) => e.tag === 'math')) continue;
-    if (branchTags.some(overlaps)) continue;
+    if (ctx.kind !== 'text' || m[0].includes('<')) {
+      continue;
+    }
+    if (nearest(ctx.parent, (e) => e.tag === 'math')) {
+      continue;
+    }
+    if (branchTags.some(overlaps)) {
+      continue;
+    }
     // 範囲の端がトークンの途中にあるものは、TeX ではなくトークンの中身。
-    if (tokens.some((t) => overlaps(t) && (t.start < start || t.end > end))) continue;
-    if (out.some(overlaps)) continue;
+    if (tokens.some((t) => overlaps(t) && (t.start < start || t.end > end))) {
+      continue;
+    }
+    if (out.some(overlaps)) {
+      continue;
+    }
     out.push({ start, end, kind: 'math' });
   }
   return out.sort((a, b) => a.start - b.start);

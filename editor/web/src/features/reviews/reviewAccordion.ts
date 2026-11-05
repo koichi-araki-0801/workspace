@@ -8,7 +8,9 @@
 export const MAX_EXPANDED = 2;
 
 export function toggleExpanded(expanded: readonly string[], id: string): string[] {
-  if (expanded.includes(id)) return expanded.filter((x) => x !== id);
+  if (expanded.includes(id)) {
+    return expanded.filter((x) => x !== id);
+  }
   const next = [...expanded, id];
   return next.length > MAX_EXPANDED ? next.slice(next.length - MAX_EXPANDED) : next;
 }

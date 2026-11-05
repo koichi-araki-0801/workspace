@@ -28,7 +28,9 @@ function toQuery(q: Record<string, unknown>): DropdownQuery {
 
 /** `scope` の検査。省略・空文字は編集タブと同じ `edit`。 */
 function toScope(v: unknown): DropdownScope {
-  if (v === undefined || v === '') return 'edit';
+  if (v === undefined || v === '') {
+    return 'edit';
+  }
   if (typeof v === 'string' && (DROPDOWN_SCOPES as readonly string[]).includes(v)) {
     return v as DropdownScope;
   }

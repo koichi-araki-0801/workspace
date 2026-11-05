@@ -37,7 +37,7 @@ const isNeverRel = (r) => NEVER_REL.has(r.toLowerCase());
 const isUnderNeverRel = (r) => {
   const rl = r.toLowerCase();
   for (const n of NEVER_REL) {
-    if (rl === n || rl.startsWith(`${n}/`)) return true;
+    if (rl === n || rl.startsWith(`${n}/`)) { return true; }
   }
   return false;
 };
@@ -118,14 +118,14 @@ const targets = new Map(); // rel path -> reason ラベル
 
 function add(absPath, reason) {
   const r = rel(absPath);
-  if (isNeverRel(r)) return;
-  if (!existsSync(absPath)) return;
-  if (!targets.has(r)) targets.set(r, reason);
+  if (isNeverRel(r)) { return; }
+  if (!existsSync(absPath)) { return; }
+  if (!targets.has(r)) { targets.set(r, reason); }
 }
 
-for (const d of LIGHT_DIRS) add(join(ROOT, d), 'light');
-if (wantDeep) for (const d of DEEP_DIRS) add(join(ROOT, d), 'deep');
-if (wantBundles) for (const f of BUNDLE_FILES) add(join(ROOT, f), 'bundle');
+for (const d of LIGHT_DIRS) { add(join(ROOT, d), 'light'); }
+if (wantDeep) { for (const d of DEEP_DIRS) { add(join(ROOT, d), 'deep'); } }
+if (wantBundles) { for (const f of BUNDLE_FILES) { add(join(ROOT, f), 'bundle'); } }
 
 // 走査 1 回で light の glob と (deep 時) `node_modules` を集める。マッチしたディレクトリ
 // には降りない (中の `.vite` 等を二重計上しないため)。
@@ -140,18 +140,20 @@ function walk(dir) {
   }
   for (const e of entries) {
     const full = join(dir, e.name);
-    if (isNeverName(e.name) || isNeverRel(rel(full))) continue;
+    if (isNeverName(e.name) || isNeverRel(rel(full))) { continue; }
     if (e.isDirectory()) {
       if (DEEP_WHOLE_DIR_NAMES.has(e.name)) {
-        if (wantDeep) add(full, 'deep');
+        if (wantDeep) { add(full, 'deep'); }
         continue; // まるごと対象。配下は走査しない (venv 内 __pycache__ 等を拾わない)
       }
       if (LIGHT_DIR_NAMES.has(e.name)) {
         add(full, 'light');
         continue;
       }
-      if (targets.has(rel(full))) continue; // 既に丸ごと対象 (dist/coverage/build 等)。降りない
-      if (HEAVY.has(e.name)) continue; // 固定リストで拾い済み。降りない
+      if (targets.has(rel(full))) { continue; // 既に丸ごと対象 (dist/coverage/build 等)。降りない
+}
+      if (HEAVY.has(e.name)) { continue; // 固定リストで拾い済み。降りない
+}
       walk(full);
     } else if (LIGHT_FILE_EXTS.has(extOf(e.name))) {
       add(full, 'light');
@@ -179,8 +181,8 @@ for (const { r, reason, bytes } of rows) {
 
 if (!apply) {
   console.log('\n実際に削除するには `--yes` を付けて再実行してください。');
-  if (!wantDeep) console.log('node_modules 等も消すなら `pnpm run clean:deep`。');
-  if (!wantBundles) console.log('大容量バンドルも消すなら `pnpm run clean:bundles`。');
+  if (!wantDeep) { console.log('node_modules 等も消すなら `pnpm run clean:deep`。'); }
+  if (!wantBundles) { console.log('大容量バンドルも消すなら `pnpm run clean:bundles`。'); }
   process.exit(0);
 }
 
@@ -229,15 +231,15 @@ function assertDeletable(r) {
 // 容量をこのディレクトリの容量として誤計上することの両方を避ける。
 function sizeOf(absPath) {
   const base = absPath.split(/[\\/]/).pop();
-  if (HEAVY.has(base)) return -1;
+  if (HEAVY.has(base)) { return -1; }
   let st;
   try {
     st = lstatSync(absPath);
   } catch {
     return 0;
   }
-  if (st.isSymbolicLink()) return 0;
-  if (!st.isDirectory()) return st.size;
+  if (st.isSymbolicLink()) { return 0; }
+  if (!st.isDirectory()) { return st.size; }
   let sum = 0;
   let kids;
   try {
@@ -245,13 +247,13 @@ function sizeOf(absPath) {
   } catch {
     return sum;
   }
-  for (const k of kids) sum += sizeOf(join(absPath, k.name));
+  for (const k of kids) { sum += sizeOf(join(absPath, k.name)); }
   return sum;
 }
 
 function fmt(bytes) {
-  if (bytes < 0) return '(大容量)';
-  if (bytes === 0) return '0 B';
+  if (bytes < 0) { return '(大容量)'; }
+  if (bytes === 0) { return '0 B'; }
   const u = ['B', 'KB', 'MB', 'GB'];
   let n = bytes;
   let i = 0;

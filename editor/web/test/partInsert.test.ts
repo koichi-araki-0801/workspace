@@ -40,7 +40,9 @@ function setup(opts: { canInsert?: boolean; inserts?: boolean } = {}) {
     },
     insertPart: (content, id) => {
       calls.push(`insertPart:${id}`);
-      if (!(opts.inserts ?? true)) return false;
+      if (!(opts.inserts ?? true)) {
+        return false;
+      }
       box.doc += content;
       return true;
     },

@@ -29,7 +29,7 @@ const searched = ref(false);
 async function search(q: DropdownQuery) {
   const isLatest = latestSearch.begin();
   const result = await run(() => repo.listTemplates(q));
-  if (isErr(result) || !isLatest()) return;
+  if (isErr(result) || !isLatest()) { return; }
   rows.value = result.value;
   searched.value = true;
   // 版数 = 確定保存の回数(確定版の件数)。比較画面で選べる版は、これに現行版 1 件を足した数。
@@ -40,7 +40,7 @@ async function search(q: DropdownQuery) {
       counts[m.id] = isErr(vers) ? 0 : vers.value.length;
     }),
   );
-  if (!isLatest()) return;
+  if (!isLatest()) { return; }
   versionCounts.value = counts;
 }
 

@@ -21,7 +21,9 @@ function makeFakeEditor() {
       }
     },
     emit(name: string, ...args: unknown[]) {
-      for (const cb of handlers[name] ?? []) cb(...args);
+      for (const cb of handlers[name] ?? []) {
+        cb(...args);
+      }
     },
     // fireChange / load 経路では未使用だが、型/呼び出しの保険として最小実装。
     getSelected: () => null,
@@ -40,7 +42,9 @@ function stubRaf() {
   return () => {
     const due = queue;
     queue = [];
-    for (const cb of due) cb(0);
+    for (const cb of due) {
+      cb(0);
+    }
   };
 }
 

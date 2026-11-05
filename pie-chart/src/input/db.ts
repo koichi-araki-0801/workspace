@@ -156,11 +156,6 @@ export function connectionStringFor(t: ConnTarget): string {
   return `Driver=${odbcBraceValue(t.driver)};Server=${t.server};Database=${t.database};Trusted_Connection=yes;${t.extra}`;
 }
 
-/** `resolveConnTarget` と `connectionStringFor` をまとめて呼ぶ。 */
-export function buildConnectionString(opts: ConnOpts): string {
-  return connectionStringFor(resolveConnTarget(opts));
-}
-
 // ── 2. ストアドの呼び出しと結果の判定 ────────────────────────────────────────
 
 /** msnodesqlv8 の `promises.query` の戻り値のうち、本ファイルが使う部分。 */
@@ -226,7 +221,7 @@ export function pickSingleResultSet(res: MsSqlResults): unknown[][] {
   return rows as unknown[][];
 }
 
-/** 行(列順の配列)を `[name, value][]` にする。名前と値の解釈は xlsx 経路と共有。 */
+/** 行(列順の配列)を `[name, value][]` にする。名前と値の解釈は `number.ts` の `rowToItem`。 */
 export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
   if (rows.length === 0) {
     throw new DbStageError('query', 'The stored procedure returned no rows.');
@@ -244,8 +239,10 @@ export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
   for (let i = 0; i < rows.length; i += 1) {
     const [nameRaw, valueRaw] = rows[i];
     const name = nameRaw == null ? '' : String(nameRaw).trim();
-    const item = rowToItem(name, valueRaw, i + 1, () => String(valueRaw));
-    if (item) items.push(item);
+    const item = rowToItem(name, valueRaw, i + 1);
+    if (item) {
+      items.push(item);
+    }
   }
   if (items.length === 0) {
     throw new DbStageError('query', 'No usable data rows (all blank).');
@@ -258,7 +255,9 @@ export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
  * 未導入)は接続の問題、それ以外はストアドの問題として扱う。
  */
 export function classifySqlError(err: unknown): DbStageError {
-  if (err instanceof DbStageError) return err;
+  if (err instanceof DbStageError) {
+    return err;
+  }
   // 接続失敗の形はドライバの版で違う。4.x はエラーオブジェクトの配列をそのまま投げ(配列自体には
   // `sqlstate` も `message` も無い)、6.x は先頭の 1 件を写した素のオブジェクトに全件を
   // `details` で添え、SQLSTATE を `sqlState` に置く。どちらも要素の並びへ揃えて集める。
@@ -272,7 +271,9 @@ export function classifySqlError(err: unknown): DbStageError {
   const messages: string[] = [];
   let garbled = false;
   for (const el of elements) {
-    if (el == null) continue;
+    if (el == null) {
+      continue;
+    }
     const o = el as { sqlstate?: unknown; sqlState?: unknown } | null;
     const raw = o?.sqlstate ?? o?.sqlState;
     const code = (el as { code?: unknown } | null)?.code;
@@ -284,8 +285,11 @@ export function classifySqlError(err: unknown): DbStageError {
       typeof msg === 'string' ? msg : typeof el === 'object' && el !== null ? '' : String(el);
     // ドライバは接続の失敗などで日本語のエラー文を壊して返すので、化けた原文は出さない
     // (正しく読めた日本語は出す。sqlErrorHint.ts)。
-    if (text && isGarbledDriverText(text)) garbled = true;
-    else if (text && !messages.includes(text)) messages.push(text);
+    if (text && isGarbledDriverText(text)) {
+      garbled = true;
+    } else if (text && !messages.includes(text)) {
+      messages.push(text);
+    }
   }
   const isConnectState = (s: string) => s.startsWith('08') || s.startsWith('28') || s === 'IM002';
   const chosen = states.find((s) => isConnectState(s.sqlstate)) ?? states[0];
@@ -326,7 +330,9 @@ export async function callSprocItems(
   try {
     return rowsToItems(pickSingleResultSet(res));
   } catch (err) {
-    if (err instanceof DbStageError) throw err;
+    if (err instanceof DbStageError) {
+      throw err;
+    }
     throw new DbStageError('query', errorMessage(err));
   }
 }

@@ -9,7 +9,9 @@
 export function rafOnce(fn: () => void): () => void {
   let scheduled = false;
   return () => {
-    if (scheduled) return;
+    if (scheduled) {
+      return;
+    }
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;

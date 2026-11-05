@@ -1,4 +1,6 @@
 import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
   err,
   type HistoryRepository,
   isErr,
@@ -91,7 +93,9 @@ describe('MergePdfService.renderMergedPdf', () => {
     expect(templates.getSampleData).toHaveBeenCalledWith('t2');
     expect(templates.getSampleData).toHaveBeenCalledWith('t1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value).toBeInstanceOf(Blob);
+    if (isOk(res)) {
+      expect(res.value).toBeInstanceOf(Blob);
+    }
     const init = fetchSpy.mock.calls[0][1] as RequestInit;
     const body = JSON.parse(init.body as string) as { documents: { html: string; css: string }[] };
     expect(body.documents).toHaveLength(2);
@@ -134,7 +138,9 @@ describe('MergePdfService.renderMergedPdf', () => {
     const res = await createMergePdfService(templates, historyOf().repo).renderMergedPdf(['t1']);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toContain('(1件目)');
+    if (isErr(res)) {
+      expect(res.error.message).toContain('(1件目)');
+    }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -171,7 +177,9 @@ describe('MergePdfService.renderMergedPdf', () => {
     vi.unstubAllGlobals();
 
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toContain('(2件目)');
+    if (isErr(res)) {
+      expect(res.error.message).toContain('(2件目)');
+    }
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -196,7 +204,9 @@ describe('MergePdfService.renderMergedPdf', () => {
     const res = await svc.renderMergedPdf(['x']);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toContain('(1件目)');
+    if (isErr(res)) {
+      expect(res.error.message).toContain('(1件目)');
+    }
   });
 
   it('returns err when the server responds non-ok, without recording history', async () => {
@@ -209,7 +219,35 @@ describe('MergePdfService.renderMergedPdf', () => {
     const res = await svc.renderMergedPdf(['t1']);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.cause).toBe('HTTP 500');
+    if (isErr(res)) {
+      expect(res.error.cause).toBe('HTTP 500');
+    }
+    expect(recordPdfExport).not.toHaveBeenCalled();
+  });
+
+  it('人ごとの上限の 503 は、結合 PDF の画面へその文言で返す(履歴は記録しない)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              kind: 'unexpected',
+              message: BUILD_BUSY_USER_MESSAGE,
+              code: BUILD_BUSY_USER,
+            }),
+            { status: 503 },
+          ),
+      ),
+    );
+    const { repo, recordPdfExport } = historyOf();
+    const svc = createMergePdfService(templatesOf(), repo);
+    const res = await svc.renderMergedPdf(['t1']);
+    vi.unstubAllGlobals();
+    expect(isErr(res)).toBe(true);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(BUILD_BUSY_USER_MESSAGE);
+    }
     expect(recordPdfExport).not.toHaveBeenCalled();
   });
 
@@ -234,7 +272,9 @@ describe('MergePdfService.renderMergedPdf', () => {
     } as unknown as TemplateRepository;
     const res = await createMergePdfService(templates, historyOf().repo).renderMergedPdf(['t1']);
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toMatch(/サンプルデータ.*1.*取得に失敗/);
+    if (isErr(res)) {
+      expect(res.error.message).toMatch(/サンプルデータ.*1.*取得に失敗/);
+    }
   });
 
   it('PDF 生成が例外を投げても Result で返る', async () => {
@@ -249,6 +289,8 @@ describe('MergePdfService.renderMergedPdf', () => {
     ]);
     vi.unstubAllGlobals();
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('conflict');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('conflict');
+    }
   });
 });

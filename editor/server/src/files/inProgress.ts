@@ -13,10 +13,6 @@ interface InProgressIds {
   drafts: string[];
 }
 
-export async function findInProgressIds(templateId: string): Promise<InProgressIds> {
-  return (await inProgressLookup())(templateId);
-}
-
 /**
  * pending/ と下書きの一覧を 1 度だけ取り、id ごとの照合を返す。1 回の要求で複数の版を問うとき
  * (作成タブの作成可否・生成)に、版ごとにフォルダを読み直さないため。

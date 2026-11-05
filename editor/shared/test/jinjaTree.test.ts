@@ -24,7 +24,9 @@ function shape(src: string, nodes: JinjaNode[]): string {
 }
 const tree = (s: string) => {
   const r = parseJinja(s);
-  if (!r.ok) throw new Error(r.error.message);
+  if (!r.ok) {
+    throw new Error(r.error.message);
+  }
   return shape(s, r.nodes);
 };
 
@@ -44,9 +46,13 @@ describe('parseJinja', () => {
   it('枝の本文の位置は原文の位置', () => {
     const s = '<div>{%- if a -%}\n<p>A</p>\n{%- endif %}</div>';
     const r = parseJinja(s);
-    if (!r.ok) throw new Error();
+    if (!r.ok) {
+      throw new Error();
+    }
     const n = r.nodes[1];
-    if (n.type !== 'if') throw new Error();
+    if (n.type !== 'if') {
+      throw new Error();
+    }
     expect(s.slice(n.start, n.end)).toBe('{%- if a -%}\n<p>A</p>\n{%- endif %}');
     expect(s.slice(n.branches[0].bodyStart, n.branches[0].bodyEnd)).toBe('\n<p>A</p>\n');
   });

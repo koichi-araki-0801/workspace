@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import {
   assignJinjaSet,
   evaluateJinjaExpr,
+  inspectJinjaExpr,
   isJinjaSafe,
   JinjaExprError,
   stringifyJinjaValue,
@@ -414,5 +415,138 @@ describe('stringifyJinjaValue — nunjucks の suppressValue(autoescape 無効)�
   it('配列・オブジェクトは JS の文字列連結と同じ', () => {
     expect(stringifyJinjaValue([1, 2, 3])).toBe('1,2,3');
     expect(stringifyJinjaValue({ a: 1 })).toBe('[object Object]');
+  });
+});
+
+// 不変ゲートの不活性の判定(`inertJinja.ts`)が、評価器の文法を基準に使う。評価はせず、値も量も
+// 扱わないことを固定する(承認の前に他人の式を読むので、読むだけで仕事をさせない)。
+describe('inspectJinjaExpr — 評価せずに文法と部品を調べる', () => {
+  it.each([
+    ['range の長さ', 'range(10**9)'],
+    ['batch の個数の検査', 'xs|batch(0)'],
+    ['文字列の加算', '"a" + "b" + x'],
+    ['算術・単項', '-x * 2 // 3 - +y'],
+    ['比較', 'a < b <= [1, 2]'],
+    ['添字', 'x["k"][0]'],
+    ['リスト', '[1, [2, 3], x]'],
+    ['メソッド', 's.startswith("a")'],
+    ['テスト', 'x is defined and x is not equalto(1)'],
+  ])('%s は評価しないので通る: %s', (_label, src) => {
+    // 評価の量を数えると inspect 用の予算が Error(JinjaExprError でない)を投げて落ちる。
+    expect(inspectJinjaExpr(src).ok).toBe(true);
+  });
+
+  it('入れ子のリストの比較も文字列化しない', () => {
+    // 比較すると jsString が評価の量を数え、inspect 用の予算が Error を投げる。
+    const deep = `${'['.repeat(60)}1${']'.repeat(60)} < 1`;
+    expect(inspectJinjaExpr(deep).ok).toBe(true);
+  });
+
+  it.each([
+    ['~ 連結', 'a ~ b'],
+    ['インラインの if', 'a if b else c'],
+    ['in 演算子', 'a in b'],
+    ['許可していないフィルタ', 'x|upper'],
+    ['許可していないテスト', 'x is odd'],
+    ['許可していない関数', 'lipsum(1)'],
+    ['許可していないメソッド', 'x.upper()'],
+    ['値の呼び出し', 'x()'],
+    ['呼び出しの結果の呼び出し', 'range.constructor("x")()'],
+    ['閉じない文字列', '"abc'],
+    ['空', ''],
+  ])('%s は ok:false: %s', (_label, src) => {
+    const r = inspectJinjaExpr(src);
+    expect(r.ok).toBe(false);
+    expect(r.error).toBeTypeOf('string');
+  });
+
+  it('文字列リテラルの原文と復号した値を返す', () => {
+    const r = inspectJinjaExpr(`d["a\\x3cb"]|default('—')`);
+    expect(r.ok).toBe(true);
+    expect(r.strings).toEqual([
+      { raw: 'a\\x3cb', text: 'ax3cb' },
+      { raw: '—', text: '—' },
+    ]);
+  });
+
+  it('名前・メンバ名・フィルタ・テスト・関数を返す', () => {
+    const r = inspectJinjaExpr('fund.name|default(x) is defined and range(n)|list');
+    expect(r.ok).toBe(true);
+    expect(r.names).toEqual([
+      'fund',
+      'name',
+      'default',
+      'x',
+      'is',
+      'defined',
+      'and',
+      'range',
+      'n',
+      'list',
+    ]);
+    expect(r.members).toEqual(['name']);
+    expect(r.filters.map((f) => f.name)).toEqual(['default', 'list']);
+    expect(r.tests).toEqual(['defined']);
+    expect(r.calls.map((c) => c.name)).toEqual(['range']);
+    expect(r.refs.map((x) => x.name)).toEqual(['fund', 'x', 'n']);
+  });
+
+  it('参照と呼び出しの結果がメンバを引かれたか、リストの中かを返す', () => {
+    const r = inspectJinjaExpr('[ns, loop.index, xs|select("x")] + namespace(a=1).a + ns["k"]');
+    expect(r.refs).toEqual([
+      { name: 'ns', member: false, memberName: null, inList: true, inCall: false },
+      { name: 'loop', member: true, memberName: 'index', inList: true, inCall: false },
+      { name: 'xs', member: false, memberName: null, inList: true, inCall: false },
+      { name: 'ns', member: true, memberName: null, inList: false, inCall: false },
+    ]);
+    expect(r.calls).toEqual([
+      { name: 'namespace', member: true, memberName: 'a', inList: false, inCall: false },
+    ]);
+    expect(r.filters).toEqual([{ name: 'select', inList: true, inCall: false, next: null }]);
+  });
+
+  it('呼び出しの引数の中か、フィルタの連鎖で次に掛かるフィルタを返す', () => {
+    const r = inspectJinjaExpr('namespace(a=[b], c=d|select("x")|list) is defined');
+    expect(r.refs).toEqual([
+      { name: 'b', member: false, memberName: null, inList: true, inCall: true },
+      { name: 'd', member: false, memberName: null, inList: false, inCall: true },
+    ]);
+    expect(r.calls).toEqual([
+      { name: 'namespace', member: false, memberName: null, inList: false, inCall: false },
+    ]);
+    expect(r.filters).toEqual([
+      { name: 'select', inList: false, inCall: true, next: 'list' },
+      { name: 'list', inList: false, inCall: true, next: null },
+    ]);
+  });
+
+  it('テストを挟んだフィルタは連鎖の次として数えない', () => {
+    const r = inspectJinjaExpr('xs|select("x") is defined');
+    expect(r.filters).toEqual([{ name: 'select', inList: false, inCall: false, next: null }]);
+  });
+});
+
+// 再帰下降の深さで JS のスタックを使い切らせない(RangeError は JinjaExprError でなく、呼び出し側の
+// 想定の外の例外になる)。括弧・リスト・呼び出しの引数・`not`・単項の入れ子を同じ上限で止める。
+describe('式の入れ子の深さに上限がある', () => {
+  const deep = (open: string, close: string, n: number) => `${open.repeat(n)}1${close.repeat(n)}`;
+
+  it.each([
+    ['括弧', deep('(', ')', 1000)],
+    ['リスト', deep('[', ']', 1000)],
+    ['呼び出しの引数', deep('namespace(a=', ')', 1000)],
+    ['not', `${'not '.repeat(1000)}1`],
+    ['単項の -', `${'-'.repeat(1000)}1`],
+    ['添字', `x${'[x'.repeat(1000)}${']'.repeat(1000)}`],
+  ])('%s が深さ 1000 なら JinjaExprError(評価も inspect も)', (_label, src) => {
+    expect(() => evaluateJinjaExpr(src, {})).toThrow(JinjaExprError);
+    const r = inspectJinjaExpr(src);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/入れ子/);
+  });
+
+  it('深さ 30 の括弧とリストは読める', () => {
+    expect(evaluateJinjaExpr(deep('(', ')', 30), {})).toBe(1);
+    expect(inspectJinjaExpr(deep('[', ']', 30)).ok).toBe(true);
   });
 });

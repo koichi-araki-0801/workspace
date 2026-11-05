@@ -80,13 +80,17 @@ function tokenizeHtml(html: string): HtmlToken[] {
 
   while (index < length) {
     const open = html.indexOf('<', index);
-    if (open < 0) break;
+    if (open < 0) {
+      break;
+    }
 
     index = open + 1;
 
     if (html.startsWith('!--', index)) {
       const close = html.indexOf('-->', index + 3);
-      if (close < 0) throw validation('HTMLのパーツ境界を確認できません');
+      if (close < 0) {
+        throw validation('HTMLのパーツ境界を確認できません');
+      }
       index = close + 3;
       tokens.push(commentToken(open, index));
       continue;
@@ -96,14 +100,18 @@ function tokenizeHtml(html: string): HtmlToken[] {
 
     if (head === '!' || head === '?') {
       const close = html.indexOf('>', index + 1);
-      if (close < 0) throw validation('HTMLのパーツ境界を確認できません');
+      if (close < 0) {
+        throw validation('HTMLのパーツ境界を確認できません');
+      }
       index = close + 1;
       tokens.push(commentToken(open, index));
       continue;
     }
 
     const closing = head === '/';
-    if (closing) index++;
+    if (closing) {
+      index++;
+    }
 
     const nameStart = index;
     if (!isAsciiAlpha(html[index])) {
@@ -112,7 +120,9 @@ function tokenizeHtml(html: string): HtmlToken[] {
     }
 
     index++;
-    while (index < length && isNameChar(html[index])) index++;
+    while (index < length && isNameChar(html[index])) {
+      index++;
+    }
 
     const name = html.slice(nameStart, index).toLowerCase();
     const attrsFrom = index;
@@ -123,7 +133,9 @@ function tokenizeHtml(html: string): HtmlToken[] {
 
       if (current === '"' || current === "'") {
         const quoteEnd = html.indexOf(current, index + 1);
-        if (quoteEnd < 0) throw validation('HTMLのパーツ境界を確認できません');
+        if (quoteEnd < 0) {
+          throw validation('HTMLのパーツ境界を確認できません');
+        }
         index = quoteEnd + 1;
         continue;
       }
@@ -136,7 +148,9 @@ function tokenizeHtml(html: string): HtmlToken[] {
       index++;
     }
 
-    if (tagEnd < 0) throw validation('HTMLのパーツ境界を確認できません');
+    if (tagEnd < 0) {
+      throw validation('HTMLのパーツ境界を確認できません');
+    }
 
     const attrsTo = tagEnd - 1;
     const selfClosing =
@@ -154,11 +168,15 @@ function tokenizeHtml(html: string): HtmlToken[] {
 
     index = tagEnd;
 
-    if (closing || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) continue;
+    if (closing || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) {
+      continue;
+    }
 
     lower ??= asciiLower(html);
     const rawEnd = findRawTextEnd(lower, name, index).at;
-    if (rawEnd < 0) throw validation('HTMLのパーツ境界を確認できません');
+    if (rawEnd < 0) {
+      throw validation('HTMLのパーツ境界を確認できません');
+    }
 
     const closeToken = readClosingTag(html, rawEnd, name);
     tokens.push(closeToken);
@@ -185,8 +203,12 @@ function commentToken(start: number, end: number): HtmlToken {
 function readClosingTag(html: string, start: number, name: string): HtmlToken {
   let index = start + 2 + name.length;
 
-  while (index < html.length && html[index] !== '>') index++;
-  if (index >= html.length) throw validation('HTMLのパーツ境界を確認できません');
+  while (index < html.length && html[index] !== '>') {
+    index++;
+  }
+  if (index >= html.length) {
+    throw validation('HTMLのパーツ境界を確認できません');
+  }
 
   return {
     kind: 'end',
@@ -225,6 +247,39 @@ function bodyRangeOf(html: string, tokens: readonly HtmlToken[]): BodyRange {
   return { from: start.end, to: end.start };
 }
 
+/**
+ * 文書の本文の範囲(最初の `<body …>` の直後から、最後の `</body>` の手前まで)。タグの読み方は
+ * `extractBodyUnits` と同じ走査器(コメント・raw text・引用符付きの属性値の中は数えない)。body の
+ * 無い断片は入力全体(`hasBody: false`)。開始・終了の片方だけ、終了が開始より前の入力は `validation`。
+ *
+ * `extractBodyUnits` と違い、body が 2 つ以上あっても止めない(外側だけを決める)。本文の中の
+ * 2 個目の `<body>` は、呼び手(`documentFrame.ts`)が骨格のタグとして別の文言で止める。
+ */
+export function documentBodyRange(html: string): { from: number; to: number; hasBody: boolean } {
+  if (html.length > MAX_REVIEW_PART_SCAN_CHARS) {
+    throw validation(
+      `承認対象のHTMLが大きすぎます(${html.length}文字 > 上限${MAX_REVIEW_PART_SCAN_CHARS})`,
+    );
+  }
+  const tokens = tokenizeHtml(html);
+  const isBody = (token: HtmlToken, kind: HtmlToken['kind']) =>
+    token.kind === kind && token.name === 'body';
+  const start = tokens.find((token) => isBody(token, 'start'));
+  let end: HtmlToken | undefined;
+  for (let i = tokens.length - 1; i >= 0 && end === undefined; i--) {
+    if (isBody(tokens[i] as HtmlToken, 'end')) {
+      end = tokens[i];
+    }
+  }
+  if (start === undefined && end === undefined) {
+    return { from: 0, to: html.length, hasBody: false };
+  }
+  if (start === undefined || end === undefined || end.start < start.end) {
+    throw validation('HTMLのbody境界を確認できません');
+  }
+  return { from: start.end, to: end.start, hasBody: true };
+}
+
 /** 開始タグの属性を属性名から取得する。重複時は先に現れた値を使用する。 */
 function attributesOf(html: string, token: HtmlToken): Map<string, string | null> {
   const attributes = new Map<string, string | null>();
@@ -235,7 +290,9 @@ function attributesOf(html: string, token: HtmlToken): Map<string, string | null
       index++;
     }
 
-    if (index >= token.attrsTo) break;
+    if (index >= token.attrsTo) {
+      break;
+    }
 
     const attribute = readAttr(html, index, token.attrsTo);
     if (attribute.next <= index) {
@@ -254,13 +311,19 @@ function attributesOf(html: string, token: HtmlToken): Map<string, string | null
 
 /** class属性の先頭クラス名を返す。 */
 function firstClassOf(value: string | null | undefined): string | null {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
 
   let index = 0;
-  while (index < value.length && isHtmlSpace(value[index])) index++;
+  while (index < value.length && isHtmlSpace(value[index])) {
+    index++;
+  }
 
   const start = index;
-  while (index < value.length && !isHtmlSpace(value[index])) index++;
+  while (index < value.length && !isHtmlSpace(value[index])) {
+    index++;
+  }
 
   return index > start ? value.slice(start, index) : null;
 }
@@ -315,7 +378,9 @@ export function extractReviewParts(html: string): ReviewSourcePart[] {
   const stack: OpenElement[] = [];
 
   for (const token of scoped) {
-    if (token.kind === 'comment') continue;
+    if (token.kind === 'comment') {
+      continue;
+    }
 
     if (token.kind === 'start') {
       const isRoot = stack.length === 0;
@@ -420,31 +485,42 @@ export function extractBodyUnits(html: string): { units: BodyUnitRange[]; bodyEn
   let cursor = range.from;
 
   const pushText = (end: number) => {
-    if (html.slice(cursor, end).trim() !== '') units.push({ name: '#text', start: cursor, end });
+    if (html.slice(cursor, end).trim() !== '') {
+      units.push({ name: '#text', start: cursor, end });
+    }
   };
 
   for (const token of tokens) {
-    if (token.start < range.from || token.end > range.to) continue;
+    if (token.start < range.from || token.end > range.to) {
+      continue;
+    }
 
     if (stack.length === 0) {
       pushText(token.start);
       cursor = token.end;
     }
 
-    if (token.kind === 'comment') continue;
+    if (token.kind === 'comment') {
+      continue;
+    }
 
     if (token.kind === 'start') {
-      if (stack.length === 0) rootStart = token.start;
+      if (stack.length === 0) {
+        rootStart = token.start;
+      }
       if (token.selfClosing) {
-        if (stack.length === 0)
+        if (stack.length === 0) {
           units.push({ name: token.name, start: token.start, end: token.end });
+        }
         continue;
       }
       stack.push(token.name);
       continue;
     }
 
-    if (stack.at(-1) !== token.name) throw validation('HTMLのパーツ境界を確認できません');
+    if (stack.at(-1) !== token.name) {
+      throw validation('HTMLのパーツ境界を確認できません');
+    }
     stack.pop();
     if (stack.length === 0) {
       units.push({ name: token.name, start: rootStart, end: token.end });
@@ -452,7 +528,9 @@ export function extractBodyUnits(html: string): { units: BodyUnitRange[]; bodyEn
     }
   }
 
-  if (stack.length > 0) throw validation('HTMLのパーツ境界を確認できません');
+  if (stack.length > 0) {
+    throw validation('HTMLのパーツ境界を確認できません');
+  }
   pushText(range.to);
 
   return { units, bodyEnd: range.to };
@@ -465,29 +543,20 @@ export interface CreateReviewPartDecision {
 }
 
 /**
- * create申請のJinja原文へ、値入りHTMLで行ったパーツ判定を適用する。
+ * create申請のJinja原文へ、承認画面で行ったパーツ判定を適用する。
  *
- * 原文と値入りHTMLのパーツキー・順序が一致するときだけ処理し、承認済みパーツは原文の
+ * 承認画面はサーバが受付で原文から描いた本文(`renderedHtml`)を見せ、受付で描画結果と原文の
+ * パーツのキーの並びが同じことを確かめている(server の `reviewRepo.ts`)。ここで照合するのは
+ * 「判定のキーが原文のキーの中にある」「原文の全キーに判定がある」だけ。承認済みパーツは原文の
  * まま残し、却下済みパーツのouterHTML範囲だけを削除する。DOMで再直列化しないため、
  * Jinja、改ページ、コメント、style、空白など判定対象外の文字列は変更しない。
  */
 export function buildCreateReviewedHtml(
   sourceHtml: string,
-  filledHtml: string,
   decisions: readonly CreateReviewPartDecision[],
 ): string {
   const sourceParts = extractReviewParts(sourceHtml);
-  const filledParts = extractReviewParts(filledHtml);
-
   const sourceKeys = sourceParts.map((part) => part.partKey);
-  const filledKeys = filledParts.map((part) => part.partKey);
-
-  if (
-    sourceKeys.length !== filledKeys.length ||
-    sourceKeys.some((partKey, index) => partKey !== filledKeys[index])
-  ) {
-    throw validation('Jinja原文と値入りHTMLのパーツ構造が一致しません');
-  }
 
   const decisionByPartKey = new Map<string, CreateReviewPartDecision>();
 

@@ -38,6 +38,9 @@
         "useKeyWithClickEvents": "warn",
         "noNoninteractiveTabindex": "warn",
         "useAriaPropsSupportedByRole": "warn"
+      },
+      "style": {
+        "useBlockStatements": "error"
       }
     }
   },

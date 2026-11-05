@@ -19,7 +19,9 @@ function fetcherFor(routes: Record<string, string | Uint8Array>) {
   return vi.fn(async (url: string): Promise<Response> => {
     const rel = url.replace('/api/preview-host/', '');
     const hit = routes[rel];
-    if (hit === undefined) return new Response(null, { status: 404 });
+    if (hit === undefined) {
+      return new Response(null, { status: 404 });
+    }
     return new Response(hit, { status: 200 });
   });
 }
@@ -217,7 +219,9 @@ describe('上限・例外での fail closed', () => {
 function fetcherForUrls(routes: Record<string, string | Uint8Array>) {
   return vi.fn(async (url: string): Promise<Response> => {
     const hit = routes[url];
-    if (hit === undefined) return new Response(null, { status: 404 });
+    if (hit === undefined) {
+      return new Response(null, { status: 404 });
+    }
     return new Response(hit, { status: 200 });
   });
 }
@@ -303,7 +307,9 @@ describe('ファンド別画像の data: URI 化', () => {
   it('付け替え済みの本文 CSS(../css/fonts/…)と CSS 内の会社フォルダ画像も埋める', async () => {
     const QR = '/api/fund-assets/images/XXAM/bg.svg';
     const fetcher = vi.fn(async (url: string): Promise<Response> => {
-      if (url === QR) return new Response(LOGO_SVG, { status: 200 });
+      if (url === QR) {
+        return new Response(LOGO_SVG, { status: 200 });
+      }
       if (url === '/api/preview-host/css/fonts/a.woff2') {
         return new Response(new Uint8Array([1]), { status: 200 });
       }

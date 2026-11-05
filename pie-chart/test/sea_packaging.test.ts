@@ -59,7 +59,9 @@ describe.skipIf(!enabled)('配布 exe の閉包(PIECHART_SEA_TEST=1 のときだ
   });
 
   afterAll(() => {
-    if (work) rmSync(work, { recursive: true, force: true });
+    if (work) {
+      rmSync(work, { recursive: true, force: true });
+    }
   });
 
   it('未署名の配布物は exe と OFL の 2 点だけ(sidecar が無い)', () => {
@@ -188,7 +190,9 @@ function readdirRecursive(dir: string): Entry[] {
   for (const d of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, d.name);
     out.push({ name: d.name, path: p, isDir: d.isDirectory() });
-    if (d.isDirectory()) out.push(...readdirRecursive(p));
+    if (d.isDirectory()) {
+      out.push(...readdirRecursive(p));
+    }
   }
   return out;
 }

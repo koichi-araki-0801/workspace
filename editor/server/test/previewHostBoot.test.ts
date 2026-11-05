@@ -79,7 +79,9 @@ function bootHost(opts: { withViewer?: boolean; revokeThrows?: boolean } = {}) {
   const url = {
     createObjectURL: () => 'blob:doc',
     revokeObjectURL() {
-      if (opts.revokeThrows) throw new Error('revoke に失敗');
+      if (opts.revokeThrows) {
+        throw new Error('revoke に失敗');
+      }
     },
   };
   new Function('window', 'document', 'URL', 'Blob', 'requestAnimationFrame', BOOT_SCRIPT)(
@@ -112,7 +114,9 @@ describe('ブートスクリプトの文書の番号', () => {
     host.sendDoc(1);
     host.sendDoc(2);
     const [old, cur] = FakeViewer.all;
-    if (!old || !cur) throw new Error('viewer が 2 つ作られていない');
+    if (!old || !cur) {
+      throw new Error('viewer が 2 つ作られていない');
+    }
     const before = host.sent.length;
     old.listeners.nav?.({ epage: 2, epageCount: 9, first: false, last: true });
     old.readyState = 'complete';

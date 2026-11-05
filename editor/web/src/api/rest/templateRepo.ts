@@ -31,7 +31,9 @@ const SAMPLE_CACHE_PREFIX = 'editor:sample:';
 const sampleCacheKey = (templateId: string) => `${SAMPLE_CACHE_PREFIX}${templateId}`;
 
 function isSampleDataResult(v: unknown): v is SampleDataResult {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
+    return false;
+  }
   const { sample, warnings } = v as Record<string, unknown>;
   return (
     typeof sample === 'object' &&
@@ -45,7 +47,9 @@ function isSampleDataResult(v: unknown): v is SampleDataResult {
 function readSampleCache(templateId: string): SampleDataResult | null {
   try {
     const raw = sessionStorage.getItem(sampleCacheKey(templateId));
-    if (!raw) return null;
+    if (!raw) {
+      return null;
+    }
     // sessionStorage は他スクリプト・拡張機能からも書き換えられうる外部入力。`{ sample, warnings }` の
     // 形でない値(壊れた JSON・配列・旧形式のサンプル本体)を扱うと呼び出し側が形の合わない値を掴む。
     const parsed: unknown = JSON.parse(raw);
@@ -67,7 +71,9 @@ function writeSampleCache(templateId: string, data: SampleDataResult): void {
 export function clearSampleDataCache(): void {
   try {
     for (const k of Object.keys(sessionStorage)) {
-      if (k.startsWith(SAMPLE_CACHE_PREFIX)) sessionStorage.removeItem(k);
+      if (k.startsWith(SAMPLE_CACHE_PREFIX)) {
+        sessionStorage.removeItem(k);
+      }
     }
   } catch {
     /* sessionStorage が無い環境では何もしない */
@@ -125,11 +131,15 @@ export const restTemplateRepo: TemplateRepository = {
 
   getSampleData: async (templateId: string) => {
     const cached = readSampleCache(templateId);
-    if (cached) return ok(cached);
+    if (cached) {
+      return ok(cached);
+    }
     const res = await attemptRest(() =>
       apiFetch<SampleDataResult>(buildPath(apiPaths.templateSampleData, { id: templateId })),
     );
-    if (isOk(res)) writeSampleCache(templateId, res.value);
+    if (isOk(res)) {
+      writeSampleCache(templateId, res.value);
+    }
     return res;
   },
 

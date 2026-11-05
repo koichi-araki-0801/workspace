@@ -64,7 +64,9 @@ vi.mock('../src/repositories/historyRepo.js', async (importOriginal) => {
   return {
     ...real,
     recordCreate: async (...args: Parameters<typeof real.recordCreate>) => {
-      if (recordCreateFail.on) throw new Error('作成記録に失敗');
+      if (recordCreateFail.on) {
+        throw new Error('作成記録に失敗');
+      }
       return real.recordCreate(...args);
     },
   };
@@ -100,7 +102,9 @@ async function fakeGenerate(
     writeOutput(attrs.companyCode, attrs.fundCode, e),
   );
   for (const fund of state.extraFunds) {
-    for (const e of EDITIONS) rest.push(writeOutput(attrs.companyCode, fund, e));
+    for (const e of EDITIONS) {
+      rest.push(writeOutput(attrs.companyCode, fund, e));
+    }
   }
   return [...head, ...rest];
 }
@@ -122,13 +126,17 @@ describe('POST /api/generate は確定領域へ書かない', () => {
     const { SP } = await import('../src/db/sprocNames.js');
     const sproc = createSprocClient(async (sql, values) => {
       if (sql.includes(SP.template) && values[0] === '委託会社一覧') {
-        if (companiesThrow) throw new Error('Rep1 に届かない');
+        if (companiesThrow) {
+          throw new Error('Rep1 に届かない');
+        }
         return [
           { 委託会社コード: 'R-XX01', 委託会社名: '会社 1', 委託会社略称: 'XX01' },
           { 委託会社コード: 'R-BM02', 委託会社名: '会社 2', 委託会社略称: 'BM02' },
         ];
       }
-      if (sql.includes(SP.template)) templateCalls += 1;
+      if (sql.includes(SP.template)) {
+        templateCalls += 1;
+      }
       return [];
     });
     const store = createSessionStub({
@@ -769,7 +777,9 @@ describe('POST /api/generate は確定領域へ書かない', () => {
       expect(res.statusCode).toBe(200);
       const entries = createHistory();
       expect(entries).toHaveLength(2);
-      for (const e of entries) expect(e).not.toHaveProperty('requestedFundCode');
+      for (const e of entries) {
+        expect(e).not.toHaveProperty('requestedFundCode');
+      }
     });
   });
 

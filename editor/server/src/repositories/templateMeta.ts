@@ -21,7 +21,9 @@ export async function fileToMeta(
   source: 'template' | 'filled' = 'template',
 ): Promise<TemplateMeta | null> {
   const attrs = parseAnyTemplateFileName(fileName);
-  if (!attrs) return null;
+  if (!attrs) {
+    return null;
+  }
   return {
     id: templateIdFromFileName(fileName),
     attributes: attrs,

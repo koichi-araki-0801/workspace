@@ -15,6 +15,9 @@
 //     コミットまで行う(無認証モード/テストでは確定保存を呼ばない限り起動しない)。
 //   - .gitattributes は `* text eol=lf`。`text` で改行正規化を有効にし `eol=lf` で作業ツリー
 //     側も LF に固定するので、`core.autocrlf` の設定に関わらず Windows でも byte が揺れない。
+//   - リポジトリ側の実行面(フック・fsmonitor・gpg・外部 diff)は全呼び出しで切り、子へ渡す
+//     環境変数は許可リストに絞る(`ISOLATION_ARGS` / `gitChildEnv`)。dataRoot は共有に置かれ
+//     うるので、`.git` に書ける人が仕込んだものをサーバのアカウントで動かさないため。
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -34,6 +37,86 @@ const GIT_BIN = process.env.GIT_BIN ?? 'git';
 /** 日本語パスを生のまま扱うための共通フラグ。 */
 const COMMON_ARGS = ['-c', 'core.quotepath=false'];
 
+// ── リポジトリ側の実行面の無効化 ──
+// `.git/hooks`・`.git/config`(`core.hooksPath` / `core.fsmonitor` / `commit.gpgSign` +
+// `gpg.program` / `log.showSignature` / `diff.external` / textconv)は、どれも git が自分で
+// 子プロセスを起こす口で、`.git` に書ける人が仕込めばサーバのアカウントで動く。コマンドラインの
+// `-c` はリポジトリの設定より強いので、全呼び出しの先頭で潰す。`-c` で消せるのはここに挙げた
+// 物だけで、`.git/info/attributes` と `filter.*.clean` の組み合わせなどは網羅できない。そこは
+// 運用の前提(`.git` はサーバのアカウントだけが書ける ACL。デプロイ運用手順書)で閉じる。
+
+/**
+ * フックの置き場として渡す、editor が持つ空のフォルダ(`config.tmpDir` の下)。存在しない
+ * パスでもフックは動かないが、作れない・中身があるのは想定外なので、そのときは git を
+ * 起こさずに失敗させる(何かが置かれたフォルダをフックの置き場として渡さない)。
+ */
+async function emptyHooksDir(): Promise<string> {
+  const dir = path.join(config.tmpDir, 'git-empty-hooks');
+  await fs.mkdir(dir, { recursive: true });
+  const entries = await fs.readdir(dir);
+  if (entries.length > 0) {
+    throw new Error(`[gitRepo] フックの置き場として使う空のフォルダに中身があります: ${dir}`);
+  }
+  return dir;
+}
+
+/** 全呼び出しの先頭に付ける、リポジトリ側の実行面を切る `-c`。 */
+async function isolationArgs(): Promise<string[]> {
+  return [
+    '-c',
+    `core.hooksPath=${await emptyHooksDir()}`,
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'commit.gpgSign=false',
+    '-c',
+    'log.showSignature=false',
+  ];
+}
+
+/** 外部 diff と textconv を切る。どちらも設定次第で任意のコマンドを起こす(diff・log・show)。 */
+const NO_EXTERNAL_DIFF = ['--no-ext-diff', '--no-textconv'];
+
+/**
+ * git の子へ渡す環境変数の許可リスト(名前は大文字で持ち、照合も大文字で行う。Windows の
+ * env は `Path` のように綴られる)。サーバの環境には TLS の鍵のパスフレーズや DB の接続情報が
+ * あり、git の子(とそれが起こすもの)へ丸ごと渡す理由が無い。
+ */
+const GIT_ENV_ALLOWED = new Set([
+  'PATH',
+  'SYSTEMROOT',
+  'TEMP',
+  'TMP',
+  'HOME',
+  'USERPROFILE',
+  'HOMEDRIVE',
+  'HOMEPATH',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMDATA',
+  'GIT_CONFIG_GLOBAL',
+  'GIT_CONFIG_SYSTEM',
+]);
+const GIT_ENV_ALLOWED_PREFIXES = ['GIT_AUTHOR_', 'GIT_COMMITTER_'];
+
+/**
+ * 許可リストだけを残した環境変数に `LC_ALL=C` と `extra` を重ねる。`LC_ALL=C` は stderr の
+ * 定型文(`index.lock`・`does not exist in`)を英語に固定するため。日本語のパスと
+ * メッセージはバイト列のまま扱われ、`core.quotepath=false` と UTF-8 の読みで崩れない。
+ */
+function gitChildEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    const upper = k.toUpperCase();
+    const allowed =
+      GIT_ENV_ALLOWED.has(upper) || GIT_ENV_ALLOWED_PREFIXES.some((p) => upper.startsWith(p));
+    if (allowed && v !== undefined) {
+      env[k] = v;
+    }
+  }
+  return { ...env, LC_ALL: 'C', ...extra };
+}
+
 // ── ユーザー由来引数の検証(git のオプション注入対策) ──
 // 呼び出しは `execFile` 直叩きなのでシェル注入は起きないが、`-` で始まる値を渡すと git は
 // それをオプションとして解釈する(`git show --output=<file>` はリポジトリ外のファイルを
@@ -45,7 +128,9 @@ const COMMON_ARGS = ['-c', 'core.quotepath=false'];
 
 /** リビジョン引数を「オプションと解釈されない形」に限る。`HEAD` はコード内定数用。 */
 function checkRevision(rev: string): string {
-  if (rev === 'HEAD' || isGitObjectId(rev)) return rev;
+  if (rev === 'HEAD' || isGitObjectId(rev)) {
+    return rev;
+  }
   throw validation(`版の指定が不正です: ${rev}`);
 }
 
@@ -63,7 +148,9 @@ function checkRelPath(relPath: string): string {
     relPath.startsWith('/') ||
     relPath.includes('\\') ||
     /(^|\/)\.\.(\/|$)/.test(relPath);
-  if (unsafe) throw validation(`ファイルの指定が不正です: ${relPath}`);
+  if (unsafe) {
+    throw validation(`ファイルの指定が不正です: ${relPath}`);
+  }
   return relPath;
 }
 
@@ -114,17 +201,19 @@ function isIndexLockError(e: unknown): boolean {
 }
 
 /**
- * `git <COMMON_ARGS> <args>` を gitRepoDir で実行し stdout を返す。
- * `env` を渡すと spawn 環境を差し替える(identity を環境変数で確定する commit で使う)。
+ * `git <無効化の -c> <COMMON_ARGS> <args>` を gitRepoDir で実行し stdout を返す。
+ * 環境変数は常に許可リスト(`gitChildEnv`)で、`env` はその上に重ねる(identity を環境変数で
+ * 確定する commit で使う)。
  * index.lock 競合だけはリトライする(失敗した git コマンドは効果を残さないため安全)。
  */
-async function git(args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<string> {
+async function git(args: string[], opts?: { env?: Record<string, string> }): Promise<string> {
   const run = async (): Promise<string> => {
-    const { stdout } = await execFileAsync(GIT_BIN, [...COMMON_ARGS, ...args], {
+    const argv = [...(await isolationArgs()), ...COMMON_ARGS, ...args];
+    const { stdout } = await execFileAsync(GIT_BIN, argv, {
       cwd: config.gitRepoDir,
       maxBuffer: 64 * 1024 * 1024,
       encoding: 'utf8',
-      env: opts?.env,
+      env: gitChildEnv(opts?.env),
       timeout: GIT_TIMEOUT_MS,
       killSignal: 'SIGKILL',
     });
@@ -134,7 +223,9 @@ async function git(args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<
     try {
       return await run();
     } catch (e) {
-      if (!isIndexLockError(e)) throw e;
+      if (!isIndexLockError(e)) {
+        throw e;
+      }
       await delay(ms);
     }
   }
@@ -159,11 +250,11 @@ function identityArgs(author: GitAuthor): string[] {
 
 // commit の author/committer を環境変数で確定する。`GIT_AUTHOR_*`/`GIT_COMMITTER_*` は
 // `user.*` config より優先されるため、外側の git フック等から漏れた `GIT_AUTHOR_NAME` が
-// `-c user.name` を上書きする事故(`gitRepo.test` 偽陽性の原因)を防ぐ。
-function identityEnv(author: GitAuthor): NodeJS.ProcessEnv {
+// `-c user.name` を上書きする事故(`gitRepo.test` 偽陽性の原因)を防ぐ。残りの環境変数は
+// `git()` が許可リストで組む。
+function identityEnv(author: GitAuthor): Record<string, string> {
   const { name, email } = resolveIdentity(author);
   return {
-    ...process.env,
     GIT_AUTHOR_NAME: name,
     GIT_AUTHOR_EMAIL: email,
     GIT_COMMITTER_NAME: name,
@@ -222,7 +313,9 @@ async function ensureGitignore(): Promise<void> {
   const existing = await fs.readFile(file, 'utf8').catch(() => '');
   const lines = existing.split('\n').map((l) => l.trim());
   const missing = required.filter((r) => !lines.includes(r));
-  if (missing.length === 0 && existing !== '') return;
+  if (missing.length === 0 && existing !== '') {
+    return;
+  }
   const merged = [...new Set([...lines.filter((l) => l !== ''), ...missing])];
   await fs.writeFile(file, `${merged.join('\n')}\n`, 'utf8');
 }
@@ -245,7 +338,9 @@ async function ensureGitattributes(): Promise<void> {
     .map((l) => l.trim())
     .filter((l) => l !== '' && l !== LEGACY_GITATTRIBUTES_LINE && l !== GITATTRIBUTES_LINE);
   const wanted = `${[GITATTRIBUTES_LINE, ...others].join('\n')}\n`;
-  if (existing === wanted) return;
+  if (existing === wanted) {
+    return;
+  }
   await fs.writeFile(file, wanted, 'utf8');
 }
 
@@ -259,7 +354,9 @@ async function ensureGitattributes(): Promise<void> {
  */
 async function ensureLongPaths(): Promise<void> {
   const current = await git(['config', '--get', 'core.longpaths']).catch(() => '');
-  if (current.trim() === 'true') return;
+  if (current.trim() === 'true') {
+    return;
+  }
   await git(['config', 'core.longpaths', 'true']);
 }
 
@@ -285,7 +382,13 @@ export async function ensureRepo(): Promise<void> {
   // 残っている状態で初期化されても、確定領域以外を追跡下へ入れない)。
   await stageTrackedAreas();
   await git(
-    [...identityArgs({ name: 'system' }), 'commit', '-m', '初期化: テンプレ版管理リポジトリ'],
+    [
+      ...identityArgs({ name: 'system' }),
+      'commit',
+      '--no-verify',
+      '-m',
+      '初期化: テンプレ版管理リポジトリ',
+    ],
     {
       env: identityEnv({ name: 'system' }),
     },
@@ -317,9 +420,13 @@ async function stageTrackedAreas(): Promise<void> {
       .stat(path.join(config.gitRepoDir, spec))
       .then(() => true)
       .catch(() => false);
-    if (exists) present.push(spec);
+    if (exists) {
+      present.push(spec);
+    }
   }
-  if (present.length === 0) return;
+  if (present.length === 0) {
+    return;
+  }
   await git(['add', '-A', '--', ...present]);
 }
 
@@ -334,13 +441,15 @@ export async function commitAll(message: string, author: GitAuthor): Promise<str
   // ステージに差分が無ければ commit しない(空コミット回避)。
   let dirty = true;
   try {
-    await git(['diff', '--cached', '--quiet']);
+    await git(['diff', ...NO_EXTERNAL_DIFF, '--cached', '--quiet']);
     dirty = false; // exit 0 = 差分なし
   } catch {
     dirty = true; // exit 1 = 差分あり
   }
   if (dirty) {
-    await git([...identityArgs(author), 'commit', '-m', message], { env: identityEnv(author) });
+    await git([...identityArgs(author), 'commit', '--no-verify', '-m', message], {
+      env: identityEnv(author),
+    });
   }
   return (await git(['rev-parse', 'HEAD'])).trim();
 }
@@ -371,10 +480,13 @@ export async function logForFile(relPath: string): Promise<GitCommitMeta[]> {
   // 検証はリポジトリ状態の判定より先に置く。未初期化時の早期 return に隠れて不正入力が
   // 素通り(= 検査がリポジトリ状態依存)になるのを避けるため。
   const spec = checkRelPath(relPath);
-  if (!(await isRepo()) || !(await hasHead())) return [];
+  if (!(await isRepo()) || !(await hasHead())) {
+    return [];
+  }
   // 版一覧も件数を有界にする(履歴は承認のたび伸びる一方で、画面が使うのは直近だけ)。
   const out = await git([
     'log',
+    ...NO_EXTERNAL_DIFF,
     `-n${MAX_LOG_COMMITS}`,
     '--follow',
     `--format=${LOG_FORMAT}`,
@@ -406,10 +518,13 @@ export async function logAllWithFiles(
   limit: number = MAX_LOG_COMMITS,
 ): Promise<GitCommitWithFiles[]> {
   const spec = checkRelPath(pathspec);
-  if (!(await isRepo()) || !(await hasHead())) return [];
+  if (!(await isRepo()) || !(await hasHead())) {
+    return [];
+  }
   const capped = Math.max(1, Math.min(Math.trunc(limit), MAX_LOG_COMMITS));
   const out = await git([
     'log',
+    ...NO_EXTERNAL_DIFF,
     `-n${capped}`,
     `--format=%x00${LOG_FORMAT}`,
     '--name-only',
@@ -418,10 +533,14 @@ export async function logAllWithFiles(
   ]);
   const records: GitCommitWithFiles[] = [];
   for (const chunk of out.split('\0')) {
-    if (chunk.trim() === '') continue;
+    if (chunk.trim() === '') {
+      continue;
+    }
     const [head, ...rest] = chunk.split('\n');
     const [meta] = parseLog(head);
-    if (!meta) continue;
+    if (!meta) {
+      continue;
+    }
     records.push({ ...meta, files: rest.map((l) => l.trim()).filter((l) => l.length > 0) });
   }
   return records;
@@ -431,6 +550,7 @@ export async function logAllWithFiles(
 export async function commitFiles(hash: string): Promise<string[]> {
   const out = await git([
     'show',
+    ...NO_EXTERNAL_DIFF,
     '--name-only',
     '--format=',
     '--end-of-options',
@@ -460,17 +580,26 @@ const PATH_ABSENT_MARKERS = ['does not exist in', 'exists on disk, but not in'];
 export async function showFile(hash: string, relPath: string): Promise<string> {
   const rev = `${checkRevision(hash)}:${checkRelPath(relPath)}`;
   try {
-    return await git(['show', '--end-of-options', rev]);
+    return await git(['show', ...NO_EXTERNAL_DIFF, '--end-of-options', rev]);
   } catch (e) {
     const err = e as { stderr?: string; message?: string };
     const text = `${err?.stderr ?? ''}${err?.message ?? ''}`;
-    if (PATH_ABSENT_MARKERS.some((m) => text.includes(m))) return '';
+    if (PATH_ABSENT_MARKERS.some((m) => text.includes(m))) {
+      return '';
+    }
     throw e;
   }
 }
 
 /** あるコミットの author date(ISO)。 */
 export async function commitDate(hash: string): Promise<string> {
-  const out = await git(['show', '-s', '--format=%aI', '--end-of-options', checkRevision(hash)]);
+  const out = await git([
+    'show',
+    ...NO_EXTERNAL_DIFF,
+    '-s',
+    '--format=%aI',
+    '--end-of-options',
+    checkRevision(hash),
+  ]);
   return out.trim();
 }

@@ -36,15 +36,22 @@ async function importConfigWithEnv(
   env: Partial<Record<(typeof PATH_ENV_KEYS)[number], string>>,
 ): Promise<ConfigModule> {
   const saved = new Map(PATH_ENV_KEYS.map((k) => [k, process.env[k]] as const));
-  for (const k of PATH_ENV_KEYS) delete process.env[k];
-  for (const [k, v] of Object.entries(env)) process.env[k] = v;
+  for (const k of PATH_ENV_KEYS) {
+    delete process.env[k];
+  }
+  for (const [k, v] of Object.entries(env)) {
+    process.env[k] = v;
+  }
   vi.resetModules();
   try {
     return await import('../src/config.js');
   } finally {
     for (const [k, v] of saved) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
     }
   }
 }

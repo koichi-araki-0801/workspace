@@ -49,7 +49,9 @@ export function createFinishTextEdit(
   let notifiedFor: Promise<void> | null = null;
   const editingNow = () => !!getEditor()?.getEditing();
   const stuck = (attempt: Promise<void> | null): false => {
-    if (attempt === null || attempt !== notifiedFor) onStuck?.(TEXT_EDIT_STUCK_MESSAGE);
+    if (attempt === null || attempt !== notifiedFor) {
+      onStuck?.(TEXT_EDIT_STUCK_MESSAGE);
+    }
     notifiedFor = attempt;
     return false;
   };
@@ -58,7 +60,9 @@ export function createFinishTextEdit(
       const view = getEditor()?.getEditing()?.getView() as
         | { disableEditing?: () => Promise<void> | void }
         | undefined;
-      if (!view?.disableEditing) return editingNow() ? stuck(null) : true;
+      if (!view?.disableEditing) {
+        return editingNow() ? stuck(null) : true;
+      }
       let res: Promise<void> | void;
       try {
         res = view.disableEditing();
@@ -101,6 +105,8 @@ export function afterTextEdit<A extends unknown[]>(
   op: (...args: A) => void,
 ): (...args: A) => Promise<void> {
   return async (...args: A) => {
-    if (await finishTextEdit()) op(...args);
+    if (await finishTextEdit()) {
+      op(...args);
+    }
   };
 }

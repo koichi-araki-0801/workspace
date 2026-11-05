@@ -325,8 +325,9 @@ async function replaceWord(
   const inputAt = await editing.evaluate(
     (el, [f, t]) => {
       for (const n of Array.from(el.childNodes)) {
-        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(f))
+        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(f)) {
           n.textContent = (n.textContent ?? '').replace(f, t);
+        }
       }
       el.dispatchEvent(new InputEvent('input', { bubbles: true }));
       return window.parent.performance.now();
@@ -350,7 +351,9 @@ test('余白のハンドルは canvas の上まで動かしても追随し、can
   const part = partLocator(frame).first();
   await selectPart(frame, part);
   const box = await page.getByTitle('下の余白をドラッグ').boundingBox();
-  if (!box) throw new Error('下の余白のハンドルが見えない');
+  if (!box) {
+    throw new Error('下の余白のハンドルが見えない');
+  }
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
   await page.mouse.move(x, y);
@@ -396,7 +399,9 @@ test('文字を変えたパーツに①が付き、押すと修正履歴がそ�
   const [markBox, partBox] = await Promise.all([mark.boundingBox(), changed.boundingBox()]);
   expect(markBox).not.toBeNull();
   expect(partBox).not.toBeNull();
-  if (!markBox || !partBox) throw new Error('目印かパーツの矩形が取れない');
+  if (!markBox || !partBox) {
+    throw new Error('目印かパーツの矩形が取れない');
+  }
   expect(Math.abs(markBox.x - partBox.x)).toBeLessThan(8);
   expect(Math.abs(markBox.y - partBox.y)).toBeLessThan(8);
 
@@ -407,7 +412,9 @@ test('文字を変えたパーツに①が付き、押すと修正履歴がそ�
   const markOnSelected = await mark.boundingBox();
   expect(gripBox).not.toBeNull();
   expect(markOnSelected).not.toBeNull();
-  if (!gripBox || !markOnSelected) throw new Error('つまみか目印の矩形が取れない');
+  if (!gripBox || !markOnSelected) {
+    throw new Error('つまみか目印の矩形が取れない');
+  }
   const intersects =
     gripBox.x < markOnSelected.x + markOnSelected.width &&
     markOnSelected.x < gripBox.x + gripBox.width &&
@@ -459,20 +466,26 @@ test('右ペインの読み上げ用の文字は、はみ出しを切る枠の�
         // いちばん近い、はみ出しを切る祖先(右ペインのスクロール枠・右ペインそのもの)。absolute の
         // 位置の基準(offsetParent)がその中に無いと、枠の外の静的位置に置かれて文書を伸ばしうる。
         let clip = el.parentElement;
-        while (clip && getComputedStyle(clip).overflowY === 'visible') clip = clip.parentElement;
+        while (clip && getComputedStyle(clip).overflowY === 'visible') {
+          clip = clip.parentElement;
+        }
         const parent = (el as HTMLElement).offsetParent;
         return { text: el.textContent, inside: parent !== null && clip?.contains(parent) === true };
       }),
     );
   const unselected = await where();
   expect(unselected.length).toBeGreaterThan(0);
-  for (const w of unselected) expect(w, JSON.stringify(unselected)).toMatchObject({ inside: true });
+  for (const w of unselected) {
+    expect(w, JSON.stringify(unselected)).toMatchObject({ inside: true });
+  }
 
   await selectPart(reloaded, partLocator(reloaded).filter({ hasText: '皆様' }));
   await expect(page.locator(`[data-selected-part] .${NUMBER_PILL_CLASS}`)).toHaveText('1');
   const selected = await where();
   expect(selected.some((w) => w.text?.startsWith('変更 1'))).toBe(true);
-  for (const w of selected) expect(w, JSON.stringify(selected)).toMatchObject({ inside: true });
+  for (const w of selected) {
+    expect(w, JSON.stringify(selected)).toMatchObject({ inside: true });
+  }
 });
 
 test('編集を元に戻して確定版と同じになれば、再読み込みで離脱の確認が出ない', async ({ page }) => {
@@ -500,7 +513,9 @@ test('編集を元に戻して確定版と同じになれば、再読み込み�
     .then(() => null)
     .catch((e: unknown) => e);
   expect(dialogs, '再読み込みで離脱の確認が出た').toEqual([]);
-  if (reloadError) throw reloadError;
+  if (reloadError) {
+    throw reloadError;
+  }
   const reloaded = page.frameLocator('iframe.gjs-frame');
   await partLocator(reloaded).first().waitFor({ state: 'visible', timeout: 30_000 });
 });
@@ -596,7 +611,9 @@ const CHANGE_MARKS = { notify: 'change-numbers:notify', run: 'change-numbers:run
  */
 async function trackChangeNumberRuns(page: Page): Promise<void> {
   await page.addInitScript((marks) => {
-    if (window.top !== window) return;
+    if (window.top !== window) {
+      return;
+    }
     const w = window as unknown as {
       __diffRuns: DiffRun[];
       __markerAt: number[];
@@ -613,12 +630,18 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
     tn.__notifyAt = [];
     tn.__runAt = [];
     new PerformanceObserver((list) => {
-      for (const e of list.getEntriesByName(marks.notify, 'mark')) tn.__notifyAt.push(e.startTime);
-      for (const e of list.getEntriesByName(marks.run, 'mark')) tn.__runAt.push(e.startTime);
+      for (const e of list.getEntriesByName(marks.notify, 'mark')) {
+        tn.__notifyAt.push(e.startTime);
+      }
+      for (const e of list.getEntriesByName(marks.run, 'mark')) {
+        tn.__runAt.push(e.startTime);
+      }
     }).observe({ type: 'mark' });
     try {
       new PerformanceObserver((list) => {
-        for (const e of list.getEntries()) w.__longTasks.push([e.startTime, e.duration]);
+        for (const e of list.getEntries()) {
+          w.__longTasks.push([e.startTime, e.duration]);
+        }
       }).observe({ type: 'longtask', buffered: true });
     } catch {
       // longtask を観測できない版では内訳を出さないだけ。
@@ -637,7 +660,9 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
           this.addEventListener('message', (e) => {
             const id = (e.data as { id?: unknown } | null)?.id;
             const r = byId.get(id);
-            if (!r) return;
+            if (!r) {
+              return;
+            }
             r.end = performance.now();
             byId.delete(id);
           });
@@ -648,7 +673,9 @@ async function trackChangeNumberRuns(page: Page): Promise<void> {
     let had = false;
     new MutationObserver(() => {
       const has = document.querySelector('[data-change-marker]') !== null;
-      if (has && !had) w.__markerAt.push(performance.now());
+      if (has && !had) {
+        w.__markerAt.push(performance.now());
+      }
       had = has;
     }).observe(document, { childList: true, subtree: true });
   }, CHANGE_MARKS);
@@ -737,15 +764,23 @@ test('大きい帳票でも番号の再計算が 1 回 1,500ms 以内(予約が�
     return { notifyAt: w.__notifyAt, runAt: w.__runAt };
   });
   const notifyAt = appMarks.notifyAt.find((t) => t > inputAt);
-  if (notifyAt === undefined) throw new Error('編集のあとの変更の通知が記録されていない');
+  if (notifyAt === undefined) {
+    throw new Error('編集のあとの変更の通知が記録されていない');
+  }
   const shownAt = markerAt.find((t) => t > notifyAt);
-  if (shownAt === undefined) throw new Error('目印の出現の時刻が記録されていない');
+  if (shownAt === undefined) {
+    throw new Error('目印の出現の時刻が記録されていない');
+  }
   // 目印を出した計算(worker へ投げた記録)と、予約が満了した時刻の目印を対で選ぶ。目印は予約の
   // 満了で打ち、計算はそのあと(計算中なら後で)投げるので、投げた時刻より前で最後の目印がその対。
   const run = runs.filter((r) => r.start > notifyAt && r.start < shownAt).at(-1);
-  if (!run || run.end === undefined) throw new Error('編集のあとの番号の計算が記録されていない');
+  if (!run || run.end === undefined) {
+    throw new Error('編集のあとの番号の計算が記録されていない');
+  }
   const runAt = appMarks.runAt.filter((t) => t > notifyAt && t <= run.start).at(-1);
-  if (runAt === undefined) throw new Error('予約が満了した時刻が記録されていない');
+  if (runAt === undefined) {
+    throw new Error('予約が満了した時刻が記録されていない');
+  }
   const notifyToMarker = shownAt - notifyAt;
   const measured = shownAt - runAt;
   const summary =

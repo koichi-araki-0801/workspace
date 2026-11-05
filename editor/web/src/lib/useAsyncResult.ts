@@ -41,7 +41,9 @@ export function useAsyncResult() {
     pending.value++;
     try {
       const res = await fn();
-      if (isErr(res)) report(res.error);
+      if (isErr(res)) {
+        report(res.error);
+      }
       return res;
     } catch (e) {
       const ae = toAppError(e);

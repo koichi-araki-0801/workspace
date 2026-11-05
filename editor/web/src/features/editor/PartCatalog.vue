@@ -123,13 +123,13 @@ const selectedPart = computed(() => parts.value.find((p) => p.id === selectedId.
 // 絞り込み結果が変わるたび、1 件なら自動選択し、選択中が消えていれば解除する。
 // (複数件のときは下のコンパクトリストでユーザーが 1 件を選ぶ)
 watch(parts, (list) => {
-  if (list.length === 1) selectedId.value = list[0].id;
-  else if (!list.some((p) => p.id === selectedId.value)) selectedId.value = null;
+  if (list.length === 1) { selectedId.value = list[0].id; }
+  else if (!list.some((p) => p.id === selectedId.value)) { selectedId.value = null; }
 });
 
 // 左の選択と右ペイン Inspector のメタ表示を揃えるため、選択確定で `select` を流す。
 watch(selectedPart, (p) => {
-  if (p) emit('select', p);
+  if (p) { emit('select', p); }
 });
 
 function onSelect(p: PartCatalogItem) {
@@ -137,7 +137,7 @@ function onSelect(p: PartCatalogItem) {
 }
 
 function onInsert() {
-  if (selectedPart.value) emit('insert', selectedPart.value);
+  if (selectedPart.value) { emit('insert', selectedPart.value); }
 }
 </script>
 

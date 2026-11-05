@@ -56,13 +56,19 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
  * 読めないため、「どの契約がずれたか」だけを行として返す。
  */
 const collectDifferences = (committed: unknown, generated: unknown, at: string): string[] => {
-  if (JSON.stringify(committed) === JSON.stringify(generated)) return [];
+  if (JSON.stringify(committed) === JSON.stringify(generated)) {
+    return [];
+  }
   if (isPlainObject(committed) && isPlainObject(generated)) {
     const keys = new Set([...Object.keys(committed), ...Object.keys(generated)]);
     return [...keys].flatMap((key) => {
       const where = `${at}/${key}`;
-      if (!(key in committed)) return [`+ ${where} = ${brief(generated[key])}`];
-      if (!(key in generated)) return [`- ${where} = ${brief(committed[key])}`];
+      if (!(key in committed)) {
+        return [`+ ${where} = ${brief(generated[key])}`];
+      }
+      if (!(key in generated)) {
+        return [`- ${where} = ${brief(committed[key])}`];
+      }
       return collectDifferences(committed[key], generated[key], where);
     });
   }
@@ -70,8 +76,12 @@ const collectDifferences = (committed: unknown, generated: unknown, at: string):
     const length = Math.max(committed.length, generated.length);
     return Array.from({ length }, (_, i) => i).flatMap((i) => {
       const where = `${at}[${i}]`;
-      if (i >= committed.length) return [`+ ${where} = ${brief(generated[i])}`];
-      if (i >= generated.length) return [`- ${where} = ${brief(committed[i])}`];
+      if (i >= committed.length) {
+        return [`+ ${where} = ${brief(generated[i])}`];
+      }
+      if (i >= generated.length) {
+        return [`- ${where} = ${brief(committed[i])}`];
+      }
       return collectDifferences(committed[i], generated[i], where);
     });
   }

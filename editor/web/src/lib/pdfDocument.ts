@@ -7,6 +7,8 @@
 // の担保でもある。
 
 import {
+  BUILD_BUSY_USER,
+  BUILD_BUSY_USER_MESSAGE,
   conflict,
   DOC_DIR,
   EXTERNAL_REF_MESSAGE,
@@ -37,7 +39,9 @@ export const PDF_ERROR_MSG = 'PDFの作成に失敗しました。時間をお�
 
 /**
  * ビルド API(`path`)へ JSON を POST して PDF の Blob を受ける。HTTP エラーは `PDF_ERROR_MSG`
- * の conflict にする。通信自体の失敗(fetch の reject)は呼び出し側の catch に任せる。
+ * の conflict にする。ただし人ごとの上限の 503(`BUILD_BUSY_USER`)だけは、利用者が次に
+ * することが違う(前の出力を待つ)ので、その文言を出す。通信自体の失敗(fetch の reject)は
+ * 呼び出し側の catch に任せる。
  */
 export async function postBuild(path: string, body: unknown): Promise<Result<Blob>> {
   const res = await fetch(apiUrl(path), {
@@ -45,8 +49,30 @@ export async function postBuild(path: string, body: unknown): Promise<Result<Blo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) return err(conflict(PDF_ERROR_MSG, { cause: `HTTP ${res.status}` }));
+  if (!res.ok) {
+    const cause = `HTTP ${res.status}`;
+    if (await isBuildBusyUser(res)) {
+      return err(conflict(BUILD_BUSY_USER_MESSAGE, { cause, code: BUILD_BUSY_USER }));
+    }
+    return err(conflict(PDF_ERROR_MSG, { cause }));
+  }
   return ok(await res.blob());
+}
+
+/**
+ * 応答が人ごとの上限の 503 か。文言は応答の本文を使わず shared の定数で出す(code だけを
+ * 見る)。本文が読めない・JSON でないときは、ほかの失敗と同じ扱いにする。
+ */
+async function isBuildBusyUser(res: Response): Promise<boolean> {
+  if (res.status !== 503) {
+    return false;
+  }
+  try {
+    const body = (await res.json()) as { code?: unknown } | null;
+    return body?.code === BUILD_BUSY_USER;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -58,7 +84,9 @@ function findExternalRefsInDom(root: Element): string[] {
   const refs: string[] = [];
   for (const el of Array.from(root.querySelectorAll('*'))) {
     const tag = el.tagName.toLowerCase();
-    if (fetchUrlAttrsFor(tag).length === 0) continue;
+    if (fetchUrlAttrsFor(tag).length === 0) {
+      continue;
+    }
     const attrs = Array.from(el.attributes).map((a) => ({ name: a.name, value: a.value }));
     refs.push(...findExternalRefsInTag(tag, attrs));
   }
@@ -81,13 +109,17 @@ function dropUnmatchedCompanyImages(root: Element, companyCode: string | null): 
   for (const style of Array.from(root.querySelectorAll('style'))) {
     const css = style.textContent ?? '';
     const next = dropUnmatchedCompanyImageUrls(css, DOC_DIR, companyCode);
-    if (next !== css) style.textContent = next;
+    if (next !== css) {
+      style.textContent = next;
+    }
   }
   for (const el of [root, ...Array.from(root.querySelectorAll('*'))]) {
     for (const { name, value } of Array.from(el.attributes)) {
       if (name === 'style') {
         const next = dropUnmatchedCompanyImageUrls(value, DOC_DIR, companyCode);
-        if (next !== value) el.setAttribute('style', next);
+        if (next !== value) {
+          el.setAttribute('style', next);
+        }
       } else if (unmatched(value) || attrUrlCandidates(name, value).some(unmatched)) {
         el.removeAttribute(name);
       }
@@ -118,7 +150,9 @@ export async function renderPdfDocument(
     // `html` は申請者・生成器が書いたテンプレ本文で、nunjucks は**コンパイラ**であるため
     // アプリのオリジンで走らせるとテンプレの字面がそのまま JS 実行になる。
     const rendered = await renderJinjaIsolated(html, sample);
-    if (rendered.error) return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
+    if (rendered.error) {
+      return err(conflict(PDF_ERROR_MSG, { cause: rendered.error }));
+    }
     renderedHtml = rendered.html;
   }
   // **script は落とさない**(`sanitizePdfRoot`)。テンプレの JS は開発者が生成時に埋め込む

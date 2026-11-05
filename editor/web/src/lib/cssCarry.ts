@@ -77,7 +77,9 @@ export function splitNestedFontFaces(css: string): CarriedCss {
     }
     stmtStart = p.at + 1;
   }
-  if (found.length === 0) return { rest: css, carried: [] };
+  if (found.length === 0) {
+    return { rest: css, carried: [] };
+  }
   let rest = '';
   let pos = 0;
   for (const f of found) {

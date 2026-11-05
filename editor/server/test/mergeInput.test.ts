@@ -15,7 +15,9 @@ import { cleanupProject } from '../src/vivliostyle/projectInput.js';
 const created: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
-  while (created.length) await cleanupProject(created.pop() as string);
+  while (created.length) {
+    await cleanupProject(created.pop() as string);
+  }
 });
 
 describe('stripPageCounterReset', () => {
@@ -119,7 +121,9 @@ describe('BuildMergeRequest schema', () => {
   it('accepts 1..30 documents and fills css default', () => {
     const one = BuildMergeRequest.safeParse({ documents: [{ html: '<p>x</p>' }] });
     expect(one.success).toBe(true);
-    if (one.success) expect(one.data.documents[0].css).toBe('');
+    if (one.success) {
+      expect(one.data.documents[0].css).toBe('');
+    }
   });
 
   it('rejects empty list, empty html and >30 documents', () => {

@@ -30,8 +30,12 @@ export function createCleanCheck(ctx: {
    */
   async function settle(body?: string): Promise<boolean> {
     const base = ctx.canonical();
-    if (!base || !ctx.dirty.value) return false;
-    if ((body ?? ctx.readBody()) !== base.html || ctx.readCss() !== base.css) return false;
+    if (!base || !ctx.dirty.value) {
+      return false;
+    }
+    if ((body ?? ctx.readBody()) !== base.html || ctx.readCss() !== base.css) {
+      return false;
+    }
     ctx.dirty.value = false;
     await ctx.onClean();
     return true;

@@ -52,7 +52,9 @@ function fakeAuthRepo(): AuthRepository {
   return {
     async login({ username, password }) {
       const found = TEST_USERS.find((u) => u.username === username && u.password === password);
-      if (!found) return err(unauthorized('ユーザー名またはパスワードが違います'));
+      if (!found) {
+        return err(unauthorized('ユーザー名またはパスワードが違います'));
+      }
       const { password: _, ...user } = found;
       session = user;
       return ok({ user, mustChangePassword: user.mustChangePassword });
@@ -74,8 +76,12 @@ function fakeAuthRepo(): AuthRepository {
 function strictRepo<T extends object>(name: string, impl: Partial<T>): T {
   return new Proxy(impl as T, {
     get(target, prop, receiver) {
-      if (prop in target) return Reflect.get(target, prop, receiver);
-      if (typeof prop === 'symbol' || prop === 'then') return undefined;
+      if (prop in target) {
+        return Reflect.get(target, prop, receiver);
+      }
+      if (typeof prop === 'symbol' || prop === 'then') {
+        return undefined;
+      }
       return () => {
         throw new Error(`fake: ${name}.${prop} は未実装`);
       };

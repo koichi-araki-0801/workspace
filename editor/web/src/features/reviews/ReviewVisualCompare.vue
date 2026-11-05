@@ -71,7 +71,7 @@ const warnHighlightDropped = import.meta.env.DEV
  */
 const rejected = computed<{ signature: string; keys: ReadonlySet<string> }>((previous) => {
   const signature = rejectedSignature(props.decisions);
-  if (previous?.signature === signature) return previous;
+  if (previous?.signature === signature) { return previous; }
   const keys = new Set(
     props.decisions.filter((d) => d.status === 'rejected').map((d) => d.partKey),
   );
@@ -119,7 +119,7 @@ const knownNos = computed(() => new Set(props.changes.map((c) => String(c.no))))
 /** 目印は毎回新しいオブジェクトで渡す(PreviewPanel の watch は参照で比べる)。 */
 const marks = computed<PreviewMarks>(() => {
   const states: PreviewMarks['states'] = {};
-  for (const c of props.changes) states[String(c.no)] = decisionOf(props.decisions, c.partKey);
+  for (const c of props.changes) { states[String(c.no)] = decisionOf(props.decisions, c.partKey); }
   return {
     states,
     selected: props.selectedNo === null ? null : String(props.selectedNo),
@@ -180,7 +180,7 @@ function onAfterPartPages(pages: Record<string, number>): void {
  */
 const changedPages = computed<number[]>(() => {
   const pages = afterPartPages.value;
-  if (pages === null || !afterState.value.ready) return [];
+  if (pages === null || !afterState.value.ready) { return []; }
   const count = afterState.value.pageCount;
   return [...new Set(Object.values(pages).filter((p) => p < count))].sort((a, b) => a - b);
 });
@@ -218,7 +218,7 @@ function sendGotoPart(no: number): void {
 
 /** パーツの最初の断片のページへ左右とも移る。知らない番号は無視する。 */
 function gotoPart(no: number): void {
-  if (!knownNos.value.has(String(no))) return;
+  if (!knownNos.value.has(String(no))) { return; }
   if (!panelsReady()) {
     pendingPart.value = no;
     return;
@@ -229,8 +229,8 @@ function gotoPart(no: number): void {
 function sendGotoPage(index: number): void {
   const beforeId = beforeDoc.value?.pageAnchors[index];
   const afterId = afterDoc.value.pageAnchors[index];
-  if (beforeId) beforePanel.value?.gotoAnchor(beforeId);
-  if (afterId) afterPanel.value?.gotoAnchor(afterId);
+  if (beforeId) { beforePanel.value?.gotoAnchor(beforeId); }
+  if (afterId) { afterPanel.value?.gotoAnchor(afterId); }
 }
 
 /**
@@ -249,11 +249,11 @@ function gotoPage(index: number): void {
 }
 
 watch([afterState, beforeState], () => {
-  if (!panelsReady()) return;
+  if (!panelsReady()) { return; }
   if (pendingPart.value !== null) {
     const no = pendingPart.value;
     pendingPart.value = null;
-    if (knownNos.value.has(String(no))) sendGotoPart(no);
+    if (knownNos.value.has(String(no))) { sendGotoPart(no); }
   }
   if (pendingPageIndex.value !== null) {
     const index = pendingPageIndex.value;
@@ -273,16 +273,16 @@ watch(
       afterPartPages.value = null;
       afterState.value = { ...afterState.value, ready: false };
     }
-    if (b !== oldB) beforeState.value = { ...beforeState.value, ready: false };
-    if (props.selectedNo !== null) pendingPart.value = props.selectedNo;
+    if (b !== oldB) { beforeState.value = { ...beforeState.value, ready: false }; }
+    if (props.selectedNo !== null) { pendingPart.value = props.selectedNo; }
   },
   { flush: 'sync' },
 );
-if (props.selectedNo !== null) pendingPart.value = props.selectedNo;
+if (props.selectedNo !== null) { pendingPart.value = props.selectedNo; }
 
 /** 紙面のパーツの押下。知らない番号(テンプレ JS が偽れる)は無視する。 */
 function onPartClick(no: string): void {
-  if (knownNos.value.has(no)) emit('select', Number(no));
+  if (knownNos.value.has(no)) { emit('select', Number(no)); }
 }
 
 defineExpose({ gotoPart, gotoPage });

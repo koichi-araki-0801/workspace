@@ -31,6 +31,7 @@
     "format": "biome format --write .",
     "check": "biome check --write .",
     "check:ci": "biome ci .",
+    "lint:blocks": "biome lint --config-path=scripts/biome-blocks.json pie-chart scripts",
     "check:comments": "py -3.13 scripts/check-comments.py",
     "check:claude-hooks": "node scripts/check-claude-hooks.mjs",
     "check:canon-summary": "node scripts/check-canon-summary.mjs",
@@ -39,16 +40,17 @@
     "clean": "node scripts/clean.mjs",
     "clean:deep": "node scripts/clean.mjs --deep",
     "clean:bundles": "node scripts/clean.mjs --bundles",
-    "ci": "pnpm run check:comments && pnpm run check:canon-summary && pnpm run check:claude-hooks && pnpm run check:ci && pnpm run knip && pnpm run test:scripts && pnpm run typecheck && pnpm run test:coverage && pnpm run test:docs && pnpm run pie-chart:batch && pnpm run pie-chart:batch:diff && pnpm run build && pnpm run test:e2e",
+    "ci": "pnpm run check:comments && pnpm run check:canon-summary && pnpm run check:claude-hooks && pnpm run check:ci && pnpm run lint:blocks && pnpm run knip && pnpm run test:scripts && pnpm run typecheck && pnpm run test:coverage && pnpm run test:docs && pnpm run pie-chart:batch && pnpm run pie-chart:batch:diff && pnpm run build && pnpm run test:e2e",
     "ci:editor": "node scripts/ci-affected.mjs --area editor",
     "ci:pie-chart": "node scripts/ci-affected.mjs --area pie-chart",
     "ci:affected": "node scripts/ci-affected.mjs",
     "prepare": "husky || true",
     "test:docs": "py -3.13 -m pytest docs/_build",
-    "ci:offline": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$m = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -lt 5 } | Sort-Object Version -Descending | Select-Object -First 1; if (-not $m) { Write-Error 'Pester 3/4 が見つかりません。offline と editor のスクリプト・パッチの *.Tests.ps1 は Pester 3/4 の書式で、Windows 標準の Pester 3.4 で動かします。'; exit 1 }; Import-Module Pester -RequiredVersion $m.Version -Force; Invoke-Pester -Script @('offline/lib/verify.Tests.ps1', 'editor/scripts/init-data-repo.Tests.ps1') -EnableExit\""
+    "ci:offline": "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$m = Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -lt 5 } | Sort-Object Version -Descending | Select-Object -First 1; if (-not $m) { Write-Error 'Pester 3/4 が見つかりません。offline と editor のスクリプト・パッチの *.Tests.ps1 は Pester 3/4 の書式で、Windows 標準の Pester 3.4 で動かします。'; exit 1 }; Import-Module Pester -RequiredVersion $m.Version -Force; Invoke-Pester -Script @('offline/lib/verify.Tests.ps1', 'editor/scripts/init-data-repo.Tests.ps1', 'editor/server/db/apply.Tests.ps1') -EnableExit\""
   },
   "lint-staged": {
-    "editor/**/*.{ts,vue,css,json}": "biome check --write --no-errors-on-unmatched"
+    "editor/**/*.{ts,vue,css,json}": "biome check --write --no-errors-on-unmatched",
+    "{pie-chart/**/*.{ts,mjs,cjs,js},scripts/**/*.{mjs,cjs,js}}": "biome lint --config-path=scripts/biome-blocks.json --no-errors-on-unmatched"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.2",

@@ -192,7 +192,9 @@ describe('checkGeneratorAtStartup', () => {
       expect(args).toEqual(['-c', expect.stringContaining('sys.version_info')]);
       expect(log.info).toHaveBeenCalledWith(expect.stringContaining('3.13(python)'));
     } finally {
-      if (saved !== undefined) process.env.PYTHON_BIN = saved;
+      if (saved !== undefined) {
+        process.env.PYTHON_BIN = saved;
+      }
       vi.resetModules();
     }
   });

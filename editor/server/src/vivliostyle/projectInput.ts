@@ -158,8 +158,12 @@ export function isPostcssConfigName(rel: string): boolean {
 function isAllowedEntryName(rel: string): boolean {
   const base = rel.toLowerCase().split('/').pop() ?? '';
   // Windows は末尾の `.` / 空白 / ADS を落として別名で作成する。分類の前に落とす。
-  if (base !== base.trim() || base.endsWith('.') || base.includes(':')) return false;
-  if (isNpmArtifact(rel)) return false;
+  if (base !== base.trim() || base.endsWith('.') || base.includes(':')) {
+    return false;
+  }
+  if (isNpmArtifact(rel)) {
+    return false;
+  }
   return [...ALLOWED_EXTENSIONS].some((ext) => base.endsWith(ext));
 }
 
@@ -224,7 +228,9 @@ export function safeEntryPath(root: string, name: string): string {
   const normalized = name.replace(/\\/g, '/');
   // `path.resolve` は NUL を含むパスで TypeError を投げる(= 500)。ここで 400 に落とす。
   // zip エントリ名にも NUL は入りうるので、`safeProjectEntry` 側だけでなくここでも見る。
-  if (name.includes('\0')) throw validation(`不正なエントリパスです: ${name}`);
+  if (name.includes('\0')) {
+    throw validation(`不正なエントリパスです: ${name}`);
+  }
   if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
     throw validation(`不正なエントリパスです: ${name}`);
   }
@@ -306,7 +312,9 @@ export function assertDeclaredEntryCount(zip: Buffer): void {
       break;
     }
   }
-  if (eocd < 0) throw validation('プロジェクト zip の形式が不正です');
+  if (eocd < 0) {
+    throw validation('プロジェクト zip の形式が不正です');
+  }
 
   let entries = zip.readUInt16LE(eocd + 10);
   let cdBytes = zip.readUInt32LE(eocd + 12);
@@ -399,7 +407,9 @@ async function extractEntry(
  * 上流からは見えないため `assertWithinExtractLimits` がここで受け持つ(→ 400)。
  */
 export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> {
-  if (zip.length === 0) throw validation('プロジェクト zip が空です');
+  if (zip.length === 0) {
+    throw validation('プロジェクト zip が空です');
+  }
   // materialize(`archive.entries()`)の**前**に申告値で足切りする。
   assertDeclaredEntryCount(zip);
 
@@ -429,7 +439,9 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
           }
           continue;
         }
-        if (isIgnorableEntry(rel)) continue;
+        if (isIgnorableEntry(rel)) {
+          continue;
+        }
         // 拡張子は許可内でも(`.postcssrc.json`)取り込まない。拡張子一覧の文言は理由にならないので
         // 専用の文にする。
         if (isPostcssConfigName(rel)) {
@@ -470,7 +482,9 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
       await fs.rm(zipPath, { force: true });
     }
 
-    if (fileCount === 0) throw validation('プロジェクト zip にファイルがありません');
+    if (fileCount === 0) {
+      throw validation('プロジェクト zip にファイルがありません');
+    }
 
     // temp ディレクトリはこのリポジトリ配下にあり、その package.json は "type":"module"。
     // 最近傍 package.json 解決がリポジトリ側まで登らないよう、プロジェクトが同梱しない場合は
@@ -478,7 +492,9 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     // 引き継がないようにする)。zip 同梱の `package.json` は拡張子許可リスト側で拒否済み
     // なので、ここで置くのは常に我々の空ファイルである。
     const pkg = path.join(dir, 'package.json');
-    if (!existsSync(pkg)) await fs.writeFile(pkg, '{}\n', 'utf8');
+    if (!existsSync(pkg)) {
+      await fs.writeFile(pkg, '{}\n', 'utf8');
+    }
     // PostCSS 設定の親方向探索をここで止める(`POSTCSS_STOPPER`)。zip 同梱の同名ファイルは
     // `isPostcssConfigName` で拒否済みなので、ここで置くのは常に我々の空ファイルである。
     await fs.writeFile(path.join(dir, POSTCSS_STOPPER), '{}\n', 'utf8');
@@ -520,7 +536,9 @@ export async function extractProjectZip(zip: Buffer): Promise<ExtractedProject> 
     await cleanupProject(dir);
     // 破損または悪意あるアーカイブは不正入力 → 500 ではなく 400。node-stream-zip は独自の
     // "Malicious entry" ガードを上げるため、その種の失敗はすべて validation として表面化する。
-    if (isAppError(e)) throw e;
+    if (isAppError(e)) {
+      throw e;
+    }
     throw validation('プロジェクト zip の展開に失敗しました', { cause: e });
   }
 }
@@ -544,8 +562,11 @@ async function findConfigFiles(root: string): Promise<string[]> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
     for (const e of entries) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) queue.push(full);
-      else if (isConfigFileName(e.name)) found.push(full);
+      if (e.isDirectory()) {
+        queue.push(full);
+      } else if (isConfigFileName(e.name)) {
+        found.push(full);
+      }
     }
   }
   return found;

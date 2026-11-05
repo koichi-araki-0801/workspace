@@ -29,7 +29,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (root) await fs.rm(root, { recursive: true, force: true });
+  if (root) {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });
 
 describe('inlineDocScripts — 展開の対象', () => {

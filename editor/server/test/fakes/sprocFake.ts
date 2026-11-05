@@ -259,10 +259,14 @@ const bin = (v: unknown): Buffer => (Buffer.isBuffer(v) ? v : Buffer.alloc(0));
 /** `EXEC <proc> @a=?, @b=?` と位置指定の値から、proc 名と 名前→値 の対応を組む。 */
 function parseCall(sql: string, values: unknown[]): { proc: string; args: Args } {
   const m = /^EXEC (\S+)(?: (@.*))?$/.exec(sql);
-  if (!m) throw sqlError(50000, `フェイクが解釈できない SQL です: ${sql}`);
+  if (!m) {
+    throw sqlError(50000, `フェイクが解釈できない SQL です: ${sql}`);
+  }
   const names = [...(m[2] ?? '').matchAll(/@([^=,\s]+)=\?/g)].map((x) => x[1]);
   const args: Args = new Map();
-  for (const [i, name] of names.entries()) args.set(name, values[i] ?? null);
+  for (const [i, name] of names.entries()) {
+    args.set(name, values[i] ?? null);
+  }
   return { proc: m[1], args };
 }
 
@@ -296,7 +300,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
       作成順: order++,
     });
   });
-  for (const f of seed.funds ?? DEFAULT_FUNDS) funds.set(f.code, f);
+  for (const f of seed.funds ?? DEFAULT_FUNDS) {
+    funds.set(f.code, f);
+  }
 
   /** 台帳の公開列だけを写す(ハッシュ列は `認証情報取得` 以外へ出さない)。 */
   const publicUser = (r: UserRow): Row => ({
@@ -311,24 +317,29 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     [...users.values()].find((u) => u.ログインID === loginId);
 
   function userOp(op: string, a: Args): Row[] {
-    if (op === '一覧')
+    if (op === '一覧') {
       return [...users.values()].sort((x, y) => x.作成順 - y.作成順).map(publicUser);
+    }
 
     if (op === '作成') {
       const 公開ID = text(a, '公開ID');
       const ログインID = text(a, 'ログインID');
       const 表示名 = text(a, '表示名');
       const ロール = text(a, 'ロール');
-      if (!公開ID || !ログインID || !表示名 || !ロール)
+      if (!公開ID || !ログインID || !表示名 || !ロール) {
         throw sqlError(50000, '公開ID・ログインID・表示名・ロール が必要です');
-      if (byLoginId(ログインID)) throw sqlError(50409, 'このログインIDは既に使われています');
+      }
+      if (byLoginId(ログインID)) {
+        throw sqlError(50409, 'このログインIDは既に使われています');
+      }
       // `公開ID` の重複は自前 THROW でなく主キー違反として届く。番号が違えば `mapSqlError` の
       // 経路も違う(2627 は文言を転送せず定型文へ倒す)ので、そこまで写す。
-      if (users.has(公開ID))
+      if (users.has(公開ID)) {
         throw sqlError(
           2627,
           "Violation of PRIMARY KEY constraint 'PK_ユーザー'. Cannot insert duplicate key.",
         );
+      }
       const row: UserRow = {
         公開ID,
         ログインID,
@@ -347,9 +358,13 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
 
     if (op === '更新') {
       const 公開ID = text(a, '公開ID');
-      if (!公開ID) throw sqlError(50000, '公開ID が必要です');
+      if (!公開ID) {
+        throw sqlError(50000, '公開ID が必要です');
+      }
       const row = users.get(公開ID);
-      if (!row) throw sqlError(50404, 'ユーザーが見つかりません');
+      if (!row) {
+        throw sqlError(50404, 'ユーザーが見つかりません');
+      }
       // COALESCE と同じで、NULL は据え置き。
       row.表示名 = optText(a, '表示名') ?? row.表示名;
       row.ロール = optText(a, 'ロール') ?? row.ロール;
@@ -360,23 +375,32 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
 
     if (op === 'PWリセット') {
       const 公開ID = text(a, '公開ID');
-      if (!公開ID || !Buffer.isBuffer(a.get('PWハッシュ')) || !Buffer.isBuffer(a.get('PWソルト')))
+      if (!公開ID || !Buffer.isBuffer(a.get('PWハッシュ')) || !Buffer.isBuffer(a.get('PWソルト'))) {
         throw sqlError(50000, '公開ID・仮ハッシュ が必要です');
+      }
       const row = users.get(公開ID);
-      if (!row) throw sqlError(50404, 'ユーザーが見つかりません');
+      if (!row) {
+        throw sqlError(50404, 'ユーザーが見つかりません');
+      }
       row.PWハッシュ = bin(a.get('PWハッシュ'));
       row.PWソルト = bin(a.get('PWソルト'));
       row.PW反復回数 = int(a.get('PW反復回数')) ?? row.PW反復回数;
       row.要パスワード変更 = 1;
       // 管理者リセットは乗っ取り疑いの経路なので、除外なしで全セッションを失効させる。
       // 資格情報の差し替えと失効は不可分(片方だけが残ると守りが無効になる)。
-      for (const s of sessions.values()) if (s.ログインID === row.ログインID) s.失効 = 1;
+      for (const s of sessions.values()) {
+        if (s.ログインID === row.ログインID) {
+          s.失効 = 1;
+        }
+      }
       return [];
     }
 
     if (op === '認証情報取得') {
       const ログインID = text(a, 'ログインID');
-      if (!ログインID) throw sqlError(50000, 'ログインID が必要です');
+      if (!ログインID) {
+        throw sqlError(50000, 'ログインID が必要です');
+      }
       const row = byLoginId(ログインID);
       return row
         ? [
@@ -396,18 +420,24 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
         !ログインID ||
         !Buffer.isBuffer(a.get('PWハッシュ')) ||
         !Buffer.isBuffer(a.get('PWソルト'))
-      )
+      ) {
         throw sqlError(50000, 'ログインID・新ハッシュ が必要です');
+      }
       const row = byLoginId(ログインID);
-      if (!row) throw sqlError(50404, 'ユーザーが見つかりません');
+      if (!row) {
+        throw sqlError(50404, 'ユーザーが見つかりません');
+      }
       row.PWハッシュ = bin(a.get('PWハッシュ'));
       row.PWソルト = bin(a.get('PWソルト'));
       row.PW反復回数 = int(a.get('PW反復回数')) ?? row.PW反復回数;
       row.要パスワード変更 = 0;
       // 操作中の自分だけ残して他端末を蹴る。書き換えと失効は同一操作で行う。
       const except = optText(a, '除外セッションID') ?? '';
-      for (const s of sessions.values())
-        if (s.ログインID === ログインID && s.失効 === 0 && s.セッションID !== except) s.失効 = 1;
+      for (const s of sessions.values()) {
+        if (s.ログインID === ログインID && s.失効 === 0 && s.セッションID !== except) {
+          s.失効 = 1;
+        }
+      }
       return [];
     }
 
@@ -419,8 +449,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
       const セッションID = text(a, 'セッションID');
       const ログインID = text(a, 'ログインID');
       const 有効期限 = a.get('有効期限');
-      if (!セッションID || !ログインID || !(有効期限 instanceof Date))
+      if (!セッションID || !ログインID || !(有効期限 instanceof Date)) {
         throw sqlError(50000, 'セッションID・ログインID・有効期限 が必要です');
+      }
       sessions.set(セッションID, {
         セッションID,
         ログインID,
@@ -433,9 +464,13 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
 
     if (op === '取得') {
       const セッションID = text(a, 'セッションID');
-      if (!セッションID) throw sqlError(50000, 'セッションID が必要です');
+      if (!セッションID) {
+        throw sqlError(50000, 'セッションID が必要です');
+      }
       const s = sessions.get(セッションID);
-      if (!s || s.失効 === 1 || s.有効期限.getTime() <= Date.now()) return [];
+      if (!s || s.失効 === 1 || s.有効期限.getTime() <= Date.now()) {
+        return [];
+      }
       s.最終アクセス = new Date();
       const u = byLoginId(s.ログインID);
       return u ? [publicUser(u)] : [];
@@ -443,23 +478,35 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
 
     if (op === '失効') {
       const セッションID = text(a, 'セッションID');
-      if (!セッションID) throw sqlError(50000, 'セッションID が必要です');
+      if (!セッションID) {
+        throw sqlError(50000, 'セッションID が必要です');
+      }
       const s = sessions.get(セッションID);
-      if (s) s.失効 = 1;
+      if (s) {
+        s.失効 = 1;
+      }
       return [];
     }
 
     if (op === '全失効') {
-      for (const s of sessions.values()) s.失効 = 1;
+      for (const s of sessions.values()) {
+        s.失効 = 1;
+      }
       return [];
     }
 
     if (op === '掃除') {
       const 保持日数 = int(a.get('保持日数'));
-      if (保持日数 === undefined) throw sqlError(50000, '保持日数 が必要です');
+      if (保持日数 === undefined) {
+        throw sqlError(50000, '保持日数 が必要です');
+      }
       // 境界は「有効期限が保持日数ぶん過去」。now 単体にすると期限内の行まで消える。
       const border = Date.now() - 保持日数 * 86_400_000;
-      for (const [id, s] of sessions) if (s.有効期限.getTime() < border) sessions.delete(id);
+      for (const [id, s] of sessions) {
+        if (s.有効期限.getTime() < border) {
+          sessions.delete(id);
+        }
+      }
       return [];
     }
 
@@ -470,7 +517,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     if (op === '委託会社一覧') {
       const byCode = new Map<string, { 名: string; 略: string }>();
       for (const f of funds.values()) {
-        if (!byCode.has(rep1Of(f))) byCode.set(rep1Of(f), { 名: f.companyName, 略: f.companyCode });
+        if (!byCode.has(rep1Of(f))) {
+          byCode.set(rep1Of(f), { 名: f.companyName, 略: f.companyCode });
+        }
       }
       return [...byCode.entries()]
         .sort(([x], [y]) => x.localeCompare(y))
@@ -479,7 +528,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
 
     if (op === 'ファンド一覧') {
       const company = text(a, '委託会社コード');
-      if (!company) throw sqlError(50000, '委託会社コードが必要です');
+      if (!company) {
+        throw sqlError(50000, '委託会社コードが必要です');
+      }
       // 実 DB は Japanese_CI_AS 前提なので大文字小文字を区別しない。
       return [...funds.values()]
         .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
@@ -507,21 +558,32 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     if (op === '分類候補') {
       const out: Row[] = [];
       const push = (区分: string, 値: string) => {
-        if (!out.some((r) => r.区分 === 区分 && r.値 === 値)) out.push({ 区分, 値 });
+        if (!out.some((r) => r.区分 === 区分 && r.値 === 値)) {
+          out.push({ 区分, 値 });
+        }
       };
-      for (const q of visible) push('カテゴリ', q.category);
-      for (const q of visible)
-        if (!category || q.category === category) push('大分類', q.majorClass);
-      for (const q of visible)
-        if ((!category || q.category === category) && (!major || q.majorClass === major))
+      for (const q of visible) {
+        push('カテゴリ', q.category);
+      }
+      for (const q of visible) {
+        if (!category || q.category === category) {
+          push('大分類', q.majorClass);
+        }
+      }
+      for (const q of visible) {
+        if ((!category || q.category === category) && (!major || q.majorClass === major)) {
           push('中分類', q.middleClass);
-      for (const q of visible)
+        }
+      }
+      for (const q of visible) {
         if (
           (!category || q.category === category) &&
           (!major || q.majorClass === major) &&
           (!middle || q.middleClass === middle)
-        )
+        ) {
           push('小分類', q.minorClass);
+        }
+      }
       return out;
     }
 
@@ -578,7 +640,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
     if (op === '取得') {
       const ファンドコード = text(a, 'ファンドコード');
       const 版種 = text(a, '版種');
-      if (!ファンドコード || !版種) throw sqlError(50000, 'ファンドコードと版種が必要です');
+      if (!ファンドコード || !版種) {
+        throw sqlError(50000, 'ファンドコードと版種が必要です');
+      }
       return [...notes.values()]
         .filter((n) => n.ファンドコード === ファンドコード && n.版種 === 版種)
         .sort((x, y) => x.順 - y.順)
@@ -588,8 +652,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
       const パーツID = text(a, 'パーツID');
       const ファンドコード = text(a, 'ファンドコード');
       const 版種 = text(a, '版種');
-      if (!パーツID || !ファンドコード || !版種)
+      if (!パーツID || !ファンドコード || !版種) {
         throw sqlError(50000, 'パーツID・ファンドコード・版種が必要です');
+      }
       const k = key(パーツID, ファンドコード, 版種);
       const prev = notes.get(k);
       notes.set(k, {
@@ -608,8 +673,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
   function auditOp(op: string, a: Args): Row[] {
     if (op === '登録') {
       // 行は保持しない(監査の source of truth はファイルログ)。必須列の欠落だけを写す。
-      if (!text(a, 'イベント') || !text(a, '結果') || !text(a, '実行者'))
+      if (!text(a, 'イベント') || !text(a, '結果') || !text(a, '実行者')) {
         throw sqlError(50000, 'イベント・結果・実行者 が必要です');
+      }
       return [];
     }
     throw sqlError(50000, '未知の @操作 です(監査ログ)');
@@ -618,7 +684,9 @@ export async function createFakeQuery(seed: FakeSeed = {}): Promise<QueryFn> {
   function seriesOp(op: string, a: Args): Row[] {
     if (op === '一覧') {
       const company = text(a, '委託会社コード');
-      if (!company) throw sqlError(50000, '委託会社コードが必要です');
+      if (!company) {
+        throw sqlError(50000, '委託会社コードが必要です');
+      }
       return [...funds.values()]
         .filter((f) => rep1Of(f).toLowerCase() === company.toLowerCase())
         .sort((x, y) => x.code.localeCompare(y.code))

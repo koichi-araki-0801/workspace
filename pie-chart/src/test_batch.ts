@@ -121,7 +121,9 @@ async function main(): Promise<void> {
   // ものとして OK を返す。byte-diff は「今のコードが出したバイト列」を見るための装置なので、
   // 出力ディレクトリは毎回この実行の生成物だけを含む状態にする。
   for (const f of fs.readdirSync(jsDir)) {
-    if (f.endsWith('.svg')) fs.rmSync(path.join(jsDir, f));
+    if (f.endsWith('.svg')) {
+      fs.rmSync(path.join(jsDir, f));
+    }
   }
 
   const jsResults: Record<string, RenderResultStatus> = {};

@@ -7,7 +7,7 @@
 // アプリが止まることはない。
 import type { AuditEvent } from '../logger.js';
 import { p, realSproc, type SprocClient } from './sproc.js';
-import { SP } from './sprocNames.js';
+import { OP, SP } from './sprocNames.js';
 
 // 監査ログの複写先。logger はグローバルで app にも request にも紐付かないので、ここだけは
 // モジュール変数の差し替えになる。呼ぶのは `app.ts` の `buildApp` だけで、他所から呼ばない
@@ -20,7 +20,7 @@ export function setAuditSink(sproc: SprocClient): void {
 }
 
 export async function auditToDb(ev: AuditEvent): Promise<void> {
-  await sink.callSproc(SP.audit, '登録', [
+  await sink.callSproc(SP.audit, OP.audit.insert, [
     p('イベント', ev.event),
     p('結果', ev.outcome),
     p('実行者', ev.actor),

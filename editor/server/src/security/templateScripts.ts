@@ -44,13 +44,22 @@
 //
 // ── ほかの走査器と 1 本にしない理由 ──
 // 同じ理由で、PDF 経路(`vivliostyle/inlineCss.ts`)や申請の関所(`@editor/shared` の
-// `editingMarkers.ts`)の走査器とも共通化しない。ここは描画前の Jinja を読み、コメントの中まで
-// 走査し、raw text は `script` / `style` だけ、タグ内の Jinja を読み飛ばし、作業量の予算で打ち切った
+// `editingMarkers.ts`)の走査器とも共通化しない。ここは描画前の Jinja を読み、コメントと `<!` の宣言の
+// 中まで走査し、raw text は `script` / `style` だけ、タグ内の Jinja を読み飛ばし、作業量の予算で打ち切った
 // ら拒否する。どれもほかの走査器とは違う倒し方である(設計正典の却下済み設計「HTML の走査器を 1 本にまとめる」)。
 // 共有するのは、ブラウザと同じ答えになるべき部品だけ: `@editor/shared` の `html/htmlLex.ts`(空白・
 // 英字・タグ名の終わり)と `html/rawText.ts` の `findRawTextEnd`(予算は `scanned` でここが数える)。
 // 属性の読み取りは共有の `readAttr` を使わない。タグ内の Jinja を属性の手前で読み飛ばすのと、
 // `=` で始まる名前を空名として捨てる(`<a =x>` は単位を作らない)現行の単位列を保つため。
+//
+// ── 描画で生まれる実行面 ──
+// 走査器は「`<` の直後が英字」の字面しか見ない。描画前の Jinja は、字面に無いタグ・URL・CSS の
+// 参照を描画で生む(`{{ "<"|safe }}script>`・`href="{{ 'java' + 'script:x' }}"`・
+// `style="background:{{ u }}(//evil/x)"`)。そこで走査器が返すタグと本文の範囲を使い、Jinja の
+// トークン(区切りは `@editor/shared` の `lexJinja`)を文脈で分けて単位にする(`pushJinjaUnits`)。
+// タグの中と CSS の中は形を問わず固定し、テキストの位置だけを許可リスト(`InertJinjaJudge`)で
+// 判定する。危ない形を数え上げないのは、許可リストで書く上の方針と同じ理由である。走査器は
+// 増やさない。足したのは走査器の返す範囲でトークンを分ける処理だけである。
 
 import {
   asciiLower,
@@ -58,10 +67,13 @@ import {
   findExternalRefsInCss,
   findRawTextEnd,
   forbidden,
+  InertJinjaJudge,
   isAsciiAlpha,
   isHtmlSpace,
   isTagNameEnd,
+  type JinjaToken,
   jinjaCloserOf,
+  lexJinja,
   MARKER_ATTRS,
 } from '@editor/shared';
 
@@ -118,7 +130,9 @@ interface ScanBudget {
 
 function decodeBase64(value: string): string | null {
   const compact = value.replace(/\s+/g, '');
-  if (compact === '') return '';
+  if (compact === '') {
+    return '';
+  }
   try {
     return Buffer.from(compact, 'base64').toString('utf8');
   } catch {
@@ -146,7 +160,9 @@ function splitEncodedChips(html: string): { text: string; payloads: ChipPayload[
     const decoded = decodeBase64(m[1] ?? m[2] ?? '');
     out += html.slice(last, m.index);
     last = m.index + m[0].length;
-    if (decoded !== null && decoded !== '') payloads.push({ at: out.length, decoded });
+    if (decoded !== null && decoded !== '') {
+      payloads.push({ at: out.length, decoded });
+    }
   }
   out += html.slice(last);
   return { text: out, payloads };
@@ -162,11 +178,15 @@ export function expandEncodedChips(html: string): string {
     let changed = false;
     text = text.replace(ENCODED_ATTR_RE, (whole, dq?: string, sq?: string) => {
       const decoded = decodeBase64(dq ?? sq ?? '');
-      if (decoded === null || decoded === '') return whole;
+      if (decoded === null || decoded === '') {
+        return whole;
+      }
       changed = true;
       return `\n${decoded}\n`;
     });
-    if (!changed) break;
+    if (!changed) {
+      break;
+    }
   }
   return text;
 }
@@ -448,6 +468,9 @@ const INERT_DATA_MEDIA = /^(image|font)\//;
 interface ParsedAttr {
   name: string;
   value: string;
+  /** 値の範囲 `[valueAt, valueEnd)`。値の無い属性は両方 -1。値の中の Jinja の文脈の判定に使う。 */
+  valueAt: number;
+  valueEnd: number;
 }
 
 interface ParsedTag {
@@ -458,6 +481,8 @@ interface ParsedTag {
   attrs: ParsedAttr[];
   /** タグ内に現れた Jinja 断片(`{{ … }}` / `{% … %}` / `{# … #}`)。 */
   jinja: string[];
+  /** `jinja` の各断片の先頭の位置。字句解析のトークンと二重に単位にしないために持つ。 */
+  jinjaAt: number[];
 }
 
 /**
@@ -495,11 +520,15 @@ const TAG_LIKE_LT_RE = /<[a-zA-Z!/?]/;
  */
 function jinjaEnd(text: string, at: number, budget: ScanBudget): number {
   const close = jinjaCloserOf(text.slice(at, at + 2));
-  if (close === undefined) return -1;
+  if (close === undefined) {
+    return -1;
+  }
   const e = text.indexOf(close, at + 2);
   // 閉じ記号を探して走った距離を予算から引く(閉じない `{{` が末尾まで舐める分をここで数える)。
   budget.remaining -= (e < 0 ? text.length : e) - at;
-  if (e < 0) return -1;
+  if (e < 0) {
+    return -1;
+  }
   return TAG_LIKE_LT_RE.test(text.slice(at + 2, e)) ? -1 : e + 2;
 }
 
@@ -527,15 +556,20 @@ function rawTextEnd(lower: string, name: string, from: number, budget: ScanBudge
 
 /**
  * 開始タグだけを順に取り出す簡易走査。**HTML パーサではない**(整形式でない入力でも
- * 止まらず、拾いすぎる方へ倒れる)。終了タグ・コメント・doctype は読み飛ばす。
+ * 止まらず、拾いすぎる方へ倒れる)。終了タグは読み飛ばす。コメントと `<!` の宣言(doctype・
+ * `<![CDATA[` など)は読み飛ばさず、中身を続けて走査する(描画前の Jinja が区切りを消せるため)。
  */
 function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generator<ParsedTag> {
   const len = text.length;
   let i = 0;
   while (i < len) {
-    if (budget.remaining <= 0) return; // 作業量予算が尽きたら走査を止める(fail closed)
+    if (budget.remaining <= 0) {
+      return; // 作業量予算が尽きたら走査を止める(fail closed)
+    }
     const lt = text.indexOf('<', i);
-    if (lt < 0) return;
+    if (lt < 0) {
+      return;
+    }
     const next = text[lt + 1] ?? '';
     if (next === '!') {
       if (text.startsWith('<!--', lt)) {
@@ -557,9 +591,11 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
         i = lt + 4;
         continue;
       }
-      // doctype 等の markup declaration は `>` まで。
-      const end = text.indexOf('>', lt) + 1 || len;
-      i = end <= lt ? len : end;
+      // doctype などの宣言(`<!x …>`・`<![CDATA[`)も、`>` まで読み飛ばさずに `<!` の直後から
+      // 走査を続ける。コメントと同じく、宣言の `>` は Jinja が出し分けられる:
+      // `{% if false %}<!x{% endif %}<script>…</script>` は字面では宣言の中だが、描画後は素の
+      // `<script>` になる。拾いすぎても基準側に同じだけ現れる(`<!doctype html>` は単位を作らない)。
+      i = lt + 2;
       continue;
     }
     if (!isAsciiAlpha(next)) {
@@ -567,14 +603,23 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
       continue;
     }
     let p = lt + 1;
-    while (p < len && !isTagNameEnd(text[p])) p++;
+    while (p < len && !isTagNameEnd(text[p])) {
+      p++;
+    }
     const name = text.slice(lt + 1, p).toLowerCase();
     const attrs: ParsedAttr[] = [];
     const jinja: string[] = [];
+    const jinjaAt: number[] = [];
     while (p < len) {
-      if (budget.remaining <= 0) break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
-      while (p < len && (isHtmlSpace(text[p]) || text[p] === '/')) p++;
-      if (p >= len) break;
+      if (budget.remaining <= 0) {
+        break; // 1 タグ内で多数の `{{` を舐める形も予算で止める
+      }
+      while (p < len && (isHtmlSpace(text[p]) || text[p] === '/')) {
+        p++;
+      }
+      if (p >= len) {
+        break;
+      }
       if (text[p] === '>') {
         p++;
         break;
@@ -583,6 +628,7 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
         const e = jinjaEnd(text, p, budget);
         if (e > 0) {
           jinja.push(text.slice(p, e));
+          jinjaAt.push(p);
           p = e;
           continue;
         }
@@ -590,27 +636,42 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
         // 下の属性名走査へ落とす — ここで走査を打ち切ると入力の残りが単位から消える。
       }
       const nameStart = p;
-      while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) p++;
+      while (p < len && !ATTR_NAME_TERMINATORS.has(text[p] as string)) {
+        p++;
+      }
       const attrName = text.slice(nameStart, p).toLowerCase();
-      while (p < len && isHtmlSpace(text[p])) p++;
+      while (p < len && isHtmlSpace(text[p])) {
+        p++;
+      }
       let value = '';
+      let valueAt = -1;
+      let valueEnd = -1;
       if (text[p] === '=') {
         p++;
-        while (p < len && isHtmlSpace(text[p])) p++;
+        while (p < len && isHtmlSpace(text[p])) {
+          p++;
+        }
         const quote = text[p];
         if (quote === '"' || quote === "'") {
           const e = text.indexOf(quote, p + 1);
-          value = e < 0 ? text.slice(p + 1) : text.slice(p + 1, e);
+          valueAt = p + 1;
+          valueEnd = e < 0 ? len : e;
+          value = text.slice(valueAt, valueEnd);
           p = e < 0 ? len : e + 1;
         } else {
-          const vs = p;
-          while (p < len && !isHtmlSpace(text[p]) && text[p] !== '>') p++;
-          value = text.slice(vs, p);
+          valueAt = p;
+          while (p < len && !isHtmlSpace(text[p]) && text[p] !== '>') {
+            p++;
+          }
+          valueEnd = p;
+          value = text.slice(valueAt, p);
         }
       }
-      if (attrName !== '') attrs.push({ name: attrName, value });
+      if (attrName !== '') {
+        attrs.push({ name: attrName, value, valueAt, valueEnd });
+      }
     }
-    yield { at: lt, contentAt: p, name, attrs, jinja };
+    yield { at: lt, contentAt: p, name, attrs, jinja, jinjaAt };
     // raw text 要素の内容はタグとして解釈されない。走査位置を終了タグの後ろへ進める。
     if (SCRIPT_SCAN_RAW_TEXT.has(name)) {
       const close = rawTextEnd(lower, name, p, budget);
@@ -621,10 +682,19 @@ function* scanOpenTags(text: string, lower: string, budget: ScanBudget): Generat
   }
 }
 
-/** raw text 要素の内容(終了タグが無ければ EOF まで)。終端規則は `rawTextEnd` と共有する。 */
-function rawTextOf(text: string, lower: string, tag: ParsedTag, budget: ScanBudget): string {
+/**
+ * raw text 要素の内容と、その終わりの位置(終了タグの `<`。無ければ EOF)。終端規則は `rawTextEnd`
+ * と共有する。終わりの位置は本文の中の Jinja の文脈の判定に使う。
+ */
+function rawTextOf(
+  text: string,
+  lower: string,
+  tag: ParsedTag,
+  budget: ScanBudget,
+): { body: string; end: number } {
   const close = rawTextEnd(lower, tag.name, tag.contentAt, budget);
-  return close < 0 ? text.slice(tag.contentAt) : text.slice(tag.contentAt, close);
+  const end = close < 0 ? text.length : close;
+  return { body: text.slice(tag.contentAt, end), end };
 }
 
 // ── 5. 単位の組み立て ──
@@ -660,7 +730,9 @@ function stripJinjaTokens(s: string): string {
     const close = s[i] === '{' ? jinjaCloserOf(s.slice(i, i + 2)) : undefined;
     if (close !== undefined) {
       const e = s.indexOf(close, i + 2);
-      if (e < 0) break; // 閉じないトークン: 以降は捨てる
+      if (e < 0) {
+        break; // 閉じないトークン: 以降は捨てる
+      }
       i = e + 2; // 閉じるトークンは丸ごと飛ばす(indexOf は前進のみ = 全体で線形)
       continue;
     }
@@ -675,10 +747,16 @@ function isInertUrlLiteral(decoded: string): boolean {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ブラウザが URL から除く文字域
   const compact = decoded.replace(/[\s\u0000-\u001f\u007f]/g, '');
   const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(compact);
-  if (!m) return true; // 相対 URL・断片(`#id`)・クエリのみ
+  if (!m) {
+    return true; // 相対 URL・断片(`#id`)・クエリのみ
+  }
   const scheme = (m[1] as string).toLowerCase();
-  if (INERT_SCHEMES.has(scheme)) return true;
-  if (scheme !== 'data') return false;
+  if (INERT_SCHEMES.has(scheme)) {
+    return true;
+  }
+  if (scheme !== 'data') {
+    return false;
+  }
   return INERT_DATA_MEDIA.test(compact.slice(m[0].length));
 }
 
@@ -692,7 +770,9 @@ function isInertUrlLiteral(decoded: string): boolean {
  */
 function isInertUrl(value: string): boolean {
   const decoded = decodeHtmlEntities(value);
-  if (!isInertUrlLiteral(decoded)) return false;
+  if (!isInertUrlLiteral(decoded)) {
+    return false;
+  }
   const stripped = stripJinjaTokens(decoded);
   return stripped === decoded || isInertUrlLiteral(stripped);
 }
@@ -706,7 +786,20 @@ function isInertUrl(value: string): boolean {
  * 形が構造的に作れない。
  */
 function pushCssUnits(css: string, at: number, out: PositionedUnit[]): void {
-  for (const ref of findExternalRefsInCss(decodeHtmlEntities(css))) {
+  const decoded = decodeHtmlEntities(css);
+  const refs = findExternalRefsInCss(decoded);
+  // Jinja のトークンを消した形でも探す。`ur{# #}l(` のように、トークンを消すとつながる綴りは
+  // 生の値では見えない。CSS の中のトークンは形を問わず単位にしてある(`pushJinjaUnits`)が、
+  // 同じトークンが基準にもある(コメントを置いて綴りを割ってある)なら、それだけでは違いが出ない。
+  const stripped = stripJinjaTokens(decoded);
+  if (stripped !== decoded) {
+    for (const ref of findExternalRefsInCss(stripped)) {
+      if (!refs.includes(ref)) {
+        refs.push(ref);
+      }
+    }
+  }
+  for (const ref of refs) {
     out.push({ at, seq: out.length, unit: `css-ref:${collapse(ref)}` });
   }
 }
@@ -715,13 +808,183 @@ interface PositionedUnit {
   at: number;
   seq: number;
   unit: string;
+  /**
+   * テキストの位置のトークンで、判定を文書の走査の後へ回したもの。束ねた名前(`set ns = namespace()`)
+   * は文書全体(チップの中を含む)から集めてから判定するので、この間 `unit` は空のまま置く。
+   */
+  pending?: JinjaToken;
 }
 
-function collectInto(html: string, out: PositionedUnit[], depth: number, budget: ScanBudget): void {
+/** タグの範囲。値の中の Jinja を、どの属性の中にあるかで単位にするために持つ。 */
+interface TagSpan {
+  start: number;
+  end: number;
+  tag: ParsedTag;
+  /**
+   * `tag.jinjaAt` と `tag.attrs` を読み進めた位置。タグの中のトークンは先頭の位置の順に来るので、
+   * 毎回先頭から探し直さずに単調に進める(1 つのタグに断片を大量に並べた入力で二次にしない)。
+   */
+  jinjaCursor: number;
+  attrCursor: number;
+  /** このタグの中のトークンの単位。属性の名前順に並べてから積む(`flushTagJinjaUnits`)。 */
+  pending: { key: string; unit: string }[];
+}
+
+/** `script` / `style` の本文の範囲。 */
+interface BodySpan {
+  start: number;
+  end: number;
+  kind: 'script' | 'style';
+}
+
+/** 字句解析に失敗したことを表す単位。位置は入れない(基準と提出で位置が違っても同じ単位にする)。 */
+const JINJA_LEX_ERROR_UNIT = 'jinja-lex-error';
+
+/** 直前の HTML の空白を飛ばした位置の文字が `<` か。`{%-` の刈り込みと `lstrip_blocks` を考える。 */
+function followsLt(text: string, at: number): boolean {
+  let b = at - 1;
+  while (b >= 0 && isHtmlSpace(text[b])) {
+    b--;
+  }
+  return text[b] === '<';
+}
+
+/**
+ * 描画で生まれる実行面を単位にする。`text` の Jinja のトークンを、先頭の位置の文脈で分ける。
+ *
+ * - タグの文脈(タグの範囲の中。属性値の中を含む)と CSS の文脈(`<style>` の本文・`style` 属性の
+ *   値): 形を問わず単位にする。属性値の中ではリテラルの文字を制限しても閉じられない
+ *   (`'javascript'` は許可した文字だけだが、後ろの地の `:` とつながる。CSS の `{{ u }}(` も同じ)。
+ *   タグに直接ある断片は `jinja-attr:` として積んであるので、ここでは積まない。
+ * - `script` の本文: 本文ごと `script:` の単位に入っているので積まない。
+ * - テキストの位置(地の文・コメントの中・`title` / `textarea` の中): `InertJinjaJudge` が
+ *   不活性と言えないものを単位にする(判定は `collectExecutableUnits` が文書の走査の後で行う)。直前(空白を飛ばす)が `<` か、トークンの中にタグらしい `<`
+ *   があれば、形を問わず単位にする。GrapesJS は地の文の `<` を `&lt;` で書き出すので、正当な編集
+ *   からこの形は生まれない。
+ *
+ * 字句解析に失敗したら `jinja-lex-error` を 1 つ積んでやめる。本番の Jinja2 は字句の壊れた
+ * テンプレートを描けず、値入り HTML は Jinja で描画しないので、打ち切った先を使われても実害は無い。
+ * 基準が読めて提出側が読めなければ、この単位が増えて拒否される。
+ */
+function pushJinjaUnits(
+  text: string,
+  tags: readonly TagSpan[],
+  bodies: readonly BodySpan[],
+  out: PositionedUnit[],
+  budget: ScanBudget,
+  seen: JinjaToken[],
+): void {
+  budget.remaining -= text.length;
+  const lexed = lexJinja(text);
+  if (!lexed.ok) {
+    out.push({ at: 0, seq: out.length, unit: JINJA_LEX_ERROR_UNIT });
+    return;
+  }
+  // 束ねた名前は文脈を問わず集める(属性値・CSS・script の本文の `set` も。拾いすぎる側)。
+  for (const tok of lexed.tokens) {
+    seen.push(tok);
+  }
+  // タグ・本文の範囲は文書の順に並び、互いに重ならない。トークンも先頭の位置の順なので、
+  // 2 本の添字を進めるだけで分類でき、全体で線形に収まる。
+  let ti = 0;
+  let bi = 0;
+  for (const tok of lexed.tokens) {
+    const s = tok.start;
+    while (ti < tags.length && (tags[ti] as TagSpan).end <= s) {
+      ti++;
+    }
+    while (bi < bodies.length && (bodies[bi] as BodySpan).end <= s) {
+      bi++;
+    }
+    const tag = tags[ti];
+    if (tag !== undefined && tag.start <= s) {
+      pushTagJinjaUnit(tag, tok);
+      continue;
+    }
+    const body = bodies[bi];
+    if (body !== undefined && body.start <= s) {
+      if (body.kind === 'style') {
+        out.push({ at: s, seq: out.length, unit: `jinja-css:${collapse(tok.source)}` });
+      }
+      continue;
+    }
+    // 直前が `<` なら、描画でタグ名が後ろにつながる。トークンの中にタグらしい `<` があれば、
+    // 走査器はそこからタグを読み、後ろの実行面を属性値として飲み込む(`{# <b title=#}<script>`)。
+    // 描画でトークンが消えると飲み込まれた側が素で残るので、どちらも形を問わず単位にする。
+    if (followsLt(text, s) || TAG_LIKE_LT_RE.test(tok.source)) {
+      out.push({ at: s, seq: out.length, unit: `jinja-tag-open:${collapse(tok.source)}` });
+    } else {
+      out.push({ at: s, seq: out.length, unit: '', pending: tok });
+    }
+  }
+  for (const span of tags) {
+    flushTagJinjaUnits(span, out);
+  }
+}
+
+function pushTagJinjaUnit(span: TagSpan, tok: JinjaToken): void {
+  const { tag } = span;
+  const s = tok.start;
+  while (span.jinjaCursor < tag.jinjaAt.length && (tag.jinjaAt[span.jinjaCursor] as number) < s) {
+    span.jinjaCursor++;
+  }
+  if (tag.jinjaAt[span.jinjaCursor] === s) {
+    return; // `jinja-attr:` として積んである
+  }
+  // 値の無い属性は `valueEnd` が -1 なので、ここで読み飛ばされる。
+  while (
+    span.attrCursor < tag.attrs.length &&
+    (tag.attrs[span.attrCursor] as ParsedAttr).valueEnd <= s
+  ) {
+    span.attrCursor++;
+  }
+  const cand = tag.attrs[span.attrCursor];
+  const attr = cand !== undefined && cand.valueAt <= s ? cand : undefined;
+  const source = collapse(tok.source);
+  if (attr === undefined) {
+    span.pending.push({ key: '', unit: `jinja-attr:${tag.name}|${source}` });
+  } else if (attr.name === 'style') {
+    span.pending.push({ key: attr.name, unit: `jinja-css:${source}` });
+  } else {
+    span.pending.push({ key: attr.name, unit: `jinja-val:${tag.name}.${attr.name}|${source}` });
+  }
+}
+
+/**
+ * タグの中のトークンの単位を、属性の名前順に並べて開始タグの位置に積む。属性の書き順で並べると、
+ * GrapesJS の再直列化で属性順が動いただけで単位の並びが変わり、正当な保存が拒否される
+ * (`normalizedAttrs` が属性を名前順に並べるのと同じ理由)。並べ替えは安定なので、同じ属性の中の
+ * トークンの順は保つ(`href="{{ a }}{{ b }}"` と `href="{{ b }}{{ a }}"` は別の単位列になる)。
+ */
+function flushTagJinjaUnits(span: TagSpan, out: PositionedUnit[]): void {
+  if (span.pending.length === 0) {
+    return;
+  }
+  span.pending.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  for (const p of span.pending) {
+    out.push({ at: span.tag.at, seq: out.length, unit: p.unit });
+  }
+}
+
+/**
+ * `html` の単位を `out` へ積む。`jinja` が false のときは Jinja のトークンの分類を行わない。
+ * `<style>` の本文の再走査がそれにあたる: 本文の中のトークンは外側の走査が CSS の文脈として
+ * 形を問わず単位にしてあるので、本文だけを見てテキストの位置と読み直すと二重に数える。
+ */
+function collectInto(
+  html: string,
+  out: PositionedUnit[],
+  depth: number,
+  budget: ScanBudget,
+  seen: JinjaToken[],
+  jinja = true,
+): void {
   // depth は「チップ復号の入れ子」と「<style> 本文の再走査」の両方を数える。閉じない
   // `<style>` の反復は残り全体を本文として同じ深さで再走査させるため、深さでも止める
   // (byte 予算と二段で、総走査バイト数・スタック深さの双方を入力長に対して線形に保つ)。
-  if (html === '') return;
+  if (html === '') {
+    return;
+  }
   if (depth > MAX_DECODE_DEPTH || budget.remaining <= 0) {
     budget.truncated = true;
     return;
@@ -731,11 +994,22 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
   // 注意書きを見よ)。予算からも引く。
   const lower = asciiLower(text);
   budget.remaining -= text.length;
+  const tagSpans: TagSpan[] = [];
+  const bodySpans: BodySpan[] = [];
   for (const tag of scanOpenTags(text, lower, budget)) {
+    tagSpans.push({
+      start: tag.at,
+      end: tag.contentAt,
+      tag,
+      jinjaCursor: 0,
+      attrCursor: 0,
+      pending: [],
+    });
     if (tag.name === 'script') {
       // 中身まで含めて 1 単位。閉じタグを欠く断片も EOF まで拾う(パーサ差で
       // 「閉じていないから script ではない」と判断すると実行される断片を見逃す)。
-      const body = rawTextOf(text, lower, tag, budget);
+      const { body, end } = rawTextOf(text, lower, tag, budget);
+      bodySpans.push({ start: tag.contentAt, end, kind: 'script' });
       out.push({
         at: tag.at,
         seq: out.length,
@@ -744,7 +1018,8 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       continue;
     }
     if (tag.name === 'style') {
-      const body = rawTextOf(text, lower, tag, budget);
+      const { body, end } = rawTextOf(text, lower, tag, budget);
+      bodySpans.push({ start: tag.contentAt, end, kind: 'style' });
       // 宣言の編集(色・寸法)はスタイルマネージャの正当な操作なので単位にしない。
       // 外部を引き込む面(`@import` / 非画像 `url()`)だけを固定する。
       pushCssUnits(body, tag.at, out);
@@ -757,7 +1032,14 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       // `SCRIPT_SCAN_RAW_TEXT` から外してある。
       // ⚠ 深さを 1 段下げて再走査する。閉じない `<style>` は本文＝残り全体になり、その中の
       // `<style>` がまた残り全体を本文にする…と同じ深さで再帰して二次爆発したため。
-      collectInto(body, out, depth + 1, budget);
+      // 再走査の単位の位置は本文を起点にしているので、本文の先頭の位置を足して文書の位置に
+      // 直す。直さないと本文の中の単位が文書の先頭のほうへずれ、`<style>` より前のパーツを
+      // 足し・消し・並べ替えるだけで単位の並びが変わって、正当な編集が拒否される。
+      const nested: PositionedUnit[] = [];
+      collectInto(body, nested, depth + 1, budget, seen, false);
+      for (const n of nested) {
+        out.push({ ...n, at: n.at + tag.contentAt, seq: out.length });
+      }
       // 属性(`media` 等)も見る。`style` 自体は許可要素として扱わない代わりにここで拾う。
       for (const a of tag.attrs) {
         if (!isInertAttrName(a.name)) {
@@ -796,7 +1078,9 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
           unit: `url:${tag.name}.${a.name}=${collapse(decodeHtmlEntities(a.value))}`,
         });
       }
-      if (a.name === 'style') pushCssUnits(a.value, tag.at, out);
+      if (a.name === 'style') {
+        pushCssUnits(a.value, tag.at, out);
+      }
     }
     // タグ内の Jinja は描画時に任意の属性文字列へ展開されうる(`<div {{ x }}>`)。
     // 実行面の入口なので、断片そのものを固定する。
@@ -804,29 +1088,77 @@ function collectInto(html: string, out: PositionedUnit[], depth: number, budget:
       out.push({ at: tag.at, seq: out.length, unit: `jinja-attr:${tag.name}|${collapse(j)}` });
     }
   }
+  if (jinja && budget.remaining > 0) {
+    pushJinjaUnits(text, tagSpans, bodySpans, out, budget, seen);
+  }
   if (depth >= MAX_DECODE_DEPTH) {
-    if (payloads.length > 0) budget.truncated = true;
+    if (payloads.length > 0) {
+      budget.truncated = true;
+    }
     return;
   }
   for (const p of payloads) {
-    if (budget.remaining <= 0) return;
+    if (budget.remaining <= 0) {
+      return;
+    }
     const nested: PositionedUnit[] = [];
-    collectInto(p.decoded, nested, depth + 1, budget);
-    for (const n of nested) out.push({ at: p.at, seq: out.length, unit: n.unit });
+    collectInto(p.decoded, nested, depth + 1, budget, seen);
+    for (const n of nested) {
+      out.push({ ...n, at: p.at, seq: out.length });
+    }
   }
 }
 
 /**
  * HTML から能動コンテンツ面を順序どおりに取り出す。`data-opaque` 等の退避属性は復号済みの
  * 実体に対して走査するので、チップへ畳んだ状態で提出しても同じ結果になる。
+ *
+ * 走査・判定の想定外の例外(深い入れ子の RangeError、評価器の検査の漏れなど)は、走査を打ち切った
+ * ときと同じ `scan-incomplete` の単位だけを返す。照合はこの単位を見ると必ず拒否する(fail closed)。
+ * 理由が何であれ中身を確かめられなかったことに変わりはなく、確かめられない本文を通す分岐を作らない
+ * (`externalRefs.ts` の `assertNoJsonExternalRefs` と同じ扱い)。
  */
 export function collectExecutableUnits(html: string): string[] {
+  return scanUnits(html).units;
+}
+
+/** 走査の結果。想定外の例外で打ち切ったときは、その名前と文言をログ用に持つ。 */
+interface UnitScan {
+  units: string[];
+  scanError?: { name: string; message: string };
+}
+
+/** ログに載せる例外の文言の長さの上限(例外の文言に本文の断片が入っても、ログを膨らませない)。 */
+const MAX_SCAN_ERROR_MESSAGE = 200;
+
+function scanUnits(html: string): UnitScan {
+  try {
+    return { units: collectUnits(html) };
+  } catch (e) {
+    const name = e instanceof Error ? e.name : typeof e;
+    const message = (e instanceof Error ? e.message : String(e)).slice(0, MAX_SCAN_ERROR_MESSAGE);
+    return { units: [SCAN_INCOMPLETE_UNIT], scanError: { name, message } };
+  }
+}
+
+function collectUnits(html: string): string[] {
   const out: PositionedUnit[] = [];
   const budget: ScanBudget = { remaining: MAX_SCAN_BYTES, truncated: false };
-  collectInto(html, out, 0, budget);
-  const units = out.sort((a, b) => a.at - b.at || a.seq - b.seq).map((u) => u.unit);
+  const seen: JinjaToken[] = [];
+  collectInto(html, out, 0, budget, seen);
+  const judge = new InertJinjaJudge(seen);
+  const units: string[] = [];
+  for (const u of out.sort((a, b) => a.at - b.at || a.seq - b.seq)) {
+    if (u.pending === undefined) {
+      units.push(u.unit);
+    } else if (!judge.isInert(u.pending)) {
+      units.push(`jinja:${collapse(u.pending.source)}`);
+    }
+  }
   // 予算切れは `scanOpenTags` の途中打ち切りも含むので、残量で判定する。
-  if (budget.truncated || budget.remaining <= 0) units.push(SCAN_INCOMPLETE_UNIT);
+  if (budget.truncated || budget.remaining <= 0) {
+    units.push(SCAN_INCOMPLETE_UNIT);
+  }
   return units;
 }
 
@@ -839,6 +1171,37 @@ function unitsEqual(a: readonly string[], b: readonly string[]): boolean {
 /** 照合失敗時にユーザーへ返す文言。経路(申請/承認/転写)を問わず同じ案内にする。 */
 const SCRIPT_IMMUTABLE_MESSAGE =
   '実行コード・外部参照は編集できません。変更が必要なら開発者へ依頼してください';
+
+/**
+ * 違いが Jinja の単位だけのときの文言。作成タブの利用者が差し込みを書き足して拒否されたときに、
+ * 「実行コード」の文言では何を直せばよいか分からないため分ける。違いの中身は出さない。
+ */
+const JINJA_IMMUTABLE_MESSAGE =
+  '差し込み（Jinja）の書き方のうち、承認で中身を確かめられないもの（タグや書式の中の差し込み・' +
+  '{% set %}・{% include %}・文字列を出す式など）は追加・変更できません。変更が必要なら開発者へ' +
+  '依頼してください';
+
+/**
+ * 走査を打ち切った(上限・想定外の例外)ときの文言。照合できなかったのであって、実行コードを
+ * 変えたと決まったわけではないので、「編集できません」の文言と分ける(`externalRefs.ts` の
+ * 「検査できないファイルは受け取れません」と同じ考え方)。
+ */
+const SCAN_INCOMPLETE_MESSAGE =
+  '実行コードの変更の有無を検査できませんでした(検査できない本文は受け取れません)。' +
+  '本文の入れ子や量を減らしてから送信し、それでも直らないときは開発者へ連絡してください';
+
+const isJinjaUnit = (u: string): boolean => u.startsWith('jinja');
+
+/** 単位の種類(`script` `jinja-val` など。`:` の前)ごとの数。ログの手掛かりにだけ使う。 */
+function countKinds(units: readonly string[]): Record<string, number> {
+  const kinds: Record<string, number> = {};
+  for (const u of units) {
+    const colon = u.indexOf(':');
+    const kind = colon < 0 ? u : u.slice(0, colon);
+    kinds[kind] = (kinds[kind] ?? 0) + 1;
+  }
+  return kinds;
+}
 
 /**
  * `submitted` の能動コンテンツ面が `baseline` と完全一致することを要求する。不一致は
@@ -856,15 +1219,40 @@ export function assertTemplateScriptsUnchanged(
   submittedHtml: string,
   context: { templateId: string; where: string },
 ): void {
-  const before = collectExecutableUnits(baselineHtml);
-  const after = collectExecutableUnits(submittedHtml);
-  if (unitsEqual(before, after) && !after.includes(SCAN_INCOMPLETE_UNIT)) return;
+  const baseline = scanUnits(baselineHtml);
+  const submitted = scanUnits(submittedHtml);
+  const before = baseline.units;
+  const after = submitted.units;
+  const incomplete = before.includes(SCAN_INCOMPLETE_UNIT) || after.includes(SCAN_INCOMPLETE_UNIT);
+  if (unitsEqual(before, after) && !incomplete) {
+    return;
+  }
+  const jinjaOnly =
+    !incomplete &&
+    unitsEqual(
+      before.filter((u) => !isJinjaUnit(u)),
+      after.filter((u) => !isJinjaUnit(u)),
+    );
+  const message = incomplete
+    ? SCAN_INCOMPLETE_MESSAGE
+    : jinjaOnly
+      ? JINJA_IMMUTABLE_MESSAGE
+      : SCRIPT_IMMUTABLE_MESSAGE;
+  const scanError = submitted.scanError ?? baseline.scanError;
   throw forbidden(
-    `${SCRIPT_IMMUTABLE_MESSAGE} (テンプレート=${context.templateId})`,
-    // 差分の中身はユーザーへ出さない(攻撃者への手掛かりになる)。ログにだけ残す。
+    `${message} (テンプレート=${context.templateId})`,
+    // 差分の中身はユーザーへ出さない(攻撃者への手掛かりになる)。ログにだけ残す。走査の想定外の
+    // 例外は名前と文言を残す(拒否に倒しても、何が起きたかを後から追えるように)。
     {
       code: 'TEMPLATE_SCRIPT_IMMUTABLE',
-      cause: { where: context.where, baselineUnits: before.length, submittedUnits: after.length },
+      cause: {
+        where: context.where,
+        baselineUnits: before.length,
+        submittedUnits: after.length,
+        baselineKinds: countKinds(before),
+        submittedKinds: countKinds(after),
+        ...(scanError === undefined ? {} : { scanError }),
+      },
     },
   );
 }

@@ -54,10 +54,14 @@ function pickTemplateFile(
     // `templateId` は URL 由来。ファイル名規約を通してから照合する(`..` 等の混入を断つ)。
     const want = `${assertTemplateId(templateId)}.html`;
     const hit = fileNames.find((f) => f === want);
-    if (!hit) throw notFound(`この版に ${templateId} の変更は含まれていません: ${historyId}`);
+    if (!hit) {
+      throw notFound(`この版に ${templateId} の変更は含まれていません: ${historyId}`);
+    }
     return hit;
   }
-  if (fileNames.length === 0) throw notFound(`この版の比較データがありません: ${historyId}`);
+  if (fileNames.length === 0) {
+    throw notFound(`この版の比較データがありません: ${historyId}`);
+  }
   if (fileNames.length > 1) {
     throw validation(
       `この版は複数のテンプレートを含みます。templateId を指定してください: ${historyId}`,
@@ -88,7 +92,9 @@ export async function getEditHistory(): Promise<EditHistoryEntry[]> {
     const fileNames = filledFilesOf(c.files);
     // 触れたテンプレごとに 1 行を出す。1 行へ畳むと、同じコミットで変わった他のテンプレは
     // 履歴に現れないまま先頭テンプレの編集として記録される。
-    if (fileNames.length === 0) return [row('')];
+    if (fileNames.length === 0) {
+      return [row('')];
+    }
     return fileNames.map((f) => row(templateIdFromFileName(f)));
   });
 }
@@ -97,7 +103,9 @@ export async function getEditHistory(): Promise<EditHistoryEntry[]> {
 export async function listVersions(templateId: string): Promise<TemplateVersionMeta[]> {
   // 版は値入り HTML(filled/)の git 履歴にしか無い。テンプレート(3 つ区切り)は版を持たないので
   // 空を返す(編集タブの一覧が pending の行の版数を問うたびに 400 にしない)。
-  if (isValidSkeletonId(templateId)) return [];
+  if (isValidSkeletonId(templateId)) {
+    return [];
+  }
   // `templateId` は URL 由来で pathspec の一部になる。ファイル名規約 + 単一セグメント安全性を
   // 通ってからでないと git へ渡さない(`..` や pathspec magic の混入を入口で断つ)。
   const commits = await logForFile(filledRel(assertTemplateId(templateId)));
@@ -124,11 +132,15 @@ export async function getSnapshot(
   // `historyId` は URL 由来で `git show` のリビジョン引数になる。`-` 始まりの値は git が
   // オプションとして解釈するため(`--output=<file>` で任意ファイルを破壊できる)、git を
   // 呼ぶ前にオブジェクトID 形式で弾く。git 呼び出し側の多層防御は `gitRepo.ts` の検証節。
-  if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
+  if (!isGitObjectId(historyId)) {
+    throw validation(`版の指定が不正です: ${historyId}`);
+  }
   const fileNames = filledFilesOf(await commitFiles(historyId));
   const fileName = pickTemplateFile(historyId, fileNames, templateId);
   const attrs = parseTemplateFileName(fileName);
-  if (!attrs) throw notFound(`版のファイル名を解釈できません: ${historyId}`);
+  if (!attrs) {
+    throw notFound(`版のファイル名を解釈できません: ${historyId}`);
+  }
   const resolvedId = templateIdFromFileName(fileName);
   // html/css/日時は互いに独立した git read(`withGitLock` 非経由 = 並列安全)。
   // 逐次 await だと 3 プロセスの起動待ちが直列化するため Promise.all でまとめる。

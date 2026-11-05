@@ -20,7 +20,9 @@ export function useCompanyFilter(templateId: Ref<string>): Ref<CompanyFilter> {
       filter.value = { state: 'pending' };
       const abbr = companyCodeOfTemplateId(id);
       const code = abbr ? await resolveRep1CompanyCode(abbr) : null;
-      if (templateId.value !== id) return;
+      if (templateId.value !== id) {
+        return;
+      }
       filter.value = code ? { state: 'ok', code } : { state: 'none' };
     },
     { immediate: true },

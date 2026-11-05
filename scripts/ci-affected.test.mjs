@@ -25,7 +25,7 @@ const REAL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(REAL_ROOT, 'scripts', 'ci-affected.mjs');
 
 // 共有ゲート。領域の有無に関わらず必ずこの順で先頭に並ぶ。
-const SHARED_GATES = ['check:comments', 'check:claude-hooks', 'check:canon-summary', 'check:ci', 'knip', 'test:scripts'];
+const SHARED_GATES = ['check:comments', 'check:claude-hooks', 'check:canon-summary', 'check:ci', 'lint:blocks', 'knip', 'test:scripts'];
 
 // 疑似リポジトリのコミットは、実行環境の git 設定 (`user.name` 未設定・環境変数の混入) に
 // 左右されないよう毎回明示する。`core.autocrlf` を切るのは改行の警告でテスト出力を
@@ -140,13 +140,15 @@ test('offline は ci:offline (Pester) を起動する', () => {
 });
 
 test('classifyChanges: editor のパッチ・scripts の .ps1 / .bat は editor と offline の両方', () => {
-  // `ci:offline` がパッチと init-data-repo の Pester を走らせる。editor 領域だけに落ちると
+  // `ci:offline` がパッチ・init-data-repo・DB 適用の Pester を走らせる。editor 領域だけに落ちると
   // vitest / e2e は PowerShell を実行しないので、Pester が一度も走らない。
   for (const p of [
     'editor/patches/example/apply.ps1',
     'editor/patches/example/apply.Tests.ps1',
     'editor/scripts/init-data-repo.ps1',
     'editor/scripts/init-data-repo.bat',
+    'editor/server/db/apply.ps1',
+    'editor/server/db/apply.Tests.ps1',
   ]) {
     assert.deepEqual(classifyChanges([p]).areas, ['editor', 'offline'], p);
   }
@@ -383,7 +385,7 @@ function parseWorkflowSteps(text) {
     const indent = raw.match(/^ */)[0].length;
     if (block) {
       if (raw.trim() === '' || indent > block.indent) {
-        if (raw.trim() !== '') cur.run = cur.run ? `${cur.run}\n${raw.trim()}` : raw.trim();
+        if (raw.trim() !== '') { cur.run = cur.run ? `${cur.run}\n${raw.trim()}` : raw.trim(); }
         continue;
       }
       block = null;
@@ -420,9 +422,9 @@ const NON_STAGE_RUN = /^(pnpm install\b|pnpm exec playwright install\b|pip insta
 function stagesOfRun(run) {
   const stages = [];
   for (const line of run.split('\n').map((l) => l.trim()).filter(Boolean)) {
-    if (NON_STAGE_RUN.test(line)) continue;
+    if (NON_STAGE_RUN.test(line)) { continue; }
     const hit = RUN_TO_STAGE.find(([re]) => re.test(line));
-    if (!hit) throw new Error(`ci.yml の run を段へ写像できません: ${line}`);
+    if (!hit) { throw new Error(`ci.yml の run を段へ写像できません: ${line}`); }
     stages.push(hit[1](line.match(hit[0])));
   }
   return stages;
@@ -457,7 +459,7 @@ test('ci.yml の段は ci の段の部分列で、免除リスト外の欠落が
   assert.deepEqual(missing, [], `yml に無く免除もされていない段: ${missing.join(', ')}`);
 
   // 免除は生きているものだけ(ci から消えた段を免除し続けない)
-  for (const s of Object.keys(GH_EXEMPT)) assert.ok(ci.includes(s), `免除 ${s} は ci に無い`);
+  for (const s of Object.keys(GH_EXEMPT)) { assert.ok(ci.includes(s), `免除 ${s} は ci に無い`); }
 
   // 相対順序: yml の段を ci の添字に写すと単調増加
   const idx = yml.map((s) => ci.indexOf(s));

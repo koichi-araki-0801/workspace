@@ -66,7 +66,9 @@ const PairSyncStateSchema = z.object({
  */
 export async function readSyncState(pairKey: string): Promise<PairSyncState> {
   const raw = await readOrMissing(syncPath(pairKey), null);
-  if (raw === null) return emptySyncState(pairKey);
+  if (raw === null) {
+    return emptySyncState(pairKey);
+  }
   return PairSyncStateSchema.parse(JSON.parse(raw));
 }
 

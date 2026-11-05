@@ -38,6 +38,7 @@ import { loadUser } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { docsRoutes, openapiRoutes } from './openapi/index.js';
 import { renderHostRoutes } from './render/renderHost.js';
+import { createSessionRepo } from './repositories/sessionRepo.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { fundAssetsRoutes } from './routes/fundAssets.routes.js';
 import { generateRoutes } from './routes/generate.routes.js';
@@ -69,7 +70,9 @@ function buildServerOptions(): FastifyHttpOptions<http.Server> {
     // express.json({ limit: '8mb' }) 相当。JSON 既定パーサに適用される本文サイズ上限。
     bodyLimit: 8 * 1024 * 1024,
   };
-  if (!config.tls.enabled) return serverOptions;
+  if (!config.tls.enabled) {
+    return serverOptions;
+  }
   if (!fs.existsSync(config.tls.pfxPath)) {
     throw new Error(
       `HTTPS=true ですが PFX がありません: ${config.tls.pfxPath} — ` +
@@ -102,7 +105,7 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.decorateRequest('user', undefined);
   // セッションストアはインスタンスへ載せる。ガード関数は参照同一性を保つ必要があるため
   // (`routes/routeGuards.ts` の `levelOf`)、注入はガードの引数でなくここで行う。
-  const sessionStore = createSessionStore(sproc);
+  const sessionStore = createSessionStore(createSessionRepo(sproc));
   app.decorate('sessionStore', sessionStore);
   // 監査ログの DB 複写は logger 経由(グローバル)なので、宛先だけをここで差し込む。
   // sink はプロセスグローバルな 1 つの変数で、複数の buildApp を呼ぶと最後に呼んだものの
@@ -135,7 +138,9 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // graph-editor(`app.py`)も同じ理由で Host を完全一致集合で検査している。
   // 判定の実体は `config.isAllowedHost`。
   app.addHook('onRequest', async (request, reply) => {
-    if (isAllowedHost(request.headers.host, allowedHosts)) return;
+    if (isAllowedHost(request.headers.host, allowedHosts)) {
+      return;
+    }
     // 本文は 1 バイトも返さない(存在オラクルにしない)。ログには名乗られた値を残す。
     request.log.warn({ host: request.headers.host }, 'rejected: host-mismatch');
     await reply.code(403).send();
@@ -150,13 +155,19 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   // `requireAuth` 付きなので、正規のクライアントから見た応答は 401 のまま変わらない。認証を
   // 課さない無認証モード(`requireAuth=false`)は素通しする。
   app.addHook('onRequest', async (request) => {
-    if (!config.requireAuth) return;
+    if (!config.requireAuth) {
+      return;
+    }
     // 照合は**ルーティング結果の登録パターン**で行う(`request.url` は生の request target で、
     // percent-encoding も dot セグメントも解かれていない)。選び方は `preAuthGateUrl` に閉じる。
     const gateUrl = preAuthGateUrl(request);
-    if (!isPreAuthBufferedRequest(request.method, gateUrl, request.headers['content-type'])) return;
+    if (!isPreAuthBufferedRequest(request.method, gateUrl, request.headers['content-type'])) {
+      return;
+    }
     const user = await loadUser(request);
-    if (!user || user.disabled) throw unauthorized('ログインが必要です');
+    if (!user || user.disabled) {
+      throw unauthorized('ログインが必要です');
+    }
   });
 
   // ⚠ project zip の content-type parser を**ここ(ルートインスタンス)へ戻さないこと。**

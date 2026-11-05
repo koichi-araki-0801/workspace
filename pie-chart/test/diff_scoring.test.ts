@@ -93,7 +93,9 @@ describe('差分採点は全走査と同値', () => {
     for (let t = 0; t < 30; t += 1) {
       const base = buildScoreBase(placements, cfg, coord);
       const changed = [Math.floor(rnd() * placements.length)];
-      if (rnd() < 0.3) changed.push(Math.floor(rnd() * placements.length));
+      if (rnd() < 0.3) {
+        changed.push(Math.floor(rnd() * placements.length));
+      }
       for (const i of changed) {
         placements[i].x += (rnd() - 0.5) * 6;
         placements[i].leaderBend = { x: (rnd() - 0.5) * 12, y: (rnd() - 0.5) * 12 };
@@ -112,7 +114,9 @@ describe('差分採点は全走査と同値', () => {
     // 全走査へ倒すぶんの経路も、全走査と同値でなければならない。
     const { placements, coord } = makePlacements(items, cfg);
     const base = buildScoreBase(placements, cfg, coord);
-    for (const p of placements) p.leaderBend = { x: 5, y: -5 };
+    for (const p of placements) {
+      p.leaderBend = { x: 5, y: -5 };
+    }
     const all = placements.map((_, i) => i);
     expect(measureRepairVecDelta(base, placements, cfg, coord, all)).toEqual(
       measureRepairVec(placements, cfg, coord),

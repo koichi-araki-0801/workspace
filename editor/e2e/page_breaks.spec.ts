@@ -57,8 +57,11 @@ async function serveDoc(
       const tpl = (await res.json()) as { html: string; css: string; filled?: string };
       tpl.css = css;
       tpl.html = swap(tpl.html, templateBody ?? body);
-      if (templateBody !== undefined) delete tpl.filled;
-      else if (tpl.filled) tpl.filled = swap(tpl.filled, body);
+      if (templateBody !== undefined) {
+        delete tpl.filled;
+      } else if (tpl.filled) {
+        tpl.filled = swap(tpl.filled, body);
+      }
       await route.fulfill({ response: res, json: tpl });
     },
   );
@@ -81,7 +84,9 @@ async function visibleParts(frame: FrameLocator): Promise<Array<{ idx: string; t
       const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
         const t = (n.textContent ?? '').trim();
-        if (t) return t;
+        if (t) {
+          return t;
+        }
       }
       return '';
     };
@@ -104,7 +109,9 @@ async function editorPages(page: Page, frame: FrameLocator): Promise<string[]> {
   const total = await navTotal(page);
   const firsts: string[] = [];
   for (let i = 0; i < total; i++) {
-    if (i > 0) await page.getByRole('button', { name: '次のページ' }).click();
+    if (i > 0) {
+      await page.getByRole('button', { name: '次のページ' }).click();
+    }
     await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue(String(i + 1));
     let parts: Array<{ idx: string; text: string }> = [];
     await expect
@@ -129,13 +136,17 @@ async function previewPages(page: Page): Promise<string[]> {
   await pages.first().waitFor({ state: 'attached', timeout: 60_000 });
   await expect(page.getByText('プレビューを生成中…')).toHaveCount(0, { timeout: 60_000 });
   const count = await pages.count();
-  if (count > 1) expect(await navTotal(page)).toBe(count);
+  if (count > 1) {
+    expect(await navTotal(page)).toBe(count);
+  }
   return pages.evaluateAll((els) =>
     els.map((el) => {
       const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       for (let n = walker.nextNode(); n; n = walker.nextNode()) {
         const t = (n.textContent ?? '').trim();
-        if (t) return t;
+        if (t) {
+          return t;
+        }
       }
       return '';
     }),
@@ -250,7 +261,9 @@ test.describe('canvas の区切りとページ', () => {
       { parts: ['P3-A'], bands: [] },
     ];
     for (const [i, want] of expected.entries()) {
-      if (i > 0) await page.getByRole('button', { name: '次のページ' }).click();
+      if (i > 0) {
+        await page.getByRole('button', { name: '次のページ' }).click();
+      }
       await expect
         .poll(async () => (await visibleParts(frame)).map((p) => p.text))
         .toEqual(want.parts);
@@ -433,7 +446,9 @@ test.describe('canvas の区切りとページ', () => {
       await expect(page.getByLabel('ページ番号(Enter でジャンプ)')).toHaveValue(n);
       await expect(frame.getByText(`P${n}-A`, { exact: true })).toBeVisible();
       await expect(blank).toBeHidden();
-      for (const label of await visibleBreakLabels()) expect(label).not.toContain('白紙');
+      for (const label of await visibleBreakLabels()) {
+        expect(label).not.toContain('白紙');
+      }
     }
   });
 
@@ -675,7 +690,9 @@ test.describe('テキスト編集中の Undo 可能な操作', () => {
     await appendWhileEditing(page, frame, 'part-p1-a');
     const handle = page.getByTitle('下の余白をドラッグ');
     const box = await handle.boundingBox();
-    if (!box) throw new Error('下の余白のハンドルが見えない');
+    if (!box) {
+      throw new Error('下の余白のハンドルが見えない');
+    }
     const x = box.x + box.width / 2;
     const y = box.y + box.height / 2;
     await page.mouse.move(x, y);

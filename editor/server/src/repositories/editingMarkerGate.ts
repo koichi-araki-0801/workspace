@@ -8,5 +8,7 @@ import { editingMarkerMessage, findEditingMarkers, validation } from '@editor/sh
 
 export function assertNoEditingMarkers(html: string, templateId: string): void {
   const msg = editingMarkerMessage(findEditingMarkers(html), templateId);
-  if (msg !== null) throw validation(msg);
+  if (msg !== null) {
+    throw validation(msg);
+  }
 }

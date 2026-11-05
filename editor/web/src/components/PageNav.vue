@@ -41,7 +41,7 @@ const draft = ref(String(props.currentPage));
 watch(
   () => props.currentPage,
   (v) => {
-    if (!editing.value) draft.value = String(v);
+    if (!editing.value) { draft.value = String(v); }
   },
 );
 
@@ -54,7 +54,7 @@ function commit(): void {
   editing.value = false;
   const n = clampPage(Number(draft.value), props.pageCount);
   draft.value = String(n);
-  if (n !== props.currentPage) emit('go', n);
+  if (n !== props.currentPage) { emit('go', n); }
 }
 function onFocus(e: FocusEvent): void {
   editing.value = true;

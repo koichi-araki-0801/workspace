@@ -56,7 +56,9 @@ async function startFakeBuild(body: string): Promise<FakeBuild> {
       });
     } catch (e) {
       reservation.release();
-      if (attempt < 5 && (e as NodeJS.ErrnoException).code === 'EADDRINUSE') continue;
+      if (attempt < 5 && (e as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+        continue;
+      }
       throw e;
     }
     return {
@@ -281,7 +283,9 @@ describe('egressGuard — 同時に走る別ビルドのオリジンへは中継
         }
       }
     } finally {
-      for (const r of reservations) r.release();
+      for (const r of reservations) {
+        r.release();
+      }
     }
   });
 
@@ -377,7 +381,9 @@ describe('pickFreePortSpan / pickFreePortSpanSerialized の失敗経路', () => 
     const probe: PortProbe = async (port) => {
       if (port !== 0) {
         verifyCalls += 1;
-        if (verifyCalls === 1) throw new Error('EADDRINUSE');
+        if (verifyCalls === 1) {
+          throw new Error('EADDRINUSE');
+        }
       }
       return realProbe(port);
     };
@@ -611,7 +617,9 @@ function stubUpstream(): StubbedUpstream {
     respond(status?: number) {
       const up = new PassThrough() as unknown as http.IncomingMessage;
       up.headers = {};
-      if (status !== undefined) up.statusCode = status;
+      if (status !== undefined) {
+        up.statusCode = status;
+      }
       onResponse?.(up);
     },
     restore: () => spy.mockRestore(),

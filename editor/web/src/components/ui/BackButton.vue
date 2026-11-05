@@ -19,8 +19,8 @@ const router = useRouter();
 
 function goBack() {
   // `createWebHistory` は直前のエントリを `window.history.state.back` に保持する。
-  if (window.history.state?.back != null) router.back();
-  else router.push(props.fallback);
+  if (window.history.state?.back != null) { router.back(); }
+  else { router.push(props.fallback); }
 }
 </script>
 

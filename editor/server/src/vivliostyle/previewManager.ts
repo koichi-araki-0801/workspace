@@ -26,7 +26,9 @@ export interface PreviewServerHandle {
  */
 export function proxyViewerUrl(id: string, viewerUrl: string | undefined): string {
   const prefix = `/api/preview/${id}`;
-  if (!viewerUrl) return `${prefix}/`;
+  if (!viewerUrl) {
+    return `${prefix}/`;
+  }
   try {
     const origin = new URL(viewerUrl).origin;
     return viewerUrl.split(origin).join(prefix);
@@ -64,10 +66,10 @@ export interface PreviewSpec {
 /**
  * プレビュー操作の主体。所有者検査(IDOR)にだけ使うので、監査ログ用の `actorFromReq`
  * (未認証を `anonymous` へ潰す)は流用しない — 認可判定で未認証を 1 つの名前へ畳むのは危険。
+ * ロールは持たない(管理者にも他人のセッションを開ける例外を作らない。`owned` を見よ)。
  */
 export interface PreviewActor {
   loginId: string;
-  isAdmin: boolean;
 }
 
 /** spec に対しプレビューサーバを起動する。テストが実ブラウザを避けられるよう注入する。 */
@@ -133,8 +135,9 @@ export class PreviewManager {
     // 不変則として要求する。`idleTtlMs` も NaN だと setTimeout が 1ms 扱いになる。
     for (const key of ['maxSessions', 'idleTtlMs'] as const) {
       const v = opts[key];
-      if (!Number.isInteger(v) || v <= 0)
+      if (!Number.isInteger(v) || v <= 0) {
         throw new Error(`[previewManager] ${key} は正の整数である必要があります(受領値: ${v})`);
+      }
     }
     this.opts = opts;
   }
@@ -144,7 +147,9 @@ export class PreviewManager {
     // 枠は starter を await する前に**同期で**確保する。容量判定と starter 起動の間に await を
     // 挟むと、その間に来た並行 start が全員「まだ空き」を読み、上限を超えて Vite サーバを
     // 起動できる(check-then-act)。in-flight の起動数 `reservations` を size と合算して見る。
-    if (this.sessions.size + this.reservations >= this.opts.maxSessions) await this.evictOldest();
+    if (this.sessions.size + this.reservations >= this.opts.maxSessions) {
+      await this.evictOldest();
+    }
     if (this.sessions.size + this.reservations >= this.opts.maxSessions) {
       // 退避しても空かない = 全枠が in-flight 起動で埋まっている。これ以上は起動しない
       // (受け取った temp ディレクトリは破棄する)。
@@ -190,11 +195,17 @@ export class PreviewManager {
   /**
    * 所有者検査を通したセッションを引く。**不一致は「セッションが無い」と同じ扱い**にして、
    * ルートが一律 404 を返せるようにする(403 は存在オラクルになる)。
+   *
+   * 管理者の例外は置かない。viewer は文書の `<script src>` を app のオリジンで動かすので、
+   * 管理者が他人のセッションを開けると、URL で誘うだけで管理者のセッションで文書の script が
+   * 動く。資源の後始末(TTL・退避・終了)は所有者を問わない `stopInternal` が担う。
    */
   private owned(id: string, actor: PreviewActor): Session | undefined {
     const s = this.sessions.get(id);
-    if (!s) return undefined;
-    return s.owner === actor.loginId || actor.isAdmin ? s : undefined;
+    if (!s) {
+      return undefined;
+    }
+    return s.owner === actor.loginId ? s : undefined;
   }
 
   /** プロキシが必要とする port + docBase。不明・他人のセッションなら undefined。 */
@@ -208,15 +219,15 @@ export class PreviewManager {
   }
 
   list(actor: PreviewActor): PreviewSessionMeta[] {
-    return [...this.sessions.values()]
-      .filter((s) => actor.isAdmin || s.owner === actor.loginId)
-      .map((s) => s.meta);
+    return [...this.sessions.values()].filter((s) => s.owner === actor.loginId).map((s) => s.meta);
   }
 
   /** アクセス時にアイドル TTL を更新する(プロキシが呼ぶ)。不明なら false。 */
   touch(id: string): boolean {
     const s = this.sessions.get(id);
-    if (!s) return false;
+    if (!s) {
+      return false;
+    }
     clearTimeout(s.timer);
     const now = Date.now();
     s.lastAccessMs = now;
@@ -230,7 +241,9 @@ export class PreviewManager {
    * 消さない — `stop` は `cleanupProject` まで行うので、素通しすると他人の作業を消せる。
    */
   async stop(id: string, actor: PreviewActor): Promise<boolean> {
-    if (!this.owned(id, actor)) return false;
+    if (!this.owned(id, actor)) {
+      return false;
+    }
     return this.stopInternal(id);
   }
 
@@ -240,7 +253,9 @@ export class PreviewManager {
    */
   private async stopInternal(id: string): Promise<boolean> {
     const s = this.sessions.get(id);
-    if (!s) return false;
+    if (!s) {
+      return false;
+    }
     this.sessions.delete(id);
     clearTimeout(s.timer);
     await Promise.allSettled([s.handle.close(), cleanupProject(s.workDir)]);
@@ -263,8 +278,12 @@ export class PreviewManager {
   private async evictOldest(): Promise<void> {
     let oldest: Session | undefined;
     for (const s of this.sessions.values()) {
-      if (!oldest || s.lastAccessMs < oldest.lastAccessMs) oldest = s;
+      if (!oldest || s.lastAccessMs < oldest.lastAccessMs) {
+        oldest = s;
+      }
     }
-    if (oldest) await this.stopInternal(oldest.meta.id);
+    if (oldest) {
+      await this.stopInternal(oldest.meta.id);
+    }
   }
 }

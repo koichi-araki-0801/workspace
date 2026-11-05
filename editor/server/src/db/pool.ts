@@ -23,7 +23,9 @@ interface Driver {
 let pool: Pool | undefined;
 
 function getPool(): Pool {
-  if (pool) return pool;
+  if (pool) {
+    return pool;
+  }
   const driver = requireCjs('msnodesqlv8') as Driver; // ネイティブ; REST モードのみ
   const p = new driver.Pool({
     connectionString: config.db.connectionString,
@@ -41,8 +43,11 @@ export function query(sql: string, params: unknown[]): Promise<Record<string, un
   const p = getPool();
   return new Promise((resolve, reject) => {
     p.query(sql, params, (err: unknown, rows: unknown[]) => {
-      if (err) reject(err);
-      else resolve((rows ?? []) as Record<string, unknown>[]);
+      if (err) {
+        reject(err);
+      } else {
+        resolve((rows ?? []) as Record<string, unknown>[]);
+      }
     });
   });
 }

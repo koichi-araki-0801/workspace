@@ -1,0 +1,9 @@
+# git blame で無視する、挙動を変えない一斉修正のコミット。
+# 有効にするには: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub の blame 表示はこのファイルを自動で読む)
+
+# if / for / while の本体を常に波括弧で囲む (2026-11-02)
+c2802cb7a1711d33eca7845ab44a8cf901b9f3b5
+9f10435bab25edd123eb0be8b977c53ee4fcc283
+3aa37ce5c4f85d72e6514b1481ab5198e960929f
+9d67cd324952c83114918c898473459ed1b10c51

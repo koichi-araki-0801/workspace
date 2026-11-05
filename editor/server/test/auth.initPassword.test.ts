@@ -172,7 +172,9 @@ describe('POST /auth/init-password の施錠', () => {
         headers: { cookie: 'editor.sid=editor' },
         payload: { username: 'editor', ...BODY },
       });
-    for (let i = 0; i < maxFailures; i += 1) await send();
+    for (let i = 0; i < maxFailures; i += 1) {
+      await send();
+    }
     initPassword.mockClear();
 
     const res = await send();

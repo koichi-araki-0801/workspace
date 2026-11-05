@@ -23,9 +23,13 @@ export function directOffset(value: number | null, row: number): number {
  */
 export function parsePageIndex(text: string, pageCount: number): number | null {
   const trimmed = text.trim();
-  if (trimmed === '') return null;
+  if (trimmed === '') {
+    return null;
+  }
   const n = Number(trimmed);
-  if (!Number.isFinite(n)) return null;
+  if (!Number.isFinite(n)) {
+    return null;
+  }
   return clampPage(n, pageCount) - 1;
 }
 
@@ -42,7 +46,9 @@ interface RowLayout {
 
 // 配列の外の行は最後の offset を引き継ぐ。「以降も連動」のずらしが、足した行へも及ぶようにする。
 function offsetAt(off: readonly number[], row: number): number {
-  if (off.length === 0) return 0;
+  if (off.length === 0) {
+    return 0;
+  }
   return off[Math.min(row, off.length - 1)];
 }
 
@@ -73,7 +79,9 @@ export function layoutRows(
   // ── 1. あふれたページの行を足す ──
   const overflow = (off: number[], count: number): number[] => {
     let max = -1;
-    for (let r = 0; r < readRows; r++) max = Math.max(max, shownPage(off, r, count) ?? -1);
+    for (let r = 0; r < readRows; r++) {
+      max = Math.max(max, shownPage(off, r, count) ?? -1);
+    }
     return Array.from({ length: Math.max(0, count - (max + 1)) }, (_, k) => max + 1 + k);
   };
   const bOver = overflow(bOff, beforeCount);
@@ -83,7 +91,9 @@ export function layoutRows(
   // 利用者が空けた隙間なので、そこへ入れるとページの並びが入れ替わり、指定も上書きされる。
   const free: number[] = [];
   for (let r = readRows - 1; r >= baseRows; r--) {
-    if (shownPage(bOff, r, beforeCount) != null || shownPage(aOff, r, afterCount) != null) break;
+    if (shownPage(bOff, r, beforeCount) != null || shownPage(aOff, r, afterCount) != null) {
+      break;
+    }
     free.unshift(r);
   }
   for (let k = 0; k < extra; k++) {
@@ -116,13 +126,18 @@ export function layoutRows(
     const seen = new Array<number>(count).fill(0);
     for (let r = 0; r < rowCount; r++) {
       const p = shownPage(off, r, count);
-      if (p != null) seen[p]++;
+      if (p != null) {
+        seen[p]++;
+      }
     }
     const missing: number[] = [];
     const duplicated: number[] = [];
     seen.forEach((n, p) => {
-      if (n === 0) missing.push(p);
-      else if (n > 1) duplicated.push(p);
+      if (n === 0) {
+        missing.push(p);
+      } else if (n > 1) {
+        duplicated.push(p);
+      }
     });
     return { missing, duplicated };
   };
@@ -140,7 +155,9 @@ export function layoutRows(
 const WARN_LIMIT = 10;
 
 function pagesText(label: string, pages: readonly number[]): string | null {
-  if (pages.length === 0) return null;
+  if (pages.length === 0) {
+    return null;
+  }
   const shown = pages
     .slice(0, WARN_LIMIT)
     .map((p) => p + 1)

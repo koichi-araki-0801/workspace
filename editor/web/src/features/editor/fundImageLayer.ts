@@ -158,11 +158,17 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   };
 
   const observeBody = (doc: Document): void => {
-    if (!opts.onCanvasResize) return;
+    if (!opts.onCanvasResize) {
+      return;
+    }
     const body = doc.body;
-    if (!body) return;
+    if (!body) {
+      return;
+    }
     if (observer && observedDoc === doc) {
-      if (observedBody === body) return;
+      if (observedBody === body) {
+        return;
+      }
       // load で body が差し替わったら、同じ observer の監視先を移す。
       observer.disconnect();
       observer.observe(body);
@@ -172,13 +178,19 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     }
     disconnect();
     const RO = opts.ResizeObserver ?? doc.defaultView?.ResizeObserver;
-    if (!RO) return;
+    if (!RO) {
+      return;
+    }
     const onResize = opts.onCanvasResize;
     observer = new RO((entries) => {
       const rect = entries[entries.length - 1]?.contentRect;
-      if (!rect) return;
+      if (!rect) {
+        return;
+      }
       const size = `${rect.width}x${rect.height}`;
-      if (size === lastSize) return;
+      if (size === lastSize) {
+        return;
+      }
       lastSize = size;
       onResize();
     });
@@ -188,7 +200,9 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   };
 
   const ensureStyle = (doc: Document): HTMLStyleElement => {
-    if (styleEl?.isConnected && styleEl.ownerDocument === doc) return styleEl;
+    if (styleEl?.isConnected && styleEl.ownerDocument === doc) {
+      return styleEl;
+    }
     styleEl = doc.createElement('style');
     styleEl.setAttribute(FUND_IMAGE_STYLE_ATTR, '');
     doc.head.appendChild(styleEl);
@@ -200,14 +214,20 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   /** 複製を body の末尾に置く。複製が一度も無いうちは要素を作らない。 */
   const syncAssetStyle = (doc: Document): void => {
     const body = doc.body;
-    if (!body) return;
-    if (cssCopy === '' && assetEl === null) return;
+    if (!body) {
+      return;
+    }
+    if (cssCopy === '' && assetEl === null) {
+      return;
+    }
     if (assetEl === null || assetEl.ownerDocument !== doc) {
       assetEl = doc.createElement('style');
       assetEl.setAttribute(CANVAS_CSS_ASSET_ATTR, '');
       lastAssetCss = null;
     }
-    if (body.lastElementChild !== assetEl) body.appendChild(assetEl);
+    if (body.lastElementChild !== assetEl) {
+      body.appendChild(assetEl);
+    }
     if (cssCopy !== lastAssetCss) {
       assetEl.textContent = cssCopy;
       lastAssetCss = cssCopy;
@@ -230,7 +250,9 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
 
   /** 会社コードが変わったときだけ複製を作り直す(走査は高頻度なので CSS の分割を毎回しない)。 */
   const updateCssCopy = (companyCode: string | null): void => {
-    if (cssInput.length === 0 || companyCode === cssCompany) return;
+    if (cssInput.length === 0 || companyCode === cssCompany) {
+      return;
+    }
     rebuildCssCopy(companyCode);
   };
 
@@ -249,8 +271,12 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   /** 先読みに失敗した参照のうち、まだ問い合わせていないものを 1 回で問い合わせる。 */
   const inspectFailed = async (refs: readonly FundImageRef[]): Promise<void> => {
     const fresh = refs.filter((ref) => !inspected.has(refKey(ref)));
-    if (opts.inspect === undefined || fresh.length === 0) return;
-    for (const ref of fresh) inspected.add(refKey(ref));
+    if (opts.inspect === undefined || fresh.length === 0) {
+      return;
+    }
+    for (const ref of fresh) {
+      inspected.add(refKey(ref));
+    }
     let res: Result<FundAssetInspectResult[]>;
     try {
       res = await opts.inspect(fresh);
@@ -260,16 +286,26 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     // 問い合わせの失敗は警告にしない(理由が分からないだけで、編集は続けられる)。一時的な失敗でも
     // 同じ画面では問い合わせ直さない(先読みの失敗のたびに問い合わせが重なるのを避ける)。開き直せば
     // もう一度問い合わせる。
-    if (destroyed || !isOk(res)) return;
+    if (destroyed || !isOk(res)) {
+      return;
+    }
     const found = svgRejectedImages(res.value);
-    if (found.length === 0) return;
-    for (const img of found) rejected.set(refKey(img.ref), img);
+    if (found.length === 0) {
+      return;
+    }
+    for (const img of found) {
+      rejected.set(refKey(img.ref), img);
+    }
     emitWarnings();
   };
 
   const refreshIn = (doc: Document | null | undefined): void => {
-    if (destroyed) return;
-    if (!doc?.head) return;
+    if (destroyed) {
+      return;
+    }
+    if (!doc?.head) {
+      return;
+    }
     const srcs = Array.from(doc.querySelectorAll('img'), (img) => img.getAttribute('src') ?? '');
     const ctx = opts.getContext();
     updateCssCopy(ctx.companyCode);
@@ -284,7 +320,9 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
     }
     currentRefs = new Set([...refOfUrl.values()].map(refKey));
     const fresh = urls.filter((u) => !preloaded.has(u));
-    for (const u of fresh) preloaded.add(u);
+    for (const u of fresh) {
+      preloaded.add(u);
+    }
     if (fresh.length > 0) {
       void Promise.allSettled(fresh.map((u) => preload(u))).then((settled) => {
         opts.onImagesReady();
@@ -300,11 +338,15 @@ export function attachFundImages(host: FundImageHost, opts: FundImageLayerOption
   };
 
   const refresh = (): void => {
-    if (!destroyed) refreshIn(host.Canvas.getDocument());
+    if (!destroyed) {
+      refreshIn(host.Canvas.getDocument());
+    }
   };
 
   const scheduleRefresh = (): void => {
-    if (pending || destroyed) return;
+    if (pending || destroyed) {
+      return;
+    }
     pending = true;
     schedule(() => {
       pending = false;
@@ -360,11 +402,15 @@ export function registerFundImageView(ed: Editor, isTarget: (src: string) => boo
   const base = dc.getType('image')?.view as unknown as
     | { prototype: { onError(this: ImageViewLike): void } }
     | undefined;
-  if (base === undefined) return;
+  if (base === undefined) {
+    return;
+  }
   const view = {
     onError(this: ImageViewLike): void {
       const src = this.model.get('src');
-      if (typeof src === 'string' && isTarget(src)) return;
+      if (typeof src === 'string' && isTarget(src)) {
+        return;
+      }
       base.prototype.onError.call(this);
     },
   };

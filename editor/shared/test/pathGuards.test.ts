@@ -205,7 +205,9 @@ describe('テンプレート(3 つ区切り)の id とどちらの形も受け�
   });
 
   it('どちらの形でもトラバーサル・空白・制御文字・長すぎる値は通らない(片方だけ緩む穴が無い)', () => {
-    for (const payload of TRAVERSAL_PAYLOADS) expect(isValidAnyTemplateId(payload)).toBe(false);
+    for (const payload of TRAVERSAL_PAYLOADS) {
+      expect(isValidAnyTemplateId(payload)).toBe(false);
+    }
     expect(isValidAnyTemplateId('XX01_950037_../../evil')).toBe(false);
     expect(isValidAnyTemplateId('XX01 _950037_交付版')).toBe(false);
     expect(isValidAnyTemplateId(`${SKELETON_ID} `)).toBe(false);

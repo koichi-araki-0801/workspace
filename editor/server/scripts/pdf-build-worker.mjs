@@ -11,7 +11,11 @@
 // 契約: `process.argv[2]` = `@vivliostyle/cli` の `build()` へ渡すオプションの JSON 文字列
 // (`{ input, output:[{path,format}], size, singleDoc?, executableBrowser?, logLevel }`)。
 // 成功で exit 0、失敗は理由を stderr へ出して非 0。出力 PDF が生成されたかも検証する。
+//
+// CLI を読む前に `browserLaunchGuard.mjs` の `hardenBrowserLaunch` を呼び、ブラウザの起動に
+// WebRTC の UDP を止めるフラグを必ず付ける(付かない起動は spawn の前に止める)。
 import { existsSync } from 'node:fs';
+import { hardenBrowserLaunch } from './browserLaunchGuard.mjs';
 
 const optsJson = process.argv[2];
 if (!optsJson) {
@@ -30,6 +34,9 @@ try {
 }
 
 try {
+  // 包むのは CLI を読む前(CLI が読む `puppeteer-core` と同じ実体を先に包む)。
+  const guard = await hardenBrowserLaunch(import.meta.resolve('@vivliostyle/cli'));
+  guard.rememberBrowser(opts?.executableBrowser);
   // worker は `server/scripts/` に在るため、bare specifier は `server/node_modules` へ解決される。
   const { build } = await import('@vivliostyle/cli');
   await build(opts);

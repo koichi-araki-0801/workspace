@@ -17,8 +17,11 @@ function sourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) found.push(...sourceFiles(full));
-    else if (/\.(ts|vue)$/.test(name)) found.push(full);
+    if (statSync(full).isDirectory()) {
+      found.push(...sourceFiles(full));
+    } else if (/\.(ts|vue)$/.test(name)) {
+      found.push(full);
+    }
   }
   return found;
 }
@@ -26,10 +29,15 @@ function sourceFiles(dir: string): string[] {
 /** import/export の `from`、動的 `import()`、`import.meta.glob()` の指定子を拾う。 */
 function importSpecifiers(source: string): string[] {
   const out: string[] = [];
-  for (const m of source.matchAll(/(?:import|export)[^'";]*?from\s*['"]([^'"]+)['"]/g))
+  for (const m of source.matchAll(/(?:import|export)[^'";]*?from\s*['"]([^'"]+)['"]/g)) {
     out.push(m[1]);
-  for (const m of source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]\s*\)/g)) out.push(m[1]);
-  for (const m of source.matchAll(/import\.meta\.glob\(\s*['"]([^'"]+)/g)) out.push(m[1]);
+  }
+  for (const m of source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]\s*\)/g)) {
+    out.push(m[1]);
+  }
+  for (const m of source.matchAll(/import\.meta\.glob\(\s*['"]([^'"]+)/g)) {
+    out.push(m[1]);
+  }
   return out;
 }
 
@@ -55,7 +63,9 @@ describe('本番コードは editor/fixtures を読まない', () => {
     const offenders: string[] = [];
     for (const file of files) {
       for (const spec of importSpecifiers(readFileSync(file, 'utf8'))) {
-        if (spec.includes('fixtures')) offenders.push(`${path.relative(WEB_SRC, file)}: ${spec}`);
+        if (spec.includes('fixtures')) {
+          offenders.push(`${path.relative(WEB_SRC, file)}: ${spec}`);
+        }
       }
     }
     expect(offenders).toEqual([]);

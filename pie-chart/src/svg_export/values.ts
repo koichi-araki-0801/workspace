@@ -21,7 +21,7 @@
 
 /**
  * XML 1.0 が禁じる文字 (U+0000-U+0008 / U+000B / U+000C / U+000E-U+001F と孤立サロゲート)。
- * Excel セルや DB 値に 1 文字混じるだけで出力 SVG 全体がパース不能になり、`verify/svg.ts`
+ * 入力の名前(JSON / DB の値)に 1 文字混じるだけで出力 SVG 全体がパース不能になり、`verify/svg.ts`
  * は整形式性を見ないので検証段でも検出されない。除去はエスケープの**前**に行う
  * (「不正文字を落としてから XML としてエスケープする」の順が説明できる)。
  * サロゲートは UTF-16 コードユニット単位で判定する。
@@ -228,14 +228,20 @@ const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
  * 運用要件は満たせる。
  */
 export function isSvgColor(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
-  if (HEX_COLOR_RE.test(value)) return true;
+  if (typeof value !== 'string') {
+    return false;
+  }
+  if (HEX_COLOR_RE.test(value)) {
+    return true;
+  }
   return NAMED_COLORS.has(value.toLowerCase()) || value === 'none' || value === 'currentColor';
 }
 
 /** 色でなければ throw する (既定色へ黙って落とさない — 帳票では無警告の誤出力が最悪)。 */
 export function assertSvgColor(label: string, value: unknown): string {
-  if (isSvgColor(value)) return value as string;
+  if (isSvgColor(value)) {
+    return value as string;
+  }
   throw new Error(
     `${label} に SVG の色として受理できない値が渡されました: ${JSON.stringify(value)}。` +
       ' 受理するのは #rgb / #rgba / #rrggbb / #rrggbbaa / CSS 名前付き色 / none /' +
@@ -262,7 +268,9 @@ const FONT_WEIGHTS: ReadonlySet<string> = new Set([
 ]);
 
 export function assertFontWeight(label: string, value: unknown): string {
-  if (typeof value === 'string' && FONT_WEIGHTS.has(value)) return value;
+  if (typeof value === 'string' && FONT_WEIGHTS.has(value)) {
+    return value;
+  }
   throw new Error(
     `${label} に font-weight として受理できない値が渡されました: ${JSON.stringify(value)}。` +
       ` 受理するのは ${[...FONT_WEIGHTS].join(' / ')} のいずれかです。`,
@@ -277,7 +285,9 @@ export function assertFontWeight(label: string, value: unknown): string {
 const FONT_FAMILY_NAME_RE = /^[\p{L}\p{N} _-]{1,64}$/u;
 
 export function assertFontFamilyName(label: string, value: unknown): string {
-  if (typeof value === 'string' && FONT_FAMILY_NAME_RE.test(value)) return value;
+  if (typeof value === 'string' && FONT_FAMILY_NAME_RE.test(value)) {
+    return value;
+  }
   throw new Error(
     `${label} に埋め込みフォント名として受理できない値が渡されました: ${JSON.stringify(value)}。` +
       ' 受理するのは Unicode 文字・数字・空白・ハイフン・アンダースコア (64 文字以内) です' +

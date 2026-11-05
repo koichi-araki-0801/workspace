@@ -369,8 +369,9 @@ describe('markdown と SVG の外部参照', () => {
       '[link](http://evil.example/)',
       '![logo]\n\n[logo]: https://evil.example/x.png',
       '![logo](<https://evil.example/x.png>)',
-    ])
+    ]) {
       expect(() => assertNoMarkdownExternalRefs(md, 'project:doc.md'), md).toThrow();
+    }
   });
 
   it('markdown 内の生 HTML も同じ基準で見る', () => {
@@ -417,8 +418,9 @@ describe('raw text の内側の外部参照', () => {
     for (const html of [
       '<noscript><img src="https://evil.example/x.png"></noscript>',
       '<svg><textarea><image href="https://evil.example/x.png"></textarea></svg>',
-    ])
+    ]) {
       expect(() => assertNoDocumentExternalRefs(html, '', 'doc'), html).toThrow();
+    }
   });
 
   it('script の中身は参照として数えない(JS であってマークアップではない)', () => {
@@ -526,7 +528,9 @@ describe('assertProjectDirHasNoExternalRefs — 分類は小文字 basename の�
     return dir;
   };
   afterAll(async () => {
-    for (const d of dirs) await fs.rm(d, { recursive: true, force: true }).catch(() => {});
+    for (const d of dirs) {
+      await fs.rm(d, { recursive: true, force: true }).catch(() => {});
+    }
   });
 
   it('.css.map の中の絶対 URL を拾う(extname では .map になり分類から漏れていた)', async () => {
@@ -587,7 +591,9 @@ describe('入れ子の深さ上限', () => {
   const escAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
   const nestSrcdoc = (inner: string, levels: number) => {
     let html = inner;
-    for (let i = 0; i < levels; i++) html = `<iframe srcdoc="${escAttr(html)}"></iframe>`;
+    for (let i = 0; i < levels; i++) {
+      html = `<iframe srcdoc="${escAttr(html)}"></iframe>`;
+    }
     return html;
   };
 

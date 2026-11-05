@@ -100,8 +100,12 @@ function editionState(
   if (findTemplateId(templateFiles, attrs.companyCode, attrs.fundCode, attrs.editionType)) {
     return { state: 'created', found };
   }
-  if (hasPendingReview(id)) return { state: 'pendingReview', found };
-  if (found.drafts.length > 0 || found.pending.length > 0) return { state: 'inProgress', found };
+  if (hasPendingReview(id)) {
+    return { state: 'pendingReview', found };
+  }
+  if (found.drafts.length > 0 || found.pending.length > 0) {
+    return { state: 'inProgress', found };
+  }
   return { state: 'none', found };
 }
 
@@ -268,15 +272,24 @@ export const generateRoutes: FastifyPluginAsync<{
               // 大文字小文字を区別しないファイルシステムでは古い綴りと id の綴りが同じファイルなので、
               // 書いた後に消すと新しい生成物ごと消える。
               for (const st of targets) {
-                for (const p of st.found.pending) if (p !== st.id) await deletePending(p);
+                for (const p of st.found.pending) {
+                  if (p !== st.id) {
+                    await deletePending(p);
+                  }
+                }
               }
-              for (const item of items) await writePending(item.id, item.html, item.css);
+              for (const item of items) {
+                await writePending(item.id, item.html, item.css);
+              }
               for (const st of targets) {
-                for (const d of st.found.drafts) await deleteDraft(d);
+                for (const d of st.found.drafts) {
+                  await deleteDraft(d);
+                }
                 await deleteDraft(st.id);
               }
-              for (const item of items)
+              for (const item of items) {
                 await recordCreate(item.attributes, sourceFundCode, loginId);
+              }
             }
             // 無認証モードは pending を持たないが、生成器は約束どおり output/ へ書くので同じく消す。
             await removeGeneratedFiles([...items.map((item) => item.file), ...discard]);
@@ -286,7 +299,9 @@ export const generateRoutes: FastifyPluginAsync<{
               editionType: item.attributes.editionType,
             }));
             // 取り込んだ版が 1 つならそれを開く。両版なら画面がどちらを開くかを選ばせる。
-            if (items.length !== 1) return { imported, skipped };
+            if (items.length !== 1) {
+              return { imported, skipped };
+            }
             const [opened] = items;
             // 生成直後のスケルトンは静的な記入済み(filled)を持たない。エディタ側で描画する。
             const template: Template = {

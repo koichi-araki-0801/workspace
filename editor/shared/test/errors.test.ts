@@ -61,7 +61,9 @@ describe('toAppError', () => {
 
 describe('isAppErrorKind', () => {
   it('accepts every listed kind', () => {
-    for (const kind of APP_ERROR_KINDS) expect(isAppErrorKind(kind)).toBe(true);
+    for (const kind of APP_ERROR_KINDS) {
+      expect(isAppErrorKind(kind)).toBe(true);
+    }
   });
 
   it('rejects unknown strings and non-strings', () => {

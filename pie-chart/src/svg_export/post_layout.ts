@@ -118,14 +118,21 @@ export function clampPlacement(placement: Placement, cfg?: PieLayoutConfig): voi
 function clampToAnchorSide(p: Placement): void {
   // 上部「その他」を右上へ第一優先で置いたラベルは中心跨ぎの引き戻しを免除 (anchorX が
   // 僅かに負でも右側を維持する)。
-  if (p.forceTopRight) return;
+  if (p.forceTopRight) {
+    return;
+  }
   const ax = p.leaderAnchor?.x;
   const ex = p.leaderEndpoint?.x;
   const ox = p.origTextX;
-  if (typeof ax !== 'number' || typeof ex !== 'number' || typeof ox !== 'number') return;
+  if (typeof ax !== 'number' || typeof ex !== 'number' || typeof ox !== 'number') {
+    return;
+  }
   const newEx = ex + (p.x - ox);
-  if (ax > 0 && newEx < 0) p.x = ox - ex;
-  else if (ax < 0 && newEx > 0) p.x = ox - ex;
+  if (ax > 0 && newEx < 0) {
+    p.x = ox - ex;
+  } else if (ax < 0 && newEx > 0) {
+    p.x = ox - ex;
+  }
 }
 
 /**
@@ -134,8 +141,12 @@ function clampToAnchorSide(p: Placement): void {
  * (dyDelta > 0 = 上方向 / canvasYlim 上限 maxTextY 側、dyDelta < 0 = 下方向 minTextY 側)
  */
 export function blockedInY(p: Placement, dyDelta: number): boolean {
-  if (dyDelta > 0 && typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) return true;
-  if (dyDelta < 0 && typeof p.minTextY === 'number' && p.y <= p.minTextY + 1e-9) return true;
+  if (dyDelta > 0 && typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) {
+    return true;
+  }
+  if (dyDelta < 0 && typeof p.minTextY === 'number' && p.y <= p.minTextY + 1e-9) {
+    return true;
+  }
   return false;
 }
 
@@ -151,9 +162,13 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
   const margin = pxToLogical(cfg, 0.5);
   const anchored = new Set<number>();
   textPlacements.forEach((p, i) => {
-    if (typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) anchored.add(i);
+    if (typeof p.maxTextY === 'number' && p.y >= p.maxTextY - 1e-9) {
+      anchored.add(i);
+    }
   });
-  if (anchored.size === 0) return;
+  if (anchored.size === 0) {
+    return;
+  }
 
   for (let iter = 0; iter < OVERLAP_MAX_ITER; iter += 1) {
     let anyMoved = false;
@@ -165,15 +180,23 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
           placementBox(textPlacements[j], cfg).top - placementBox(textPlacements[i], cfg).top,
       );
     for (const ai of order) {
-      if (!anchored.has(ai)) continue; // 固定 or 確定済みの上側ラベルのみ壁にする
+      if (!anchored.has(ai)) {
+        continue; // 固定 or 確定済みの上側ラベルのみ壁にする
+      }
       const boxA = placementBox(textPlacements[ai], cfg);
       for (const bi of order) {
-        if (bi === ai) continue;
+        if (bi === ai) {
+          continue;
+        }
         const b = textPlacements[bi];
         const boxB = placementBox(b, cfg);
-        if (boxB.top >= boxA.top) continue; // b は a より下のみ対象
+        if (boxB.top >= boxA.top) {
+          continue; // b は a より下のみ対象
+        }
         const overlapX = Math.min(boxA.right, boxB.right) - Math.max(boxA.left, boxB.left);
-        if (overlapX <= 0) continue;
+        if (overlapX <= 0) {
+          continue;
+        }
         const overlapY = boxB.top - boxA.bottom; // >0 で縦に重なり
         if (overlapY <= margin) {
           anchored.add(bi); // 既に離れているが壁として確定
@@ -185,7 +208,9 @@ function settlePinnedClustersDownward(textPlacements: Placement[], cfg: PieLayou
         anyMoved = true;
       }
     }
-    if (!anyMoved) break;
+    if (!anyMoved) {
+      break;
+    }
   }
 }
 
@@ -230,7 +255,9 @@ function iterateOverlapPairs(
         const ba = placementBox(a, cfg);
         const bb = placementBox(b, cfg);
         const { x: overlapX, y: overlapY } = boxOverlapAmount(ba, bb);
-        if (!resolvePair(a, b, ba, bb, overlapX, overlapY)) continue;
+        if (!resolvePair(a, b, ba, bb, overlapX, overlapY)) {
+          continue;
+        }
         clampPlacement(a);
         clampPlacement(b);
         clampToAnchorSide(a);
@@ -238,7 +265,9 @@ function iterateOverlapPairs(
         anyMoved = true;
       }
     }
-    if (!anyMoved) break;
+    if (!anyMoved) {
+      break;
+    }
   }
 }
 
@@ -247,8 +276,12 @@ export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayout
 
   // 主パス: bbox が strictly に重なるペアを bbox 中心ベクトル方向へ対角分離。
   iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
-    if (overlapX <= 0 || overlapY <= 0) return false;
-    if (overlapY < thresholdLogical) return false;
+    if (overlapX <= 0 || overlapY <= 0) {
+      return false;
+    }
+    if (overlapY < thresholdLogical) {
+      return false;
+    }
 
     const cax = (ba.left + ba.right) / 2;
     const cay = (ba.top + ba.bottom) / 2;
@@ -291,9 +324,15 @@ export function resolveLabelOverlaps(textPlacements: Placement[], cfg: PieLayout
   const visualHorizGap = pxToLogical(cfg, OVERLAP_HORIZ_NEAR_GAP_PX);
   // Secondary パス: 横が非重なり (隙間 < OVERLAP_HORIZ_NEAR_GAP_PX) かつ縦に重なるペアを純縦分離。
   iterateOverlapPairs(textPlacements, cfg, (a, b, ba, bb, overlapX, overlapY) => {
-    if (overlapX > 0) return false;
-    if (overlapX + visualHorizGap <= 0) return false;
-    if (overlapY < thresholdLogical) return false;
+    if (overlapX > 0) {
+      return false;
+    }
+    if (overlapX + visualHorizGap <= 0) {
+      return false;
+    }
+    if (overlapY < thresholdLogical) {
+      return false;
+    }
 
     const cay = (ba.top + ba.bottom) / 2;
     const cby = (bb.top + bb.bottom) / 2;
@@ -363,7 +402,9 @@ function compactPassTwoFlippedPreCompact(items: LayoutItem[], cfg: PieLayoutConf
     if (rankStep > innerRoom) {
       for (const lb of [outer, inner]) {
         const target = items.find((it) => it.name === lb.name);
-        if (target && !target.compactLabel) target.compactLabel = true;
+        if (target && !target.compactLabel) {
+          target.compactLabel = true;
+        }
       }
     }
   }
@@ -390,7 +431,9 @@ function compactPassTwoUpperLeftNarrowTopBand(items: LayoutItem[], cfg: PieLayou
   if (topBandUL.length === 2 && topBandUL.every((l: LayoutItem) => (l.textLines ?? 2) >= 2)) {
     for (const lb of topBandUL) {
       const target = items.find((it) => it.name === lb.name);
-      if (target && !target.compactLabel) target.compactLabel = true;
+      if (target && !target.compactLabel) {
+        target.compactLabel = true;
+      }
     }
   }
 }
@@ -411,7 +454,9 @@ function compactPassForceLowerLeftBand(items: LayoutItem[], cfg: PieLayoutConfig
     );
     for (const lb of lowerLeftSiblings) {
       const target = items.find((it) => it.name === lb.name);
-      if (target && !target.compactLabel) target.compactLabel = true;
+      if (target && !target.compactLabel) {
+        target.compactLabel = true;
+      }
       if (target && lb.anchorY! >= deepLLBoundary) {
         target.forceHorizontalLowerLeftDrop = true;
       }
@@ -431,7 +476,9 @@ function compactPassDenseFlipPreCompact(items: LayoutItem[], cfg: PieLayoutConfi
     const allFlipped = denseFlipProbe.labels.filter((l: LayoutItem) => l.flipToRight);
     for (const lb of allFlipped) {
       const target = items.find((it) => it.name === lb.name);
-      if (target && !target.compactLabel) target.compactLabel = true;
+      if (target && !target.compactLabel) {
+        target.compactLabel = true;
+      }
     }
   }
 }
@@ -444,18 +491,28 @@ function compactPassCompactifyLoop(items: LayoutItem[], cfg: PieLayoutConfig): v
     const upperLeft = probe.labels.filter(
       (l: LayoutItem) => l.isUpperLeft && !l.flipToRight && (l.percent ?? 0) < 50,
     );
-    if (upperLeft.length === 0) break;
+    if (upperLeft.length === 0) {
+      break;
+    }
     const overflowing = upperLeft.find((l: LayoutItem) => {
       const heightLogical = labelHeightUnits(l.textLines ?? 2, cfg);
       return (l.upperLeftRenderY ?? 0) + heightLogical + cfg.cornerGap > maxAllowedY;
     });
     const flippedCount = probe.labels.filter((l: LayoutItem) => l.flipToRight).length;
     const tooManyFlipped = flippedCount >= 2;
-    if (!overflowing && !tooManyFlipped) break;
+    if (!overflowing && !tooManyFlipped) {
+      break;
+    }
     const candidates = upperLeft.filter((l: LayoutItem) => {
-      if (l.compactLabel) return false;
-      if (probe.diagnostics?.keepUpperLeft2Lines) return false;
-      if (overflowing && overflowing.name === l.name) return true;
+      if (l.compactLabel) {
+        return false;
+      }
+      if (probe.diagnostics?.keepUpperLeft2Lines) {
+        return false;
+      }
+      if (overflowing && overflowing.name === l.name) {
+        return true;
+      }
       const compactLine = `${l.name} ${l.percentText ?? ''}`;
       const compactWidthLogical = visualTextWidthUnits([compactLine], cfg);
       const distanceLogical =
@@ -464,10 +521,14 @@ function compactPassCompactifyLoop(items: LayoutItem[], cfg: PieLayoutConfig): v
           : cfg.canvasXlim[1] - l.anchorX! - cfg.scaledRadialExitLen - cfg.cornerGap;
       return compactWidthLogical <= distanceLogical;
     });
-    if (candidates.length === 0) break;
+    if (candidates.length === 0) {
+      break;
+    }
     const topmost = candidates.reduce((best, cur) => (cur.anchorY > best.anchorY ? cur : best));
     const target = items.find((it) => it.name === topmost.name);
-    if (!target || target.compactLabel) break;
+    if (!target || target.compactLabel) {
+      break;
+    }
     target.compactLabel = true;
   }
 }
@@ -484,7 +545,9 @@ function compactPassTwoFlippedPostCheck(items: LayoutItem[], cfg: PieLayoutConfi
     for (const lb of flipped) {
       const target = items.find((it) => it.name === lb.name);
       if (target) {
-        if (!target.compactLabel) target.compactLabel = true;
+        if (!target.compactLabel) {
+          target.compactLabel = true;
+        }
         target.forceFlipToRight = true;
       }
     }
@@ -518,7 +581,9 @@ function compactPassRevertHorizonLong(items: LayoutItem[], cfg: PieLayoutConfig)
  * この呼び出し順を変えてはならない。
  */
 export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): void {
-  if (items.length <= 1) return;
+  if (items.length <= 1) {
+    return;
+  }
   compactPassTwoFlippedPreCompact(items, cfg);
   compactPassTwoUpperLeftNarrowTopBand(items, cfg);
   compactPassForceLowerLeftBand(items, cfg);
@@ -538,11 +603,17 @@ export function runCompactCascade(items: LayoutItem[], cfg: PieLayoutConfig): vo
 
 export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLayoutConfig): void {
   for (const placement of textPlacements) {
-    if (placement.insideSlice) continue;
+    if (placement.insideSlice) {
+      continue;
+    }
     const overflow = detectVisualHorizontalOverflow(placement, cfg);
-    if (!overflow.overflow) continue;
+    if (!overflow.overflow) {
+      continue;
+    }
     // compact 1 行ラベルは対象外 (元々狭い区間に詰め込まれており nudge で leader と干渉しやすい)。
-    if ((placement.item.textLines ?? 2) <= 1 || placement.item.compactLabel) continue;
+    if ((placement.item.textLines ?? 2) <= 1 || placement.item.compactLabel) {
+      continue;
+    }
     const lines = placement.lines;
     const widthLogical = visualTextWidthUnits(lines, cfg);
     const heightLogical = labelHeightUnits(placement.item.textLines ?? 2, cfg);
@@ -558,9 +629,13 @@ export function applyVisualViewBoxNudge(textPlacements: Placement[], cfg: PieLay
     const bboxTop = box.top;
     const bboxBottom = box.bottom;
     let closestPieY = 0;
-    if (bboxBottom > cfg.pieRadius) closestPieY = bboxBottom;
-    else if (bboxTop < -cfg.pieRadius) closestPieY = bboxTop;
-    else closestPieY = Math.abs(bboxTop) < Math.abs(bboxBottom) ? bboxTop : bboxBottom;
+    if (bboxBottom > cfg.pieRadius) {
+      closestPieY = bboxBottom;
+    } else if (bboxTop < -cfg.pieRadius) {
+      closestPieY = bboxTop;
+    } else {
+      closestPieY = Math.abs(bboxTop) < Math.abs(bboxBottom) ? bboxTop : bboxBottom;
+    }
     // 実効クリアランス (viewBox 収まりキャップ)。狙い値のままだと、幅広ラベルの見切れ解消 shift が
     // pie 側で早く頭打ちになり、下限 (`pieLabelClearanceMin`) なら回収できた見切れが残る。
     const pieClearance = pieClearanceWithinViewBox(
@@ -622,8 +697,12 @@ export function applyFinalCondenseToFit(textPlacements: Placement[], cfg: PieLay
     return b.left >= xmin - tol && b.right <= xmax + tol;
   };
   for (const placement of textPlacements) {
-    if (placement.insideSlice) continue;
-    if (fits(placement)) continue;
+    if (placement.insideSlice) {
+      continue;
+    }
+    if (fits(placement)) {
+      continue;
+    }
     let sx = placement.nameScaleX ?? 1;
     let fitted = false;
     while (sx - 0.025 >= FINAL_CONDENSE_MIN_SCALE - 1e-9) {
@@ -688,7 +767,9 @@ export function relaxNameCondense(textPlacements: Placement[], cfg: PieLayoutCon
       }
       if (ok) {
         for (const q of textPlacements) {
-          if (q === p) continue;
+          if (q === p) {
+            continue;
+          }
           if (inkCrossGrows(beforeBox, box, placementBox(q, cfg))) {
             ok = false;
             break;
@@ -712,18 +793,25 @@ export function relaxCondenseRoundRobin(
   gate: (p: Placement, beforeBox: BBox) => (box: BBox) => boolean,
 ): void {
   const STEP = 0.025;
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
   let progressed = true;
   while (progressed) {
     progressed = false;
     for (const p of candidates) {
       const cur = p.nameScaleX ?? 1;
-      if (cur >= 1 - 1e-9) continue;
+      if (cur >= 1 - 1e-9) {
+        continue;
+      }
       const beforeBox = placementBox(p, cfg);
       const accept = gate(p, beforeBox);
       p.nameScaleX = Math.min(1, Math.round((cur + STEP) * 1000) / 1000);
-      if (accept(placementBox(p, cfg))) progressed = true;
-      else p.nameScaleX = cur;
+      if (accept(placementBox(p, cfg))) {
+        progressed = true;
+      } else {
+        p.nameScaleX = cur;
+      }
     }
   }
 }
@@ -734,7 +822,9 @@ export function relaxCondenseRoundRobin(
  */
 export function inkCrossGrows(before: BBox, after: BBox, other: BBox): boolean {
   const oy = Math.min(after.top, other.top) - Math.max(after.bottom, other.bottom);
-  if (oy <= 0) return false;
+  if (oy <= 0) {
+    return false;
+  }
   const oxAfter = Math.min(after.right, other.right) - Math.max(after.left, other.left);
   const oxBefore = Math.min(before.right, other.right) - Math.max(before.left, other.left);
   return oxAfter > Math.max(oxBefore, 0) + 1e-9;

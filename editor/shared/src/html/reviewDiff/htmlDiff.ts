@@ -263,15 +263,21 @@ function sameMarkup(x: Node, y: Node): boolean {
     const oy = y.outerHTML;
     return ox === oy || collapse(ox) === collapse(oy);
   }
-  if (isText(x) && isText(y)) return collapse(x.textContent) === collapse(y.textContent);
+  if (isText(x) && isText(y)) {
+    return collapse(x.textContent) === collapse(y.textContent);
+  }
   return false;
 }
 /** 属性の並び順に依存せず、2 要素が同じ属性名と値を持つかを判定する。 */
 function sameAttributes(x: HTMLElement, y: HTMLElement): boolean {
-  if (x.attributes.length !== y.attributes.length) return false;
+  if (x.attributes.length !== y.attributes.length) {
+    return false;
+  }
 
   for (const attr of Array.from(x.attributes)) {
-    if (y.getAttribute(attr.name) !== attr.value) return false;
+    if (y.getAttribute(attr.name) !== attr.value) {
+      return false;
+    }
   }
 
   return true;
@@ -353,7 +359,9 @@ function lcsDiff(a: string[], b: string[], budget?: LcsBudget): TokenDiff {
   }
   // 文書全体の予算。使い切った後も個々のノードは上限内なので、判定は per-node 上限とは別に置く。
   if (budget) {
-    if (cells > budget.remaining) return { ops: coarseOps(a, b), coarse: true };
+    if (cells > budget.remaining) {
+      return { ops: coarseOps(a, b), coarse: true };
+    }
     budget.remaining -= cells;
   }
   // lcs[i][j] = a[i..], b[j..] の最長共通部分列長。
@@ -377,8 +385,12 @@ function lcsDiff(a: string[], b: string[], budget?: LcsBudget): TokenDiff {
       ops.push({ type: 'ins', text: b[j++] });
     }
   }
-  while (i < n) ops.push({ type: 'del', text: a[i++] });
-  while (j < m) ops.push({ type: 'ins', text: b[j++] });
+  while (i < n) {
+    ops.push({ type: 'del', text: a[i++] });
+  }
+  while (j < m) {
+    ops.push({ type: 'ins', text: b[j++] });
+  }
   return { ops, coarse: false };
 }
 
@@ -396,10 +408,16 @@ function lcsDiff(a: string[], b: string[], budget?: LcsBudget): TokenDiff {
  */
 export function diffTokens(a: string[], b: string[], budget?: LcsBudget): TokenDiff {
   let start = 0;
-  while (start < a.length && start < b.length && a[start] === b[start]) start++;
-  if (start === 0) return lcsDiff(a, b, budget);
+  while (start < a.length && start < b.length && a[start] === b[start]) {
+    start++;
+  }
+  if (start === 0) {
+    return lcsDiff(a, b, budget);
+  }
   const ops: DiffOp[] = [];
-  for (let i = 0; i < start; i++) ops.push({ type: 'same', text: a[i] });
+  for (let i = 0; i < start; i++) {
+    ops.push({ type: 'same', text: a[i] });
+  }
   const rest = lcsDiff(a.slice(start), b.slice(start), budget);
   ops.push(...rest.ops);
   return { ops, coarse: rest.coarse };
@@ -462,7 +480,9 @@ function inlineWordDiff(beforeText: Text, afterText: Text, flags: DiffFlags): vo
     tokenize(afterText.textContent ?? ''),
     flags.budget,
   );
-  if (coarse) flags.coarse = true;
+  if (coarse) {
+    flags.coarse = true;
+  }
   const bDoc = beforeText.ownerDocument;
   const aDoc = afterText.ownerDocument;
   beforeText.replaceWith(...sideNodes(ops, bDoc, 'before', coarse));
@@ -471,8 +491,9 @@ function inlineWordDiff(beforeText: Text, afterText: Text, flags: DiffFlags): vo
 
 // ── 6. ノード木の再帰 diff(クローンを直接書き換える) ──────────────────────
 function markWhole(node: Node, cls: string): void {
-  if (isElement(node)) node.classList.add(cls);
-  else if (isText(node) && node.textContent) {
+  if (isElement(node)) {
+    node.classList.add(cls);
+  } else if (isText(node) && node.textContent) {
     const span = node.ownerDocument.createElement('span');
     span.className = cls;
     span.textContent = node.textContent;
@@ -511,7 +532,9 @@ function diffElement(before: HTMLElement, after: HTMLElement, flags: DiffFlags):
     const b = bMap.get(key);
     const a = aMap.get(key);
     if (a && b) {
-      if (sameMarkup(a, b)) continue; // 完全一致の部分木はそのまま残す
+      if (sameMarkup(a, b)) {
+        continue; // 完全一致の部分木はそのまま残す
+      }
       if (isText(a) && isText(b)) {
         inlineWordDiff(b, a, flags);
         marked = true;
@@ -664,7 +687,9 @@ function fastSamePage(
 ): DiffPage | null {
   const beforeHtml = joinOuter(beforePage);
   const afterHtml = joinOuter(afterPage);
-  if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) return null;
+  if (beforeHtml.length !== afterHtml.length || beforeHtml !== afterHtml) {
+    return null;
+  }
   // 無変更ページなので各パーツの before/after は同一 outerHTML。承認画面の「変更なしも表示」用。
   const keyed = keyedBlocks(afterPage);
   const labelOf = partLabels(index, keyed, [], parts);
@@ -717,12 +742,16 @@ function partLabels(
   const afterKeys = new Set(after.map((b) => b.key));
   let seq = 0;
   for (const b of after) {
-    if (parts.attached.has(b.el)) continue;
+    if (parts.attached.has(b.el)) {
+      continue;
+    }
     seq++;
     labelOf.set(b.key, `ページ${index + 1}・パーツ${seq}`);
   }
   for (const b of before) {
-    if (afterKeys.has(b.key) || parts.attached.has(b.el)) continue;
+    if (afterKeys.has(b.key) || parts.attached.has(b.el)) {
+      continue;
+    }
     seq++;
     labelOf.set(b.key, `ページ${index + 1}・パーツ${seq}`);
   }
@@ -810,10 +839,14 @@ function splitTopLevel(
 ): { pages: HTMLElement[][]; breakEls: HTMLElement[]; breakPages: number[] } {
   const split = splitPages(blocks.filter((el) => !attached.has(el)));
   const { pages } = split;
-  if (attached.size === 0) return split;
+  if (attached.size === 0) {
+    return split;
+  }
   const pageOf = new Map<HTMLElement, number>();
   pages.forEach((page, i) => {
-    for (const el of page) pageOf.set(el, i);
+    for (const el of page) {
+      pageOf.set(el, i);
+    }
   });
   const breaks = new Set(split.breakEls);
   split.breakEls.forEach((el, i) => {
@@ -826,8 +859,11 @@ function splitTopLevel(
   for (const el of blocks) {
     const page = pageOf.get(el);
     if (attached.has(el)) {
-      if (broken) held.push(el);
-      else out[cur].push(el);
+      if (broken) {
+        held.push(el);
+      } else {
+        out[cur].push(el);
+      }
     } else if (page !== undefined) {
       cur = page;
       out[cur].push(...held);
@@ -889,7 +925,9 @@ function paginateDoc(
     flat.map((el) => (top.texts.has(el) ? '#text' : attached.has(el) ? '#attached' : rawKey(el))),
   );
   flat.forEach((el, i) => {
-    if (attached.has(el)) parts.attached.add(el);
+    if (attached.has(el)) {
+      parts.attached.add(el);
+    }
     parts.keys.set(el, keys[i]);
   });
   return { pages, truncated: top.truncated, breakUnits };

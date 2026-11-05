@@ -88,12 +88,19 @@ function hasMarks(el: Element): boolean {
 /** 要素 1 つから `data-review-*` と、`stripHl` なら `cmp-ins` / `cmp-del` の class を外す。 */
 function stripMarks(el: Element, stripHl: boolean): void {
   for (const name of el.getAttributeNames()) {
-    if (name.toLowerCase().startsWith(REVIEW_ATTR_PREFIX)) el.removeAttribute(name);
+    if (name.toLowerCase().startsWith(REVIEW_ATTR_PREFIX)) {
+      el.removeAttribute(name);
+    }
   }
-  if (!stripHl || !el.hasAttribute('class')) return;
+  if (!stripHl || !el.hasAttribute('class')) {
+    return;
+  }
   const kept = classesOf(el).filter((c) => !isHlClass(c));
-  if (kept.length === 0) el.removeAttribute('class');
-  else el.setAttribute('class', kept.join(' '));
+  if (kept.length === 0) {
+    el.removeAttribute('class');
+  } else {
+    el.setAttribute('class', kept.join(' '));
+  }
 }
 
 /**
@@ -110,22 +117,36 @@ function collectDiffSpans(r: Node, h: Node, spans: Set<Element>): boolean {
       let need = (c.textContent ?? '').length;
       while (need > 0) {
         const n = hc[j++];
-        if (n === undefined) return false;
+        if (n === undefined) {
+          return false;
+        }
         if (n.nodeType === 1) {
           const el = n as Element;
-          if (el.tagName !== 'SPAN' || el.childElementCount > 0) return false;
+          if (el.tagName !== 'SPAN' || el.childElementCount > 0) {
+            return false;
+          }
           spans.add(el);
-        } else if (n.nodeType !== 3) return false;
+        } else if (n.nodeType !== 3) {
+          return false;
+        }
         need -= (n.textContent ?? '').length;
       }
-      if (need !== 0) return false;
+      if (need !== 0) {
+        return false;
+      }
       continue;
     }
     const n = hc[j++];
-    if (n === undefined || n.nodeType !== c.nodeType) return false;
+    if (n === undefined || n.nodeType !== c.nodeType) {
+      return false;
+    }
     if (c.nodeType === 1) {
-      if ((n as Element).tagName !== (c as Element).tagName) return false;
-      if (!collectDiffSpans(c, n, spans)) return false;
+      if ((n as Element).tagName !== (c as Element).tagName) {
+        return false;
+      }
+      if (!collectDiffSpans(c, n, spans)) {
+        return false;
+      }
     }
   }
   return j === hc.length;
@@ -142,21 +163,28 @@ function cleanPiece(
   parse: HtmlParser,
   onDropped: (() => void) | undefined,
 ) {
-  if (!MARK_HINT_RE.test(rawHtml)) return null;
+  if (!MARK_HINT_RE.test(rawHtml)) {
+    return null;
+  }
   const rawBody = pieceBody(rawHtml, parse);
   // 文字列が `<style>` の中身や地の文にあるだけなら組み直さない(直列化で綴りが変わらないように)。
-  if (!Array.from(rawBody.querySelectorAll('*')).some(hasMarks)) return null;
+  if (!Array.from(rawBody.querySelectorAll('*')).some(hasMarks)) {
+    return null;
+  }
   let body = rawBody;
   const spans = new Set<Element>();
   if (highlightHtml !== undefined) {
     const hBody = pieceBody(highlightHtml, parse);
-    if (collectDiffSpans(rawBody, hBody, spans)) body = hBody;
-    else {
+    if (collectDiffSpans(rawBody, hBody, spans)) {
+      body = hBody;
+    } else {
       spans.clear();
       onDropped?.();
     }
   }
-  for (const el of Array.from(body.querySelectorAll('*'))) stripMarks(el, !spans.has(el));
+  for (const el of Array.from(body.querySelectorAll('*'))) {
+    stripMarks(el, !spans.has(el));
+  }
   return body;
 }
 
@@ -170,16 +198,24 @@ function withAttrs(
 ): string {
   const html = piece.highlighted ?? piece.raw;
   const cleaned = cleanPiece(piece.raw, piece.highlighted, parse, onDropped);
-  if (attrs.length === 0) return cleaned === null ? html : cleaned.innerHTML;
+  if (attrs.length === 0) {
+    return cleaned === null ? html : cleaned.innerHTML;
+  }
   const body = cleaned ?? pieceBody(html, parse);
   const first = Array.from(body.childNodes).find(
     (n) => n.nodeType !== 3 || (n.textContent ?? '').trim() !== '',
   );
   const untouched = cleaned === null ? html : body.innerHTML;
-  if (first === undefined || first.nodeType !== 1) return untouched;
+  if (first === undefined || first.nodeType !== 1) {
+    return untouched;
+  }
   const el = first as Element;
-  if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') return untouched;
-  for (const [name, value] of attrs) el.setAttribute(name, value);
+  if (el.tagName === 'STYLE' || el.tagName === 'SCRIPT') {
+    return untouched;
+  }
+  for (const [name, value] of attrs) {
+    el.setAttribute(name, value);
+  }
   return body.innerHTML;
 }
 
@@ -205,8 +241,12 @@ function pieceOf(input: {
   const dropped = input.onHighlightDropped && (() => input.onHighlightDropped?.(block.partKey));
   const attrOf = (keep: boolean): [string, string][] => {
     const attrs: [string, string][] = [];
-    if (no !== undefined) attrs.push([REVIEW_NO_ATTR, String(no)]);
-    if (keep) attrs.push([REVIEW_KEEP_ATTR, '']);
+    if (no !== undefined) {
+      attrs.push([REVIEW_NO_ATTR, String(no)]);
+    }
+    if (keep) {
+      attrs.push([REVIEW_KEEP_ATTR, '']);
+    }
     return attrs;
   };
   const beforePiece = (keep: boolean): Piece => ({
@@ -246,8 +286,12 @@ function pieceOf(input: {
     return block.status === 'added' ? ghost('added', no) : beforePiece(false);
   }
   const rejected = decision === 'rejected';
-  if (block.status === 'changed') return rejected ? beforePiece(true) : afterPiece();
-  if (block.status === 'added') return rejected ? ghost('rejected-added', no) : afterPiece();
+  if (block.status === 'changed') {
+    return rejected ? beforePiece(true) : afterPiece();
+  }
+  if (block.status === 'added') {
+    return rejected ? ghost('rejected-added', no) : afterPiece();
+  }
   return rejected ? beforePiece(true) : ghost('removed', no);
 }
 
@@ -325,8 +369,12 @@ export function buildReviewPaper(input: {
       onHighlightDropped: input.onHighlightDropped,
     });
     const appended = index >= ownPageCount;
-    if (appended && text === '') return;
-    if (pageCount > 0) html += appended && previousEndsWithInlineBreak ? '\n' : sep;
+    if (appended && text === '') {
+      return;
+    }
+    if (pageCount > 0) {
+      html += appended && previousEndsWithInlineBreak ? '\n' : sep;
+    }
     html += text;
     pageCount++;
     previousEndsWithInlineBreak = text !== '' && endsWithInlineBreak;

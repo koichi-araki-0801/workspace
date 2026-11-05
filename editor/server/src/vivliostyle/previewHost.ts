@@ -143,7 +143,9 @@ let bundleCache: string | null = null;
  * 通ることを実測済み)。
  */
 async function viewerBundle(): Promise<string> {
-  if (bundleCache !== null) return bundleCache;
+  if (bundleCache !== null) {
+    return bundleCache;
+  }
   const raw = await fs.readFile(VIEWER_BUNDLE_SOURCE, 'utf8');
   bundleCache = `(function(){var module={exports:{}};var exports=module.exports;\n${raw}\n;window.Vivliostyle=module.exports;})();`;
   return bundleCache;
@@ -659,7 +661,9 @@ let hostPageCache: string | null = null;
 
 /** バンドル内蔵のホストページ。内蔵できない版のときだけ `<script src>` 形へ倒す。 */
 async function hostPage(): Promise<string> {
-  if (hostPageCache !== null) return hostPageCache;
+  if (hostPageCache !== null) {
+    return hostPageCache;
+  }
   const bundle = await viewerBundle();
   hostPageCache = bundleSafeToInline(bundle)
     ? buildHostPage(`<script>${bundle}</script>`)
@@ -724,12 +728,18 @@ export async function previewHostRoutes(app: FastifyInstance): Promise<void> {
       }
       const rel = resolveServedRoutePath(raw);
       // 存在しない/許可外は 404 本文なしで返す(組版側は 404 を静かに無視する)。
-      if (rel === undefined) return reply.code(404).send();
+      if (rel === undefined) {
+        return reply.code(404).send();
+      }
       // 画像の配信経路は `/api/fund-assets/images/` の 1 本に集める。ここで配ると SVG 検査を
       // 通らない経路ができる(子の画像は親が文書へ埋めるので、子がここへ取りに来る必要も無い)。
-      if (isFundImagePath(rel)) return reply.code(404).send();
+      if (isFundImagePath(rel)) {
+        return reply.code(404).send();
+      }
       const source = await resolveServedAssetSource(rel);
-      if (source === undefined) return reply.code(404).send();
+      if (source === undefined) {
+        return reply.code(404).send();
+      }
       return reply
         .type(CONTENT_TYPES[path.extname(source).toLowerCase()] ?? 'application/octet-stream')
         .send(await fs.readFile(source));

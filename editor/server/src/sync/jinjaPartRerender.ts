@@ -35,9 +35,13 @@ import { applyOps, extractSyncParts } from './partSync.js';
  * (描き直しを見送る)。
  */
 function withPartId(html: string, partId: string): string | null {
-  if (!/^<[A-Za-z]/.test(html)) return null;
+  if (!/^<[A-Za-z]/.test(html)) {
+    return null;
+  }
   let k = 1;
-  while (k < html.length && !isTagNameEnd(html[k])) k++;
+  while (k < html.length && !isTagNameEnd(html[k])) {
+    k++;
+  }
   const head = html.slice(0, k);
   const others: string[] = [];
   const classes: string[] = [];
@@ -50,13 +54,19 @@ function withPartId(html: string, partId: string): string | null {
     }
     const a = readAttr(html, k, html.length);
     const raw = html.slice(k, a.next).trimEnd();
-    if (a.name === 'class') classes.push(raw);
-    else if (a.name === 'style') styles.push(raw);
-    else if (a.name !== 'data-part-id') others.push(raw);
+    if (a.name === 'class') {
+      classes.push(raw);
+    } else if (a.name === 'style') {
+      styles.push(raw);
+    } else if (a.name !== 'data-part-id') {
+      others.push(raw);
+    }
     k = a.next;
     lastEnd = k;
   }
-  if (k >= html.length) return null;
+  if (k >= html.length) {
+    return null;
+  }
   const quote = partId.includes('"') ? "'" : '"';
   const attrs = [...others, `data-part-id=${quote}${partId}${quote}`, ...classes, ...styles];
   return `${head} ${attrs.join(' ')}${html.slice(lastEnd)}`;
@@ -69,7 +79,9 @@ function withPartId(html: string, partId: string): string | null {
  * 置き換えても本文全体の並びは変わらない。通らなければ描き直さず、承認された HTML をそのまま写す。
  */
 function passesWriteGates(next: string, approvedPart: string): boolean {
-  if (findEditingMarkers(next).length > 0) return false;
+  if (findEditingMarkers(next).length > 0) {
+    return false;
+  }
   const before = collectExecutableUnits(approvedPart);
   const after = collectExecutableUnits(next);
   return before.length === after.length && before.every((u, i) => u === after[i]);
@@ -132,7 +144,9 @@ function createRenderer(catalog: ReadonlyMap<string, string>) {
   return (side: 'source' | 'target', partId: string, values: SampleData): RenderOutcome => {
     const key = `${side}:${partId}`;
     const hit = memo.get(key);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      return hit;
+    }
     let out: RenderOutcome = 'limit';
     if (renders < MAX_RENDERS && !overLimit()) {
       renders++;
@@ -159,7 +173,9 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
   const render = createRenderer(input.catalog);
   for (const part of extractSyncParts(input.sourceHtml)) {
     const raw = input.catalog.get(part.partId);
-    if (raw === undefined || !containsJinja(raw)) continue;
+    if (raw === undefined || !containsJinja(raw)) {
+      continue;
+    }
     // 壊れた Jinja・上限に届いたものは描けないので、承認された HTML をそのまま写す側に倒す。
     const asApproved = render('source', part.partId, input.sourceValues);
     if (typeof asApproved === 'string') {
@@ -187,8 +203,13 @@ export function rerenderUneditedJinjaParts(input: JinjaPartRerenderInput): Jinja
     }
     ops.push({ start: part.start, end: part.end, text: next, seq: ops.length });
     rerendered.push(part.key);
-    if (diagnostics.missing.length > 0 || diagnostics.unsupported.length > 0)
-      blanks.push({ partKey: part.key, ...diagnostics });
+    if (diagnostics.missing.length > 0 || diagnostics.unsupported.length > 0) {
+      blanks.push({
+        partKey: part.key,
+        missing: diagnostics.missing,
+        unsupported: diagnostics.unsupported,
+      });
+    }
   }
   const html = ops.length > 0 ? applyOps(input.sourceHtml, ops) : input.sourceHtml;
   return { html, rerendered, edited, blanks };

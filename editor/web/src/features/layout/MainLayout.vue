@@ -63,7 +63,7 @@ watch(() => route.fullPath, () => memory.remember(route), { immediate: true });
 // 点灯しているタブも覚えた画面へ戻さず一覧を指す。覚えた画面は今いる画面なので、戻すと押しても
 // 何も起きず、編集画面から一覧へ行く導線がタブから消える。
 function tabTarget(name: TabName): RouteLocationRaw {
-  if (name === 'reviews' || name === activeTab.value) return { name };
+  if (name === 'reviews' || name === activeTab.value) { return { name }; }
   return memory.pathFor(name) ?? { name };
 }
 

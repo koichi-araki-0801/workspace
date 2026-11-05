@@ -31,7 +31,6 @@ import {
   DATA_JINJA_LOOP_ROW,
   DATA_OPAQUE,
   DATA_OPAQUE_KIND,
-  JINJA_TOKEN_RE,
   parseRtCommentData,
   type RtMarker,
 } from './jinjaAttrs';
@@ -54,11 +53,6 @@ export const LEGACY_ATTR_SELECTOR = [
 ]
   .map((a) => `[${a}]`)
   .join(',');
-
-/** テンプレ文字列から Jinja のトークン(`{{ }}` / `{% %}` / `{# #}`)を出現順に取り出す。テストから直接検証するために公開する。 */
-export function extractJinjaTokens(s: string): string[] {
-  return s.match(JINJA_TOKEN_RE) ?? [];
-}
 
 export function htmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -89,7 +83,9 @@ function tryB64decode(b: string): string | null {
 /** `src` 全体をちょうど 1 個の Jinja トークンが覆うなら、そのトークン。 */
 function soleToken(src: string): JinjaToken | null {
   const lexed = lexJinja(src);
-  if (!lexed.ok || lexed.tokens.length !== 1) return null;
+  if (!lexed.ok || lexed.tokens.length !== 1) {
+    return null;
+  }
   const tok = lexed.tokens[0];
   return tok.start === 0 && tok.end === src.length ? tok : null;
 }
@@ -106,9 +102,13 @@ function isSingleJinjaToken(dec: string, kind?: 'stmt'): boolean {
 /** `src` 全体を覆う、最上位でただ 1 個のブロック。 */
 function soleBlock(src: string): JinjaNode | null {
   const r = parseJinja(src);
-  if (!r.ok || r.nodes.length !== 1) return null;
+  if (!r.ok || r.nodes.length !== 1) {
+    return null;
+  }
   const n = r.nodes[0];
-  if (n.type === 'text' || n.type === 'token') return null;
+  if (n.type === 'text' || n.type === 'token') {
+    return null;
+  }
   return n.start === 0 && n.end === src.length ? n : null;
 }
 
@@ -133,15 +133,25 @@ function isOpaqueShape(dec: string, kind: string | null): boolean {
       isSoleFullMatch(dec, MATH_TEX_RE)
     );
   }
-  if (kind === 'body') return parseJinja(dec).ok;
-  if (kind !== 'frozen' && kind !== 'rawtext') return false;
+  if (kind === 'body') {
+    return parseJinja(dec).ok;
+  }
+  if (kind !== 'frozen' && kind !== 'rawtext') {
+    return false;
+  }
   // `{% raw %}` ブロックも中身を見せないチップにする(中身が文字どおり出るので要素と同じ扱い)。
-  if (kind === 'rawtext' && soleBlock(dec)?.type === 'raw') return true;
+  if (kind === 'rawtext' && soleBlock(dec)?.type === 'raw') {
+    return true;
+  }
   // 固めた要素は原文の 1 要素そのもの。外側へ HTML を足した形を弾く。
   const lexed = lexJinja(dec);
-  if (!lexed.ok) return false;
+  if (!lexed.ok) {
+    return false;
+  }
   const tops = scanMaskedHtml(dec, lexed.tokens).elements.filter((e) => e.parent === null);
-  if (tops.length !== 1 || tops[0].start !== 0 || tops[0].end !== dec.length) return false;
+  if (tops.length !== 1 || tops[0].start !== 0 || tops[0].end !== dec.length) {
+    return false;
+  }
   return kind === 'frozen' || RAWTEXT_CHIP_TAGS.has(tops[0].tag);
 }
 
@@ -172,9 +182,14 @@ function collectRtComments(doc: Document, violations: string[]): RtNode[] {
     for (const ch of Array.from(n.childNodes)) {
       if (ch.nodeType === 8) {
         const m = parseRtCommentData((ch as Comment).data);
-        if (m === 'invalid') violations.push('rt-comment');
-        else if (m !== null) out.push({ node: ch as Comment, marker: m });
-      } else walk(ch);
+        if (m === 'invalid') {
+          violations.push('rt-comment');
+        } else if (m !== null) {
+          out.push({ node: ch as Comment, marker: m });
+        }
+      } else {
+        walk(ch);
+      }
     }
   };
   walk(doc);
@@ -203,8 +218,11 @@ function pairRtComments(
     for (const { node, marker } of group) {
       if (marker.kind === 't') {
         const tok = soleToken(marker.payload);
-        if (tok === null || isBlockTagKeyword(tok.keyword)) violations.push('rt-shape');
-        else singles.push({ node, payload: marker.payload });
+        if (tok === null || isBlockTagKeyword(tok.keyword)) {
+          violations.push('rt-shape');
+        } else {
+          singles.push({ node, payload: marker.payload });
+        }
         continue;
       }
       if (marker.kind === 'o') {
@@ -217,7 +235,9 @@ function pairRtComments(
         continue;
       }
       if (marker.kind === 'x') {
-        if (top.repeat !== null) violations.push('rt-pair');
+        if (top.repeat !== null) {
+          violations.push('rt-pair');
+        }
         top.repeat = node;
         continue;
       }
@@ -230,9 +250,13 @@ function pairRtComments(
         tail: marker.payload,
       });
     }
-    if (stack.length > 0) violations.push('rt-pair');
+    if (stack.length > 0) {
+      violations.push('rt-pair');
+    }
   }
-  for (const p of pairs) checkPairShape(p, violations);
+  for (const p of pairs) {
+    checkPairShape(p, violations);
+  }
   return { pairs, singles };
 }
 
@@ -243,8 +267,12 @@ function pairRtComments(
 function checkPairShape(p: RtPair, violations: string[]): void {
   if (p.tail === '') {
     const blk = soleBlock(p.head);
-    if (blk?.type !== 'if' && blk?.type !== 'for') violations.push('rt-shape');
-    if (p.repeat !== null) violations.push('rt-pair');
+    if (blk?.type !== 'if' && blk?.type !== 'for') {
+      violations.push('rt-shape');
+    }
+    if (p.repeat !== null) {
+      violations.push('rt-pair');
+    }
     for (let n = p.open.nextSibling; n !== null && n !== p.close; n = n.nextSibling) {
       if (n.nodeType !== 3 || (n.nodeValue ?? '').trim() !== '') {
         violations.push('rt-body');
@@ -257,11 +285,17 @@ function checkPairShape(p: RtPair, violations: string[]): void {
   const at = p.head.length;
   const seam = (b: JinjaBranch | null) => b !== null && b.bodyStart === at && b.bodyEnd === at;
   if (blk?.type === 'if') {
-    if (!blk.branches.some(seam)) violations.push('rt-shape');
+    if (!blk.branches.some(seam)) {
+      violations.push('rt-shape');
+    }
     // 繰り返しを持つのは for だけ。if の組の x は採用した枝の後ろを黙って捨てることになる。
-    if (p.repeat !== null) violations.push('rt-pair');
+    if (p.repeat !== null) {
+      violations.push('rt-pair');
+    }
   } else if (blk?.type === 'for') {
-    if (!seam(blk.body) && !seam(blk.elseBranch)) violations.push('rt-shape');
+    if (!seam(blk.body) && !seam(blk.elseBranch)) {
+      violations.push('rt-shape');
+    }
   } else {
     violations.push('rt-shape');
   }
@@ -287,7 +321,9 @@ function asDocument(editable: string): string {
   const hasShell = scanMaskedHtml(editable).elements.some(
     (e) => e.tag === 'html' || e.tag === 'body',
   );
-  if (hasShell || /^\s*<!doctype/i.test(editable)) return editable;
+  if (hasShell || /^\s*<!doctype/i.test(editable)) {
+    return editable;
+  }
   return `<!doctype html><html><head></head><body>${editable}</body></html>`;
 }
 
@@ -310,18 +346,26 @@ export function toTemplate(
   const violations: string[] = [];
 
   // 0. 旧形式の印は読まない。採用した枝しか持たない形から元のブロックは戻せない。
-  if (doc.querySelector(LEGACY_ATTR_SELECTOR) !== null) violations.push('legacy-draft');
+  if (doc.querySelector(LEGACY_ATTR_SELECTOR) !== null) {
+    violations.push('legacy-draft');
+  }
 
   // 1. 範囲の印を集めて対応づけ、中身の形を検査する。
   const { pairs, singles } = pairRtComments(collectRtComments(doc, violations), violations);
 
   // 2. for の 2 回目以降の繰り返し(x の印から閉じの手前まで)は表示専用なので捨てる。
-  for (const p of pairs) if (p.repeat !== null) removeSiblings(p.repeat, p.close);
+  for (const p of pairs) {
+    if (p.repeat !== null) {
+      removeSiblings(p.repeat, p.close);
+    }
+  }
 
   // 3a. chip span -> placeholder テキストへ復元する。復号値は単一 Jinja トークンに限る。
   doc.querySelectorAll(`[${DATA_JINJA}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_JINJA);
-    if (enc === null) return;
+    if (enc === null) {
+      return;
+    }
     const dec = tryB64decode(enc);
     if (dec === null || !isSingleJinjaToken(dec)) {
       violations.push(DATA_JINJA);
@@ -336,7 +380,9 @@ export function toTemplate(
   //     生成形の外の HTML を opaque チャネルへ混ぜない」ことだけ。
   doc.querySelectorAll(`[${DATA_OPAQUE}]`).forEach((el) => {
     const enc = el.getAttribute(DATA_OPAQUE);
-    if (enc === null) return;
+    if (enc === null) {
+      return;
+    }
     const dec = tryB64decode(enc);
     if (dec === null || !isOpaqueShape(dec, el.getAttribute(DATA_OPAQUE_KIND))) {
       violations.push(DATA_OPAQUE);
@@ -348,10 +394,15 @@ export function toTemplate(
   // 4. 範囲の印と t の印を placeholder へ置き換える。空の後半は印を外すだけ。
   for (const p of pairs) {
     p.open.replaceWith(ph(b64encodeUtf8(p.head)));
-    if (p.tail === '') p.close.remove();
-    else p.close.replaceWith(ph(b64encodeUtf8(p.tail)));
+    if (p.tail === '') {
+      p.close.remove();
+    } else {
+      p.close.replaceWith(ph(b64encodeUtf8(p.tail)));
+    }
   }
-  for (const s of singles) s.node.replaceWith(ph(b64encodeUtf8(s.payload)));
+  for (const s of singles) {
+    s.node.replaceWith(ph(b64encodeUtf8(s.payload)));
+  }
 
   // 5. 表示専用のテンプレート行の属性を外す。
   doc.querySelectorAll(`[${DATA_JINJA_LOOP_ROW}]`).forEach((el) => {
@@ -377,8 +428,12 @@ export function toTemplate(
   // 8. 事後検査。窓ごとの形が正しくても、組み合わせた結果のブロックが閉じない形や、外しきれ
   //    ない印が残る形は、そのまま申請へ進めると確定テンプレートを壊す。
   if (violations.length === 0) {
-    if (!parseJinja(out).ok) violations.push('structure');
-    if (findEditingMarkers(out).length > 0) violations.push('leftover-marker');
+    if (!parseJinja(out).ok) {
+      violations.push('structure');
+    }
+    if (findEditingMarkers(out).length > 0) {
+      violations.push('leftover-marker');
+    }
   }
 
   if (violations.length > 0) {
@@ -386,7 +441,9 @@ export function toTemplate(
       `toTemplate: 復元できない Jinja マスクを検出しました (${violations.join(', ')})`,
     );
   }
-  if (!opts.asFragment && hadDoctype) out = `<!doctype html>\n${out}`;
+  if (!opts.asFragment && hadDoctype) {
+    out = `<!doctype html>\n${out}`;
+  }
   return out;
 }
 
@@ -401,12 +458,16 @@ const RAW_WS_TAGS = new Set(['PRE', 'TEXTAREA', 'SCRIPT', 'STYLE']);
  */
 function tokensToComments(src: string): string {
   const lexed = lexJinja(src);
-  if (!lexed.ok) return src;
+  if (!lexed.ok) {
+    return src;
+  }
   const scan = scanMaskedHtml(src, lexed.tokens);
   let out = '';
   let at = 0;
   for (const t of lexed.tokens) {
-    if (scan.contextAt(t.start).kind !== 'text') continue;
+    if (scan.contextAt(t.start).kind !== 'text') {
+      continue;
+    }
     out += `${src.slice(at, t.start)}<!--tok:${b64encodeUtf8(t.source)}-->`;
     at = t.end;
   }
@@ -438,24 +499,34 @@ export function normalizeForRoundTrip(bodyHtml: string, parse: HtmlParser): stri
  */
 function sortAttributes(root: Element): void {
   for (const el of Array.from(root.querySelectorAll('*'))) {
-    if (el.attributes.length < 2) continue;
+    if (el.attributes.length < 2) {
+      continue;
+    }
     // 属性の節点ごと付け替える。名前で付け直すと、タグの中の Jinja が作る `{%` のような
     // 名前を DOM の API が拒む(パーサは受け入れる)。
     const attrs = Array.from(el.attributes).sort((x, y) =>
       x.name < y.name ? -1 : x.name > y.name ? 1 : 0,
     );
     const put = (list: Attr[]) => {
-      for (const a of list) el.removeAttributeNode(a);
-      for (const a of list) el.setAttributeNode(a);
+      for (const a of list) {
+        el.removeAttributeNode(a);
+      }
+      for (const a of list) {
+        el.setAttributeNode(a);
+      }
     };
     put(attrs);
     // linkedom は足した属性を先頭へ積むので、足した順と逆に並ぶ。そのときは逆順で足し直す。
-    if (el.attributes[0]?.name !== attrs[0]?.name) put(attrs.reverse());
+    if (el.attributes[0]?.name !== attrs[0]?.name) {
+      put(attrs.reverse());
+    }
   }
 }
 
 function dropBlankText(el: Node): void {
-  if (el.nodeType === 1 && RAW_WS_TAGS.has((el as Element).tagName.toUpperCase())) return;
+  if (el.nodeType === 1 && RAW_WS_TAGS.has((el as Element).tagName.toUpperCase())) {
+    return;
+  }
   const kids = Array.from(el.childNodes);
   const last = kids.length - 1;
   kids.forEach((n, i) => {
@@ -463,9 +534,12 @@ function dropBlankText(el: Node): void {
       dropBlankText(n);
       return;
     }
-    if (n.nodeType !== 3) return;
+    if (n.nodeType !== 3) {
+      return;
+    }
     const v = n.nodeValue ?? '';
-    if (v !== ' ' && !v.trim() && (i === 0 || i === last || v.includes('\n')))
+    if (v !== ' ' && !v.trim() && (i === 0 || i === last || v.includes('\n'))) {
       n.parentNode?.removeChild(n);
+    }
   });
 }

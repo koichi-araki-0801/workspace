@@ -22,6 +22,7 @@
 import fsSync from 'node:fs';
 import path from 'node:path';
 import { validation } from '@editor/shared';
+import { isValidPageSize } from '@editor/shared/schemas';
 import { envPositiveNumber } from '../config.js';
 import { DEFAULT_DOC_BASE } from './previewProxy.js';
 import { safeEntryPath, URI_SCHEME_RE } from './projectInput.js';
@@ -152,7 +153,9 @@ function assertTheme(
   isFile: (p: string) => boolean,
 ): string | string[] {
   if (Array.isArray(value)) {
-    if (value.length > MAX_LIST_ITEMS) throw validation('theme の要素数が多すぎます');
+    if (value.length > MAX_LIST_ITEMS) {
+      throw validation('theme の要素数が多すぎます');
+    }
     // 配列は**全要素**を検証する。1 つでも素通しすると arborist 経路が開く。
     return value.map((v) => assertThemeValue(root, v, isFile));
   }
@@ -165,22 +168,38 @@ function assertEntry(
   value: unknown,
   isFile: (p: string) => boolean,
 ): SafeProjectConfig['entry'] {
-  if (typeof value === 'string') return assertContainedPath(root, value, 'entry');
-  if (!Array.isArray(value)) throw validation('entry は文字列または配列で指定してください');
-  if (value.length === 0) throw validation('entry が空です');
-  if (value.length > MAX_LIST_ITEMS) throw validation('entry の要素数が多すぎます');
+  if (typeof value === 'string') {
+    return assertContainedPath(root, value, 'entry');
+  }
+  if (!Array.isArray(value)) {
+    throw validation('entry は文字列または配列で指定してください');
+  }
+  if (value.length === 0) {
+    throw validation('entry が空です');
+  }
+  if (value.length > MAX_LIST_ITEMS) {
+    throw validation('entry の要素数が多すぎます');
+  }
   return value.map((item) => {
-    if (typeof item === 'string') return assertContainedPath(root, item, 'entry');
-    if (!isPlainObject(item)) throw validation('entry の要素が不正です');
+    if (typeof item === 'string') {
+      return assertContainedPath(root, item, 'entry');
+    }
+    if (!isPlainObject(item)) {
+      throw validation('entry の要素が不正です');
+    }
     for (const key of Object.keys(item)) {
       if (!['path', 'title', 'theme', 'encodingFormat', 'rel'].includes(key)) {
         throw validation(`entry の要素に指定できないキーがあります: ${key}`);
       }
     }
     const out: SafeEntryObject = { path: assertContainedPath(root, item.path, 'entry.path') };
-    if (item.title !== undefined) out.title = assertText(item.title, 'entry.title');
+    if (item.title !== undefined) {
+      out.title = assertText(item.title, 'entry.title');
+    }
     // entry ごとの theme を忘れると、トップレベルだけ塞いでも arborist 経路が残る。
-    if (item.theme !== undefined) out.theme = assertTheme(root, item.theme, isFile);
+    if (item.theme !== undefined) {
+      out.theme = assertTheme(root, item.theme, isFile);
+    }
     if (item.encodingFormat !== undefined) {
       out.encodingFormat = assertText(item.encodingFormat, 'entry.encodingFormat');
     }
@@ -223,8 +242,12 @@ function assertGlob(value: unknown, label: string): string {
 }
 
 function assertGlobList(value: unknown, label: string): string[] {
-  if (!Array.isArray(value)) throw validation(`${label} は配列で指定してください`);
-  if (value.length > MAX_LIST_ITEMS) throw validation(`${label} の要素数が多すぎます`);
+  if (!Array.isArray(value)) {
+    throw validation(`${label} は配列で指定してください`);
+  }
+  if (value.length > MAX_LIST_ITEMS) {
+    throw validation(`${label} の要素数が多すぎます`);
+  }
   return value.map((v) => assertGlob(v, label));
 }
 
@@ -269,7 +292,9 @@ export function parseProjectConfig(
     throw validation('vivliostyle.config.json はオブジェクトで記述してください');
   }
   for (const key of Object.keys(parsed)) {
-    if (ACCEPTED_KEYS.has(key)) continue;
+    if (ACCEPTED_KEYS.has(key)) {
+      continue;
+    }
     if (key === 'base') {
       throw validation('base は指定できません(プレビューの配信経路をサーバ側で固定しているため)');
     }
@@ -291,7 +316,9 @@ export function parseProjectConfig(
     out.entryContext =
       ctx === '.' || ctx === './' ? ctx : assertContainedPath(root, ctx, 'entryContext');
   }
-  if (parsed.theme !== undefined) out.theme = assertTheme(root, parsed.theme, isFile);
+  if (parsed.theme !== undefined) {
+    out.theme = assertTheme(root, parsed.theme, isFile);
+  }
   if (parsed.cover !== undefined) {
     if (typeof parsed.cover === 'string') {
       out.cover = assertContainedPath(root, parsed.cover, 'cover');
@@ -304,7 +331,9 @@ export function parseProjectConfig(
       const cover: { src: string; name?: string; htmlPath?: string } = {
         src: assertContainedPath(root, parsed.cover.src, 'cover.src'),
       };
-      if (parsed.cover.name !== undefined) cover.name = assertText(parsed.cover.name, 'cover.name');
+      if (parsed.cover.name !== undefined) {
+        cover.name = assertText(parsed.cover.name, 'cover.name');
+      }
       if (parsed.cover.htmlPath !== undefined) {
         cover.htmlPath = assertContainedPath(root, parsed.cover.htmlPath, 'cover.htmlPath');
       }
@@ -314,9 +343,11 @@ export function parseProjectConfig(
     }
   }
   if (parsed.toc !== undefined) {
-    if (typeof parsed.toc === 'boolean') out.toc = parsed.toc;
-    else if (typeof parsed.toc === 'string') out.toc = assertContainedPath(root, parsed.toc, 'toc');
-    else if (isPlainObject(parsed.toc)) {
+    if (typeof parsed.toc === 'boolean') {
+      out.toc = parsed.toc;
+    } else if (typeof parsed.toc === 'string') {
+      out.toc = assertContainedPath(root, parsed.toc, 'toc');
+    } else if (isPlainObject(parsed.toc)) {
       for (const key of Object.keys(parsed.toc)) {
         // `transformDocumentList` / `transformSectionList` は関数フィールド。JSON には
         // 現れないが、キーがあれば「効くつもりで書かれている」ので 400 にする。
@@ -325,7 +356,9 @@ export function parseProjectConfig(
         }
       }
       const toc: { title?: string; htmlPath?: string; sectionDepth?: number } = {};
-      if (parsed.toc.title !== undefined) toc.title = assertText(parsed.toc.title, 'toc.title');
+      if (parsed.toc.title !== undefined) {
+        toc.title = assertText(parsed.toc.title, 'toc.title');
+      }
       if (parsed.toc.htmlPath !== undefined) {
         toc.htmlPath = assertContainedPath(root, parsed.toc.htmlPath, 'toc.htmlPath');
       }
@@ -337,13 +370,22 @@ export function parseProjectConfig(
         toc.sectionDepth = d;
       }
       out.toc = toc;
-    } else throw validation('toc の値が不正です');
+    } else {
+      throw validation('toc の値が不正です');
+    }
   }
   for (const key of ['title', 'author', 'language', 'readingProgression', 'size'] as const) {
-    if (parsed[key] !== undefined) out[key] = assertText(parsed[key], key);
+    if (parsed[key] !== undefined) {
+      out[key] = assertText(parsed[key], key);
+    }
+  }
+  if (out.size !== undefined && !isValidPageSize(out.size)) {
+    throw validation('size の値が不正です');
   }
   if (parsed.copyAsset !== undefined) {
-    if (!isPlainObject(parsed.copyAsset)) throw validation('copyAsset の値が不正です');
+    if (!isPlainObject(parsed.copyAsset)) {
+      throw validation('copyAsset の値が不正です');
+    }
     for (const key of Object.keys(parsed.copyAsset)) {
       if (!['includes', 'excludes'].includes(key)) {
         throw validation(`copyAsset に指定できないキーがあります: ${key}`);

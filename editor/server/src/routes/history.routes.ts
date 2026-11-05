@@ -49,7 +49,9 @@ export async function historyRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireAuth },
     async (request) => {
       const { historyId } = request.params;
-      if (!isGitObjectId(historyId)) throw validation(`版の指定が不正です: ${historyId}`);
+      if (!isGitObjectId(historyId)) {
+        throw validation(`版の指定が不正です: ${historyId}`);
+      }
       // `templateId` はどのテンプレの版かの指定(1 コミットが複数テンプレを含む場合に要る)。
       // 検査は連結する側(`historyRepo`)の `assertTemplateId` が行う。
       return history.getSnapshot(historyId, request.query.templateId);

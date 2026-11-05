@@ -75,7 +75,9 @@ test.describe('編集画面のフォント', () => {
     const fontPaths: string[] = [];
     page.on('request', (req) => {
       const { pathname } = new URL(req.url());
-      if (FONT_EXT.test(pathname) && req.frame() !== page.mainFrame()) fontPaths.push(pathname);
+      if (FONT_EXT.test(pathname) && req.frame() !== page.mainFrame()) {
+        fontPaths.push(pathname);
+      }
     });
     await page.route('**/api/preview-host/css/fonts/*', (route) =>
       route.fulfill({ status: 200, contentType: 'font/woff2', body: 'e2e' }),
@@ -92,7 +94,9 @@ test.describe('編集画面のフォント', () => {
         const addStyle = (html: string) => html.replace(/<body([^>]*)>/, `<body$1>${BODY_STYLE}`);
         tpl.css = `${tpl.css}\n${TEMPLATE_CSS_FONT}`;
         tpl.html = addStyle(tpl.html);
-        if (tpl.filled) tpl.filled = addStyle(tpl.filled);
+        if (tpl.filled) {
+          tpl.filled = addStyle(tpl.filled);
+        }
         await route.fulfill({ response: res, json: tpl });
       },
     );
@@ -121,12 +125,16 @@ test.describe('編集画面のフォント', () => {
     // まま。開いたときに `getCss` から測って localStorage に置く確定版の正規形で確かめる。
     const modelCss = await page.evaluate((id) => {
       for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith('editor:confirmed:v1')) continue;
+        if (!key.startsWith('editor:confirmed:v1')) {
+          continue;
+        }
         const map = JSON.parse(localStorage.getItem(key) ?? '{}') as Record<
           string,
           { css: string }
         >;
-        if (map[id]) return map[id].css;
+        if (map[id]) {
+          return map[id].css;
+        }
       }
       return null;
     }, SEED_ID);

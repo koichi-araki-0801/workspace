@@ -9,7 +9,7 @@
 //
 // 差し込みは `scripts/build-exe.mjs` の esbuild plugin が `subset-font/index.js` からの
 // `require('fs')` **だけ**をモジュールグラフ上で本モジュールへ向けることで行う。グローバル
-// `fs` の monkeypatch はしない(exceljs の xlsx 読み込み等、無関係な経路へ副作用が漏れる)。
+// `fs` の monkeypatch はしない(無関係な経路へ副作用が漏れる)。
 // 依存のソース文字列は書き換えない。
 //
 // dev(tsx)ではこの差し替えが起きないので、本モジュールは経路として存在しない。

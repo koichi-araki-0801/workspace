@@ -17,11 +17,17 @@ const URL_STRIPPED_CODES = new Set([0x09, 0x0a, 0x0d]);
 export function stripUrlIgnoredChars(url: string): string {
   let start = 0;
   let end = url.length;
-  while (start < end && url.charCodeAt(start) <= URL_EDGE_MAX_CODE) start++;
-  while (end > start && url.charCodeAt(end - 1) <= URL_EDGE_MAX_CODE) end--;
+  while (start < end && url.charCodeAt(start) <= URL_EDGE_MAX_CODE) {
+    start++;
+  }
+  while (end > start && url.charCodeAt(end - 1) <= URL_EDGE_MAX_CODE) {
+    end--;
+  }
   let out = '';
   for (let i = start; i < end; i++) {
-    if (!URL_STRIPPED_CODES.has(url.charCodeAt(i))) out += url[i];
+    if (!URL_STRIPPED_CODES.has(url.charCodeAt(i))) {
+      out += url[i];
+    }
   }
   return out;
 }

@@ -4,8 +4,12 @@ import { maskJinja, scanHtml, scanMaskedHtml } from '../src/lib/htmlScan';
 const ctx = (html: string, needle: string) => {
   const s = scanHtml(html);
   const c = s.contextAt(html.indexOf(needle));
-  if (c.kind === 'text') return `text:${c.parent?.tag ?? '-'}`;
-  if (c.kind === 'htmlComment') return 'comment';
+  if (c.kind === 'text') {
+    return `text:${c.parent?.tag ?? '-'}`;
+  }
+  if (c.kind === 'htmlComment') {
+    return 'comment';
+  }
   return `${c.kind}:${c.element.tag}`;
 };
 

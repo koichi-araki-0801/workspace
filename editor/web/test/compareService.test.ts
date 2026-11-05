@@ -45,7 +45,9 @@ describe('CompareService.renderVersionHtml', () => {
 
     const res = await svc.renderVersionHtml('eh-missing');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('not_found');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('not_found');
+    }
   });
 
   it('renders the current template (baseline=現行版) to value-filled HTML', async () => {
@@ -83,7 +85,9 @@ describe('CompareService.renderVersionHtml', () => {
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:t');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.kind).toBe('not_found');
+    if (isErr(res)) {
+      expect(res.error.kind).toBe('not_found');
+    }
   });
 
   it('propagates a getSampleData error on the 現行版 baseline path', async () => {
@@ -108,7 +112,9 @@ describe('CompareService.renderVersionHtml', () => {
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:t');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+    }
   });
 
   it('現行版: filled が非空なら隔離描画を通さず本文をそのまま返す', async () => {
@@ -128,7 +134,9 @@ describe('CompareService.renderVersionHtml', () => {
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderVersionHtml('baseline:XX01_950037_20240710_kr');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.html).toBe('<p>値入り {{ fund.name }}</p>');
+    if (isOk(res)) {
+      expect(res.value.html).toBe('<p>値入り {{ fund.name }}</p>');
+    }
     expect(templates.getSampleData).not.toHaveBeenCalled();
   });
 
@@ -142,7 +150,9 @@ describe('CompareService.renderVersionHtml', () => {
     const svc = createCompareService(templates, history);
     const res = await svc.renderVersionHtml('eh-1');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value).toEqual({ html: snapshot.html, css: snapshot.css });
+    if (isOk(res)) {
+      expect(res.value).toEqual({ html: snapshot.html, css: snapshot.css });
+    }
     expect(templates.getSampleData).not.toHaveBeenCalled();
   });
 });
@@ -173,7 +183,9 @@ describe('CompareService.renderTemplateBody', () => {
     );
     expect(templates.getSampleData).toHaveBeenCalledWith('XX01_950037_交付版');
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.html).toContain('作成ファンド');
+    if (isOk(res)) {
+      expect(res.value.html).toContain('作成ファンド');
+    }
   });
 
   it('描画に失敗したら安全な文言を返す', async () => {
@@ -183,7 +195,9 @@ describe('CompareService.renderTemplateBody', () => {
     const svc = createCompareService(templates, {} as HistoryRepository);
     const res = await svc.renderTemplateBody('{% if %}', '', '950037', 'create');
     expect(isErr(res)).toBe(true);
-    if (isErr(res)) expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+    if (isErr(res)) {
+      expect(res.error.message).toBe(COMPARE_RENDER_ERROR);
+    }
   });
 
   it('サンプルデータの取得失敗は伝播する', async () => {
@@ -305,7 +319,9 @@ describe('CompareService.listCandidates', () => {
     const svc = createCompareService(templates, history);
     const res = await svc.listCandidates({});
     expect(isOk(res)).toBe(true);
-    if (isOk(res)) expect(res.value.map((c) => c.meta.id)).toEqual(['a']);
+    if (isOk(res)) {
+      expect(res.value.map((c) => c.meta.id)).toEqual(['a']);
+    }
   });
 
   it('propagates a listTemplates error', async () => {

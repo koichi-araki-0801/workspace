@@ -41,7 +41,9 @@ async function buildApp(): Promise<FastifyInstance> {
   instance.setErrorHandler(errorHandler);
   instance.addHook('onRequest', async (req) => {
     const username = req.headers['x-test-user'];
-    if (typeof username === 'string') req.user = { username } as never;
+    if (typeof username === 'string') {
+      req.user = { username } as never;
+    }
   });
   await instance.register(notesRoutes);
   await instance.ready();

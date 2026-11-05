@@ -42,7 +42,7 @@ const srcdoc = computed(() =>
 let ro: ResizeObserver | null = null;
 function measure(): void {
   const w = stageRef.value?.clientWidth ?? 0;
-  if (w > 0) scale.value = w / CANVAS_WIDTH;
+  if (w > 0) { scale.value = w / CANVAS_WIDTH; }
 }
 
 // 実コンテンツ高は子から postMessage で受け取る。`allow-same-origin` を付けていないので
@@ -52,9 +52,9 @@ let stopHeight: (() => void) | null = null;
 onMounted(() => {
   measure();
   ro = new ResizeObserver(measure);
-  if (stageRef.value) ro.observe(stageRef.value);
+  if (stageRef.value) { ro.observe(stageRef.value); }
   stopHeight = onFrameHeight((source, height) => {
-    if (source === frameRef.value?.contentWindow) contentHeight.value = height;
+    if (source === frameRef.value?.contentWindow) { contentHeight.value = height; }
   });
 });
 onBeforeUnmount(() => {

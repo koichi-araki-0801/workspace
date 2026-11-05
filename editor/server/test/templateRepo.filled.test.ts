@@ -214,10 +214,18 @@ describe('getSampleData(共通一覧の合成 + Rep1 の実名)', () => {
     rep1Throws?: boolean;
   }): SprocClient => ({
     async callSproc<T>(_proc: string, op: string): Promise<T[]> {
-      if (op === '共通一覧') return (opts.common ?? COMMON) as T[];
-      if (opts.rep1Throws) throw new Error('rep1 down');
-      if (op === '委託会社一覧') return (opts.companies ?? []) as T[];
-      if (op === 'ファンド一覧') return (opts.funds ?? []) as T[];
+      if (op === '共通一覧') {
+        return (opts.common ?? COMMON) as T[];
+      }
+      if (opts.rep1Throws) {
+        throw new Error('rep1 down');
+      }
+      if (op === '委託会社一覧') {
+        return (opts.companies ?? []) as T[];
+      }
+      if (op === 'ファンド一覧') {
+        return (opts.funds ?? []) as T[];
+      }
       return [];
     },
   });
@@ -326,7 +334,9 @@ describe('config.sampleOverlay の差し替え', () => {
           if (op === '委託会社一覧') {
             return [{ 委託会社コード: '1', 委託会社名: '社', 委託会社略称: 'XX01' }] as T[];
           }
-          if (op === 'ファンド一覧') return [{ ファンドコード: '950037', ファンド名: 'F' }] as T[];
+          if (op === 'ファンド一覧') {
+            return [{ ファンドコード: '950037', ファンド名: 'F' }] as T[];
+          }
           return [];
         },
       });

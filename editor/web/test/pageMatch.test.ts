@@ -154,7 +154,11 @@ describe('layoutRows', () => {
               const p = rr + o;
               return p >= 0 && p < sd.count ? p : null;
             });
-            for (const p of shownRows) if (p != null) seen[p]++;
+            for (const p of shownRows) {
+              if (p != null) {
+                seen[p]++;
+              }
+            }
             expect(sd.miss).toEqual(seen.flatMap((c, p) => (c === 0 ? [p] : [])));
             expect(sd.dup).toEqual(seen.flatMap((c, p) => (c > 1 ? [p] : [])));
             const appended = shownRows.slice(prevRows).filter((p): p is number => p != null);

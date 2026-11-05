@@ -54,14 +54,19 @@ function scanTargets(): Array<{ key: string; file: string }> {
   const walk = (dir: string) => {
     for (const name of readdirSync(dir)) {
       const full = path.join(dir, name);
-      if (statSync(full).isDirectory()) walk(full);
-      else if (name.endsWith('.ts')) {
+      if (statSync(full).isDirectory()) {
+        walk(full);
+      } else if (name.endsWith('.ts')) {
         const key = path.relative(EDITOR_ROOT, full).replace(/\\/g, '/');
-        if (!EXCLUDED.has(key)) out.push({ key, file: full });
+        if (!EXCLUDED.has(key)) {
+          out.push({ key, file: full });
+        }
       }
     }
   };
-  for (const dir of SCAN_DIRS) walk(dir);
+  for (const dir of SCAN_DIRS) {
+    walk(dir);
+  }
   return out.sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -97,7 +102,9 @@ describe('サニタイズ後段の文字列手術ガード', () => {
   it('走査対象のファイルを実際に読めている(セルフテスト)', () => {
     // 読めていないと以下が素通りして「常に緑」になる。
     expect(GUARDED.length).toBeGreaterThanOrEqual(MUST_BE_SCANNED.length);
-    for (const { file } of GUARDED) expect(readFileSync(file, 'utf8').length).toBeGreaterThan(80);
+    for (const { file } of GUARDED) {
+      expect(readFileSync(file, 'utf8').length).toBeGreaterThan(80);
+    }
   });
 
   it('中心となる加工ファイルが走査から漏れていない(除外の書きすぎ検知)', () => {

@@ -17,16 +17,22 @@ type ConfigModule = typeof import('../src/config.js');
 async function importConfigWithEnv(env: Record<string, string | undefined>): Promise<ConfigModule> {
   const saved = new Map(Object.entries(env).map(([k]) => [k, process.env[k]]));
   for (const [k, v] of Object.entries(env)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
+    if (v === undefined) {
+      delete process.env[k];
+    } else {
+      process.env[k] = v;
+    }
   }
   vi.resetModules();
   try {
     return await import('../src/config.js');
   } finally {
     for (const [k, v] of saved) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
     }
   }
 }
@@ -540,8 +546,9 @@ describe('resolveAllowedHosts / isAllowedHost', () => {
       '127.0.0.1:24680',
       '[::1]:24680',
       'desk-01:24680',
-    ])
+    ]) {
       expect(isAllowedHost(ok, allowed), ok).toBe(true);
+    }
     for (const ng of [
       'attacker.example',
       'attacker.example:24680',
@@ -551,7 +558,8 @@ describe('resolveAllowedHosts / isAllowedHost', () => {
       undefined,
       // 重複ヘッダは配列で届く。前段との食い違いを作れるので落とす。
       ['localhost', 'attacker.example'],
-    ])
+    ]) {
       expect(isAllowedHost(ng as string | undefined, allowed), String(ng)).toBe(false);
+    }
   });
 });

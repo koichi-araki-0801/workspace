@@ -26,7 +26,9 @@ const mainThreadFallback: AsyncHtmlWorker = toAsyncApi(createHtmlApi());
  * 返す。判断ロジック本体は `createFallbackWorker`(`./fallback`)に切り出してある。
  */
 function createHtmlWorker(): AsyncHtmlWorker {
-  if (typeof Worker === 'undefined') return mainThreadFallback;
+  if (typeof Worker === 'undefined') {
+    return mainThreadFallback;
+  }
 
   try {
     // Vite 標準の module worker(本番ビルドで worker チャンクへ自動分割)。

@@ -165,14 +165,24 @@ function isMarkState(v: unknown): v is PreviewMarkState {
 
 /** `PREVIEW_MSG_MARKS` の本体の形を検査する。形が違えば null。 */
 export function parsePreviewMarks(v: unknown): PreviewMarks | null {
-  if (!isPlainRecord(v) || !isPlainRecord(v.states)) return null;
-  if (typeof v.visible !== 'boolean') return null;
-  if (v.selected !== null && !isPreviewPartNo(v.selected)) return null;
+  if (!isPlainRecord(v) || !isPlainRecord(v.states)) {
+    return null;
+  }
+  if (typeof v.visible !== 'boolean') {
+    return null;
+  }
+  if (v.selected !== null && !isPreviewPartNo(v.selected)) {
+    return null;
+  }
   const entries = Object.entries(v.states);
-  if (entries.length > PREVIEW_MAX_PART_KEYS) return null;
+  if (entries.length > PREVIEW_MAX_PART_KEYS) {
+    return null;
+  }
   const states: Record<string, PreviewMarkState> = {};
   for (const [k, st] of entries) {
-    if (!isPreviewPartNo(k) || !isMarkState(st)) return null;
+    if (!isPreviewPartNo(k) || !isMarkState(st)) {
+      return null;
+    }
     states[k] = st;
   }
   return { states, selected: v.selected, visible: v.visible };
@@ -183,9 +193,13 @@ export function parsePreviewMarks(v: unknown): PreviewMarks | null {
  * 自分の番号の集合に無いキーやページ数以上の値を捨てるのは、それを知っている親の役目。
  */
 export function parsePreviewPartPages(v: unknown): Record<string, number> | null {
-  if (!isPlainRecord(v)) return null;
+  if (!isPlainRecord(v)) {
+    return null;
+  }
   const entries = Object.entries(v);
-  if (entries.length > PREVIEW_MAX_PART_KEYS) return null;
+  if (entries.length > PREVIEW_MAX_PART_KEYS) {
+    return null;
+  }
   const pages: Record<string, number> = {};
   for (const [k, n] of entries) {
     // 安全な整数に限る(2 ** 60・1e300 は整数でも index として意味を持たない)。

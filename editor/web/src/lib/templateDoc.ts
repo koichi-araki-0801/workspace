@@ -45,11 +45,15 @@ function skipTag(html: string, at: number): number {
     const code = html.charCodeAt(i);
     if (code === DQUOTE || code === SQUOTE) {
       i++;
-      while (i < len && html.charCodeAt(i) !== code) i++;
+      while (i < len && html.charCodeAt(i) !== code) {
+        i++;
+      }
       i++; // 閉じ引用符の次へ
       continue;
     }
-    if (code === GT) return i + 1;
+    if (code === GT) {
+      return i + 1;
+    }
     i++;
   }
   return len;
@@ -62,15 +66,23 @@ function skipTag(html: string, at: number): number {
 function tagNameMatches(html: string, at: number, name: string): boolean {
   for (let k = 0; k < name.length; k++) {
     let code = html.charCodeAt(at + k);
-    if (code >= 0x41 && code <= 0x5a) code += 0x20; // ASCII 大文字→小文字
-    if (code !== name.charCodeAt(k)) return false;
+    if (code >= 0x41 && code <= 0x5a) {
+      code += 0x20; // ASCII 大文字→小文字
+    }
+    if (code !== name.charCodeAt(k)) {
+      return false;
+    }
   }
   return isNameTerminator(html.charCodeAt(at + name.length));
 }
 
 /** 開始タグ `<name` が raw-text 要素なら名前を返す。中身を実タグとして走査してはならない要素。 */
 function rawTextNameAt(html: string, at: number): string | null {
-  for (const name of RAW_TEXT_ELEMENTS) if (tagNameMatches(html, at, name)) return name;
+  for (const name of RAW_TEXT_ELEMENTS) {
+    if (tagNameMatches(html, at, name)) {
+      return name;
+    }
+  }
   return null;
 }
 
@@ -120,7 +132,9 @@ function findBodySpan(html: string): { openEnd: number; closeStart: number } | n
     }
     // 閉じタグ `</body` は openEnd 確定後のみ、最後の 1 つを採る。
     if (html.charCodeAt(i + 1) === SLASH) {
-      if (openEnd !== -1 && tagNameMatches(html, i + 2, 'body')) closeStart = i;
+      if (openEnd !== -1 && tagNameMatches(html, i + 2, 'body')) {
+        closeStart = i;
+      }
       i = skipTag(html, i);
       continue;
     }
@@ -137,7 +151,9 @@ function findBodySpan(html: string): { openEnd: number; closeStart: number } | n
     }
     i = skipTag(html, i);
   }
-  if (openEnd === -1 || closeStart === -1) return null;
+  if (openEnd === -1 || closeStart === -1) {
+    return null;
+  }
   return { openEnd, closeStart };
 }
 
@@ -148,6 +164,8 @@ export function getBodyInner(rawHtml: string): string {
 
 export function replaceBodyInner(rawHtml: string, newInner: string): string {
   const span = findBodySpan(rawHtml);
-  if (!span) return newInner;
+  if (!span) {
+    return newInner;
+  }
   return rawHtml.slice(0, span.openEnd) + newInner + rawHtml.slice(span.closeStart);
 }

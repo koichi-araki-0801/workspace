@@ -16,8 +16,8 @@ migrate/ 共通サンプル_分類登録.sql(パーツカタログの分類か�
           `@実行` を 1 にして登録する。冪等
 diag/    パーツ_Jinja構文調査.sql(内容HTML の Jinja 構文を数える。読み取りのみ。SSMS で usrap に対して実行)
          パーツ_Jinja引数調査.sql(テスト名・loop の属性・set の形を数える。読み取りのみ。SSMS で usrap に対して実行)
-seed/   管理ユーザー.sql（生成物）/ パーツカタログ.sql / 共通サンプル.sql
-apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用(-SkipSeed で seed を飛ばす)
+seed/   管理ユーザー.sql（hash-password.ts の生成物。リポジトリに置かず git は無視する）/ パーツカタログ.sql / 共通サンプル.sql
+apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用(-SkipSeed で seed を飛ばす。seed を流すとき管理ユーザー.sql が無ければ何も流さずに止まる)
 ```
 
 すべての `.sql` は **UTF-8 BOM** で保存（日本語識別子 + sqlcmd の cp932 環境対策）。SQL Server 2012 互換のため `CREATE OR ALTER` / `OPENJSON` / `FOR JSON` / `STRING_AGG` は不使用（sproc は `DROP`+`CREATE`、JSON はテキスト保管で Node 側パース）。`THROW` の直前の文は `;` 終端が必須（T-SQL の構文規則。sproc 末尾の `END` の後に `THROW` を置く場合は `END;` と書く。2026-08 の LocalDB 実適用検証で全 sproc が「Incorrect syntax near 'THROW'」になった実績）。
@@ -25,12 +25,15 @@ apply.ps1  … ddl→sproc→seed を sqlcmd(-E -f 65001) で順に適用(-SkipS
 ## 適用手順
 ```powershell
 # 1) seed SQL を生成（管理ユーザー / パーツカタログ / 共通サンプル）
+#    パスワードは 8 文字以上で、ログインIDと同じもの・admin・password は拒まれる
 corepack pnpm --filter server exec tsx scripts/hash-password.ts admin "<パスワード>" 管理者 admin
 corepack pnpm --filter server exec tsx scripts/gen-seed.ts   # web フィクスチャ→seed SQL
 
 # 2) スキーマ + sproc + seed を適用（Windows 統合認証）
 powershell -ExecutionPolicy Bypass -File server\db\apply.ps1 -Server <host\instance>
 ```
+
+`管理ユーザー.sql` はリポジトリに置かない（以前は admin のハッシュを追跡していた）。clone した後は必ず手順 1 で作る。以前の追跡版を手元で作り直していた場合、pull で変更と削除の競合になるので、`git rm --cached editor/server/db/seed/管理ユーザー.sql` で片付けてから作り直す。
 
 本番では `-SkipSeed` を付けて ddl → sproc だけを流す。seed は開発・検証用の値で、本番に入れると共通サンプルの行が開発値で埋まり、migrate/ の登録が登録済みとして飛ばす（本番の手順は `docs/editor/src/デプロイ運用手順書.md` の 4.3 節）。
 

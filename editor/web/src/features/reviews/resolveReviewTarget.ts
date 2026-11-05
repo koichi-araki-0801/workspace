@@ -12,7 +12,9 @@ import type { LocationQuery } from 'vue-router';
 const SAFE_ID = /^[^/\\]+$/;
 
 function safeId(raw: string | null | undefined): string | null {
-  if (!raw || raw.includes('..') || !SAFE_ID.test(raw)) return null;
+  if (!raw || raw.includes('..') || !SAFE_ID.test(raw)) {
+    return null;
+  }
   return raw;
 }
 

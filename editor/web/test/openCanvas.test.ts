@@ -12,7 +12,9 @@ function fakeCanvas() {
   return {
     loads,
     load(b: string, c: string, opts: { quiet?: boolean } = {}): boolean {
-      if (c.includes('EXTERNAL')) return false;
+      if (c.includes('EXTERNAL')) {
+        return false;
+      }
       loads.push({ body: b, css: c, quiet: !!opts.quiet });
       body = b;
       css = c;

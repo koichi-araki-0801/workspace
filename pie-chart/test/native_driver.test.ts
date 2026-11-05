@@ -84,7 +84,9 @@ describe('sweepStaleRunDirs', () => {
     const alive = join(parent, '222-bbbbbb');
     const mine = join(parent, `${process.pid}-cccccc`);
     const other = join(parent, 'unrelated');
-    for (const d of [dead, alive, mine, other]) mkdirSync(d);
+    for (const d of [dead, alive, mine, other]) {
+      mkdirSync(d);
+    }
     const removed = sweepStaleRunDirs(parent, (pid) => pid === 222);
     expect(removed).toEqual([dead]);
     expect(existsSync(alive)).toBe(true);

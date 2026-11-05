@@ -32,7 +32,9 @@ export const toasts = reactive<Toast[]>([]);
 
 export function dismissToast(id: number): void {
   const i = toasts.findIndex((t) => t.id === id);
-  if (i >= 0) toasts.splice(i, 1);
+  if (i >= 0) {
+    toasts.splice(i, 1);
+  }
 }
 
 // 表示時間の既定は文字数連動にする — 固定 3 秒では長文(初期パスワード案内等)を読み切れない。

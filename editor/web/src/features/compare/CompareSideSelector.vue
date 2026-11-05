@@ -52,7 +52,7 @@ async function refreshCandidates(query: DropdownQuery) {
   searched.value = true; // @update/@search のどちらでもユーザー操作時に立つ。
   const isLatest = latestCandidates.begin();
   const res = await run(() => compare.listCandidates(query));
-  if (!isLatest() || isErr(res)) return;
+  if (!isLatest() || isErr(res)) { return; }
   candidates.value = res.value;
   // 既存選択がまだ候補内にあれば版の選択状態を保持する。消えていた場合は、候補が
   // 1 件に確定したら連動で自動選択し「比較する版」を有効化、複数なら選択をクリアする。

@@ -20,7 +20,9 @@ const norm = (html: string) => normalizeForRoundTrip(html, defaultHtmlParser);
 
 /** `ok: true` の結果だけを取り出す(テストの前提が崩れたら落とす)。 */
 function rendered(r: ReturnType<typeof renderPartForInsert>) {
-  if (!r.ok) throw new Error(`ok: false: ${r.error}`);
+  if (!r.ok) {
+    throw new Error(`ok: false: ${r.error}`);
+  }
   return r;
 }
 
@@ -77,7 +79,9 @@ describe('renderPartForInsert: 編集経路', () => {
   it('編集経路で壊れた Jinja は ok: false', () => {
     const r = renderPartForInsert('<p>{% if fund.name %}{{ fund.name }}</p>', edit(sample));
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/^パーツの Jinja を読めないため挿入できません: /);
+    if (!r.ok) {
+      expect(r.error).toMatch(/^パーツの Jinja を読めないため挿入できません: /);
+    }
   });
 });
 

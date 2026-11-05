@@ -66,9 +66,13 @@ export function onFrameHeight(
 ): () => void {
   const listener = (e: MessageEvent): void => {
     const data = e.data as { type?: unknown; height?: unknown } | null;
-    if (!data || data.type !== FRAME_HEIGHT_MESSAGE) return;
+    if (!data || data.type !== FRAME_HEIGHT_MESSAGE) {
+      return;
+    }
     const h = data.height;
-    if (typeof h !== 'number' || !Number.isFinite(h) || h <= 0) return;
+    if (typeof h !== 'number' || !Number.isFinite(h) || h <= 0) {
+      return;
+    }
     handler(e.source, Math.min(h, MAX_FRAME_HEIGHT));
   };
   window.addEventListener('message', listener);
@@ -95,14 +99,22 @@ export function useIframeAutoFit(): IframeAutoFit {
         frames.delete(f);
         continue;
       }
-      if (f.contentWindow === source) f.style.height = `${height + 4}px`;
+      if (f.contentWindow === source) {
+        f.style.height = `${height + 4}px`;
+      }
     }
   });
 
   function fitFrame(e: Event): void {
     const f = e.target as HTMLIFrameElement;
-    if (!f) return;
-    for (const known of frames) if (known.isConnected === false) frames.delete(known);
+    if (!f) {
+      return;
+    }
+    for (const known of frames) {
+      if (known.isConnected === false) {
+        frames.delete(known);
+      }
+    }
     frames.add(f);
   }
 

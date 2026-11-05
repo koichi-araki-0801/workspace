@@ -35,7 +35,9 @@ const TOP_BAR = 'header:has([aria-label="一覧へ戻る"])';
 async function headerRows(page: Page, selector: string): Promise<number> {
   return page.evaluate((sel) => {
     const header = document.querySelector(sel);
-    if (!header) return -1;
+    if (!header) {
+      return -1;
+    }
     const centers = Array.from(header.children).map((c) => {
       const r = c.getBoundingClientRect();
       return r.top + r.height / 2;
@@ -68,7 +70,9 @@ test('1600px: 保存状態の文言が出る幅でもヘッダが 1 行に収ま
   await page.evaluate(
     ([sel, status]) => {
       const label = document.querySelector(`${sel} [role="status"] span:last-child`);
-      if (label) label.textContent = status;
+      if (label) {
+        label.textContent = status;
+      }
     },
     [TOP_BAR, LONGEST_STATUS] as const,
   );

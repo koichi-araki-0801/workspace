@@ -66,7 +66,9 @@ async function buildApp(tweakDeps?: (deps: Deps) => void): Promise<FastifyInstan
       };
     }
     const u = DEFAULT_USERS.find((x) => x.username === username);
-    if (!u) return null;
+    if (!u) {
+      return null;
+    }
     return {
       id: `u-${u.username}`,
       username: u.username,

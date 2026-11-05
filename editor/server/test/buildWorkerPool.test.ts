@@ -23,7 +23,9 @@ class FakeWorker implements BuildWorker {
     });
   }
   kill(): void {
-    if (this.killed) return;
+    if (this.killed) {
+      return;
+    }
     this.killed = true;
     this.rejectAll(new Error('killed')); // 実ワーカーは kill→exit で保留ジョブを reject する
   }
@@ -42,12 +44,16 @@ class FakeWorker implements BuildWorker {
   /** プロセスクラッシュを模す: 保留ジョブを reject し onExit を発火する。 */
   crash(): void {
     this.rejectAll(new Error('exited'));
-    for (const cb of this.exitCbs) cb();
+    for (const cb of this.exitCbs) {
+      cb();
+    }
   }
   private rejectAll(e: Error): void {
     const pending = this.jobs;
     this.jobs = [];
-    for (const j of pending) j.reject(e);
+    for (const j of pending) {
+      j.reject(e);
+    }
   }
 }
 
@@ -70,7 +76,9 @@ function makePool(over: Partial<BuildWorkerPoolOptions> = {}) {
 
 /** acquire(microtask)→worker.run の連鎖を流し切る。 */
 async function micro(): Promise<void> {
-  for (let i = 0; i < 6; i++) await Promise.resolve();
+  for (let i = 0; i < 6; i++) {
+    await Promise.resolve();
+  }
 }
 
 describe('BuildWorkerPool', () => {

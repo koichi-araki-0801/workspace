@@ -7,27 +7,11 @@
 // 平文は戻り値で 1 回だけ呼び出し元へ渡し、DB にも監査ログにも残さない — ログインID を
 // 初期パスワードにする形は、ID を知る者が未活性アカウントを乗っ取れてしまう。
 import { randomUUID } from 'node:crypto';
-import {
-  type CreatedUser,
-  notFound,
-  type PasswordResetResult,
-  type User,
-  type UserRole,
-} from '@editor/shared';
+import { type CreatedUser, notFound, type PasswordResetResult, type User } from '@editor/shared';
 import { generateTemporaryPassword, hashPassword } from '../auth/password.js';
-import { asBool, asString, firstRow, type Param, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
-
-export function rowToUser(r: Record<string, unknown>): User {
-  return {
-    id: asString(r.公開ID),
-    username: asString(r.ログインID),
-    displayName: asString(r.表示名),
-    role: asString(r.ロール) as UserRole,
-    disabled: asBool(r.無効),
-    mustChangePassword: asBool(r.要パスワード変更),
-  };
-}
+import { firstRow, type Param, p, type SprocClient } from '../db/sproc.js';
+import { OP, SP } from '../db/sprocNames.js';
+import { rowToUser } from './userRow.js';
 
 /** 払い出す一時パスワードと、それをハッシュ化して sproc へ渡す 3 パラメータ。 */
 async function issueTemporaryPassword(): Promise<{ temporaryPassword: string; pwParams: Param[] }> {
@@ -48,7 +32,7 @@ export interface UserRepo {
 
 export function createUserRepo(sproc: SprocClient): UserRepo {
   const listUsers = async (): Promise<User[]> => {
-    const rows = await sproc.callSproc(SP.user, '一覧');
+    const rows = await sproc.callSproc(SP.user, OP.user.list);
     return rows.map(rowToUser);
   };
 
@@ -60,7 +44,7 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
       // 初期パスワードは払い出しごとに新しいランダム値。初回ログインで変更を強制する。
       const { temporaryPassword, pwParams } = await issueTemporaryPassword();
       const row = firstRow(
-        await sproc.callSproc(SP.user, '作成', [
+        await sproc.callSproc(SP.user, OP.user.create, [
           p('公開ID', id),
           p('ログインID', input.username),
           p('表示名', input.displayName),
@@ -70,14 +54,16 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
           ...pwParams,
         ]),
       );
-      if (!row) throw notFound('作成したユーザーを取得できません');
+      if (!row) {
+        throw notFound('作成したユーザーを取得できません');
+      }
       return { user: rowToUser(row), temporaryPassword };
     },
 
     async updateUser(id, patch) {
       const bit = (b: boolean | undefined) => (b == null ? null : b ? 1 : 0);
       const row = firstRow(
-        await sproc.callSproc(SP.user, '更新', [
+        await sproc.callSproc(SP.user, OP.user.update, [
           p('公開ID', id),
           p('表示名', patch.displayName),
           p('ロール', patch.role),
@@ -85,16 +71,20 @@ export function createUserRepo(sproc: SprocClient): UserRepo {
           p('要パスワード変更', bit(patch.mustChangePassword)),
         ]),
       );
-      if (!row) throw notFound(`ユーザーが見つかりません: ${id}`);
+      if (!row) {
+        throw notFound(`ユーザーが見つかりません: ${id}`);
+      }
       return rowToUser(row);
     },
 
     async resetUserPassword(id) {
       // 存在しない公開ID への無言 no-op を避けるため、先に一覧で実在を確かめる。
       const user = (await listUsers()).find((u) => u.id === id);
-      if (!user) throw notFound(`ユーザーが見つかりません: ${id}`);
+      if (!user) {
+        throw notFound(`ユーザーが見つかりません: ${id}`);
+      }
       const { temporaryPassword, pwParams } = await issueTemporaryPassword();
-      await sproc.callSproc(SP.user, 'PWリセット', [p('公開ID', id), ...pwParams]);
+      await sproc.callSproc(SP.user, OP.user.resetPassword, [p('公開ID', id), ...pwParams]);
       return { temporaryPassword };
     },
   };

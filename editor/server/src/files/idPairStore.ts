@@ -48,9 +48,13 @@ export function createIdPairStore(dir: () => string): IdPairStore {
 
     async read(id) {
       const htmlPath = pathOrNull(id, 'html');
-      if (!htmlPath) return null;
+      if (!htmlPath) {
+        return null;
+      }
       const html = await readOrMissing(htmlPath, null);
-      if (html === null) return null;
+      if (html === null) {
+        return null;
+      }
       // HTML 側の検査を通った id は CSS 側も通る(同じ検査)。
       const css = await readOrMissing(path.join(dir(), `${id}.css`), null);
       return { html, css: css ?? '', cssFound: css !== null };

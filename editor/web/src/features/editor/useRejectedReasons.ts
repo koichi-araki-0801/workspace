@@ -39,8 +39,12 @@ function latestOwnReview(
 ): ReviewRequestMeta | null {
   let latest: ReviewRequestMeta | null = null;
   for (const m of list) {
-    if (m.templateId !== templateId || m.submittedBy !== me) continue;
-    if (latest === null || m.submittedAt > latest.submittedAt) latest = m;
+    if (m.templateId !== templateId || m.submittedBy !== me) {
+      continue;
+    }
+    if (latest === null || m.submittedAt > latest.submittedAt) {
+      latest = m;
+    }
   }
   return latest;
 }
@@ -54,7 +58,9 @@ export function namesFromBody(html: string, keys: ReadonlySet<string>): Map<stri
   const root = new DOMParser().parseFromString(html, 'text/html').body;
   const out = new Map<string, string>();
   for (const e of partEntries(root)) {
-    if (keys.has(e.key)) out.set(e.key, partNameOfElement(e.part));
+    if (keys.has(e.key)) {
+      out.set(e.key, partNameOfElement(e.part));
+    }
   }
   return out;
 }
@@ -72,27 +78,35 @@ export function useRejectedReasons(ctx: {
   async function reload(): Promise<void> {
     reasons.value = new Map();
     const me = ctx.me();
-    if (me === null) return;
+    if (me === null) {
+      return;
+    }
     const res = await ctx.reviews.listReviews({});
     if (!isOk(res)) {
       logError(res.error);
       return;
     }
     const latest = latestOwnReview(res.value, ctx.templateId, me);
-    if (latest === null || latest.status === 'pending') return;
+    if (latest === null || latest.status === 'pending') {
+      return;
+    }
     const rejected = (latest.partDecisions ?? []).filter(
       (d): d is RejectedDecision => d.status === 'rejected',
     );
-    if (rejected.length === 0) return;
+    if (rejected.length === 0) {
+      return;
+    }
 
-    // canvas に無いキー(却下した追加・キーのずれ)だけ、名前のために本文を 1 回取る。
+    // canvas に無いキー(却下した追加・キーのずれ)だけ、名前のために本文を 1 回取る。作成経路は
+    // サーバが描いた承認画面の本文(`renderedHtml`。承認者が見て判定した本文)から名前を取る。
     const onCanvas = ctx.canvasKeys();
     const missing = new Set(rejected.map((d) => d.partKey).filter((k) => !onCanvas.has(k)));
     let names = new Map<string, string>();
     if (missing.size > 0) {
       const body = await ctx.reviews.getReview(latest.id);
-      if (isOk(body)) names = namesFromBody(body.value.filledHtml || body.value.html, missing);
-      else {
+      if (isOk(body)) {
+        names = namesFromBody(body.value.renderedHtml || body.value.html, missing);
+      } else {
         logError(body.error);
         names = new Map([...missing].map((k) => [k, UNKNOWN_PART_NAME]));
       }

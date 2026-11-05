@@ -112,13 +112,21 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
       const changes: ChangeMarker[] = [];
       const single = ctx.singlePageMode.value;
       for (const { part, key, page } of partEntries(root, canvasRawKey(ed))) {
-        if (single && page !== ctx.currentPageIndex.value) continue;
+        if (single && page !== ctx.currentPageIndex.value) {
+          continue;
+        }
         const noted = noteKeys.value.has(key);
         const no = changeNumbers.value.get(key);
-        if (!noted && no === undefined) continue;
+        if (!noted && no === undefined) {
+          continue;
+        }
         const p = ed.Canvas.getElementPos(part, { noScroll: true });
-        if (noted) notes.push({ key, top: p.top, left: p.left + p.width });
-        if (no !== undefined) changes.push({ key, no, top: p.top, left: p.left });
+        if (noted) {
+          notes.push({ key, top: p.top, left: p.left + p.width });
+        }
+        if (no !== undefined) {
+          changes.push({ key, no, top: p.top, left: p.left });
+        }
       }
       noteMarkers.value = notes;
       changeMarkers.value = changes;
@@ -154,7 +162,9 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
     const body = ed?.Canvas.getBody();
     const containerEl = ctx.getContainer();
     if (!ed || !el || !body || !containerEl || !bubble) {
-      if (!sameBubbleAnchor(bubbleAnchor.value, null)) bubbleAnchor.value = null;
+      if (!sameBubbleAnchor(bubbleAnchor.value, null)) {
+        bubbleAnchor.value = null;
+      }
       return;
     }
     measureOrClear(
@@ -167,10 +177,14 @@ export function useCanvasMarkers(ctx: CanvasMarkersContext) {
           container: { width: containerEl.clientWidth, height: containerEl.clientHeight },
           bubble,
         });
-        if (!sameBubbleAnchor(bubbleAnchor.value, next)) bubbleAnchor.value = next;
+        if (!sameBubbleAnchor(bubbleAnchor.value, next)) {
+          bubbleAnchor.value = next;
+        }
       },
       () => {
-        if (!sameBubbleAnchor(bubbleAnchor.value, null)) bubbleAnchor.value = null;
+        if (!sameBubbleAnchor(bubbleAnchor.value, null)) {
+          bubbleAnchor.value = null;
+        }
       },
     );
   }

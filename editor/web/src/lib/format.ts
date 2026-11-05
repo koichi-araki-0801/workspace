@@ -6,13 +6,17 @@ import { formatDateTimeYmdHm } from '@editor/shared';
 
 /** ローカライズした日時。空値は em dash を返す。 */
 export function formatDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) {
+    return '—';
+  }
   return new Date(iso).toLocaleString('ja-JP');
 }
 
 /** "2024/07/10 11:42" 形式のコンパクトなゼロ埋め日時(秒なし)。 */
 export function formatDateTimeShort(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) {
+    return '—';
+  }
   return formatDateTimeYmdHm(iso);
 }
 

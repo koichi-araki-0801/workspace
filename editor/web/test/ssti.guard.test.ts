@@ -30,8 +30,11 @@ function sourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const name of readdirSync(dir)) {
     const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) found.push(...sourceFiles(full));
-    else if (/\.(ts|vue)$/.test(name)) found.push(full);
+    if (statSync(full).isDirectory()) {
+      found.push(...sourceFiles(full));
+    } else if (/\.(ts|vue)$/.test(name)) {
+      found.push(full);
+    }
   }
   return found;
 }
@@ -115,7 +118,9 @@ describe('SSTI ガード — Jinja のコンパイルはアプリオリジンで
   it('shared の描画器も eval / new Function を持たない', () => {
     // 走査が実在のファイルを読めていないと「常に緑」になるので、描画器が対象に入ることも確かめる。
     const sharedSources = sourceFiles(SHARED_SRC);
-    for (const file of SHARED_RENDERERS) expect(sharedSources).toContain(file);
+    for (const file of SHARED_RENDERERS) {
+      expect(sharedSources).toContain(file);
+    }
     const offenders = sharedSources
       .filter((file) => {
         const code = stripComments(readFileSync(file, 'utf8'));

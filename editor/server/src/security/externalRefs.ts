@@ -111,7 +111,9 @@ function collectHtmlRefs(html: string, out: string[], depth: number): void {
     out.push(...findExternalRefsInCss(html));
     // 入れ子は fail closed。CSS 走査は引用符なし属性値を 1 つも見ないので、
     // `<iframe srcdoc="<img src=https://evil/x><b">` が零件で通る(実測)。
-    if (depth > 0) out.push(NESTED_UNPARSABLE_REF);
+    if (depth > 0) {
+      out.push(NESTED_UNPARSABLE_REF);
+    }
     return;
   }
   collectFromTags(scan.tags, out, depth);
@@ -134,30 +136,43 @@ function collectFromTags(
       // `script` を除くのは、中身が JS であってマークアップではないため(字面の一致を
       // 参照として数えると誤検知が出る。実行面の固定は `templateScripts` の担当)。
       // 上限に達したら中身にタグの字面があるときだけ fail closed にする(散文は参照を持てない)。
-      if (depth < MAX_NESTED_HTML_DEPTH) collectHtmlRefs(tag.rawText, out, depth + 1);
-      else if (tag.rawText.includes('<')) out.push(NESTED_UNPARSABLE_REF);
+      if (depth < MAX_NESTED_HTML_DEPTH) {
+        collectHtmlRefs(tag.rawText, out, depth + 1);
+      } else if (tag.rawText.includes('<')) {
+        out.push(NESTED_UNPARSABLE_REF);
+      }
     }
     // 属性値は走査器が切り出したものを使う。原文への正規表現で拾うと
     // `data-style="…"` や他属性の値の中の字面まで拾って誤検知になる。
     // 値は**引用符を外しただけの原文**なので、CSS 検査へ渡す前に実体参照を解く —
     // 解かない版は `style="background:url(&#104;ttp://evil/x)"` を 0 件で通した(実測)。
     for (const a of tag.attrs) {
-      if (a.name === 'style') out.push(...findExternalRefsInCss(decodeHtmlEntities(a.value)));
+      if (a.name === 'style') {
+        out.push(...findExternalRefsInCss(decodeHtmlEntities(a.value)));
+      }
     }
-    if (tag.isEnd) continue;
+    if (tag.isEnd) {
+      continue;
+    }
     // `<base>` は **URL の形を見ずに**拒む。相対 href でも「相対参照は同梱資産を指す」という
     // 前提そのものを別オリジンへ移せるので、値の検査では守れない。inline 経路では
     // `inlineCss` が要素ごと落とすが、zip project 経路(`POST /api/build/project`)はそこを
     // 通らないため、除去に頼ると防御が egressGuard 単独へ落ちる。
-    if (tag.name === 'base') out.push('<base>');
+    if (tag.name === 'base') {
+      out.push('<base>');
+    }
     // 取得系属性の絶対 URL。相対参照(同梱資産)は `isSelfContainedUrl` が通す。
     out.push(...findExternalRefsInTag(tag.name, tag.attrs));
     // `srcdoc` は URL ではなく HTML 文書。URL として検査すると必ず「相対参照」と判定され、
     // 中に書いた絶対参照が丸ごと検査から消える(`htmlExternalRefs.ts` の注記)。
     const nested = nestedHtmlAttrsFor(tag.name);
-    if (nested.length === 0) continue;
+    if (nested.length === 0) {
+      continue;
+    }
     for (const a of tag.attrs) {
-      if (!nested.includes(a.name)) continue;
+      if (!nested.includes(a.name)) {
+        continue;
+      }
       if (depth < MAX_NESTED_HTML_DEPTH) {
         collectHtmlRefs(decodeHtmlEntities(a.value), out, depth + 1);
       } else if (a.value.trim() !== '') {
@@ -179,7 +194,9 @@ export function assertNoDocumentExternalRefs(html: string, css: string, where: s
     throw validation(UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE, cause: { where } });
   }
   const refs = findDocumentExternalRefs(html, css);
-  if (refs.length === 0) return;
+  if (refs.length === 0) {
+    return;
+  }
   throwExternalRef(where, refs);
 }
 
@@ -269,16 +286,24 @@ export function findJsonExternalRefs(text: string): string[] {
   const out: string[] = [];
   const walk = (value: unknown): void => {
     if (typeof value === 'string') {
-      if (ALLOWED_JSON_CONTEXT_URLS.has(value.trim())) return;
-      if (!isSelfContainedUrl(value)) out.push(value);
+      if (ALLOWED_JSON_CONTEXT_URLS.has(value.trim())) {
+        return;
+      }
+      if (!isSelfContainedUrl(value)) {
+        out.push(value);
+      }
       return;
     }
     if (Array.isArray(value)) {
-      for (const item of value) walk(item);
+      for (const item of value) {
+        walk(item);
+      }
       return;
     }
     if (value !== null && typeof value === 'object') {
-      for (const item of Object.values(value)) walk(item);
+      for (const item of Object.values(value)) {
+        walk(item);
+      }
     }
   };
   walk(parsed);
@@ -296,7 +321,9 @@ export function assertNoJsonExternalRefs(text: string, where: string): void {
     // 検査できないファイルを通す分岐を作らない。どのファイルかはここで添え直す。
     throw validation(JSON_UNPARSABLE_MESSAGE, { code: UNPARSABLE_CODE, cause: { where } });
   }
-  if (refs.length === 0) return;
+  if (refs.length === 0) {
+    return;
+  }
   throwExternalRef(where, refs);
 }
 
@@ -318,7 +345,9 @@ function findMarkdownExternalRefs(md: string): string[] {
     re.lastIndex = 0;
     for (let m = re.exec(md); m !== null; m = re.exec(md)) {
       const dest = decodeHtmlEntities(m[1]);
-      if (!isSelfContainedUrl(dest)) out.push(dest);
+      if (!isSelfContainedUrl(dest)) {
+        out.push(dest);
+      }
     }
   }
   return out;
@@ -327,11 +356,15 @@ function findMarkdownExternalRefs(md: string): string[] {
 /** markdown 原稿の外部参照を拒む(生 HTML ブロックも同時に見る)。 */
 export function assertNoMarkdownExternalRefs(md: string, where: string): void {
   const refs = findMarkdownExternalRefs(md);
-  if (refs.length > 0) throwExternalRef(where, refs);
+  if (refs.length > 0) {
+    throwExternalRef(where, refs);
+  }
   // markdown 内の生 HTML は HTML として検査する。走査できない字面は markdown では
   // 珍しくない(`<` を素で書ける)ので、ここでは参照だけを見て未走査には倒さない。
   const htmlRefs = findDocumentExternalRefs(md, '');
-  if (htmlRefs.length > 0) throwExternalRef(where, htmlRefs);
+  if (htmlRefs.length > 0) {
+    throwExternalRef(where, htmlRefs);
+  }
 }
 
 /**
@@ -360,7 +393,9 @@ export async function assertProjectDirHasNoExternalRefs(dir: string): Promise<vo
         continue;
       }
       const kind = inspectionFor(entry.name);
-      if (kind === undefined || kind === 'inert') continue;
+      if (kind === undefined || kind === 'inert') {
+        continue;
+      }
       let text = '';
       try {
         text = await fs.readFile(full, 'utf8');
@@ -368,10 +403,15 @@ export async function assertProjectDirHasNoExternalRefs(dir: string): Promise<vo
         continue;
       }
       const where = `project:${path.relative(dir, full).split(path.sep).join('/')}`;
-      if (kind === 'css') assertNoDocumentExternalRefs('', text, where);
-      else if (kind === 'markdown') assertNoMarkdownExternalRefs(text, where);
-      else if (kind === 'json') assertNoJsonExternalRefs(text, where);
-      else assertNoDocumentExternalRefs(text, '', where);
+      if (kind === 'css') {
+        assertNoDocumentExternalRefs('', text, where);
+      } else if (kind === 'markdown') {
+        assertNoMarkdownExternalRefs(text, where);
+      } else if (kind === 'json') {
+        assertNoJsonExternalRefs(text, where);
+      } else {
+        assertNoDocumentExternalRefs(text, '', where);
+      }
     }
   }
 }

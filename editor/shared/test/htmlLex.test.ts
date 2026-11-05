@@ -11,19 +11,30 @@ import { asciiLower, findRawTextEnd, RAW_TEXT_ELEMENTS } from '../src/html/rawTe
 
 describe('文字の分類', () => {
   it('HTML の空白は TAB / LF / FF / CR / SP だけ(NBSP や VT は含めない)', () => {
-    for (const c of ['\t', '\n', '\f', '\r', ' ']) expect(isHtmlSpace(c)).toBe(true);
-    for (const c of [' ', '\v', 'a', '', undefined]) expect(isHtmlSpace(c)).toBe(false);
+    for (const c of ['\t', '\n', '\f', '\r', ' ']) {
+      expect(isHtmlSpace(c)).toBe(true);
+    }
+    for (const c of [' ', '\v', 'a', '', undefined]) {
+      expect(isHtmlSpace(c)).toBe(false);
+    }
   });
 
   it('英字は ASCII の A-Z / a-z だけ', () => {
-    for (const c of ['a', 'z', 'A', 'Z']) expect(isAsciiAlpha(c)).toBe(true);
-    for (const c of ['0', '@', '[', '`', '{', 'é', '', undefined])
+    for (const c of ['a', 'z', 'A', 'Z']) {
+      expect(isAsciiAlpha(c)).toBe(true);
+    }
+    for (const c of ['0', '@', '[', '`', '{', 'é', '', undefined]) {
       expect(isAsciiAlpha(c)).toBe(false);
+    }
   });
 
   it('タグ名は空白・`/`・`>` で終わり、`=` では終わらない', () => {
-    for (const c of [' ', '\t', '/', '>']) expect(isTagNameEnd(c)).toBe(true);
-    for (const c of ['=', 'a', '"', undefined]) expect(isTagNameEnd(c)).toBe(false);
+    for (const c of [' ', '\t', '/', '>']) {
+      expect(isTagNameEnd(c)).toBe(true);
+    }
+    for (const c of ['=', 'a', '"', undefined]) {
+      expect(isTagNameEnd(c)).toBe(false);
+    }
   });
 });
 

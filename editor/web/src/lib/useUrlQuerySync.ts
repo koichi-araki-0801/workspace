@@ -37,16 +37,23 @@ function scheduleWrite(router: Router, patch: QueryPatch): void {
     pending.set(router, entry);
   }
   Object.assign(entry.patch, patch);
-  if (entry.scheduled) return;
+  if (entry.scheduled) {
+    return;
+  }
   entry.scheduled = true;
   queueMicrotask(() => {
     const e = pending.get(router);
-    if (!e) return;
+    if (!e) {
+      return;
+    }
     pending.delete(router);
     const merged: LocationQuery = { ...router.currentRoute.value.query };
     for (const [k, v] of Object.entries(e.patch)) {
-      if (v == null || v === '') delete merged[k];
-      else merged[k] = v;
+      if (v == null || v === '') {
+        delete merged[k];
+      } else {
+        merged[k] = v;
+      }
     }
     // replace なのでフィルタ操作で戻る履歴を増やさない。冗長遷移の reject は無視。
     void router.replace({ query: merged }).catch(() => {});

@@ -74,12 +74,16 @@ describe('履歴 JSONL の上限', () => {
     let statCalls = 0;
     const statSpy = vi.spyOn(fs, 'stat').mockImplementation(async (p, ...rest) => {
       const st = await realStat(p, ...(rest as []));
-      if (p === historyFile('pdf') && ++statCalls === 2) await rotatedOnce;
+      if (p === historyFile('pdf') && ++statCalls === 2) {
+        await rotatedOnce;
+      }
       return st;
     });
     const renameSpy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
       await realRename(from, to);
-      if (to === historyFile('pdf', 1)) rotated();
+      if (to === historyFile('pdf', 1)) {
+        rotated();
+      }
     });
     try {
       await Promise.all([h.appendHistory('pdf', { at: 'a' }), h.appendHistory('pdf', { at: 'b' })]);

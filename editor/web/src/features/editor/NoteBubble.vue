@@ -72,8 +72,8 @@ function hasActiveInput(t: { parent: PartNoteEntry; replies: PartNoteEntry[] }):
 function toggleExpand(parent: PartNoteEntry): void {
   const key = entryKey(parent);
   const next = new Set(expandedKeys.value);
-  if (next.has(key)) next.delete(key);
-  else next.add(key);
+  if (next.has(key)) { next.delete(key); }
+  else { next.add(key); }
   expandedKeys.value = next;
 }
 
@@ -88,7 +88,7 @@ function startReply(parent: PartNoteEntry): void {
 }
 
 function commitReply(parent: PartNoteEntry): void {
-  if (replyDraft.value.trim() !== '') emit('reply', parent, replyDraft.value);
+  if (replyDraft.value.trim() !== '') { emit('reply', parent, replyDraft.value); }
   replyingKey.value = null;
 }
 </script>

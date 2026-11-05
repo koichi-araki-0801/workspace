@@ -93,7 +93,9 @@ function wrapFragmentInBody(html: string): string {
  */
 function needsPersistentPartCarrier(content: string): boolean {
   // 空文字・空白だけの入力はパーツではない。専用carrierを作ると空のElementが挿入成功扱いになる。
-  if (content.trim() === '') return false;
+  if (content.trim() === '') {
+    return false;
+  }
 
   const editable = document.createElement('template');
   editable.innerHTML = content;
@@ -190,7 +192,9 @@ interface UseGrapesOptions {
 /** inline style マップ 2 つが同じ property 集合・同じ値かを判定する。 */
 function sameStyleMap(a: Record<string, string>, b: Record<string, string>): boolean {
   const ak = Object.keys(a);
-  if (ak.length !== Object.keys(b).length) return false;
+  if (ak.length !== Object.keys(b).length) {
+    return false;
+  }
   return ak.every((k) => a[k] === b[k]);
 }
 
@@ -202,10 +206,15 @@ function patchStyle(comp: Component, patch: Record<string, string>): boolean {
   const cur = comp.getStyle() as Record<string, string>;
   const next: Record<string, string> = { ...cur };
   for (const [k, v] of Object.entries(patch)) {
-    if (v === '') delete next[k];
-    else next[k] = v;
+    if (v === '') {
+      delete next[k];
+    } else {
+      next[k] = v;
+    }
   }
-  if (sameStyleMap(cur, next)) return false;
+  if (sameStyleMap(cur, next)) {
+    return false;
+  }
   comp.setStyle(next);
   return true;
 }
@@ -428,7 +437,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    * 白紙のページを表示しているときは白紙のページの帯も出す。
    */
   function applyPageVisibility(): void {
-    if (!pageViewStyleEl) return;
+    if (!pageViewStyleEl) {
+      return;
+    }
     const split = currentSplit();
     pageViewStyleEl.textContent = pageViewCss(
       currentPageIndex.value,
@@ -465,7 +476,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     markPages(root, split);
     // 中身が同じなら差し替えない。赤入れの再計算のたびに呼ぶので、参照だけ変えると `pageBlocks`
     // を見ている側(パーツのラベル・選択の復元)が空振りで再評価される。
-    if (!samePages(pageBlocks.value, split.pages)) pageBlocks.value = split.pages;
+    if (!samePages(pageBlocks.value, split.pages)) {
+      pageBlocks.value = split.pages;
+    }
     pageBreakEls.value = split.breakEls;
     pageBreakPages.value = split.breakPages;
     uncountedBreakCount.value = findUncountedBreaks(root).length;
@@ -479,7 +492,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /** 選択要素が現在ページ外(隠れたページ配下)なら選択を解除する。 */
   function deselectIfHidden(): void {
     const el = editor.value?.getSelected()?.getEl?.();
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const owner = el.closest?.(`[${PV_ATTR}]`) as HTMLElement | null;
     if (owner && owner.getAttribute(PV_ATTR) !== String(currentPageIndex.value)) {
       editor.value?.select(undefined);
@@ -504,7 +519,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /** iframe document と外側 `.gjs-cv-canvas` のスクロールを先頭へ戻す。 */
   function resetCanvasScroll(): void {
     editor.value?.Canvas.getDocument()?.defaultView?.scrollTo?.(0, 0);
-    if (cvScrollEl) cvScrollEl.scrollTop = 0;
+    if (cvScrollEl) {
+      cvScrollEl.scrollTop = 0;
+    }
   }
 
   /**
@@ -522,7 +539,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /** 外側スクロール量から縦位置比率(0..1)を測り直す(`PageRail` のつまみ位置用)。 */
   function updateScrollFraction(): void {
     const el = cvScrollEl;
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const range = el.scrollHeight - el.clientHeight;
     scrollFraction.value = range > 0 ? Math.min(Math.max(el.scrollTop / range, 0), 1) : 0;
   }
@@ -538,7 +557,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     currentPageIndex.value = idx;
     // ページの先頭の要素へ送る(区切りの帯は前のページの末尾に属する)。白紙のページは帯へ送る。
     const el = pageHead(currentSplit(), idx);
-    if (!cvScrollEl || !el) return;
+    if (!cvScrollEl || !el) {
+      return;
+    }
     const delta = el.getBoundingClientRect().top - cvScrollEl.getBoundingClientRect().top;
     cvScrollEl.scrollTop += delta;
     remeasureNextFrame(updateScrollFraction);
@@ -551,7 +572,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     // 1 ページ ⇔ 全ページで body 高さが激変し(他ページの display 切替)、guide / overlay の
     // 座標が旧レイアウトのまま残る。ON 化時のみ隠れたページの選択を外し、スクロールを先頭へ戻して
     // 再レイアウト後に縦配置(`ret-canvas-fits`)と guide/選択枠を測り直す(`goToPage`/`setZoom` と同手法)。
-    if (on) deselectIfHidden();
+    if (on) {
+      deselectIfHidden();
+    }
     resetCanvasScroll();
     requestAnimationFrame(() => {
       updateScrollMode();
@@ -611,8 +634,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       // 差し替える(`bodyStyle.ts`)。
       parser: { parserHtml: bodyStyleParserHtml },
       // GrapesJS 既定の cssIcons(cdnjs Font Awesome の <link>)を空にし、CDN から
-      // 何も取得させない。layer/toolbar icon が使う FA glyph は main.ts の
-      // `import 'font-awesome/...'` で代わりにローカル同梱している。
+      // 何も取得させない。FA の class を使うのは既定パネル・StyleManager・core:preview・
+      // image-editor だけで、どれも使っていないので FA 自体を同梱しない。
       cssIcons: '',
       // component script 機能(`data-gjs-script` prop)を使わないので、`getHtml()` が
       // 収集した JS を `<script>` として**連結して返す**既定を切る。これが true のままだと、
@@ -659,7 +682,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     });
     ed.on('parse:html:root', ({ root }: { root: ParsedNode }) => {
       const report = pruneCanvasActiveContent(root, { allowedGjsTypes: JINJA_COMPONENT_TYPE_SET });
-      if (quietParse || report.droppedCount === 0) return;
+      if (quietParse || report.droppedCount === 0) {
+        return;
+      }
       const detail = [...report.droppedElements, ...report.droppedAttrs].slice(0, 5).join(', ');
       toast(
         `編集キャンバスで扱えない内容を ${report.droppedCount} 件取り除きました（${detail}）。`,
@@ -672,7 +697,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     registerPagebreakComponent(ed);
     // 本文の `<style>` を足した・消したら canvas の複製を作り直す(`load` は自分で作り直す)。
     ed.on('component:add component:remove', (comp: Component) => {
-      if (!replacing && containsBodyStyle(comp)) syncCanvasCssCopy();
+      if (!replacing && containsBodyStyle(comp)) {
+        syncCanvasCssCopy();
+      }
     });
 
     // ファンド別画像は属性を書き換えず、canvas 専用の `<style>` で差す(`fundImageLayer.ts`)。
@@ -731,7 +758,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     if (cvScrollEl) {
       let pending = false;
       cvScrollHandler = () => {
-        if (pending) return;
+        if (pending) {
+          return;
+        }
         pending = true;
         requestAnimationFrame(() => {
           // 先に下ろす。測り直しが投げても次の scroll を受け付けられる。
@@ -788,7 +817,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   function setEditable(on: boolean): void {
     locked = !on;
     const ed = editor.value;
-    if (!ed) return;
+    if (!ed) {
+      return;
+    }
     // `editable`/`draggable` はモデルの見た目状態で、`getHtml()` の出力(保存内容)には
     // 現れない。だが一括 set は `component:update` を全ノード分発火させ、そのまま
     // dirty/autosave へ流れると**無編集の draft** が生成される(以後プレビュー/申請が
@@ -801,14 +832,18 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       // `<style>` の位置(= 規則の効く順序)が変わるため、定義どおり移動・編集させない。
       const visit = (c: Component): void => {
         const type = String(c.get('type') ?? '');
-        if (type.startsWith('jinja-') || type === BODY_STYLE_TYPE) return;
+        if (type.startsWith('jinja-') || type === BODY_STYLE_TYPE) {
+          return;
+        }
         c.set('editable', on);
         c.set('draggable', on);
         c.set('selectable', true);
         c.components().forEach(visit);
       };
       const wrapper = ed.getWrapper();
-      if (wrapper) visit(wrapper);
+      if (wrapper) {
+        visit(wrapper);
+      }
     } finally {
       applyingLockState = false;
     }
@@ -821,7 +856,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function startMove(e: MouseEvent): void {
     const ed = editor.value;
-    if (!ed || locked || !ed.getSelected()) return;
+    if (!ed || locked || !ed.getSelected()) {
+      return;
+    }
     try {
       ed.runCommand('tlb-move', { event: e });
     } catch {
@@ -834,11 +871,15 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const ed = editor.value;
     const comp = ed?.getSelected();
     const parent = comp?.parent();
-    if (!ed || !comp || !parent) return;
+    if (!ed || !comp || !parent) {
+      return;
+    }
     const i = comp.index();
     const total = parent.components().length;
     const j = i + dir;
-    if (j < 0 || j >= total) return;
+    if (j < 0 || j >= total) {
+      return;
+    }
     // move() は現在リストの目標 index へ挿入する。下へ動かす時は +1 が要る
     comp.move(parent, { at: dir > 0 ? j + 1 : j });
     ed.select(comp);
@@ -862,7 +903,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function patchSelectedStyle(patch: Record<string, string>): boolean {
     const comp = editor.value?.getSelected();
-    if (!comp || !patchStyle(comp, patch)) return false;
+    if (!comp || !patchStyle(comp, patch)) {
+      return false;
+    }
     // プログラム経由の setStyle は StyleManager の 'style:update' を emit しないため、
     // listener(autosave)への通知と派生 state の更新を自前で行う。`refreshRect` は即時
     // (ライブ値ラベルの体感応答)、break/guide/ページ列挙/縦配置は幅・余白変更で動くため
@@ -887,7 +930,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   /** `comp` を含む根の直下の component(wrapper 自身・wrapper の外なら undefined)。 */
   function topLevelOf(wrapper: Component, comp: Component | undefined): Component | undefined {
     let top = comp;
-    while (top?.parent() && top.parent() !== wrapper) top = top.parent();
+    while (top?.parent() && top.parent() !== wrapper) {
+      top = top.parent();
+    }
     return top?.parent() === wrapper ? top : undefined;
   }
 
@@ -917,9 +962,13 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     const root = wrapper?.getEl();
     const top = wrapper ? topLevelOf(wrapper, comp) : undefined;
     const el = top?.getEl();
-    if (!wrapper || !root || !top || !el) return false;
+    if (!wrapper || !root || !top || !el) {
+      return false;
+    }
     const plan = planBreakToggle(el, root, edge, on);
-    if (!plan) return false;
+    if (!plan) {
+      return false;
+    }
     for (const br of plan.remove) {
       wrapper
         .components()
@@ -948,7 +997,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     sel: Component | undefined,
   ): ReturnType<typeof insertTarget> | null {
     const root = wrapper.getEl();
-    if (!root) return null;
+    if (!root) {
+      return null;
+    }
     return insertTarget(root, currentPageIndex.value, topLevelOf(wrapper, sel)?.getEl());
   }
 
@@ -963,11 +1014,19 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   function insertIndex(wrapper: Component, sel: Component | undefined): number | null {
     const comps = wrapper.components();
     const target = insertTargetAt(wrapper, sel);
-    if (!target) return comps.length;
-    if (target.kind === 'blocked') return null;
-    if (target.kind === 'end') return comps.length;
+    if (!target) {
+      return comps.length;
+    }
+    if (target.kind === 'blocked') {
+      return null;
+    }
+    if (target.kind === 'end') {
+      return comps.length;
+    }
     const i = comps.findIndex((c: Component) => c.getEl() === target.el);
-    if (i < 0) return null;
+    if (i < 0) {
+      return null;
+    }
     return target.kind === 'after' ? i + 1 : i;
   }
 
@@ -983,9 +1042,13 @@ export function useGrapes(options: UseGrapesOptions = {}) {
   function insertPart(content: string, partId: string): boolean {
     const ed = editor.value;
     const wrapper = ed?.getWrapper();
-    if (!ed || !wrapper) return false;
+    if (!ed || !wrapper) {
+      return false;
+    }
     const at = insertIndex(wrapper, ed.getSelected());
-    if (at === null) return false;
+    if (at === null) {
+      return false;
+    }
     const needsCarrier = needsPersistentPartCarrier(content);
     const insertedContent = needsCarrier ? wrapPersistentPartCarrier(content, partId) : content;
 
@@ -1000,7 +1063,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
     });
 
     if (!root) {
-      for (const component of inserted) component.remove();
+      for (const component of inserted) {
+        component.remove();
+      }
       return false;
     }
 
@@ -1081,13 +1146,16 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function load(bodyEditableHtml: string, css: string, opts: { quiet?: boolean } = {}): boolean {
     const ed = editor.value;
-    if (!ed) return false;
+    if (!ed) {
+      return false;
+    }
     const refs = summarizeExternalCssRefs(css);
     if (refs !== null) {
       // quiet の読み込み(確定版の形を測るだけ)では拒むだけにする。呼び出し側は false を見て
       // 測るのをやめ、利用者が開いた本文はこのあと通常の読み込みで同じ検査を通る。
-      if (!opts.quiet)
+      if (!opts.quiet) {
         toast(`CSSに外部参照が含まれるため読み込みを中止しました（${refs}）。`, 'error');
+      }
       return false;
     }
     // `quiet` は通知だけを抑止する(拒否・刈り取り自体は通常どおり)。確定版の正規形を
@@ -1130,12 +1198,16 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function parseHtmlQuiet(html: string): ComponentDefinition[] {
     const ed = editor.value;
-    if (!ed) return [];
+    if (!ed) {
+      return [];
+    }
     quietParse = true;
     try {
       // `parseHtml` は単一定義と配列のどちらも返しうる。呼び出し側を素直にするため配列へ揃える。
       const parsed = ed.Parser.parseHtml(html).html;
-      if (!parsed) return [];
+      if (!parsed) {
+        return [];
+      }
       return Array.isArray(parsed) ? parsed : [parsed];
     } finally {
       quietParse = false;
@@ -1153,7 +1225,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       editor.value?.getHtml({
         attributes: (comp, attrs) => {
           const explicit = (comp.get('attributes') as Record<string, unknown> | undefined)?.id;
-          if (typeof explicit !== 'string' || explicit === '') delete attrs.id;
+          if (typeof explicit !== 'string' || explicit === '') {
+            delete attrs.id;
+          }
           return attrs;
         },
       }) ?? ''
@@ -1184,7 +1258,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
    */
   function getCss(): string {
     const ed = editor.value;
-    if (!ed) return '';
+    if (!ed) {
+      return '';
+    }
     const cfg = ed.getConfig() as { avoidInlineStyle?: boolean };
     const prev = cfg.avoidInlineStyle;
     cfg.avoidInlineStyle = true;
@@ -1236,7 +1312,9 @@ export function useGrapes(options: UseGrapesOptions = {}) {
 
   function destroy(): void {
     // 外側スクロール listener を先に剥がす(editor 破棄で DOM は消えるが寿命を明示し leak を防ぐ)。
-    if (cvScrollEl && cvScrollHandler) cvScrollEl.removeEventListener('scroll', cvScrollHandler);
+    if (cvScrollEl && cvScrollHandler) {
+      cvScrollEl.removeEventListener('scroll', cvScrollHandler);
+    }
     cvScrollEl = null;
     cvScrollHandler = null;
     fundImages?.destroy();

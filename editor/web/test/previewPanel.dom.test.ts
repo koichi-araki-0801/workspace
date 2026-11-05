@@ -23,7 +23,9 @@ type PanelWrapper = ReturnType<typeof mount<typeof PreviewPanel>>;
 function frameWindow(wrapper: PanelWrapper): Window {
   const frame = wrapper.get('iframe[title="プレビュー"]').element as HTMLIFrameElement;
   const win = frame.contentWindow;
-  if (!win) throw new Error('jsdom が contentWindow を作っていない');
+  if (!win) {
+    throw new Error('jsdom が contentWindow を作っていない');
+  }
   return win;
 }
 

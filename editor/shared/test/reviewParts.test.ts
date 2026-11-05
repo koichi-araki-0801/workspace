@@ -168,19 +168,8 @@ describe('extractReviewParts', () => {
       '<section data-part-id="note">注記 {{ fund.note }}</section>' +
       '</body></html>';
 
-    const filledHtml =
-      '<!doctype html><html><head>' +
-      '<style>.report{color:red}</style>' +
-      '</head><body>' +
-      '<!-- 本文開始 -->' +
-      '<section data-part-id="cover">ダミー高利回り債券オープン</section>' +
-      '<div class="pagebreak"></div>' +
-      '<section data-part-id="cost">費用 1.25%</section>' +
-      '<section data-part-id="note">注記 サンプル</section>' +
-      '</body></html>';
-
-    it('原文と値入りHTMLのキーが一致すれば、承認済みを残し却下済みを原文から除外する', () => {
-      const result = buildCreateReviewedHtml(sourceHtml, filledHtml, [
+    it('原文と判定だけで、承認済みを残し却下済みを原文から除外する(値入り HTML は受け取らない)', () => {
+      const result = buildCreateReviewedHtml(sourceHtml, [
         { partKey: 'cover#1', status: 'approved' },
         { partKey: 'cost#1', status: 'rejected' },
         { partKey: 'note#1', status: 'approved' },
@@ -192,7 +181,7 @@ describe('extractReviewParts', () => {
     });
 
     it('Jinja原文、head、コメント、改ページを変更しない', () => {
-      const result = buildCreateReviewedHtml(sourceHtml, filledHtml, [
+      const result = buildCreateReviewedHtml(sourceHtml, [
         { partKey: 'cover#1', status: 'approved' },
         { partKey: 'cost#1', status: 'rejected' },
         { partKey: 'note#1', status: 'approved' },
@@ -204,51 +193,6 @@ describe('extractReviewParts', () => {
       expect(result).toContain('<!doctype html>');
     });
 
-    it('原文と値入りHTMLのパーツ数が違えば拒否する', () => {
-      const fewerFilled =
-        '<body>' +
-        '<section data-part-id="cover">表紙</section>' +
-        '<section data-part-id="cost">費用</section>' +
-        '</body>';
-
-      expect(() =>
-        buildCreateReviewedHtml(sourceHtml, fewerFilled, [
-          { partKey: 'cover#1', status: 'approved' },
-          { partKey: 'cost#1', status: 'approved' },
-          { partKey: 'note#1', status: 'approved' },
-        ]),
-      ).toThrow('Jinja原文と値入りHTMLのパーツ構造が一致しません');
-    });
-
-    it('原文と値入りHTMLのパーツキーが違えば拒否する', () => {
-      const differentFilled = filledHtml.replace('data-part-id="cost"', 'data-part-id="fee"');
-
-      expect(() =>
-        buildCreateReviewedHtml(sourceHtml, differentFilled, [
-          { partKey: 'cover#1', status: 'approved' },
-          { partKey: 'cost#1', status: 'approved' },
-          { partKey: 'note#1', status: 'approved' },
-        ]),
-      ).toThrow('Jinja原文と値入りHTMLのパーツ構造が一致しません');
-    });
-
-    it('原文と値入りHTMLのパーツ順が違えば拒否する', () => {
-      const reorderedFilled =
-        '<body>' +
-        '<section data-part-id="cost">費用</section>' +
-        '<section data-part-id="cover">表紙</section>' +
-        '<section data-part-id="note">注記</section>' +
-        '</body>';
-
-      expect(() =>
-        buildCreateReviewedHtml(sourceHtml, reorderedFilled, [
-          { partKey: 'cover#1', status: 'approved' },
-          { partKey: 'cost#1', status: 'approved' },
-          { partKey: 'note#1', status: 'approved' },
-        ]),
-      ).toThrow('Jinja原文と値入りHTMLのパーツ構造が一致しません');
-    });
-
     it('本文に無いパーツの pending(取り消しで残った判定)は数えず、承認・却下は今どおり拒否する', () => {
       const known = [
         { partKey: 'cover#1', status: 'approved' },
@@ -256,24 +200,18 @@ describe('extractReviewParts', () => {
         { partKey: 'note#1', status: 'approved' },
       ] as const;
       expect(() =>
-        buildCreateReviewedHtml(sourceHtml, filledHtml, [
-          ...known,
-          { partKey: 'gone#1', status: 'pending' },
-        ]),
+        buildCreateReviewedHtml(sourceHtml, [...known, { partKey: 'gone#1', status: 'pending' }]),
       ).not.toThrow();
       for (const status of ['approved', 'rejected'] as const) {
         expect(() =>
-          buildCreateReviewedHtml(sourceHtml, filledHtml, [
-            ...known,
-            { partKey: 'gone#1', status },
-          ]),
+          buildCreateReviewedHtml(sourceHtml, [...known, { partKey: 'gone#1', status }]),
         ).toThrow('現在の本文に存在しないパーツ判定があります: gone#1');
       }
     });
 
     it('未判定パーツがあれば拒否する', () => {
       expect(() =>
-        buildCreateReviewedHtml(sourceHtml, filledHtml, [
+        buildCreateReviewedHtml(sourceHtml, [
           { partKey: 'cover#1', status: 'approved' },
           { partKey: 'cost#1', status: 'pending' },
           { partKey: 'note#1', status: 'approved' },
@@ -283,7 +221,7 @@ describe('extractReviewParts', () => {
 
     it('判定が保存されていないパーツがあれば拒否する', () => {
       expect(() =>
-        buildCreateReviewedHtml(sourceHtml, filledHtml, [
+        buildCreateReviewedHtml(sourceHtml, [
           { partKey: 'cover#1', status: 'approved' },
           { partKey: 'cost#1', status: 'approved' },
         ]),
@@ -292,7 +230,7 @@ describe('extractReviewParts', () => {
 
     it('現在の本文に存在しない判定キーがあれば拒否する', () => {
       expect(() =>
-        buildCreateReviewedHtml(sourceHtml, filledHtml, [
+        buildCreateReviewedHtml(sourceHtml, [
           { partKey: 'cover#1', status: 'approved' },
           { partKey: 'cost#1', status: 'approved' },
           { partKey: 'note#1', status: 'approved' },
@@ -303,7 +241,7 @@ describe('extractReviewParts', () => {
 
     it('同じパーツキーの判定が複数あれば拒否する', () => {
       expect(() =>
-        buildCreateReviewedHtml(sourceHtml, filledHtml, [
+        buildCreateReviewedHtml(sourceHtml, [
           { partKey: 'cover#1', status: 'approved' },
           { partKey: 'cover#1', status: 'rejected' },
           { partKey: 'cost#1', status: 'approved' },

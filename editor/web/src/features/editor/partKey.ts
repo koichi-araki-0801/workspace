@@ -54,24 +54,19 @@ export function partsOf(root: HTMLElement): HTMLElement[] {
 }
 
 /**
- * `el` を含む根の直下のパーツ。区切り自身、数えない要素(`<style>`・赤入れの削除要素など)と
- * その中、根そのもの、根の外は null。テストから直接検証するために公開する。
- */
-export function partOf(el: HTMLElement, root: HTMLElement): HTMLElement | null {
-  const parts = partsOf(root);
-  const i = partIndex(el, root, parts);
-  return i < 0 ? null : parts[i];
-}
-
-/**
- * `el` を含むパーツの `parts` の中の位置。パーツでなければ -1。パーツは根の直下か、固めた範囲の
+ * `el` を含むパーツの `parts` の中の位置。区切り自身、数えない要素(`<style>`・赤入れの削除要素
+ * など)とその中、根そのもの、根の外は -1。パーツは根の直下か、固めた範囲の
  * 包みの直下(`@/lib/pageBreaks` の `rootBlocks`)にあるので、根へ向かって最初に当たるパーツを採る。
  */
 function partIndex(el: HTMLElement, root: HTMLElement, parts: readonly HTMLElement[]): number {
-  if (!root.contains(el)) return -1;
+  if (!root.contains(el)) {
+    return -1;
+  }
   for (let cur: HTMLElement | null = el; cur && cur !== root; cur = cur.parentElement) {
     const i = parts.indexOf(cur);
-    if (i >= 0) return i;
+    if (i >= 0) {
+      return i;
+    }
   }
   return -1;
 }
@@ -133,7 +128,9 @@ function eachPart(
   keyOf: RawKeyOf,
   fn: (key: string, page: number, index: number) => void,
 ): void {
-  for (const e of partEntries(root, keyOf)) fn(e.key, e.page, e.index);
+  for (const e of partEntries(root, keyOf)) {
+    fn(e.key, e.page, e.index);
+  }
 }
 
 /**
@@ -170,7 +167,11 @@ export function legacyPartKeyCount(
   current: { has(key: string): boolean },
 ): number {
   let n = 0;
-  for (const key of keys) if (key.includes('/') && !current.has(key)) n += 1;
+  for (const key of keys) {
+    if (key.includes('/') && !current.has(key)) {
+      n += 1;
+    }
+  }
   return n;
 }
 
@@ -179,9 +180,13 @@ export function legacyPartKeyCount(
  * null。`template` の中身は文書に属さないので、`<script>` は実行されず資源も取りに行かない。
  */
 function parseSourceElement(el: HTMLElement, encoded: string | null): Element | null {
-  if (!encoded) return null;
+  if (!encoded) {
+    return null;
+  }
   const source = b64decodeSafe(encoded);
-  if (!/^<[a-z]/i.test(source)) return null;
+  if (!/^<[a-z]/i.test(source)) {
+    return null;
+  }
   const t = el.ownerDocument.createElement('template');
   t.innerHTML = source;
   // `<math>` は HTMLElement でないが、`rawKey` が読むのは属性・クラス・タグ名だけ。
@@ -195,7 +200,9 @@ function parseSourceElement(el: HTMLElement, encoded: string | null): Element | 
  * キーが割れる)。
  */
 function chipSourceElement(el: HTMLElement): Element | null {
-  if (!el.classList.contains(JINJA_CHIP_CLASS)) return null;
+  if (!el.classList.contains(JINJA_CHIP_CLASS)) {
+    return null;
+  }
   return parseSourceElement(el, el.getAttribute(DATA_OPAQUE));
 }
 
@@ -211,7 +218,9 @@ function frozenSourceElement(el: HTMLElement): Element | null {
 }
 
 function frozenCarrier(el: HTMLElement): HTMLElement | null {
-  if (el.getAttribute(DATA_OPAQUE_KIND) === 'frozen') return el;
+  if (el.getAttribute(DATA_OPAQUE_KIND) === 'frozen') {
+    return el;
+  }
   const parent = el.parentElement;
   if (
     parent?.classList.contains(FROZEN_BODY_CLASS) &&
@@ -241,7 +250,9 @@ const GJS_CLASS_PREFIX = 'gjs-';
 export function canvasRawKey(ed: Editor): RawKeyOf {
   return (el) => {
     const carried = chipSourceElement(el);
-    if (carried) return rawKey(carried as HTMLElement);
+    if (carried) {
+      return rawKey(carried as HTMLElement);
+    }
     const comp = el.id ? ed.Components.getById(el.id) : undefined;
     const attrs = comp?.get('attributes') as Record<string, unknown> | undefined;
     const firstClass = comp

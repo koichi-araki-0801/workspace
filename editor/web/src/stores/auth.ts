@@ -36,15 +36,20 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function bootstrap(): Promise<void> {
     const res = await auth.me();
-    if (isOk(res)) user.value = res.value;
-    else logError(res.error);
+    if (isOk(res)) {
+      user.value = res.value;
+    } else {
+      logError(res.error);
+    }
     setUndoUserScope(user.value?.username ?? null);
     // 認証済みならマーカーを現 epoch へ更新。未認証かつ epoch が変わっていれば再起動切断。
     const prev = localStorage.getItem(AUTH_EPOCH_KEY);
     if (user.value) {
       localStorage.setItem(AUTH_EPOCH_KEY, currentAppEpoch());
     } else {
-      if (restartEnded(prev, currentAppEpoch(), false)) sessionEndedReason.value = 'restart';
+      if (restartEnded(prev, currentAppEpoch(), false)) {
+        sessionEndedReason.value = 'restart';
+      }
       localStorage.removeItem(AUTH_EPOCH_KEY);
     }
     ready.value = true;
@@ -87,7 +92,9 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function logout(): Promise<void> {
     const res = await auth.logout();
-    if (!isOk(res)) logError(res.error);
+    if (!isOk(res)) {
+      logError(res.error);
+    }
     user.value = null;
     // Undo ミラーは端末に残るため、現在のユーザーのキーを消してから scope を落とす
     // (残すと次の利用者の画面へ前の利用者の編集内容が復元されうる)。

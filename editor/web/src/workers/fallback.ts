@@ -107,7 +107,9 @@ export function createFallbackWorker(
     args: Parameters<AsyncHtmlWorker[K]>,
   ): ReturnType<AsyncHtmlWorker[K]> {
     const fallbackFn = fallback[method] as (...a: unknown[]) => Promise<unknown>;
-    if (workerBroken) return fallbackFn(...args) as ReturnType<AsyncHtmlWorker[K]>;
+    if (workerBroken) {
+      return fallbackFn(...args) as ReturnType<AsyncHtmlWorker[K]>;
+    }
     const remoteFn = remote[method] as (...a: unknown[]) => Promise<unknown>;
     const limitMs = hasSucceeded ? timeoutMs : handshakeTimeoutMs;
     const result = (async () => {

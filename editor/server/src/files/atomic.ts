@@ -35,7 +35,9 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
       return;
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code ?? '';
-      if (!RETRIABLE_RENAME_CODES.has(code)) throw e;
+      if (!RETRIABLE_RENAME_CODES.has(code)) {
+        throw e;
+      }
       await delay(ms);
     }
   }

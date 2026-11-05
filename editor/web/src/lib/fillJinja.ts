@@ -129,8 +129,12 @@ function mismatch(): never {
 function topLevelRows(e: EmitCtx, from: number, to: number, inherited: Rows): Rows {
   const rows = new Map(inherited);
   for (const el of e.a.scan.elements) {
-    if (el.start < from || el.start >= to) continue;
-    if (el.parent === null || el.parent.start < from) rows.set(el.start, el.tag.length);
+    if (el.start < from || el.start >= to) {
+      continue;
+    }
+    if (el.parent === null || el.parent.start < from) {
+      rows.set(el.start, el.tag.length);
+    }
   }
   return rows;
 }
@@ -138,16 +142,24 @@ function topLevelRows(e: EmitCtx, from: number, to: number, inherited: Rows): Ro
 /** 固めた要素の表示。値入りの見た目のまま、原文を `data-opaque` に運ぶ。 */
 function emitFrozen(e: EmitCtx, r: FrozenRegion, ctx: JinjaCtx, rows: Rows): string {
   const source = e.src.slice(r.start, r.end);
-  if (r.form === 'chip') return opaqueChip(source, 'rawtext', RAWTEXT_LABEL[r.tag] ?? r.tag);
-  if (r.form === 'body') return mismatch();
+  if (r.form === 'chip') {
+    return opaqueChip(source, 'rawtext', RAWTEXT_LABEL[r.tag] ?? r.tag);
+  }
+  if (r.form === 'body') {
+    return mismatch();
+  }
   const parsed = parseJinja(source);
-  if (!parsed.ok) return mismatch();
+  if (!parsed.ok) {
+    return mismatch();
+  }
   let display = renderDisplay(source, parsed.nodes, ctx, e.f);
   const opaque = `${DATA_OPAQUE}="${b64encodeUtf8(source)}" ${DATA_OPAQUE_KIND}="frozen"`;
   if (r.tag === 'table') {
     // 表の行の間の値は HTML パーサが表の手前へ追い出す。表そのものに印を付けると追い出された
     // 値が印の外に残って保存へ混ざるので、レイアウトを変えない div で包み、追い出し先ごと運ぶ。
-    if (rows.has(r.start)) display = withAttrs(display, r.tag.length, LOOP_ROW_ATTR);
+    if (rows.has(r.start)) {
+      display = withAttrs(display, r.tag.length, LOOP_ROW_ATTR);
+    }
     return `<div data-gjs-type="jinja-frozen" class="${FROZEN_BODY_CLASS}" ${opaque}>${display}</div>`;
   }
   const type = r.form === 'element-svg' ? 'jinja-frozen-svg' : 'jinja-frozen';
@@ -189,11 +201,17 @@ function emitRange(
       const fr = e.frozen.find((r) => r.start >= pos && r.start < end);
       const op = e.opaque.find((r) => r.start >= pos && r.start < end);
       let row = -1;
-      for (const s of rows.keys()) if (s >= pos && s < end && (row < 0 || s < row)) row = s;
+      for (const s of rows.keys()) {
+        if (s >= pos && s < end && (row < 0 || s < row)) {
+          row = s;
+        }
+      }
       const next = Math.min(fr?.start ?? end, op?.start ?? end, row < 0 ? end : row);
       out += e.src.slice(pos, next);
       pos = next;
-      if (pos >= end) break;
+      if (pos >= end) {
+        break;
+      }
       if (fr && fr.start === pos) {
         out += emitFrozen(e, fr, ctx, rows);
         pos = fr.end;
@@ -210,20 +228,32 @@ function emitRange(
 
   for (const n of nodes) {
     if (n.type === 'text') {
-      if (n.end <= pos) continue;
-      if (n.start > pos) mismatch();
+      if (n.end <= pos) {
+        continue;
+      }
+      if (n.start > pos) {
+        mismatch();
+      }
       emitText(n.end);
       continue;
     }
     const start = n.type === 'token' ? n.token.start : n.start;
     const end = n.type === 'token' ? n.token.end : n.end;
-    if (end <= pos) continue;
-    if (start !== pos) mismatch();
+    if (end <= pos) {
+      continue;
+    }
+    if (start !== pos) {
+      mismatch();
+    }
     out += emitNode(e, n, ctx, rows);
     pos = end;
   }
-  if (pos < to) emitText(to);
-  if (pos !== to) mismatch();
+  if (pos < to) {
+    emitText(to);
+  }
+  if (pos !== to) {
+    mismatch();
+  }
   return out;
 }
 
@@ -232,12 +262,20 @@ function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: Jinj
   if (n.type === 'token') {
     const tok = n.token;
     // 代入は見せ方(チップ・印・原文のまま)に関係なく実行し、以後の値に効かせる。
-    if (isSetStatement(tok)) f.assign(tok, ctx);
-    if (isVerbatim(e, tok.start)) return tok.source;
-    if (e.a.commentOnlyTokens.has(tok.start)) return rtComment({ kind: 't', payload: tok.source });
+    if (isSetStatement(tok)) {
+      f.assign(tok, ctx);
+    }
+    if (isVerbatim(e, tok.start)) {
+      return tok.source;
+    }
+    if (e.a.commentOnlyTokens.has(tok.start)) {
+      return rtComment({ kind: 't', payload: tok.source });
+    }
     return tokenChip(tok, ctx, f);
   }
-  if (isVerbatim(e, n.start)) return src.slice(n.start, n.end);
+  if (isVerbatim(e, n.start)) {
+    return src.slice(n.start, n.end);
+  }
   switch (n.type) {
     case 'raw': {
       const label = htmlEscape(src.slice(n.open.end, n.close.start).slice(0, RAW_LABEL_CHARS));
@@ -263,7 +301,9 @@ function emitNode(e: EmitCtx, n: Exclude<JinjaNode, { type: 'text' }>, ctx: Jinj
       const id = e.nextId();
       const { body, elseBranch } = n;
       const h = f.forHeader(n.open.body);
-      if (!h) f.unsupported.add(n.open.body);
+      if (!h) {
+        f.unsupported.add(n.open.body);
+      }
       const items = h ? f.array(h.iter, ctx, h.vars.length) : [];
       if (items.length === 0 && elseBranch) {
         return (
@@ -318,8 +358,14 @@ function emitWholeBody(raw: string, a: FillAnalysis, ctx: JinjaCtx, f: Filler): 
     from = body.startTagEnd;
     to = body.end;
     // 終了タグ `</body…>` があれば、その手前まで。
-    if (!body.implicitlyClosed) while (to > from && raw[to - 1] !== '<') to--;
-    if (!body.implicitlyClosed && to > from) to--;
+    if (!body.implicitlyClosed) {
+      while (to > from && raw[to - 1] !== '<') {
+        to--;
+      }
+    }
+    if (!body.implicitlyClosed && to > from) {
+      to--;
+    }
   }
   const inner = raw.slice(from, to);
   const parsed = a.parse.ok ? parseJinja(inner) : null;
@@ -395,7 +441,9 @@ export function toFilledWithDiagnostics(
     }
   }
   const frozen = a.frozen.map((r) => ({ tag: r.tag, reason: r.reason }));
-  if (selfCheckFailed) frozen.push({ tag: 'body', reason: 'self-check' });
+  if (selfCheckFailed) {
+    frozen.push({ tag: 'body', reason: 'self-check' });
+  }
   return {
     html,
     diagnostics: {
@@ -424,12 +472,16 @@ export function toFilled(
   const { html, diagnostics } = toFilledWithDiagnostics(raw, sample, parse);
   const fresh = diagnostics.unsupported.filter((e) => !warned.has(e));
   if (fresh.length > 0) {
-    for (const e of fresh) warned.add(e);
+    for (const e of fresh) {
+      warned.add(e);
+    }
     console.warn('[fillJinja] 解釈できない Jinja 式のため値を空にしました:', fresh);
   }
   const freshMissing = diagnostics.missing.filter((e) => !warned.has(e));
   if (freshMissing.length > 0) {
-    for (const e of freshMissing) warned.add(e);
+    for (const e of freshMissing) {
+      warned.add(e);
+    }
     console.warn('[fillJinja] サンプルデータに値が無く空になった式:', freshMissing);
   }
   return html;

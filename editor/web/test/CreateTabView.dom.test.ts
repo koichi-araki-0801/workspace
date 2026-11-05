@@ -85,7 +85,9 @@ const buttonNamed = (w: ReturnType<typeof mount>, text: string) =>
   w.findAll('button').find((b) => b.text().includes(text));
 
 beforeEach(() => {
-  for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+  for (const k of Object.keys(routeQuery)) {
+    delete routeQuery[k];
+  }
   router.push.mockClear();
   confirmMock.mockReset();
   toastMock.mockClear();
@@ -423,7 +425,9 @@ describe('CreateTabView: 版種を任意にした作成', () => {
       'あとで両版のパーツ同期を行うと、作成済みの全体版との差分が競合として出ることがあります。',
     );
     created.w.unmount();
-    for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+    for (const k of Object.keys(routeQuery)) {
+      delete routeQuery[k];
+    }
     const reviewing = mountWith(both('none', 'pendingReview'), null);
     await settle();
     expect(reviewing.w.text()).toContain('全体版は申請中です。交付版だけを作ります。');
@@ -487,7 +491,9 @@ describe('CreateTabView: 版種を任意にした作成', () => {
       '委託会社・ファンドを選択してください。版種は、片方の版だけを作るときに選びます。',
     );
     chosen.w.unmount();
-    for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+    for (const k of Object.keys(routeQuery)) {
+      delete routeQuery[k];
+    }
     const unchosen = mountWith(both('none', 'none'), null);
     await settle();
     expect(unchosen.w.text()).toContain(

@@ -140,7 +140,9 @@ describe('useEditorSessionStore', () => {
   it('persist() caps the mirrored undo depth to 20 (in-memory stays full)', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
-    for (let i = 0; i < 30; i++) s.undoPast.push({ html: `h${i}`, css: '' });
+    for (let i = 0; i < 30; i++) {
+      s.undoPast.push({ html: `h${i}`, css: '' });
+    }
     store.persist('t1');
 
     expect(s.undoPast).toHaveLength(30); // in-memory は丸めない
@@ -152,7 +154,9 @@ describe('useEditorSessionStore', () => {
   it('persist() keeps the newest redo entries (future tail = next redo target)', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('t1');
-    for (let i = 0; i < 30; i++) s.undoFuture.push({ html: `f${i}`, css: '' });
+    for (let i = 0; i < 30; i++) {
+      s.undoFuture.push({ html: `f${i}`, css: '' });
+    }
     store.persist('t1');
 
     const map = readUndoMap();
@@ -244,7 +248,9 @@ describe('useEditorSessionStore', () => {
   it('他テンプレが無いとき、容量超過は自身の深度を半減して保存を試みる', () => {
     const store = useEditorSessionStore();
     const s = store.ensure('c');
-    for (let i = 0; i < 4; i++) s.undoPast.push({ html: `h${i}`, css: '' });
+    for (let i = 0; i < 4; i++) {
+      s.undoPast.push({ html: `h${i}`, css: '' });
+    }
     const real = localStorage.setItem.bind(localStorage);
     let fails = 1;
     const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (

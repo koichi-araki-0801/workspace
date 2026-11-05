@@ -37,7 +37,9 @@ export const test = base.extend<{
       // 全 project が同じ rest サーバを使うので失敗は握りつぶさない(計数が残ると後続が
       // 原因の見えない形で落ちる)。keepDataRoot のファイルでもテストごとに呼ぶ。
       const reset = await fetch(E2E_RESET_LOGIN_LIMIT_URL, { method: 'POST' });
-      if (!reset.ok) throw new Error(`ログイン計数のリセットに失敗: HTTP ${reset.status}`);
+      if (!reset.ok) {
+        throw new Error(`ログイン計数のリセットに失敗: HTTP ${reset.status}`);
+      }
       if (!keepDataRootAcrossTests || testInfo.file !== lastFile) {
         await seedDataRoot(repoRoot);
         lastFile = testInfo.file;

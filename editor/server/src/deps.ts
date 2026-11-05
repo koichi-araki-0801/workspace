@@ -8,6 +8,7 @@ import type { SessionStore } from './auth/session.js';
 import type { SprocClient } from './db/sproc.js';
 import { readTemplateValues } from './files/valuesFile.js';
 import { type AuthRepo, createAuthRepo } from './repositories/authRepo.js';
+import { createNoteMasterRepo } from './repositories/noteMasterRepo.js';
 import { createPartRepo, type PartRepo } from './repositories/partRepo.js';
 import { createReviewRepo, type ReviewRepo } from './repositories/reviewRepo.js';
 import { createTemplateRepo, type TemplateRepo } from './repositories/templateRepo.js';
@@ -27,14 +28,20 @@ export interface Deps {
 
 export function createDeps(sproc: SprocClient, sessionStore: SessionStore): Deps {
   const parts = createPartRepo(sproc);
-  const noteMaster = createNoteMasterService({ sproc, parts });
+  const noteMaster = createNoteMasterService({ noteMasters: createNoteMasterRepo(sproc), parts });
   const pairSync = createPairSyncService(parts, { read: readTemplateValues });
+  const templates = createTemplateRepo(sproc);
   return {
     auth: createAuthRepo({ sproc, sessionStore }),
     users: createUserRepo(sproc),
-    templates: createTemplateRepo(sproc),
+    templates,
     parts,
-    reviews: createReviewRepo({ noteMaster, pairSync }),
+    // 作成経路の申請は、承認画面の本文を作成タブと同じ sample で描く(`reviewRepo.ts`)。
+    reviews: createReviewRepo({
+      noteMaster,
+      pairSync,
+      sampleOf: async (templateId) => (await templates.getSampleData(templateId)).sample,
+    }),
     pairSync,
     noteMaster,
   };

@@ -56,8 +56,9 @@ export function findRawTextEnd(lower: string, name: string, from: number): RawTe
   let at = lower.indexOf(needle, from);
   while (at !== -1) {
     const after = lower[at + needle.length];
-    if (after === undefined || isHtmlSpace(after) || after === '/' || after === '>')
+    if (after === undefined || isHtmlSpace(after) || after === '/' || after === '>') {
       return { at, scanned: at + needle.length - from };
+    }
     at = lower.indexOf(needle, at + needle.length);
   }
   return { at: -1, scanned: Math.max(0, lower.length - from) };

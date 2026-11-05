@@ -32,7 +32,9 @@ async function importConfig(
   appconfig?: unknown,
 ): Promise<ConfigModule> {
   const saved = new Map(KEYS.map((k) => [k, process.env[k]] as const));
-  for (const k of KEYS) delete process.env[k];
+  for (const k of KEYS) {
+    delete process.env[k];
+  }
   process.env.DATA_ROOT = path.join(tmp, 'data');
   process.env.APP_CONFIG = path.join(tmp, 'none.json');
   if (appconfig !== undefined) {
@@ -41,14 +43,19 @@ async function importConfig(
     fs.writeFileSync(file, JSON.stringify(appconfig), 'utf8');
     process.env.APP_CONFIG = file;
   }
-  for (const [k, v] of Object.entries(env)) process.env[k] = v;
+  for (const [k, v] of Object.entries(env)) {
+    process.env[k] = v;
+  }
   vi.resetModules();
   try {
     return await import('../src/config.js');
   } finally {
     for (const [k, v] of saved) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
+      if (v === undefined) {
+        delete process.env[k];
+      } else {
+        process.env[k] = v;
+      }
     }
   }
 }

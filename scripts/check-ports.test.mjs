@@ -31,7 +31,7 @@ function listenOn(host) {
 for (const host of ['127.0.0.1', '::1']) {
   test(`${host} だけで待つ listener を使用中と判定し、閉じたら空きに戻る`, async (t) => {
     const l = await listenOn(host);
-    if (!l) return t.skip(`${host} に bind できない環境`);
+    if (!l) { return t.skip(`${host} に bind できない環境`); }
     try {
       assert.deepEqual(await findBusyPorts([l.port]), [{ port: l.port, host }]);
       assert.equal(await isListening(l.port, host), true);

@@ -20,6 +20,7 @@ import {
   MAX_NOTE_PATH_KEY_CHARS,
   PartClassificationQuery,
   RecordPdfExportRequest,
+  ReviewRequest,
   SubmitReviewBody,
   UpdateUserRequest,
 } from '../src/schemas.js';
@@ -64,7 +65,7 @@ describe('確定保存申請の本文上限', () => {
     origin: 'edit' as const,
   };
 
-  it('html / css / filledHtml に上限がある', () => {
+  it('html / css と、互換のため受理して捨てる filledHtml に上限がある', () => {
     expect(SubmitReviewBody.safeParse({ ...base, html: '<p>x</p>' }).success).toBe(true);
     expect(
       SubmitReviewBody.safeParse({ ...base, html: chars(MAX_DOCUMENT_HTML_CHARS + 1) }).success,
@@ -83,6 +84,30 @@ describe('確定保存申請の本文上限', () => {
         filledHtml: chars(MAX_DOCUMENT_HTML_CHARS + 1),
       }).success,
     ).toBe(false);
+  });
+
+  it('応答の renderedHtml(サーバが描いた承認画面の本文)に上限があり、filledHtml は持たない', () => {
+    const review = {
+      id: 'r1',
+      templateId: 'XX01_950037_交付版',
+      attributes: { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' },
+      origin: 'create' as const,
+      status: 'pending' as const,
+      submittedBy: 'a',
+      submittedAt: '2026-10-30T00:00:00.000Z',
+      reviewedBy: null,
+      reviewedAt: null,
+      comment: null,
+      baseHash: null,
+      html: '<p>x</p>',
+      css: '',
+    };
+    expect(ReviewRequest.safeParse({ ...review, renderedHtml: '<p>x</p>' }).success).toBe(true);
+    expect(
+      ReviewRequest.safeParse({ ...review, renderedHtml: chars(MAX_DOCUMENT_HTML_CHARS + 1) })
+        .success,
+    ).toBe(false);
+    expect(ReviewRequest.shape).not.toHaveProperty('filledHtml');
   });
 });
 

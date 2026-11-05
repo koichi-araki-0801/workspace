@@ -81,7 +81,9 @@ function flagsOf(sampleName: string): SampleFlags {
   const itemFlags: Record<string, string[]> = {};
   for (const label of labels as LayoutItemReady[]) {
     const on = ITEM_FLAG_KEYS.filter((k) => (label as any)[k] === true);
-    if (on.length > 0) itemFlags[label.name] = on;
+    if (on.length > 0) {
+      itemFlags[label.name] = on;
+    }
   }
   return {
     modeTags: [...diagnostics.modeTags],

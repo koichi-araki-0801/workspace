@@ -29,9 +29,15 @@ const recent: string[] = [];
  * (ASCII 主体の UTF-16LE は 1 文字おきに NUL が並ぶ。UTF-8 の出力に NUL は現れない)。
  */
 const looksUtf16le = (chunk: Buffer): boolean => {
-  if (chunk.length < 2 || chunk.length % 2 !== 0) return false;
+  if (chunk.length < 2 || chunk.length % 2 !== 0) {
+    return false;
+  }
   let zeros = 0;
-  for (let i = 1; i < chunk.length; i += 2) if (chunk[i] === 0) zeros += 1;
+  for (let i = 1; i < chunk.length; i += 2) {
+    if (chunk[i] === 0) {
+      zeros += 1;
+    }
+  }
   return zeros * 2 > chunk.length / 2;
 };
 const keep = (chunk: Buffer): void => {
@@ -39,7 +45,9 @@ const keep = (chunk: Buffer): void => {
   log.write(text);
   for (const line of text.split(/\r?\n/)) {
     recent.push(line);
-    if (recent.length > 200) recent.shift();
+    if (recent.length > 200) {
+      recent.shift();
+    }
   }
 };
 

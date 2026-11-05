@@ -79,7 +79,7 @@ const expanded = ref<string[]>([]);
 watch(targetId, () => {
   // 同じルートで template だけが変わると画面は再マウントされない。前テンプレートの宛先・
   // 展開状態・絞り込みを持ち越さないよう、下の読み込み系 watch より先にリセットする。
-  for (const k of Object.keys(targets)) delete targets[k];
+  for (const k of Object.keys(targets)) { delete targets[k]; }
   expanded.value = [];
   statusFilter.value = 'pending';
   searchText.value = '';
@@ -159,7 +159,7 @@ function toggleFilter(v: ReviewStatus) {
 async function load() {
   const isLatest = latestLoad.begin();
   const res = await run(() => reviews.listReviews({}));
-  if (!isErr(res) && isLatest()) all.value = res.value;
+  if (!isErr(res) && isLatest()) { all.value = res.value; }
 }
 onMounted(load);
 watch(targetId, load);
@@ -248,11 +248,11 @@ async function loadParts() {
   partsLoaded.value = false;
   targetMeta.value = null;
   const id = targetId.value;
-  if (!id) return;
+  if (!id) { return; }
   const tpl = await templates.getTemplate(id);
-  if (!isLatest()) return;
+  if (!isLatest()) { return; }
   partsLoaded.value = true;
-  if (!isOk(tpl)) return;
+  if (!isOk(tpl)) { return; }
   targetMeta.value = tpl.value.meta;
   // `filled`(per-fund 実値埋め込み済み本文)は rest でも値を返す。パーツ構造しか要らないので
   // 値の有無を区別する `??` でなく、空文字も拾う `||` で `html` へ落とす。
@@ -282,8 +282,8 @@ function onSelect(reqId: string): void {
 /** 区画で選んだ宛先。`undefined` はまだ選んでいない(紙面の選択が外れたときも含む)。 */
 function chosenOf(reqId: string, slot: CommentSlotState): { key: string | null } | undefined {
   const t = targets[reqId];
-  if (!t) return undefined;
-  if (t.from === 'list') return { key: t.key };
+  if (!t) { return undefined; }
+  if (t.from === 'list') { return { key: t.key }; }
   return slot.selectedNo === null ? undefined : { key: slot.selectedKey };
 }
 
@@ -302,9 +302,9 @@ function addKeyOf(reqId: string, slot: CommentSlotState): string | null {
  * 読み込み中なら、その旨を出す(「パーツを押すと…」の案内を出すと、押したのに効かないように見える)。
  */
 function addBlockedTextOf(reqId: string, slot: CommentSlotState): string | undefined {
-  if (partsUnavailable.value) return PARTS_UNAVAILABLE_TEXT;
-  if (!chosenOf(reqId, slot)) return undefined;
-  if (!partsLoaded.value) return PARTS_LOADING_TEXT;
+  if (partsUnavailable.value) { return PARTS_UNAVAILABLE_TEXT; }
+  if (!chosenOf(reqId, slot)) { return undefined; }
+  if (!partsLoaded.value) { return PARTS_LOADING_TEXT; }
   return addKeyOf(reqId, slot) === null ? ADDED_PART_TEXT : undefined;
 }
 
@@ -314,7 +314,7 @@ function addBlockedTextOf(reqId: string, slot: CommentSlotState): string | undef
  * 削除済みパーツ(確定版の構造に無いキー)は無視する(宛先にさせない)。
  */
 function focusPart(reqId: string, key: string, partNumbers: ReadonlyMap<string, number>) {
-  if (!partLabels.value.has(key)) return;
+  if (!partLabels.value.has(key)) { return; }
   const detail = detailRefs[reqId];
   if (partNumbers.has(key)) {
     // 選ばせると `select` が返り、宛先は紙面の選択に従う。
@@ -323,7 +323,7 @@ function focusPart(reqId: string, key: string, partNumbers: ReadonlyMap<string, 
   }
   targets[reqId] = { from: 'list', key };
   const page = partPages.value.get(key);
-  if (page !== undefined) detail?.gotoPage(page);
+  if (page !== undefined) { detail?.gotoPage(page); }
 }
 
 function goEdit() {
@@ -337,8 +337,8 @@ function goEdit() {
     ? opensAsCreate(targetMeta.value)
     : scoped.value.some((meta) => meta.origin === 'create' && meta.status === 'pending');
 
-  if (targetId.value) router.push(editorRoute(targetId.value, { created }));
-  else router.push({ name: 'edit' });
+  if (targetId.value) { router.push(editorRoute(targetId.value, { created })); }
+  else { router.push({ name: 'edit' }); }
 }
 </script>
 

@@ -1,4 +1,14 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  applyTemplateAttributes,
+  buildSampleData,
+  parseTemplateFileName,
+  type SampleData,
+  type SampleTemplateAttributes,
+  sampleCommon,
+} from '../src/index';
 import {
   escapeHtmlFull,
   Filler,
@@ -14,7 +24,9 @@ import { findEditingMarkers } from '../src/security/editingMarkers';
 
 const show = (src: string, ctx: Record<string, unknown>, f = new Filler()) => {
   const r = parseJinja(src);
-  if (!r.ok) throw new Error(r.error.message);
+  if (!r.ok) {
+    throw new Error(r.error.message);
+  }
   return f.finalize(renderDisplay(src, r.nodes, ctx, f));
 };
 
@@ -22,7 +34,9 @@ describe('takenBranchIndex — elif を正しく選ぶ', () => {
   const src = '{% if a %}A{% elif b %}B{% else %}C{% endif %}';
   const node = (() => {
     const r = parseJinja(src);
-    if (!r.ok || r.nodes[0].type !== 'if') throw new Error();
+    if (!r.ok || r.nodes[0].type !== 'if') {
+      throw new Error();
+    }
     return r.nodes[0];
   })();
   it.each([
@@ -34,7 +48,9 @@ describe('takenBranchIndex — elif を正しく選ぶ', () => {
   });
   it('else が無く全部偽なら -1', () => {
     const r = parseJinja('{% if a %}A{% endif %}');
-    if (!r.ok || r.nodes[0].type !== 'if') throw new Error();
+    if (!r.ok || r.nodes[0].type !== 'if') {
+      throw new Error();
+    }
     expect(takenBranchIndex(r.nodes[0], {}, new Filler())).toBe(-1);
   });
   it('elseif と空白制御つきの枝も条件を読む', () => {
@@ -180,7 +196,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   it('finalize を掛けなければ safe の値は生では入らない', () => {
     const src = '<p>{{ a|safe }}</p>';
     const r = parseJinja(src);
-    if (!r.ok) throw new Error();
+    if (!r.ok) {
+      throw new Error();
+    }
     expect(renderDisplay(src, r.nodes, { a: '<b>x</b>' }, new Filler())).not.toContain('<b>');
   });
   it.each([
@@ -234,7 +252,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     '配列リテラルで同じ値を %i 回倍にしても、出力の上限以下で止まり unsupported になる(例外にしない)',
     (times) => {
       let src = '{% set b0 = range(1000) %}';
-      for (let k = 1; k <= times; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+      for (let k = 1; k <= times; k++) {
+        src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+      }
       src +=
         `<p>{{ b${times} }}</p><p>{{ b${times}|trim }}</p><p>{{ b${times}|safe }}</p>` +
         `{% if b${times} < "x" %}lt{% endif %}{% if "0" in b${times}|list %}{% endif %}` +
@@ -280,8 +300,11 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     ])('長い文字列同士の比較(%s)は長さを数え、上限で unsupported になる', (_, body, expr) => {
       const f = new Filler();
       show(grow + body, {}, f);
-      if (expr) expect([...f.unsupported]).toContain(expr);
-      else expect(f.unsupported.size).toBeGreaterThan(0);
+      if (expr) {
+        expect([...f.unsupported]).toContain(expr);
+      } else {
+        expect(f.unsupported.size).toBeGreaterThan(0);
+      }
       expect(f.exhausted).toBe(true);
     });
     it.each([
@@ -313,7 +336,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     );
     it('繰り返しの費用は文脈のキーの数に依らない(キー 500 個・300 行 × 20 列の入れ子の for を描ける)', () => {
       const ctx: Record<string, unknown> = {};
-      for (let k = 0; k < 500; k++) ctx[`k${k}`] = k;
+      for (let k = 0; k < 500; k++) {
+        ctx[`k${k}`] = k;
+      }
       ctx.rows = Array.from({ length: 300 }, (_, i) =>
         Array.from({ length: 20 }, (_, j) => `${i}-${j}`),
       );
@@ -403,7 +428,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     });
     it('namespace の倍化を何度も数えさせても、たどった量を払って上限で止まる', () => {
       let src = '{% set n0 = namespace(a=1) %}';
-      for (let i = 1; i <= 17; i++) src += `{% set n${i} = namespace(a=n${i - 1}, b=n${i - 1}) %}`;
+      for (let i = 1; i <= 17; i++) {
+        src += `{% set n${i} = namespace(a=n${i - 1}, b=n${i - 1}) %}`;
+      }
       src += '{% for j in range(600) %}{{ [n17,n17,n17,n17,n17,n17,n17,n17]|length }}{% endfor %}';
       const f = new Filler();
       show(src, {}, f);
@@ -412,7 +439,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
     });
     it('ctx の深い dict を並びに入れ続けても、たどった量を払って上限で止まる', () => {
       let o: unknown = 1;
-      for (let i = 0; i < 21; i++) o = { a: o, b: o };
+      for (let i = 0; i < 21; i++) {
+        o = { a: o, b: o };
+      }
       const f = new Filler();
       show('{% for j in range(100) %}{{ [o]|length }}{% endfor %}', { o }, f);
       expect([...f.unsupported]).toContain('[o]|length');
@@ -441,7 +470,9 @@ describe('renderDisplay — 本番パーツが使う構文', () => {
   it('倍化の途中で上限に当たった set は unsupported に数え、以後の値は空になる', () => {
     const f = new Filler();
     let src = '{% set b0 = range(1000) %}';
-    for (let k = 1; k <= 12; k++) src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    for (let k = 1; k <= 12; k++) {
+      src += `{% set b${k} = [b${k - 1}, b${k - 1}] %}`;
+    }
     show(`${src}[{{ b12|length }}]`, {}, f);
     expect([...f.unsupported].some((e) => e.startsWith('set b'))).toBe(true);
   });
@@ -554,14 +585,280 @@ describe('renderPlainFilled の budget の共有', () => {
   it('budget を渡すと、複数の描画で評価の量を引き合い、使い切った描画は上限の印を残す', () => {
     const budget = new JinjaBudget();
     let last: ReturnType<typeof renderPlainFilled> | undefined;
-    for (let k = 0; k < 20 && !budget.exhausted; k++)
+    for (let k = 0; k < 20 && !budget.exhausted; k++) {
       last = renderPlainFilled(heavy, {}, { budget });
+    }
     expect(budget.exhausted).toBe(true);
     expect(last?.diagnostics.unsupported.join()).toContain('上限');
   });
 
   it('渡さなければ描画ごとに別の budget で、同じ描画を繰り返しても上限に届かない', () => {
-    for (let k = 0; k < 3; k++)
+    for (let k = 0; k < 3; k++) {
       expect(renderPlainFilled(heavy, {}).diagnostics.unsupported).toEqual([]);
+    }
+  });
+});
+
+describe('JinjaBudget の上限の引数', () => {
+  it('上限を渡すとその量で使い切り、渡さなければ既定の上限のまま', () => {
+    const small = new JinjaBudget(10);
+    expect(small.remaining).toBe(10);
+    expect(() => small.charge(11)).toThrow();
+    expect(small.exhausted).toBe(true);
+    const def = new JinjaBudget();
+    def.charge(11);
+    expect(def.exhausted).toBe(false);
+  });
+});
+
+describe('renderPlainFilled — reveal(承認画面の描画)', () => {
+  const reveal = (raw: string, sample: Record<string, unknown> = {}) =>
+    renderPlainFilled(raw, sample, { reveal: true });
+
+  it('if は条件を評価せず、偽の枝も含めて全部の枝を順に描く', () => {
+    const r = reveal('{% if a %}<p>A</p>{% elif b %}<p>B</p>{% else %}<p>C</p>{% endif %}', {
+      a: true,
+    });
+    expect(r.html).toBe('<p>A</p><p>B</p><p>C</p>');
+    expect(r.diagnostics.unrendered).toEqual([]);
+  });
+
+  it('値で描けない set は、文の位置に原文の文字を出し、名前も出すところで原文の文字にする', () => {
+    // set が運ぶ文字(右辺のリテラル)が承認画面に一度も出ないと、本番だけに出る文字になる。分岐の中の
+    // set は受付が止める(`reviewableSource.ts` の制約 4)。
+    const r = reveal('{% if a %}{% set n = 1 %}{% else %}{% set n = 2 %}{% endif %}{{ n }}');
+    expect(r.html).toBe('{% set n = 1 %}{% set n = 2 %}{{ n }}');
+    expect(r.diagnostics.unrendered).toEqual(['{% set n = 1 %}', '{% set n = 2 %}', '{{ n }}']);
+  });
+
+  it('参照だけを右辺に持つ set の名前は値で描く', () => {
+    const r = reveal('{% set t = fund.name %}<p>{{ t }}</p>', { fund: { name: 'F' } });
+    expect(r.html).toBe('<p>F</p>');
+    expect(r.diagnostics.unrendered).toEqual([]);
+  });
+
+  it.each([
+    ['[] or "本番だけ"'],
+    ['"a" * 3'],
+    ['namespace(v="本番だけ")'],
+    ['x|default("本番だけ")'],
+    ['"信託報酬 年1.0%"'],
+  ])('set の右辺 %s は値で描かず、文の原文を出す', (rhs) => {
+    const r = reveal(`{% set t = ${rhs} %}<p>{{ t }}{{ t.v }}</p>`);
+    expect(r.html).toBe(`${escapeHtmlFull(`{% set t = ${rhs} %}`)}<p>{{ t }}{{ t.v }}</p>`);
+  });
+
+  it('属性への代入も文の原文を出す', () => {
+    const r = reveal('{% set ns = namespace(v="x") %}{% set ns.v = "本番だけ" %}<p>{{ ns.v }}</p>');
+    expect(r.html).toContain('{% set ns.v = &quot;本番だけ&quot; %}');
+  });
+
+  it('for は配列なら回数ぶん描き、else の枝も描く', () => {
+    const r = reveal('{% for r in rs %}<i>{{ r }}</i>{% else %}<b>無</b>{% endfor %}', {
+      rs: ['a', 'b'],
+    });
+    expect(r.html).toBe('<i>a</i><i>b</i><b>無</b>');
+    expect(r.diagnostics.unrendered).toEqual([]);
+  });
+
+  it.each([
+    ['未定義', {}],
+    ['空の配列', { rs: [] }],
+    ['配列でない', { rs: 3 }],
+  ])(
+    'for の対象が%sでも本体を 1 回描いて数え、ループ変数の参照は原文の文字にする',
+    (_label, sample) => {
+      const r = reveal(
+        '{% for r in rs %}<i>本体{{ r }}{{ loop.index }}</i>{% else %}<b>無</b>{% endfor %}',
+        sample,
+      );
+      expect(r.html).toBe('<i>本体{{ r }}{{ loop.index }}</i><b>無</b>');
+      expect(r.diagnostics.unrendered).toEqual([
+        '{% for r in rs %}',
+        '{{ r }}',
+        '{{ loop.index }}',
+      ]);
+    },
+  );
+
+  it.each([
+    ['[] or ["本番だけ"]', '[] or [&quot;本番だけ&quot;]'],
+    ['["本番だけ"]', '[&quot;本番だけ&quot;]'],
+    ['range(1)', 'range(1)'],
+  ])('for の対象 %s が参照でなければ、見出しの原文を出して 1 回描く', (iter, shown) => {
+    const r = reveal(`{% for x in ${iter} %}<i>{{ x }}</i>{% endfor %}`);
+    expect(r.html).toBe(`{% for x in ${shown} %}<i>{{ x }}</i>`);
+    expect(r.diagnostics.unrendered[0]).toBe(`{% for x in ${iter} %}`);
+  });
+
+  it('for の対象が参照で、値が配列でないだけなら見出しは出さない(値の側の都合)', () => {
+    expect(reveal('{% for x in rs %}<i>a</i>{% endfor %}').html).toBe('<i>a</i>');
+  });
+
+  it('ループの中の loop は自分が持つキーだけを値で描く', () => {
+    const r = reveal(
+      '{% for r in rs %}{{ loop.index }}{{ loop.first }}{{ loop.cycle }}|{% endfor %}',
+      {
+        rs: ['a', 'b'],
+      },
+    );
+    expect(r.html).toBe('1True{{ loop.cycle }}|2False{{ loop.cycle }}|');
+  });
+
+  it('値は Python の綴りで出し、式の意味が Python と違う形は原文の文字にする', () => {
+    const r = reveal(
+      '<p>{{ f.flag }}|{{ f.nul }}|{{ f.list }}|{{ f.obj }}|{{ [] or "本番だけ" }}|{{ f.list[-1] }}|{{ f.x|default("本番だけ") }}</p>',
+      { f: { flag: false, nul: null, list: [1, 'a'], obj: { k: true } } },
+    );
+    expect(r.html).toBe(
+      '<p>False|None|[1, &#39;a&#39;]|{&#39;k&#39;: True}|{{ [] or &quot;本番だけ&quot; }}|{{ f.list[-1] }}|{{ f.x|default(&quot;本番だけ&quot;) }}</p>',
+    );
+  });
+
+  it('出力の上限に当たったあとは for の else を描かない', () => {
+    const r = renderPlainFilled(
+      '{% for i in xs %}0123456789{% else %}ELSE{% endfor %}',
+      { xs: Array.from({ length: 100 }, (_, i) => i) },
+      { reveal: true, maxOutputChars: 50 },
+    );
+    expect(r.diagnostics.limitReached).toBe(true);
+    expect(r.html).not.toContain('ELSE');
+  });
+
+  it('for の見出しを読めなくても本体を 1 回描いて数える', () => {
+    const r = reveal('{% for 1 in rs %}<i>本体</i>{% endfor %}');
+    expect(r.html).toBe('<i>本体</i>');
+    expect(r.diagnostics.unrendered).toEqual(['{% for 1 in rs %}']);
+  });
+
+  it('描けない式は空にせず、原文をエスケープした文字にする', () => {
+    const r = reveal('<p>{{ x|nosuchfilter("<b>") }}</p><p title="{{ y|nosuch }}">t</p>');
+    expect(r.html).toBe(
+      '<p>{{ x|nosuchfilter(&quot;&lt;b&gt;&quot;) }}</p><p title="{{ y|nosuch }}">t</p>',
+    );
+    expect(r.diagnostics.unrendered).toEqual(['{{ x|nosuchfilter("<b>") }}', '{{ y|nosuch }}']);
+  });
+
+  it('値の無い式は今までどおり空にする(描けないわけではない)', () => {
+    const r = reveal('<p>{{ fund.name }}</p>', { fund: {} });
+    expect(r.html).toBe('<p></p>');
+    expect(r.diagnostics.unrendered).toEqual([]);
+    expect(r.diagnostics.missing).toEqual(['fund.name']);
+  });
+
+  it('未定義の値からさらに引く式は(本番は描画に失敗するので)原文の文字にする', () => {
+    expect(reveal('<p>{{ fund.name }}</p>').html).toBe('<p>{{ fund.name }}</p>');
+  });
+
+  it('opaque なブロックと include などの文は原文をエスケープした文字にし、包みの要素を足さない', () => {
+    const src =
+      '<section>{% macro m(a) %}<b>{{ a }}</b>{% endmacro %}</section>' +
+      '<section>{% include "other.html" %}</section><section>{% filter upper %}x{% endfilter %}</section>';
+    const r = reveal(src);
+    expect(r.html).toBe(
+      '<section>{% macro m(a) %}&lt;b&gt;{{ a }}&lt;/b&gt;{% endmacro %}</section>' +
+        '<section>{% include &quot;other.html&quot; %}</section>' +
+        '<section>{% filter upper %}x{% endfilter %}</section>',
+    );
+    expect(r.diagnostics.unrendered).toEqual([
+      '{% macro m(a) %}<b>{{ a }}</b>{% endmacro %}',
+      '{% include "other.html" %}',
+      '{% filter upper %}x{% endfilter %}',
+    ]);
+    expect(r.html).not.toContain('<span');
+  });
+
+  it('ループの中で何度描いても、原文の同じ場所は 1 件と数える', () => {
+    const r = reveal('{% for r in rs %}{{ r|nosuch }}{% endfor %}', { rs: [1, 2, 3] });
+    expect(r.diagnostics.unrendered).toEqual(['{{ r|nosuch }}']);
+  });
+
+  it('safe の値が許可した形でなくエスケープしたものを escapedSafe に分けて返す', () => {
+    const r = reveal('<p>{{ note|safe }}</p><p>{{ ok|safe }}</p>', {
+      note: '<script>x()</script>',
+      ok: '<b>太字</b>',
+    });
+    expect(r.html).toBe('<p>&lt;script&gt;x()&lt;/script&gt;</p><p><b>太字</b></p>');
+    expect(r.diagnostics.escapedSafe).toEqual(['note|safe']);
+    expect(r.diagnostics.unrendered).toEqual([]);
+  });
+
+  it('reveal でない描画も escapedSafe を返す(位置で生にできずにエスケープした safe を含む)', () => {
+    const r = renderPlainFilled('<p title="{{ ok|safe }}">x</p>', { ok: '<b>b</b>' });
+    expect(r.diagnostics.escapedSafe).toEqual(['ok|safe']);
+    expect(r.diagnostics.unrendered).toEqual([]);
+  });
+
+  it('出力の上限を渡すと、超えたところで以後を省き limitReached を立てる', () => {
+    const r = renderPlainFilled(
+      '{% for i in xs %}0123456789{% endfor %}',
+      {
+        xs: Array.from({ length: 100 }, (_, i) => i),
+      },
+      { reveal: true, maxOutputChars: 50 },
+    );
+    expect(r.diagnostics.limitReached).toBe(true);
+    expect(r.html.length).toBeLessThanOrEqual(70);
+  });
+
+  it('評価の量の上限に当たっても limitReached を立てる', () => {
+    const r = renderPlainFilled(
+      '{% for i in xs %}{{ i }}{% endfor %}',
+      { xs: Array.from({ length: 5000 }, (_, i) => i) },
+      {
+        reveal: true,
+        budget: new JinjaBudget(1000),
+      },
+    );
+    expect(r.diagnostics.limitReached).toBe(true);
+  });
+
+  it('上限に当たらなければ limitReached は false', () => {
+    expect(reveal('<p>x</p>').diagnostics.limitReached).toBe(false);
+  });
+
+  it('本文直下に枝ごとのパーツがある原文で、描画結果のパーツが原文と揃う', () => {
+    const src =
+      '<html><body>{% if a %}<section data-part-id="p1">一</section>{% else %}' +
+      '<section data-part-id="p2">二</section>{% endif %}</body></html>';
+    const r = reveal(src, { a: true });
+    expect(r.html).toContain('一');
+    expect(r.html).toContain('二');
+  });
+});
+
+describe('renderPlainFilled — reveal を付けない出力は fixtures/filled と一致したまま', () => {
+  const root = path.resolve(__dirname, '../../fixtures');
+  const funds = JSON.parse(fs.readFileSync(path.join(root, 'funds.json'), 'utf8')) as Record<
+    string,
+    { name: string; company: { code: string; name: string } }
+  >;
+  // `web/scripts/genFilled.ts` の `resolveSample` と同じ手順で値を作る。
+  const sampleOf = (fundCode: string, attrs: SampleTemplateAttributes): SampleData => {
+    const file = path.join(root, 'sample', `${fundCode}.json`);
+    if (fs.existsSync(file)) {
+      return applyTemplateAttributes(JSON.parse(fs.readFileSync(file, 'utf8')), attrs);
+    }
+    const f = funds[fundCode];
+    const master = f && {
+      fundName: f.name,
+      companyCode: f.company.code,
+      companyName: f.company.name,
+    };
+    return applyTemplateAttributes(buildSampleData(sampleCommon, master, fundCode), attrs);
+  };
+  const files = fs.readdirSync(path.join(root, 'templates')).filter((f) => f.endsWith('.html'));
+
+  it('fixture は 8 本', () => {
+    expect(files).toHaveLength(8);
+  });
+  it.each(files)('%s', (file) => {
+    const attrs = parseTemplateFileName(file);
+    if (!attrs) {
+      throw new Error(file);
+    }
+    const raw = fs.readFileSync(path.join(root, 'templates', file), 'utf8');
+    const want = fs.readFileSync(path.join(root, 'filled', file), 'utf8');
+    expect(renderPlainFilled(raw, sampleOf(attrs.fundCode, attrs)).html).toBe(want);
   });
 });

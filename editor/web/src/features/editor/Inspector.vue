@@ -149,8 +149,8 @@ const visibleEntries = (g: HistoryGroup): PartHistoryEntry[] =>
  * 「変更 N」を上書きする。
  */
 function headingReason(g: HistoryGroup): string | null {
-  if (g.removed) return '。削除したパーツのため選べません';
-  if (g.offCanvas) return '。現在の紙面に無いため選べません';
+  if (g.removed) { return '。削除したパーツのため選べません'; }
+  if (g.offCanvas) { return '。現在の紙面に無いため選べません'; }
   return null;
 }
 /** 却下の理由の枠の見出し。理由の本文は `{{ }}` でエスケープして描く(`v-html` を使わない)。 */
@@ -158,7 +158,7 @@ function rejectedHeading(r: RejectedReason): string {
   return `却下の理由（${r.decidedBy}・${formatDateTimeShort(r.decidedAt)}）`;
 }
 function onHeadingClick(g: HistoryGroup): void {
-  if (g.removed || g.offCanvas) return;
+  if (g.removed || g.offCanvas) { return; }
   emit('select-part', g.key);
 }
 
@@ -182,7 +182,7 @@ const num = reactive({ widthPct: '100', marginTop: '0', marginBottom: '0' });
 watch(
   () => props.geom,
   (g) => {
-    if (!g) return;
+    if (!g) { return; }
     num.widthPct = String(g.widthPct);
     num.marginTop = String(g.marginTop);
     num.marginBottom = String(g.marginBottom);
@@ -226,31 +226,31 @@ function pbDisabled(key: PbKey): boolean {
 }
 
 function setAlign(align: Align) {
-  if (props.editMode && canAlign()) emit('apply', { align });
+  if (props.editMode && canAlign()) { emit('apply', { align }); }
 }
 
 function togglePB(key: PbKey) {
-  if (!props.editMode || !props.geom) return;
-  if (key === 'keepTogether') emit('apply', { keepTogether: !props.geom.keepTogether });
-  else if (props.partBreak) emit('pagebreak', { edge: key, on: !props.partBreak[key] });
+  if (!props.editMode || !props.geom) { return; }
+  if (key === 'keepTogether') { emit('apply', { keepTogether: !props.geom.keepTogether }); }
+  else if (props.partBreak) { emit('pagebreak', { edge: key, on: !props.partBreak[key] }); }
 }
 
 function commitNum(key: 'widthPct' | 'marginTop' | 'marginBottom', raw: string) {
-  if (!props.geom) return;
+  if (!props.geom) { return; }
   // `Number('')` は 0 になり下限へ丸められてしまうため、空 / 空白は非数値として扱う。
   const t = raw.trim();
   let n = t === '' ? Number.NaN : Math.round(Number(t));
-  if (Number.isNaN(n)) n = props.geom[key];
+  if (Number.isNaN(n)) { n = props.geom[key]; }
   n = key === 'widthPct' ? clampWidthPct(n) : clampMarginMm(n);
   num[key] = String(n);
   // 値が動いていない確定(入力欄を focus して blur しただけ)では emit しない。emit すると
   // 編集していないのに draft が生成され、`pushUndo` で Redo スタックまで消える。
   if (key === 'widthPct') {
     const align: Align = alignForWidth(n, WIDTH_PCT_MAX, props.geom.align);
-    if (n === props.geom.widthPct && align === props.geom.align) return;
+    if (n === props.geom.widthPct && align === props.geom.align) { return; }
     emit('apply', { widthPct: n, align });
   } else {
-    if (n === props.geom[key]) return;
+    if (n === props.geom[key]) { return; }
     emit('apply', { [key]: n } as Partial<LayoutGeom>);
   }
 }
@@ -265,7 +265,7 @@ function numInvalid(key: 'widthPct' | 'marginTop' | 'marginBottom'): boolean {
 // 数値の増減(ステッパーボタン / 上下キー)。現在のミラー値を起点に ±delta し、clamp と
 // emit は `commitNum` に委譲する(幅は 1%、余白は 1mm 刻み)。
 function stepNum(key: 'widthPct' | 'marginTop' | 'marginBottom', delta: number) {
-  if (!props.geom) return;
+  if (!props.geom) { return; }
   const cur = Math.round(Number(num[key]));
   const base = Number.isNaN(cur) ? props.geom[key] : cur;
   commitNum(key, String(base + delta));

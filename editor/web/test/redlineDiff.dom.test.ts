@@ -1,5 +1,6 @@
+import { MAX_LCS_CELLS } from '@editor/shared';
 import { describe, expect, it } from 'vitest';
-import { createLcsBudget, MAX_LCS_CELLS } from '@/features/compare/htmlBlockDiff';
+import { createLcsBudget } from '@/features/compare/htmlBlockDiff';
 import { diffRedline } from '@/features/editor/redline/redlineDiff';
 import type { NodeResolver, RedlineNode } from '@/features/editor/redline/redlineTree';
 

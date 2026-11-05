@@ -17,11 +17,10 @@ import {
   type NoteMasterReflectSummary,
   parseAnyTemplateFileName,
 } from '@editor/shared';
-import { asString, asStringOrNull, p, type SprocClient } from '../db/sproc.js';
-import { SP } from '../db/sprocNames.js';
 import { readConfirmedHtml } from '../files/confirmedHtml.js';
 import { logger } from '../logger.js';
 import type { ConfirmedTarget } from '../repositories/confirmedWrite.js';
+import type { NoteMasterRepo } from '../repositories/noteMasterRepo.js';
 import type { PartRepo } from '../repositories/partRepo.js';
 import { applyOps, extractSyncParts } from './partSync.js';
 
@@ -35,14 +34,14 @@ export interface NoteMasterService {
 }
 
 /**
- * この層はパーツカタログ(`parts.listParts`)に加えて注記マスタ sproc も直に呼ぶため、
- * `sproc` と `parts` の両方を受け取る。
+ * この層はパーツカタログ(`parts.listParts`)を読み、注記マスタは `noteMasterRepo` 経由で
+ * 読み書きするため、`noteMasters` と `parts` の両方を受け取る。
  */
 export function createNoteMasterService({
-  sproc,
+  noteMasters,
   parts,
 }: {
-  sproc: SprocClient;
+  noteMasters: NoteMasterRepo;
   parts: PartRepo;
 }): NoteMasterService {
   return {
@@ -57,7 +56,9 @@ export function createNoteMasterService({
      */
     async reflectNoteMasterAfterConfirm(templateId, actor, target) {
       const attrs = parseAnyTemplateFileName(`${templateId}.html`);
-      if (!attrs) return null;
+      if (!attrs) {
+        return null;
+      }
 
       try {
         const [html, catalog] = await Promise.all([
@@ -77,14 +78,16 @@ export function createNoteMasterService({
         // 同一 partId が複数出現する場合は文書内の先頭出現(`#1`)を正とする(マスタは
         // 1 パーツ = 1 行のため。注記パーツは実務上 1 回しか現れない想定の安全側規約)。
         for (const part of extractSyncParts(html)) {
-          if (!reflectIds.has(part.partId) || !part.key.endsWith('#1')) continue;
-          await sproc.callSproc(SP.noteMaster, '反映', [
-            p('パーツID', part.partId),
-            p('ファンドコード', attrs.fundCode),
-            p('版種', attrs.editionType),
-            p('注記HTML', part.html),
-            p('更新者', actor),
-          ]);
+          if (!reflectIds.has(part.partId) || !part.key.endsWith('#1')) {
+            continue;
+          }
+          await noteMasters.upsertNoteMaster({
+            partId: part.partId,
+            fundCode: attrs.fundCode,
+            editionType: attrs.editionType,
+            noteHtml: part.html,
+            actor,
+          });
           updated.push(part.partId);
         }
         return { updated, error: null };
@@ -102,16 +105,16 @@ export function createNoteMasterService({
      */
     async applyNoteMasterToHtml(html, fundCode, editionType) {
       try {
-        const rows = await sproc.callSproc(SP.noteMaster, '取得', [
-          p('ファンドコード', fundCode),
-          p('版種', editionType),
-        ]);
+        const rows = await noteMasters.listNoteMasters(fundCode, editionType);
         const masters = new Map<string, string>();
         for (const r of rows) {
-          const noteHtml = asStringOrNull(r.注記HTML);
-          if (noteHtml !== null) masters.set(asString(r.パーツID), noteHtml);
+          if (r.noteHtml !== null) {
+            masters.set(r.partId, r.noteHtml);
+          }
         }
-        if (masters.size === 0) return html;
+        if (masters.size === 0) {
+          return html;
+        }
 
         const ops = extractSyncParts(html)
           .filter((part) => masters.has(part.partId))

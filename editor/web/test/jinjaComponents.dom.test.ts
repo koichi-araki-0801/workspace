@@ -88,7 +88,9 @@ describe('固めた部品の型', () => {
     const all = descendants(frozen as Component);
     expect(all.length).toBeGreaterThan(4);
     for (const d of all) {
-      for (const p of LOCKED_PROPS) expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+      for (const p of LOCKED_PROPS) {
+        expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+      }
     }
   });
 
@@ -130,7 +132,9 @@ describe('固めた部品の型', () => {
       expect(v.el.tagName).toBe(c.get('tagName'));
     }
     for (const d of descendants(frozen)) {
-      for (const p of LOCKED_PROPS) expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+      for (const p of LOCKED_PROPS) {
+        expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+      }
     }
     expect(g.getBodyHtml()).toContain(
       `<g class="bar"><rect width="3" height="1"></rect><text x="1">3</text>`,
@@ -143,7 +147,9 @@ describe('固めた部品の型', () => {
     g.load('<svg viewBox="0 0 1 1"><g><rect width="1" height="1"></rect></g></svg>', '');
     const svg = g.editor.value?.getWrapper()?.components().at(0) as Component;
     expect(svg.get('type')).toBe('svg');
-    for (const c of descendants(svg)) expect(c.get('type')).toBe('svg-in');
+    for (const c of descendants(svg)) {
+      expect(c.get('type')).toBe('svg-in');
+    }
   });
 
   it('埋め込みチップ(style など)は jinja-rawtext 型で、原文へ戻る', () => {
@@ -192,7 +198,9 @@ describe('書き出した HTML を読み直しても部品の型と固定が残�
     const all = descendants(root);
     expect(all.length).toBeGreaterThan(0);
     for (const d of all) {
-      for (const p of LOCKED_PROPS) expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+      for (const p of LOCKED_PROPS) {
+        expect(d.get(p), `${d.get('tagName')}.${p}`).toBe(false);
+      }
     }
   };
 
@@ -219,11 +227,15 @@ describe('書き出した HTML を読み直しても部品の型と固定が残�
       'jinja-frozen',
       'jinja-frozen-svg',
     ]);
-    for (const f of frozen) expectLocked(f);
+    for (const f of frozen) {
+      expectLocked(f);
+    }
     const svg = frozen[2] as Component;
     const svgEls = descendants(svg).filter((c) => c.get('type') !== 'textnode');
     expect(svgEls.map((c) => c.get('tagName'))).toEqual(['g', 'rect', 'linearGradient', 'stop']);
-    for (const c of svgEls) expect(c.get('type'), c.get('tagName')).toBe('jinja-frozen-svg-in');
+    for (const c of svgEls) {
+      expect(c.get('type'), c.get('tagName')).toBe('jinja-frozen-svg-in');
+    }
     for (const kind of ['var', 'stmt', 'comment', 'script', 'math', 'rawtext']) {
       expect(
         typeOf((c) => (c.getClasses() as string[]).includes(`jinja-${kind}`)),
@@ -268,7 +280,9 @@ describe('書き出した HTML を読み直しても部品の型と固定が残�
         '<table><tbody><tr><td>z</td></tr></tbody></table>',
       '',
     );
-    for (const c of allOf()) expect(String(c.get('type')), c.get('tagName')).not.toMatch(/^jinja-/);
+    for (const c of allOf()) {
+      expect(String(c.get('type')), c.get('tagName')).not.toMatch(/^jinja-/);
+    }
   });
 
   it('編集タブの値入り HTML(fixtures/filled)は jinja の型を一つも持たない', () => {
@@ -279,7 +293,9 @@ describe('書き出した HTML を読み直しても部品の型と固定が残�
     expect(body.length).toBeGreaterThan(100);
     g.load(body, '');
     expect(allOf().length).toBeGreaterThan(10);
-    for (const c of allOf()) expect(String(c.get('type')), c.get('tagName')).not.toMatch(/^jinja-/);
+    for (const c of allOf()) {
+      expect(String(c.get('type')), c.get('tagName')).not.toMatch(/^jinja-/);
+    }
   });
 });
 

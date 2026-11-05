@@ -65,7 +65,9 @@ async function resolveFundImageSource(
     return undefined;
   }
   const wanted = [FUND_IMAGES_DIR, ...segments].join('/');
-  if (resolveServedRoutePath(wanted) !== wanted) return undefined;
+  if (resolveServedRoutePath(wanted) !== wanted) {
+    return undefined;
+  }
   return resolveServedAssetSource(wanted);
 }
 
@@ -83,7 +85,9 @@ async function inspectFundImage(dir: string | null, file: string): Promise<FundI
   const source = await resolveFundImageSource(dir, file);
   const type =
     source === undefined ? undefined : IMAGE_MIME.get(path.extname(source).toLowerCase());
-  if (source === undefined || type === undefined) return { status: 'missing' };
+  if (source === undefined || type === undefined) {
+    return { status: 'missing' };
+  }
   let body: Buffer;
   try {
     body = await fs.readFile(source);
@@ -92,7 +96,9 @@ async function inspectFundImage(dir: string | null, file: string): Promise<FundI
   }
   if (type === 'image/svg+xml') {
     const violations = inspectSvg(body.toString('utf8'));
-    if (violations.length > 0) return { status: 'svg_rejected', violations };
+    if (violations.length > 0) {
+      return { status: 'svg_rejected', violations };
+    }
   }
   return { status: 'ok', body, type };
 }
@@ -111,7 +117,9 @@ async function sendFundImage(
       'SVG の検査に違反したため配信しません',
     );
   }
-  if (inspected.status !== 'ok') return reply.code(404).send();
+  if (inspected.status !== 'ok') {
+    return reply.code(404).send();
+  }
   return reply.type(inspected.type).send(inspected.body);
 }
 

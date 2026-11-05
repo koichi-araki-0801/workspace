@@ -33,10 +33,14 @@ describe('保存形式', () => {
    * view 依存の `find` を避けてモデル木を直接たどる。
    */
   function findByClass(root: Component, cls: string): Component | undefined {
-    if (root.getClasses().includes(cls)) return root;
+    if (root.getClasses().includes(cls)) {
+      return root;
+    }
     for (const child of root.components()) {
       const found = findByClass(child, cls);
-      if (found) return found;
+      if (found) {
+        return found;
+      }
     }
     return undefined;
   }

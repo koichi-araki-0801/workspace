@@ -88,7 +88,9 @@ describe('POST /auth/login のレート制限', () => {
   });
 
   it('rejects further attempts with 403 without running the KDF again', async () => {
-    for (let i = 0; i < maxFailures; i += 1) await post(app, 'admin');
+    for (let i = 0; i < maxFailures; i += 1) {
+      await post(app, 'admin');
+    }
     login.mockClear();
 
     const res = await post(app, 'admin');
@@ -132,7 +134,9 @@ describe('POST /auth/login のレート制限', () => {
   });
 
   it('does not lock out a different login id from the same IP', async () => {
-    for (let i = 0; i < maxFailures; i += 1) await post(app, 'admin');
+    for (let i = 0; i < maxFailures; i += 1) {
+      await post(app, 'admin');
+    }
 
     const res = await post(app, 'editor');
     expect(res.statusCode).toBe(401);
@@ -141,7 +145,9 @@ describe('POST /auth/login のレート制限', () => {
   // 大小文字・末尾空白・全角で書き分けるだけで別カウンタになると、1 アカウントに対して
   // 独立した閾値をいくつでも作れる(DB 側は同じ 1 行に当たる)。
   it('cannot be split by writing the same login id differently', async () => {
-    for (let i = 0; i < maxFailures; i += 1) await post(app, 'admin');
+    for (let i = 0; i < maxFailures; i += 1) {
+      await post(app, 'admin');
+    }
 
     for (const variant of ['ADMIN', 'admin ', 'ａｄｍｉｎ']) {
       expect((await post(app, variant)).statusCode).toBe(403);
@@ -158,7 +164,9 @@ describe('POST /auth/login のレート制限', () => {
   });
 
   it('clears the counter on a successful login', async () => {
-    for (let i = 0; i < maxFailures - 1; i += 1) await post(app, 'admin');
+    for (let i = 0; i < maxFailures - 1; i += 1) {
+      await post(app, 'admin');
+    }
     login.mockImplementationOnce(async () => ({
       result: {
         user: {

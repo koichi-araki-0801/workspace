@@ -43,7 +43,7 @@ const filtered = computed(() => filterComboboxOptions(normalized.value, search.v
 // blur 後の表示。選択中 value をその `label` に解決し, 未確定の検索文字を現選択へ戻す
 // (`resetSearchTermOnBlur` 既定 true との合わせ技)。未収録なら value をそのまま見せる。
 function displayValue(value: unknown): string {
-  if (value == null || value === '') return '';
+  if (value == null || value === '') { return ''; }
   return normalized.value.find((o) => o.value === value)?.label ?? String(value);
 }
 </script>

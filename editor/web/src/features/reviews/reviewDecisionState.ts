@@ -28,8 +28,11 @@ export function decisionCounts(
   let rejected = 0;
   for (const c of changes) {
     const d = decisionOf(decisions, c.partKey);
-    if (d === 'approved') approved++;
-    else if (d === 'rejected') rejected++;
+    if (d === 'approved') {
+      approved++;
+    } else if (d === 'rejected') {
+      rejected++;
+    }
   }
   return {
     total: changes.length,
@@ -49,8 +52,12 @@ export function nextPendingNo(
     .filter((c) => decisionOf(decisions, c.partKey) === 'pending')
     .map((c) => c.no)
     .sort((a, b) => a - b);
-  if (pending.length === 0) return null;
-  if (afterNo === null) return pending[0];
+  if (pending.length === 0) {
+    return null;
+  }
+  if (afterNo === null) {
+    return pending[0];
+  }
   return pending.find((no) => no > afterNo) ?? pending[0];
 }
 
@@ -81,7 +88,9 @@ export function rejectedSignature(decisions: readonly ReviewPartDecision[]): str
 }
 
 export function finalizeHint(c: DecisionCounts): string {
-  if (c.pending > 0) return `未判定が ${c.pending} 件あります。すべて判定すると押せます`;
+  if (c.pending > 0) {
+    return `未判定が ${c.pending} 件あります。すべて判定すると押せます`;
+  }
   return `承認 ${c.approved} 件を反映し、却下 ${c.rejected} 件は現行版のまま残します`;
 }
 

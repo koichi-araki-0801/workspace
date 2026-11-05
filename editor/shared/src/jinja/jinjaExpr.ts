@@ -92,14 +92,18 @@ function readString(src: string, start: number): { end: number; text: string } {
     const ch = src[i];
     if (ch === '\\') {
       const next = src[i + 1];
-      if (next === undefined) break;
+      if (next === undefined) {
+        break;
+      }
       // Jinja のエスケープは Python 準拠だが、テンプレに現れるのは引用符と
       // バックスラッシュだけ。それ以外は「そのまま」にして解釈を増やさない。
       text += next === 'n' ? '\n' : next === 't' ? '\t' : next;
       i += 2;
       continue;
     }
-    if (ch === quote) return { end: i + 1, text };
+    if (ch === quote) {
+      return { end: i + 1, text };
+    }
     text += ch;
     i += 1;
   }
@@ -204,20 +208,45 @@ export function innerJinjaCtx(outer: JinjaCtx): JinjaCtx {
 function findNameLayer(ctx: JinjaCtx, name: string, budget: JinjaBudget): JinjaCtx | null {
   let c: JinjaCtx | undefined = ctx;
   while (c !== undefined) {
-    if (Object.hasOwn(c, name)) return c;
+    if (Object.hasOwn(c, name)) {
+      return c;
+    }
     c = OUTER.get(c);
-    if (c !== undefined) budget.charge(1);
+    if (c !== undefined) {
+      budget.charge(1);
+    }
   }
   return null;
 }
 
+/**
+ * 名前を内側の層から外側へたどって引く(`findNameLayer` の公開の形)。承認画面の描画
+ * (`revealExpr.ts`)が、評価器の式の意味を使わずに名前だけを引くのに使う。
+ */
+export function lookupJinjaName(
+  ctx: JinjaCtx,
+  name: string,
+  budget: JinjaBudget,
+): { found: boolean; value: unknown } {
+  const layer = findNameLayer(ctx, name, budget);
+  return layer === null ? { found: false, value: undefined } : { found: true, value: layer[name] };
+}
+
 /** `obj` から own property だけを引く。prototype と function 値には決して届かない。 */
 function lookupMember(obj: unknown, key: string | number): unknown {
-  if (obj === null || obj === undefined) return undefined;
-  if (typeof obj === 'string') return key === 'length' ? obj.length : undefined;
-  if (typeof obj !== 'object') return undefined;
+  if (obj === null || obj === undefined) {
+    return undefined;
+  }
+  if (typeof obj === 'string') {
+    return key === 'length' ? obj.length : undefined;
+  }
+  if (typeof obj !== 'object') {
+    return undefined;
+  }
   const k = String(key);
-  if (!Object.hasOwn(obj as object, k)) return undefined;
+  if (!Object.hasOwn(obj as object, k)) {
+    return undefined;
+  }
   const v = (obj as Record<string, unknown>)[k];
   return typeof v === 'function' ? undefined : v;
 }
@@ -232,10 +261,18 @@ function asText(v: unknown): string {
 
 /** フィルタが並びとして読む値。Jinja の `list(value)` と同じく文字列は文字、dict はキーの並び。 */
 function toSeq(v: unknown): unknown[] {
-  if (Array.isArray(v)) return v;
-  if (v === undefined || v === null) return [];
-  if (typeof v === 'string' || v instanceof SafeHtml) return [...v.toString()];
-  if (isPlainObject(v)) return Object.keys(v);
+  if (Array.isArray(v)) {
+    return v;
+  }
+  if (v === undefined || v === null) {
+    return [];
+  }
+  if (typeof v === 'string' || v instanceof SafeHtml) {
+    return [...v.toString()];
+  }
+  if (isPlainObject(v)) {
+    return Object.keys(v);
+  }
   throw new JinjaExprError('並びとして読めない値です');
 }
 
@@ -260,23 +297,34 @@ const MAX_RANGE = 100_000;
  */
 const MAX_WORK = 2_000_000;
 
-/** 評価の仕事の量を数える。描画器は 1 回の描画につき 1 つを作り、すべての式で共有する。 */
+/**
+ * 評価の仕事の量を数える。描画器は 1 回の描画につき 1 つを作り、すべての式で共有する。
+ * 上限は既定で `MAX_WORK`。server の申請の受付は、同期の計算で要求を止める時間を短くするため、
+ * より小さい上限を渡す(`reviewRepo.ts` の `SUBMIT_RENDER_WORK`)。
+ */
 export class JinjaBudget {
   private used = 0;
+  private readonly max: number;
+
+  constructor(max: number = MAX_WORK) {
+    this.max = max;
+  }
 
   charge(units: number): void {
     this.used += units;
-    if (this.used > MAX_WORK) throw new JinjaExprError('評価の量が上限を超えました');
+    if (this.used > this.max) {
+      throw new JinjaExprError('評価の量が上限を超えました');
+    }
   }
 
   /** 残りの量。入れ子をたどる処理は、これを超えてたどらない。 */
   get remaining(): number {
-    return Math.max(0, MAX_WORK - this.used);
+    return Math.max(0, this.max - this.used);
   }
 
   /** 使い切ったか。描画器はこれを見て以後の繰り返しを展開しない(式ごとに失敗させ続けない)。 */
   get exhausted(): boolean {
-    return this.used > MAX_WORK;
+    return this.used > this.max;
   }
 }
 
@@ -287,7 +335,9 @@ export class JinjaBudget {
 function chargeCompare(a: unknown, b: unknown): void {
   if (typeof a === 'string' && typeof b === 'string') {
     chargeActive(1 + Math.min(a.length, b.length));
-  } else chargeActive(1 + textLength(a) + textLength(b));
+  } else {
+    chargeActive(1 + textLength(a) + textLength(b));
+  }
 }
 
 /** 文字列なら長さ、そうでなければ 0(数への暗黙の変換で読む長さ)。 */
@@ -332,18 +382,28 @@ const DEEP_SIZE = new WeakMap<object, number>();
  */
 function deepSize(v: unknown, cap: number, walk: { visited: number }, depth = 0): number {
   walk.visited += 1;
-  if (typeof v !== 'object' || v === null || v instanceof SafeHtml) return 1;
-  if (depth > MAX_DEPTH) throw new JinjaExprError('値の入れ子が深すぎます');
+  if (typeof v !== 'object' || v === null || v instanceof SafeHtml) {
+    return 1;
+  }
+  if (depth > MAX_DEPTH) {
+    throw new JinjaExprError('値の入れ子が深すぎます');
+  }
   if (Array.isArray(v)) {
     const hit = DEEP_SIZE.get(v);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      return hit;
+    }
   }
   let n = 1;
   for (const e of Array.isArray(v) ? v : Object.values(v)) {
     n += deepSize(e, cap - n, walk, depth + 1);
-    if (n > cap || walk.visited > cap) throw new TooLargeError();
+    if (n > cap || walk.visited > cap) {
+      throw new TooLargeError();
+    }
   }
-  if (Array.isArray(v)) DEEP_SIZE.set(v, n);
+  if (Array.isArray(v)) {
+    DEEP_SIZE.set(v, n);
+  }
   return n;
 }
 
@@ -397,25 +457,42 @@ const isObjectValue = (v: unknown): v is object => typeof v === 'object' && v !=
  * 呼ばない。`+`・比較・フィルタの文字列化はすべてここを通す(`[a, a]` の倍化で止まらなくしない)。
  */
 function jsString(v: unknown): string {
-  if (!isObjectValue(v)) return String(v);
-  if (v instanceof SafeHtml) return v.toString();
-  if (!Array.isArray(v)) return '[object Object]';
+  if (!isObjectValue(v)) {
+    return String(v);
+  }
+  if (v instanceof SafeHtml) {
+    return v.toString();
+  }
+  if (!Array.isArray(v)) {
+    return '[object Object]';
+  }
   const parts: string[] = [];
   let len = 0;
   const add = (s: string) => {
     len += s.length;
-    if (len > MAX_STRING_LENGTH) throw new JinjaExprError('文字列が長すぎます');
+    if (len > MAX_STRING_LENGTH) {
+      throw new JinjaExprError('文字列が長すぎます');
+    }
     chargeActive(s.length);
     parts.push(s);
   };
   const visit = (a: readonly unknown[], depth: number) => {
-    if (depth > MAX_DEPTH) throw new JinjaExprError('値の入れ子が深すぎます');
+    if (depth > MAX_DEPTH) {
+      throw new JinjaExprError('値の入れ子が深すぎます');
+    }
     for (let i = 0; i < a.length; i++) {
-      if (i > 0) add(',');
+      if (i > 0) {
+        add(',');
+      }
       const e = a[i];
-      if (e === null || e === undefined) continue;
-      if (Array.isArray(e)) visit(e, depth + 1);
-      else add(jsString(e));
+      if (e === null || e === undefined) {
+        continue;
+      }
+      if (Array.isArray(e)) {
+        visit(e, depth + 1);
+      } else {
+        add(jsString(e));
+      }
     }
   };
   visit(v, 0);
@@ -427,16 +504,26 @@ const toPrimitive = (v: unknown): unknown => (isObjectValue(v) ? jsString(v) : v
 
 /** 仕事の量として数える値の大きさ(並び・文字列は要素数、dict はキーの数)。 */
 function sizeOf(v: unknown): number {
-  if (Array.isArray(v) || typeof v === 'string') return v.length;
-  if (v instanceof SafeHtml) return v.toString().length;
-  if (isPlainObject(v)) return Object.keys(v).length;
+  if (Array.isArray(v) || typeof v === 'string') {
+    return v.length;
+  }
+  if (v instanceof SafeHtml) {
+    return v.toString().length;
+  }
+  if (isPlainObject(v)) {
+    return Object.keys(v).length;
+  }
   return 0;
 }
 
 /** `selectattr` / `groupby` の属性名。`a.b` は段ごとに、数字の段は添字として引く。 */
 function attrGetter(attribute: unknown): (item: unknown) => unknown {
-  if (typeof attribute === 'number') return (item) => lookupMember(item, attribute);
-  if (typeof attribute !== 'string') throw new JinjaExprError('属性名は文字列が必要です');
+  if (typeof attribute === 'number') {
+    return (item) => lookupMember(item, attribute);
+  }
+  if (typeof attribute !== 'string') {
+    throw new JinjaExprError('属性名は文字列が必要です');
+  }
   shortArg(attribute, '属性名');
   const parts = attribute.split('.').map((p) => (/^\d+$/.test(p) ? Number(p) : p));
   if (parts.length > MAX_ATTR_PARTS) {
@@ -449,8 +536,12 @@ function attrGetter(attribute: unknown): (item: unknown) => unknown {
 function compareKeys(a: unknown, b: unknown): number {
   chargeCompare(a, b);
   const num = (v: unknown) => typeof v === 'number' || typeof v === 'boolean';
-  if (num(a) && num(b)) return Number(a) - Number(b);
-  if (typeof a === 'string' && typeof b === 'string') return a < b ? -1 : a > b ? 1 : 0;
+  if (num(a) && num(b)) {
+    return Number(a) - Number(b);
+  }
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
   throw new JinjaExprError('型の混ざった値は並べ替えられません');
 }
 
@@ -486,8 +577,9 @@ function selectBy(
 ): unknown[] {
   const [testName, ...testArgs] = args;
   let test: (v: unknown) => boolean;
-  if (testName === undefined) test = (v) => Boolean(v);
-  else {
+  if (testName === undefined) {
+    test = (v) => Boolean(v);
+  } else {
     const fn = lookupTest(testName);
     test = (v) => fn(v, ...testArgs);
   }
@@ -503,11 +595,19 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
   int: {
     params: ['default'],
     apply: (v, d = 0) => {
-      if (typeof v === 'number') return Number.isFinite(v) ? Math.trunc(v) : d;
-      if (typeof v === 'boolean') return Number(v);
-      if (typeof v !== 'string' && !(v instanceof SafeHtml)) return d;
+      if (typeof v === 'number') {
+        return Number.isFinite(v) ? Math.trunc(v) : d;
+      }
+      if (typeof v === 'boolean') {
+        return Number(v);
+      }
+      if (typeof v !== 'string' && !(v instanceof SafeHtml)) {
+        return d;
+      }
       const s = v.toString().trim();
-      if (INT_RE.test(s)) return Number.parseInt(s, 10);
+      if (INT_RE.test(s)) {
+        return Number.parseInt(s, 10);
+      }
       // Jinja は整数で読めなければ実数として読み、切り捨てる。
       if (FLOAT_RE.test(s)) {
         const f = Number(s);
@@ -519,10 +619,18 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
   length: {
     params: [],
     apply: (v) => {
-      if (v === undefined || v === null) return 0;
-      if (typeof v === 'string' || Array.isArray(v)) return v.length;
-      if (v instanceof SafeHtml) return v.toString().length;
-      if (isPlainObject(v)) return Object.keys(v).length;
+      if (v === undefined || v === null) {
+        return 0;
+      }
+      if (typeof v === 'string' || Array.isArray(v)) {
+        return v.length;
+      }
+      if (v instanceof SafeHtml) {
+        return v.toString().length;
+      }
+      if (isPlainObject(v)) {
+        return Object.keys(v).length;
+      }
       throw new JinjaExprError('長さの無い値です');
     },
   },
@@ -532,14 +640,19 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
     apply: (v, chars) => {
       const s = asText(v);
       let out: string;
-      if (chars === undefined || chars === null) out = s.trim();
-      else {
+      if (chars === undefined || chars === null) {
+        out = s.trim();
+      } else {
         shortArg(chars, 'trim の chars');
         const set = new Set(asText(chars));
         let a = 0;
         let b = s.length;
-        while (a < b && set.has(s[a])) a++;
-        while (b > a && set.has(s[b - 1])) b--;
+        while (a < b && set.has(s[a])) {
+          a++;
+        }
+        while (b > a && set.has(s[b - 1])) {
+          b--;
+        }
         out = s.slice(a, b);
       }
       return v instanceof SafeHtml ? new SafeHtml(out) : out;
@@ -558,9 +671,15 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
       // 作る前に、作る行の数と埋める数を数える(入力の大きさは呼び出し側が数えた)。
       chargeActive(Math.ceil(seq.length / n) + (filling ? n - (seq.length % n) : 0));
       const out: unknown[][] = [];
-      for (let i = 0; i < seq.length; i += n) out.push(seq.slice(i, i + n));
+      for (let i = 0; i < seq.length; i += n) {
+        out.push(seq.slice(i, i + n));
+      }
       const last = out[out.length - 1];
-      if (last && filling) while (last.length < n) last.push(fill);
+      if (last && filling) {
+        while (last.length < n) {
+          last.push(fill);
+        }
+      }
       return out;
     },
   },
@@ -579,9 +698,13 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
       let offset = 0;
       for (let i = 0; i < n; i++) {
         const start = offset + i * per;
-        if (i < extra) offset += 1;
+        if (i < extra) {
+          offset += 1;
+        }
         const tmp = seq.slice(start, offset + (i + 1) * per);
-        if (filling && i >= extra) tmp.push(fill);
+        if (filling && i >= extra) {
+          tmp.push(fill);
+        }
         out.push(tmp);
       }
       return out;
@@ -598,7 +721,9 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
         return k === undefined ? d : k;
       };
       const norm = (k: unknown) => {
-        if (caseSensitive || typeof k !== 'string') return k;
+        if (caseSensitive || typeof k !== 'string') {
+          return k;
+        }
         chargeActive(1 + k.length);
         return k.toLowerCase();
       };
@@ -610,8 +735,9 @@ const FILTERS: Readonly<Record<string, FilterSpec>> = allowlist({
       while (i < sorted.length) {
         const list: unknown[] = [];
         const key = sorted[i].key;
-        while (i < sorted.length && compareKeys(sorted[i].key, key) === 0)
+        while (i < sorted.length && compareKeys(sorted[i].key, key) === 0) {
           list.push(sorted[i++].item);
+        }
         const grouper = keyOf(list[0]);
         out.push(Object.assign([grouper, list], { grouper, list }));
       }
@@ -637,15 +763,21 @@ const TESTS: Readonly<Record<string, (value: unknown, ...args: unknown[]) => boo
   // 要素ごとの比較の費用(文字列同士は短いほうの長さ)を数える。
   in: (v, seq) => {
     if (Array.isArray(seq)) {
-      for (const e of seq) chargeCompare(v, e);
+      for (const e of seq) {
+        chargeCompare(v, e);
+      }
       return seq.includes(v);
     }
     chargeActive(1 + sizeOf(seq) + (typeof v === 'string' ? v.length : 0));
     if (typeof seq === 'string' || seq instanceof SafeHtml) {
-      if (typeof v !== 'string') throw new JinjaExprError('文字列の in は文字列だけを探せます');
+      if (typeof v !== 'string') {
+        throw new JinjaExprError('文字列の in は文字列だけを探せます');
+      }
       return seq.toString().includes(v);
     }
-    if (isPlainObject(seq)) return typeof v === 'string' && Object.hasOwn(seq, v);
+    if (isPlainObject(seq)) {
+      return typeof v === 'string' && Object.hasOwn(seq, v);
+    }
     throw new JinjaExprError('in の右辺が入れ物ではありません');
   },
 });
@@ -676,16 +808,24 @@ const FUNCTIONS: Readonly<Record<string, (call: CallArgs, budget: JinjaBudget) =
         throw new JinjaExprError('range の引数は整数が必要です');
       }
       const [start, stop, step] = (args.length === 1 ? [0, args[0], 1] : [...args, 1]) as number[];
-      if (step === 0) throw new JinjaExprError('range の step は 0 にできません');
+      if (step === 0) {
+        throw new JinjaExprError('range の step は 0 にできません');
+      }
       const len = Math.max(0, Math.ceil((stop - start) / step));
-      if (len > MAX_RANGE) throw new JinjaExprError(`range が長すぎます(上限 ${MAX_RANGE})`);
+      if (len > MAX_RANGE) {
+        throw new JinjaExprError(`range が長すぎます(上限 ${MAX_RANGE})`);
+      }
       budget.charge(len);
       return Array.from({ length: len }, (_, i) => start + i * step);
     },
     namespace: ({ args, kwargs }) => {
-      if (args.length > 0) throw new JinjaExprError('namespace はキーワード引数だけを受けます');
+      if (args.length > 0) {
+        throw new JinjaExprError('namespace はキーワード引数だけを受けます');
+      }
       const ns = {};
-      for (const [k, v] of kwargs) defineOwn(ns, k, v);
+      for (const [k, v] of kwargs) {
+        defineOwn(ns, k, v);
+      }
       NAMESPACES.add(ns);
       return ns;
     },
@@ -697,14 +837,17 @@ const FUNCTIONS: Readonly<Record<string, (call: CallArgs, budget: JinjaBudget) =
  */
 function splitLines(s: string): string[] {
   const lines = s.split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/);
-  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    lines.pop();
+  }
   return lines;
 }
 
 const STRING_METHODS: Readonly<Record<string, (s: string, call: CallArgs) => unknown>> = allowlist({
   splitlines: (s, { args, kwargs }) => {
-    if (args.length > 0 || kwargs.size > 0)
+    if (args.length > 0 || kwargs.size > 0) {
       throw new JinjaExprError('splitlines は引数を取りません');
+    }
     return splitLines(s);
   },
   startswith: (s, { args, kwargs }) => {
@@ -721,14 +864,20 @@ const STRING_METHODS: Readonly<Record<string, (s: string, call: CallArgs) => unk
 function bindFilterArgs(name: string, spec: FilterSpec, call: CallArgs): unknown[] {
   const { args, kwargs } = call;
   if (spec.variadic) {
-    if (kwargs.size > 0) throw new JinjaExprError(`${name} はキーワード引数を受けません`);
+    if (kwargs.size > 0) {
+      throw new JinjaExprError(`${name} はキーワード引数を受けません`);
+    }
     return args;
   }
-  if (args.length > spec.params.length) throw new JinjaExprError(`${name} の引数が多すぎます`);
+  if (args.length > spec.params.length) {
+    throw new JinjaExprError(`${name} の引数が多すぎます`);
+  }
   const bound = [...args];
   for (const [k, v] of kwargs) {
     const i = spec.params.indexOf(k);
-    if (i < 0 || i < args.length) throw new JinjaExprError(`${name} に無い引数: ${k}`);
+    if (i < 0 || i < args.length) {
+      throw new JinjaExprError(`${name} に無い引数: ${k}`);
+    }
     bound[i] = v;
   }
   return bound;
@@ -741,20 +890,83 @@ const MAX_STRING_LENGTH = 1_000_000;
 
 const NO_ARGS: CallArgs = { args: [], kwargs: new Map() };
 
+/**
+ * `inspectJinjaExpr` が構文解析の途中で集める部品。評価のときは渡さない。`listDepth` はリストの
+ * リテラルの入れ子の深さで、参照・フィルタがリストの中かを記録するのに使う。
+ */
+interface InspectRecorder {
+  readonly refs: JinjaExprRef[];
+  readonly calls: JinjaExprRef[];
+  readonly filters: JinjaExprFilter[];
+  readonly tests: string[];
+  listDepth: number;
+  /** 呼び出し(関数・フィルタ・メソッド)の引数の入れ子の深さ。 */
+  callDepth: number;
+}
+
+/**
+ * 括弧・リスト・呼び出しの引数・`not`・単項の入れ子の深さの上限。再帰下降なので、深い入れ子は JS の
+ * スタックを使い切って RangeError になる(`JinjaExprError` でないので呼び出し側の想定の外になる)。
+ * 本番のパーツの式は数段で、64 段は十分に大きい。
+ */
+const MAX_NEST = 64;
+
 class Parser {
   private pos = 0;
-  /** 短絡で評価しない側を読んでいる深さ。0 より大きい間は呼び出しを実行しない。 */
-  private dead = 0;
+  /**
+   * 短絡で評価しない側を読んでいる深さ。0 より大きい間は呼び出し・演算・名前の解決をせず、評価の量も
+   * 数えない(構文と名前の一覧だけを検査する)。`inspectJinjaExpr` は 1 から始めて式全体をこの形で読む。
+   */
+  private dead: number;
+  /** 今の入れ子の深さ(`MAX_NEST` で止める)。 */
+  private nest = 0;
 
   constructor(
     private readonly tokens: readonly Token[],
     private readonly ctx: JinjaCtx,
     private readonly budget: JinjaBudget,
-  ) {}
+    private readonly recorder?: InspectRecorder,
+  ) {
+    this.dead = recorder === undefined ? 0 : 1;
+  }
+
+  /**
+   * 直後のメンバの引き方。`.name` ならその名前、`[k]` なら名前は null(添字は値なので静的に分からない)。
+   */
+  private memberAfter(): { member: boolean; memberName: string | null } {
+    if (this.isOp('.')) {
+      const t = this.peek(1);
+      return { member: true, memberName: t?.type === 'name' ? t.value : null };
+    }
+    return { member: this.isOp('['), memberName: null };
+  }
+
+  /** 参照・呼び出し・フィルタが、リストの中か呼び出しの引数の中か。 */
+  private where(): { inList: boolean; inCall: boolean } {
+    return {
+      inList: (this.recorder?.listDepth ?? 0) > 0,
+      inCall: (this.recorder?.callDepth ?? 0) > 0,
+    };
+  }
+
+  /** 入れ子を 1 段下りて `read` を読む。`MAX_NEST` を超えたら throw。 */
+  private nested<T>(read: () => T): T {
+    if (this.nest >= MAX_NEST) {
+      throw new JinjaExprError(`式の入れ子が深すぎます(上限 ${MAX_NEST})`);
+    }
+    this.nest += 1;
+    try {
+      return read();
+    } finally {
+      this.nest -= 1;
+    }
+  }
 
   /** 式を 1 つ読み切り、末尾に余りが無いことを確かめる。 */
   parseAll(): unknown {
-    if (this.tokens.length === 0) throw new JinjaExprError('式が空です');
+    if (this.tokens.length === 0) {
+      throw new JinjaExprError('式が空です');
+    }
     const value = this.parseOr();
     if (this.pos !== this.tokens.length) {
       throw new JinjaExprError(`解釈できない残り: ${this.tokens[this.pos].value}`);
@@ -782,19 +994,25 @@ class Parser {
   }
 
   private expect(type: TokenType, value: string): void {
-    if (!this.eat(type, value)) throw new JinjaExprError(`${value} が必要です`);
+    if (!this.eat(type, value)) {
+      throw new JinjaExprError(`${value} が必要です`);
+    }
   }
 
   private expectName(what: string): string {
     const t = this.peek();
-    if (t?.type !== 'name') throw new JinjaExprError(`${what}が必要です`);
+    if (t?.type !== 'name') {
+      throw new JinjaExprError(`${what}が必要です`);
+    }
     this.pos += 1;
     return t.value;
   }
 
   /** `skip` が真なら評価しない側として読む(構文と名前の一覧だけを検査する)。 */
   private maybeDead(skip: boolean, read: () => unknown): unknown {
-    if (!skip) return read();
+    if (!skip) {
+      return read();
+    }
     this.dead += 1;
     try {
       return read();
@@ -822,7 +1040,9 @@ class Parser {
   }
 
   private parseNot(): unknown {
-    if (this.eat('name', 'not')) return !this.parseNot();
+    if (this.eat('name', 'not')) {
+      return !this.nested(() => this.parseNot());
+    }
     return this.parseCompare();
   }
 
@@ -831,10 +1051,15 @@ class Parser {
     // nunjucks は比較を連鎖できる(`a < b < c` = `(a < b) < c`)ので同じ形にする。
     for (;;) {
       const t = this.peek();
-      if (t?.type !== 'op') break;
-      if (!['==', '!=', '<', '<=', '>', '>='].includes(t.value)) break;
+      if (t?.type !== 'op') {
+        break;
+      }
+      if (!['==', '!=', '<', '<=', '>', '>='].includes(t.value)) {
+        break;
+      }
       this.pos += 1;
-      left = compareOp(t.value, left, this.parseAdditive());
+      const right = this.parseAdditive();
+      left = this.dead > 0 ? undefined : compareOp(t.value, left, right);
     }
     return left;
   }
@@ -842,12 +1067,25 @@ class Parser {
   private parseAdditive(): unknown {
     let left = this.parseMultiplicative();
     for (;;) {
+      let op: '+' | '-';
       if (this.eat('op', '+')) {
-        left = addOp(left, this.parseMultiplicative());
-        if (typeof left === 'string') this.budget.charge(left.length);
-      } else if (this.eat('op', '-'))
-        left = toArithmetic(left) - toArithmetic(this.parseMultiplicative());
-      else break;
+        op = '+';
+      } else if (this.eat('op', '-')) {
+        op = '-';
+      } else {
+        break;
+      }
+      const right = this.parseMultiplicative();
+      if (this.dead > 0) {
+        left = undefined;
+      } else if (op === '+') {
+        left = addOp(left, right);
+        if (typeof left === 'string') {
+          this.budget.charge(left.length);
+        }
+      } else {
+        left = toArithmetic(left) - toArithmetic(right);
+      }
     }
     return left;
   }
@@ -856,10 +1094,15 @@ class Parser {
     let left = this.parseUnary();
     for (;;) {
       const t = this.peek();
-      if (t?.type !== 'op') break;
-      if (!['*', '/', '//', '%', '**'].includes(t.value)) break;
+      if (t?.type !== 'op') {
+        break;
+      }
+      if (!['*', '/', '//', '%', '**'].includes(t.value)) {
+        break;
+      }
       this.pos += 1;
-      left = arithmeticOp(t.value, left, this.parseUnary());
+      const right = this.parseUnary();
+      left = this.dead > 0 ? undefined : arithmeticOp(t.value, left, right);
     }
     return left;
   }
@@ -867,62 +1110,113 @@ class Parser {
   /** Jinja の `parse_unary` と同じく、単項の後にフィルタ・テストを重ねる(`-x|f` は `(-x)|f`)。 */
   private parseUnary(withFilter = true): unknown {
     let value: unknown;
-    if (this.eat('op', '-')) value = -toArithmetic(this.parseUnary(false));
-    else if (this.eat('op', '+')) value = +toArithmetic(this.parseUnary(false));
-    else value = this.parsePostfix();
+    const sign = this.eat('op', '-') ? -1 : this.eat('op', '+') ? 1 : 0;
+    if (sign === 0) {
+      value = this.parsePostfix();
+    } else {
+      const operand = this.nested(() => this.parseUnary(false));
+      value = this.dead > 0 ? undefined : sign * toArithmetic(operand);
+    }
     return withFilter ? this.parseFilterExpr(value) : value;
   }
 
   private parseFilterExpr(value: unknown): unknown {
     let v = value;
+    // 同じ連鎖で直前に掛けたフィルタの記録。次のフィルタの名前を `next` に書く(`|select|list`)。
+    let prev: { next: string | null } | undefined;
     for (;;) {
-      if (this.eat('op', '|')) v = this.parseFilter(v);
-      else if (this.eat('name', 'is')) v = this.parseTest(v);
-      else return v;
+      if (this.eat('op', '|')) {
+        const at = this.recorder?.filters.length ?? 0;
+        const name = this.peek()?.value ?? '';
+        if (prev) {
+          prev.next = name;
+        }
+        v = this.parseFilter(v);
+        prev = this.recorder?.filters[at];
+      } else if (this.eat('name', 'is')) {
+        prev = undefined;
+        v = this.parseTest(v);
+      } else {
+        return v;
+      }
     }
   }
 
   private parseFilter(value: unknown): unknown {
     const name = this.expectName('フィルタ名');
-    if (!Object.hasOwn(FILTERS, name)) throw new JinjaExprError(`許可していないフィルタ: ${name}`);
+    if (!Object.hasOwn(FILTERS, name)) {
+      throw new JinjaExprError(`許可していないフィルタ: ${name}`);
+    }
     const spec = FILTERS[name];
+    this.recorder?.filters.push({ name, ...this.where(), next: null });
     const call = this.isOp('(') ? this.parseCallArgs() : NO_ARGS;
     const args = bindFilterArgs(name, spec, call);
-    if (this.dead > 0) return undefined;
+    if (this.dead > 0) {
+      return undefined;
+    }
     this.budget.charge(1 + sizeOf(value));
     const result = spec.apply(value, ...args);
     // batch / slice の fill_with などで同じ値への参照を並べられるので、作った並びは入れ子ごと数える。
-    if (Array.isArray(result)) chargeDeepSize(this.budget, result);
+    if (Array.isArray(result)) {
+      chargeDeepSize(this.budget, result);
+    }
     return result;
   }
 
   /** `x is [not] name` / `x is name(args)`。括弧なしの引数(`is divisibleby 3`)は受けない。 */
   private parseTest(value: unknown): boolean | undefined {
     const negated = this.eat('name', 'not');
-    const test = lookupTest(this.expectName('テスト名'));
+    const testName = this.expectName('テスト名');
+    const test = lookupTest(testName);
+    this.recorder?.tests.push(testName);
     const call = this.isOp('(') ? this.parseCallArgs() : NO_ARGS;
-    if (call.kwargs.size > 0) throw new JinjaExprError('テストはキーワード引数を受けません');
-    if (this.dead > 0) return undefined;
+    if (call.kwargs.size > 0) {
+      throw new JinjaExprError('テストはキーワード引数を受けません');
+    }
+    if (this.dead > 0) {
+      return undefined;
+    }
     return test(value, ...call.args) !== negated;
   }
 
   /** `(` から `)` までの引数。位置引数の後にだけ `name=expr` のキーワード引数を置ける。 */
   private parseCallArgs(): CallArgs {
+    if (this.recorder) {
+      this.recorder.callDepth += 1;
+    }
+    try {
+      return this.nested(() => this.readCallArgs());
+    } finally {
+      if (this.recorder) {
+        this.recorder.callDepth -= 1;
+      }
+    }
+  }
+
+  private readCallArgs(): CallArgs {
     this.expect('op', '(');
     const args: unknown[] = [];
     const kwargs = new Map<string, unknown>();
-    if (this.eat('op', ')')) return { args, kwargs };
+    if (this.eat('op', ')')) {
+      return { args, kwargs };
+    }
     for (;;) {
       if (this.peek()?.type === 'name' && this.isOp('=', 1)) {
         const key = this.expectName('引数名');
         this.pos += 1;
-        if (kwargs.has(key)) throw new JinjaExprError(`引数が重複しています: ${key}`);
+        if (kwargs.has(key)) {
+          throw new JinjaExprError(`引数が重複しています: ${key}`);
+        }
         kwargs.set(key, this.parseOr());
       } else {
-        if (kwargs.size > 0) throw new JinjaExprError('キーワード引数の後に位置引数は置けません');
+        if (kwargs.size > 0) {
+          throw new JinjaExprError('キーワード引数の後に位置引数は置けません');
+        }
         args.push(this.parseOr());
       }
-      if (this.eat('op', ')')) return { args, kwargs };
+      if (this.eat('op', ')')) {
+        return { args, kwargs };
+      }
       this.expect('op', ',');
     }
   }
@@ -936,13 +1230,15 @@ class Parser {
     for (;;) {
       if (this.eat('op', '.')) {
         const t = this.peek();
-        if (t?.type !== 'name') throw new JinjaExprError('. の後に名前が必要です');
+        if (t?.type !== 'name') {
+          throw new JinjaExprError('. の後に名前が必要です');
+        }
         this.pos += 1;
         value = this.isOp('(') ? this.callMethod(value, t.value) : lookupMember(value, t.value);
         continue;
       }
       if (this.eat('op', '[')) {
-        const key = this.parseOr();
+        const key = this.nested(() => this.parseOr());
         this.expect('op', ']');
         if (this.dead > 0) {
           value = undefined;
@@ -957,7 +1253,9 @@ class Parser {
         value = lookupMember(value, key);
         continue;
       }
-      if (this.isOp('(')) throw new JinjaExprError('関数呼び出しは解釈しません');
+      if (this.isOp('(')) {
+        throw new JinjaExprError('関数呼び出しは解釈しません');
+      }
       return value;
     }
   }
@@ -968,33 +1266,52 @@ class Parser {
       throw new JinjaExprError(`許可していないメソッド: ${name}`);
     }
     const call = this.parseCallArgs();
-    if (this.dead > 0) return undefined;
-    if (typeof value !== 'string') throw new JinjaExprError(`${name} は文字列にだけ呼べます`);
+    if (this.dead > 0) {
+      return undefined;
+    }
+    if (typeof value !== 'string') {
+      throw new JinjaExprError(`${name} は文字列にだけ呼べます`);
+    }
     this.budget.charge(1 + value.length);
     return STRING_METHODS[name](value, call);
   }
 
   private parsePrimary(): unknown {
     const t = this.peek();
-    if (!t) throw new JinjaExprError('式が途中で終わっています');
+    if (!t) {
+      throw new JinjaExprError('式が途中で終わっています');
+    }
     if (t.type === 'op' && t.value === '(') {
       this.pos += 1;
-      const inner = this.parseOr();
+      const inner = this.nested(() => this.parseOr());
       this.expect('op', ')');
       return inner;
     }
     if (t.type === 'op' && t.value === '[') {
       this.pos += 1;
       const items: unknown[] = [];
-      if (this.eat('op', ']')) return items;
-      for (;;) {
-        items.push(this.parseOr());
-        if (this.eat('op', ']')) {
-          if (this.dead === 0) chargeDeepSize(this.budget, items);
-          return items;
-        }
-        this.expect('op', ',');
+      if (this.eat('op', ']')) {
+        return items;
       }
+      if (this.recorder) {
+        this.recorder.listDepth += 1;
+      }
+      this.nested(() => {
+        for (;;) {
+          items.push(this.parseOr());
+          if (this.eat('op', ']')) {
+            return;
+          }
+          this.expect('op', ',');
+        }
+      });
+      if (this.recorder) {
+        this.recorder.listDepth -= 1;
+      }
+      if (this.dead === 0) {
+        chargeDeepSize(this.budget, items);
+      }
+      return items;
     }
     if (t.type === 'number') {
       this.pos += 1;
@@ -1008,7 +1325,9 @@ class Parser {
       this.pos += 1;
       // 関数は一覧の名前を呼び出しの形で書いたときだけ呼ぶ(値としては引けない)。
       if (this.isOp('(') && Object.hasOwn(FUNCTIONS, t.value)) {
+        const where = this.where();
         const call = this.parseCallArgs();
+        this.recorder?.calls.push({ name: t.value, ...this.memberAfter(), ...where });
         return this.dead > 0 ? undefined : FUNCTIONS[t.value](call, this.budget);
       }
       switch (t.value) {
@@ -1024,7 +1343,8 @@ class Parser {
         case 'null':
           return null;
         default:
-          return this.lookupName(t.value);
+          this.recorder?.refs.push({ name: t.value, ...this.memberAfter(), ...this.where() });
+          return this.dead > 0 ? undefined : this.lookupName(t.value);
       }
     }
     throw new JinjaExprError(`解釈できないトークン: ${t.value}`);
@@ -1033,7 +1353,9 @@ class Parser {
   /** 名前解決も own property のみ(prototype 経由の `constructor` 等へ届かせない)。 */
   private lookupName(name: string): unknown {
     const layer = findNameLayer(this.ctx, name, this.budget);
-    if (layer === null) return undefined;
+    if (layer === null) {
+      return undefined;
+    }
     const v = layer[name];
     return typeof v === 'function' ? undefined : v;
   }
@@ -1046,7 +1368,9 @@ class Parser {
 function addOp(a: unknown, b: unknown): unknown {
   if (isObjectValue(a) || isObjectValue(b) || typeof a === 'string' || typeof b === 'string') {
     const s = jsString(a) + jsString(b);
-    if (s.length > MAX_STRING_LENGTH) throw new JinjaExprError('文字列が長すぎます');
+    if (s.length > MAX_STRING_LENGTH) {
+      throw new JinjaExprError('文字列が長すぎます');
+    }
     return s;
   }
   return (a as number) + (b as number);
@@ -1116,6 +1440,118 @@ export function evaluateJinjaExpr(
   return withBudget(budget, () => new Parser(tokenize(src), ctx, budget).parseAll());
 }
 
+/** 式の中の名前の参照、または関数の呼び出し(`inspectJinjaExpr` の結果)。 */
+export interface JinjaExprRef {
+  readonly name: string;
+  /** 参照・呼び出しの結果から、すぐ `.x` / `[k]` でメンバを引いているか。 */
+  readonly member: boolean;
+  /** `.x` で引いたときのメンバ名 `x`。`[k]` で引いたとき・引かないときは null。 */
+  readonly memberName: string | null;
+  /** リストのリテラルの中にあるか。 */
+  readonly inList: boolean;
+  /** 呼び出し(関数・フィルタ・メソッド)の引数の中にあるか。 */
+  readonly inCall: boolean;
+}
+
+/** 式の中で使ったフィルタ(`inspectJinjaExpr` の結果)。 */
+export interface JinjaExprFilter {
+  readonly name: string;
+  readonly inList: boolean;
+  readonly inCall: boolean;
+  /** 同じ連鎖ですぐ次に掛けたフィルタの名前(`xs|select|list` の select なら `list`)。無ければ null。 */
+  next: string | null;
+}
+
+/** 一覧(`FUNCTIONS`)の関数の名前。不変ゲートは、呼ばずに値として出す形を不活性にしない。 */
+export const JINJA_FUNCTION_NAMES: readonly string[] = Object.keys(FUNCTIONS);
+
+/** `inspectJinjaExpr` の結果。部品の並びは式の中の出現順。 */
+export interface JinjaExprInspection {
+  /** 評価器の文法で読めるか。読めなければ `error` に理由があり、ほかの部品は空か途中まで。 */
+  readonly ok: boolean;
+  readonly error?: string;
+  /** 文字列リテラルの原文(引用符の内側)と、評価器が復号した値。 */
+  readonly strings: { readonly raw: string; readonly text: string }[];
+  /** 字句の名前すべて(変数・メンバ・フィルタ・テスト・関数・キーワード引数・`and` などの語)。 */
+  readonly names: string[];
+  /** `.` の直後の名前。 */
+  readonly members: string[];
+  /** 変数の参照(`true` / `none` などの定数は含まない)。 */
+  readonly refs: JinjaExprRef[];
+  /** 一覧(`FUNCTIONS`)の関数の呼び出し。 */
+  readonly calls: JinjaExprRef[];
+  readonly filters: JinjaExprFilter[];
+  readonly tests: string[];
+}
+
+/**
+ * 評価の量を数えようとしたら落ちる予算。`inspectJinjaExpr` は量を数えない契約なので、数える経路が
+ * 残っていれば `JinjaExprError` でない例外で表に出す(`ok:false` に紛れさせない)。
+ */
+class NoChargeBudget extends JinjaBudget {
+  override charge(): void {
+    throw new Error('inspectJinjaExpr が評価の量を数えました(dead の分岐の漏れ)');
+  }
+}
+
+/**
+ * 式 `src` を評価せずに読み、評価器の文法で読めるかと、判定に要る部品を返す。テンプレの不変ゲート
+ * (`inertJinja.ts`)が、承認の前の原文を値なしで判定するのに使う。構文解析は評価しない側(`dead`)と
+ * して式全体を読むので、関数は呼ばず、演算もせず、評価の量も数えない(`range(10**9)` も長さを
+ * 数えない)。許可リストの外(`~`・インラインの `if`・`in`・一覧に無いフィルタ・テスト・関数・
+ * メソッド・値の呼び出し)は `evaluateJinjaExpr` と同じ箇所で落ち、`ok:false` になる。
+ */
+export function inspectJinjaExpr(src: string): JinjaExprInspection {
+  const strings: { raw: string; text: string }[] = [];
+  const names: string[] = [];
+  const members: string[] = [];
+  const recorder: InspectRecorder = {
+    refs: [],
+    calls: [],
+    filters: [],
+    tests: [],
+    listDepth: 0,
+    callDepth: 0,
+  };
+  const result = (ok: boolean, error?: string): JinjaExprInspection => ({
+    ok,
+    ...(error === undefined ? {} : { error }),
+    strings,
+    names,
+    members,
+    refs: recorder.refs,
+    calls: recorder.calls,
+    filters: recorder.filters,
+    tests: recorder.tests,
+  });
+  try {
+    const tokens = tokenize(src);
+    tokens.forEach((t, i) => {
+      if (t.type === 'string') {
+        strings.push({ raw: t.value.slice(1, -1), text: t.text ?? '' });
+      }
+      if (t.type !== 'name') {
+        return;
+      }
+      names.push(t.value);
+      const prev = tokens[i - 1];
+      if (prev?.type === 'op' && prev.value === '.') {
+        members.push(t.value);
+      }
+    });
+    const budget = new NoChargeBudget();
+    withBudget(budget, () =>
+      new Parser(tokens, Object.create(null) as JinjaCtx, budget, recorder).parseAll(),
+    );
+    return result(true);
+  } catch (e) {
+    if (e instanceof JinjaExprError) {
+      return result(false, e.message);
+    }
+    throw e;
+  }
+}
+
 const LITERAL_NAMES = new Set(['true', 'True', 'false', 'False', 'none', 'None', 'null']);
 
 /**
@@ -1138,7 +1574,9 @@ export function assignJinjaSet(
   let attr: string | null = null;
   let at = 1;
   if (tokens[1]?.type === 'op' && tokens[1].value === '.') {
-    if (tokens[2]?.type !== 'name') throw new JinjaExprError('. の後に名前が必要です');
+    if (tokens[2]?.type !== 'name') {
+      throw new JinjaExprError('. の後に名前が必要です');
+    }
     attr = tokens[2].value;
     at = 3;
   }
@@ -1169,6 +1607,8 @@ export function assignJinjaSet(
  * JS の文字列化(配列は `a,b`、オブジェクトは `[object Object]`)。`safe` の値は元の HTML。
  */
 export function stringifyJinjaValue(value: unknown, budget?: JinjaBudget): string {
-  if (value === null || value === undefined) return '';
+  if (value === null || value === undefined) {
+    return '';
+  }
   return budget ? withBudget(budget, () => jsString(value)) : jsString(value);
 }

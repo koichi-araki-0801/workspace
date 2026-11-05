@@ -86,19 +86,27 @@ export function createTemplateEditorService(
   /** 下書きを破棄し、成功したときだけこのセッションの所有記録を外す。 */
   async function discardAndRelease(id: string): Promise<Result<void>> {
     const res = await templates.discardDraft(id);
-    if (isOk(res)) owner.release(id);
+    if (isOk(res)) {
+      owner.release(id);
+    }
     return res;
   }
 
   return {
     async loadForEdit(id) {
       const tplRes = await templates.getTemplate(id);
-      if (isErr(tplRes)) return tplRes;
+      if (isErr(tplRes)) {
+        return tplRes;
+      }
       const partsRes = await parts.listParts({});
-      if (isErr(partsRes)) return partsRes;
+      if (isErr(partsRes)) {
+        return partsRes;
+      }
       // source ファイルを mask するより、autosave 済み draft(既に編集可能)を優先する。
       const draftRes = await templates.getDraft(id);
-      if (isErr(draftRes)) return draftRes;
+      if (isErr(draftRes)) {
+        return draftRes;
+      }
 
       const tpl = tplRes.value;
       let draft = draftRes.value;
@@ -132,7 +140,9 @@ export function createTemplateEditorService(
         if (!isErr(sampleRes)) {
           sample = applyTemplateAttributes(sampleRes.value.sample, tpl.meta.attributes);
           // 共通サンプルは作成タブの値なので、合成の警告も作成経路でだけ返す。
-          if (!isEditId) sampleWarnings = sampleRes.value.warnings;
+          if (!isEditId) {
+            sampleWarnings = sampleRes.value.warnings;
+          }
         }
       } catch {
         /* sample は空のままにする */
@@ -204,7 +214,9 @@ export function createTemplateEditorService(
 
     async saveDraft(id, html, css) {
       const res = await templates.saveDraft({ templateId: id, html, css });
-      if (isOk(res)) owner.claim(id);
+      if (isOk(res)) {
+        owner.claim(id);
+      }
       return res;
     },
 

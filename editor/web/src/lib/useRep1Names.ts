@@ -52,7 +52,9 @@ export function useRep1Names() {
 
   /** undefined = まだ分からない(取得前・取得中・失敗)、null = Rep1 に無い。 */
   function companyOf(companyCode: string): CompanyOption | null | undefined {
-    if (state.companies?.state !== 'ok') return undefined;
+    if (state.companies?.state !== 'ok') {
+      return undefined;
+    }
     return state.companies.value.get(companyCode.toLowerCase()) ?? null;
   }
 
@@ -62,10 +64,14 @@ export function useRep1Names() {
       loadCompanies();
       return;
     }
-    if (state.companies.state !== 'ok') return;
+    if (state.companies.state !== 'ok') {
+      return;
+    }
     for (const code of wantedFunds) {
       const c = companyOf(code);
-      if (c && !state.funds.has(c.rep1CompanyCode)) loadFunds(c.rep1CompanyCode);
+      if (c && !state.funds.has(c.rep1CompanyCode)) {
+        loadFunds(c.rep1CompanyCode);
+      }
     }
   }
 
@@ -74,13 +80,18 @@ export function useRep1Names() {
     companiesLoad = repo
       .listCompanies()
       .then((res) => {
-        if (isErr(res)) throw res.error;
+        if (isErr(res)) {
+          throw res.error;
+        }
         const byAbbr = new Map<string, CompanyOption>();
         duplicatedAbbrs.clear();
         for (const c of res.value) {
           const key = c.companyCode.toLowerCase();
-          if (byAbbr.has(key)) duplicatedAbbrs.add(key);
-          else byAbbr.set(key, c);
+          if (byAbbr.has(key)) {
+            duplicatedAbbrs.add(key);
+          } else {
+            byAbbr.set(key, c);
+          }
         }
         state.companies = { state: 'ok', value: byAbbr };
         flush();
@@ -95,7 +106,9 @@ export function useRep1Names() {
     repo
       .listFunds(rep1)
       .then((res) => {
-        if (isErr(res)) throw res.error;
+        if (isErr(res)) {
+          throw res.error;
+        }
         state.funds.set(rep1, {
           state: 'ok',
           value: new Map(res.value.map((f) => [f.fundCode, f.fundName])),
@@ -118,7 +131,9 @@ export function useRep1Names() {
   /** `XX01（0001）`。Rep1 に無ければ `XX01（未登録）`、まだ分からなければ略称だけ。 */
   function companyLabel(companyCode: string): string {
     const c = companyOf(companyCode);
-    if (c === undefined) return companyCode;
+    if (c === undefined) {
+      return companyCode;
+    }
     return c === null
       ? `${companyCode}${UNREGISTERED}`
       : formatCompanyLabel(companyCode, c.rep1CompanyCode);
@@ -127,10 +142,16 @@ export function useRep1Names() {
   /** ファンド名。Rep1 に無ければ `（未登録）`、まだ分からなければ空文字。 */
   function fundName(companyCode: string, fundCode: string): string {
     const c = companyOf(companyCode);
-    if (c === undefined) return '';
-    if (c === null) return UNREGISTERED;
+    if (c === undefined) {
+      return '';
+    }
+    if (c === null) {
+      return UNREGISTERED;
+    }
     const funds = state.funds.get(c.rep1CompanyCode);
-    if (funds?.state !== 'ok') return '';
+    if (funds?.state !== 'ok') {
+      return '';
+    }
     return funds.value.get(fundCode) ?? UNREGISTERED;
   }
 
@@ -141,7 +162,9 @@ export function useRep1Names() {
   async function resolveRep1CompanyCode(abbr: string): Promise<string | null> {
     flush();
     await companiesLoad;
-    if (duplicatedAbbrs.has(abbr.toLowerCase())) return null;
+    if (duplicatedAbbrs.has(abbr.toLowerCase())) {
+      return null;
+    }
     return companyOf(abbr)?.rep1CompanyCode ?? null;
   }
 

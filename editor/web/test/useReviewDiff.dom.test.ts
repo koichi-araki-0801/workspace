@@ -43,6 +43,7 @@ const diffData = {
   cssBefore: '.b{}',
   cssAfter: '.a{}',
   afterBodyHtml: '<p>after</p>',
+  cssGeneratedText: true,
 };
 
 beforeEach(() => {
@@ -67,6 +68,7 @@ describe('useReviewDiff', () => {
     expect(d.cssBefore.value).toBe('.b{}');
     expect(d.cssAfter.value).toBe('.a{}');
     expect(d.afterBodyHtml.value).toBe('<p>after</p>');
+    expect(d.cssGeneratedText.value).toBe(true);
     expect(d.loadError.value).toBe(false);
     expect(d.loading.value).toBe(false);
   });

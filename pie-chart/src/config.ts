@@ -64,31 +64,35 @@ function assertConfigValues(base: {
   assertSvgColor('textColor', base.textColor);
   assertSvgColor('lineColor', base.lineColor);
   assertSvgColor('darkSliceTextColor', base.darkSliceTextColor);
-  if (!Array.isArray(base.grayScale4) || base.grayScale4.length === 0)
+  if (!Array.isArray(base.grayScale4) || base.grayScale4.length === 0) {
     throw new Error('grayScale4 は 1 色以上の配列である必要があります。');
+  }
   base.grayScale4.forEach((color, i) => assertSvgColor(`grayScale4[${i}]`, color));
   assertFontWeight('fontWeight', base.fontWeight);
   assertFontFamilyName('embedFontFamilyName', base.embedFontFamilyName);
   // 埋込フォントのパスは**ファイルの中身が出力へ入る**唯一のフィールドなので、色やフォント名と
   // 同じくここで許可リストに掛ける(ここから漏れると唯一の未検証入口になる)。
-  if (typeof base.embedFontPath !== 'string' || !ALLOWED_EMBED_FONT_PATHS.has(base.embedFontPath))
+  if (typeof base.embedFontPath !== 'string' || !ALLOWED_EMBED_FONT_PATHS.has(base.embedFontPath)) {
     throw new Error(
       `embedFontPath は同梱フォントのみ指定できます: ${JSON.stringify(base.embedFontPath)} ` +
         `(許可: ${[...ALLOWED_EMBED_FONT_PATHS].join(', ')})。`,
     );
+  }
   // `fontFamily` だけが特別なのではない — 出力 SVG へ入る外部由来の文字列はすべて同じ
   // 検査を掛ける(ラベル名は `limits.ts` の `assertLabelXmlSafe` が同じ hasXmlInvalidChars で
   // 入口を塞いでいる)。ここは属性側でのみ使われ escapeXml が効くので許可リストまでは要らないが、
   // XML 不正文字が混じると除去されて別の文字列が出力される(黙って値が変わる)ので落とす。
-  if (typeof base.fontFamily !== 'string' || hasXmlInvalidChars(base.fontFamily))
+  if (typeof base.fontFamily !== 'string' || hasXmlInvalidChars(base.fontFamily)) {
     throw new Error('fontFamily に XML として出力できない文字が含まれています。');
+  }
   // 属性へ直接出る数値。`renderPdfStylePieToSvg(items, overrides)` は型を守らない
   // 呼び出し側(JS からの統合)からも到達できるので、有限数値であることをここで見る
   // (`escapeXml` は `NaN` や `'1" onload="x'` を数値としては見ない)。
   for (const key of NUMERIC_ATTR_FIELDS) {
     const value = (base as Record<string, unknown>)[key];
-    if (typeof value !== 'number' || !Number.isFinite(value))
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
       throw new Error(`${key} に有限の数値でない値が渡されました: ${JSON.stringify(value)}。`);
+    }
   }
 }
 

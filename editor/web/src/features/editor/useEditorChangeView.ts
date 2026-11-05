@@ -156,7 +156,9 @@ export function useEditorChangeView(ctx: {
     changeMarksAvailable.value = changeBaseline !== null;
     changeCheck.reset();
     void changeNumbers.flush();
-    if (!input.isCreateRoute) void rejectedReasons.reload();
+    if (!input.isCreateRoute) {
+      void rejectedReasons.reload();
+    }
   }
 
   /** 画面を離れるとき: 本文の読みの待ち・番号の予約・計算中の結果を捨てる。 */

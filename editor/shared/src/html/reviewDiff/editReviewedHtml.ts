@@ -15,7 +15,7 @@
 // ときだけ対応するとみなす。合わなければ書かずに 409 を返す(申請し直してもらう)。
 /// <reference lib="dom" />
 
-import { conflict, validation } from '../../errors.js';
+import { conflict, REVIEW_BASE_CHANGED, validation } from '../../errors.js';
 import {
   type BodyUnitRange,
   type CreateReviewPartDecision,
@@ -139,25 +139,31 @@ export function buildEditReviewedHtml(
 ): string {
   const decisions = review.partDecisions ?? [];
   if (review.baseHtml === undefined || review.baseCss === undefined) {
-    if (decisions.length === 0) return review.html;
+    if (decisions.length === 0) {
+      return review.html;
+    }
     throw conflict(LEGACY_DECISIONS_MESSAGE, { code: 'REVIEW_BASE_MISSING' });
   }
 
   const reviewDiff = diff ?? buildHtmlDiff(review.baseHtml, review.html, parse);
   const candidate = buildReviewedHtmlCandidate(reviewDiff, decisions);
   const issues = reviewFinalizationIssues({ ...candidate, truncated: reviewDiff.truncated });
-  if (issues.length > 0) throw validation(`${issues.join(' ')} ${RELOAD_HINT}`);
+  if (issues.length > 0) {
+    throw validation(`${issues.join(' ')} ${RELOAD_HINT}`);
+  }
 
   const decisionByPartKey = new Map(decisions.map((d) => [d.partKey, d]));
   const rejected = (block: DiffBlock) =>
     block.status !== 'same' && decisionByPartKey.get(block.partKey)?.status === 'rejected';
-  if (!reviewDiff.pages.some((page) => page.blocks.some(rejected))) return review.html;
+  if (!reviewDiff.pages.some((page) => page.blocks.some(rejected))) {
+    return review.html;
+  }
 
   if (currentHtml !== review.baseHtml) {
     throw conflict(
       '申請の後に現行版が変わったため、却下したパーツを申請時点の版へ戻して確定できません。' +
         '最新の現行版から申請し直してください。',
-      { code: 'REVIEW_BASE_CHANGED' },
+      { code: REVIEW_BASE_CHANGED },
     );
   }
 
@@ -209,7 +215,9 @@ function verifiedRange(
   const range = unit === null ? undefined : doc.units[unit];
   if (range) {
     const reread = fragmentUnitHtml(doc.html.slice(range.start, range.end), parse);
-    if (reread.length === 1 && collapse(reread[0]) === collapse(expected)) return range;
+    if (reread.length === 1 && collapse(reread[0]) === collapse(expected)) {
+      return range;
+    }
   }
   throw conflict(SPLICE_MISMATCH_MESSAGE, { code: 'REVIEW_SPLICE_MISMATCH' });
 }
@@ -240,7 +248,9 @@ function spliceRejected(
     const blockByKey = new Map(page.blocks.map((block) => [block.key, block]));
 
     for (const block of page.blocks) {
-      if (!isRejected(block)) continue;
+      if (!isRejected(block)) {
+        continue;
+      }
       if (block.status === 'changed') {
         const range = verifiedRange(after, block.afterUnit, block.rawAfterHtml, parse);
         edits.push({ at: range.start, end: range.end, text: beforeText(block) });
@@ -307,7 +317,9 @@ function spliceRejected(
     let run: string[] = [];
     let previous: DiffBlock | undefined;
     const flush = (next: DiffBlock | undefined) => {
-      if (run.length === 0) return;
+      if (run.length === 0) {
+        return;
+      }
       edits.push(insertion(page.index, run, previous, next, page.afterBreakUnit));
       run = [];
     };

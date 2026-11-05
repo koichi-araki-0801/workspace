@@ -21,6 +21,7 @@ import {
   type ReviewRequest,
   type ReviewRequestMeta,
   reviewFinalizationIssues,
+  reviewResubmitMessage,
   toReviewMeta,
 } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
@@ -76,7 +77,9 @@ const {
   truncated,
   cssChanged,
   printOnlyCss,
+  cssGeneratedText,
   loadError,
+  renderErrorMessage,
   loading,
   deciding,
   load,
@@ -92,7 +95,7 @@ const {
 async function reloadAfterDecisionFailure(): Promise<boolean> {
   const reloaded = await load();
   const r = review.value;
-  if (reloaded && r && r.status !== 'pending') emit('decided', toReviewMeta(r));
+  if (reloaded && r && r.status !== 'pending') { emit('decided', toReviewMeta(r)); }
   return reloaded;
 }
 
@@ -132,7 +135,7 @@ const listRef = ref<InstanceType<typeof ReviewDecisionList>>();
  * キー(`p#2` など)が確定版の別のパーツのキーと重なり、そちらへコメントが付いてしまう。
  */
 function commentKeyOf(c: ReviewChangeRow): string | null {
-  if (c.kind === 'added') return null;
+  if (c.kind === 'added') { return null; }
   return isCreate.value ? c.partKey : c.beforePartKey;
 }
 
@@ -147,7 +150,7 @@ function select(no: number, toggle = false): void {
     return;
   }
   const c = changes.value.find((x) => x.no === no);
-  if (!c) return;
+  if (!c) { return; }
   selectedNo.value = no;
   visualRef.value?.gotoPart(no);
   void listRef.value?.revealNo(no);
@@ -168,7 +171,7 @@ function onPick(no: number): void {
 /** コメント一覧などから宛先のキーでパーツを選ぶ。変更の無いキーは何もしない。 */
 function selectPart(commentKey: string): void {
   const c = changes.value.find((x) => commentKeyOf(x) === commentKey);
-  if (c) select(c.no);
+  if (c) { select(c.no); }
 }
 
 const nextNo = computed(() =>
@@ -176,7 +179,7 @@ const nextNo = computed(() =>
 );
 
 function selectNextPending(): void {
-  if (nextNo.value !== null) select(nextNo.value);
+  if (nextNo.value !== null) { select(nextNo.value); }
 }
 
 const selectedKey = computed(() => {
@@ -189,7 +192,7 @@ const commentSlotProps = computed<CommentSlotProps>(() => {
   const partNames = new Map<string, string>();
   for (const c of changes.value) {
     const key = commentKeyOf(c);
-    if (key === null) continue;
+    if (key === null) { continue; }
     partNumbers.set(key, c.no);
     partNames.set(key, c.name);
   }
@@ -206,10 +209,10 @@ const changesKey = computed(() => changes.value.map((c) => `${c.no}:${c.partKey}
 // ので、残った選択は今のキーで知らせ直す(親は `select` と slot の `selectedKey` で宛先を決める)。
 watch(changesKey, () => {
   const no = selectedNo.value;
-  if (no === null) return;
+  if (no === null) { return; }
   const c = changes.value.find((x) => x.no === no);
-  if (!c) clearSelection();
-  else emit('select', commentKeyOf(c), no);
+  if (!c) { clearSelection(); }
+  else { emit('select', commentKeyOf(c), no); }
 });
 
 // ── 2. 右欄のタブ ──
@@ -249,7 +252,7 @@ function gotoPage(index: number): void {
 watch(
   visualRef,
   (v) => {
-    if (!v || pendingIndex.value === null) return;
+    if (!v || pendingIndex.value === null) { return; }
     const index = pendingIndex.value;
     pendingIndex.value = null;
     v.gotoPage(index);
@@ -258,7 +261,7 @@ watch(
 );
 // 読み込みの失敗では待機 index を捨てる。残ると後の再読込で頼んでいないページ送りが 1 回起きる。
 watch(loadError, (e) => {
-  if (e) pendingIndex.value = null;
+  if (e) { pendingIndex.value = null; }
 });
 
 // ── 4. 最終確定 ──
@@ -296,21 +299,28 @@ const canFinalize = computed(
  * 最終確定・申請ごと却下の失敗。ほかの人が先に決着させた(`REVIEW_ALREADY_DECIDED`)ときは
  * 読み直して決着後の画面にし、読み直した決着を親へ伝える(一覧・件数・承認待ちの印を合わせる)。
  * その code は `useReviewDiff` がトーストを黙らせているので、ここで 1 つだけ出す。読み直しに
- * 失敗したら「読み直しました」とは言わない。ほかの失敗は `useAsyncResult` がサーバの文言を出す。
+ * 失敗したら「読み直しました」とは言わない。申請の後で確定版が変わった(`REVIEW_BASE_CHANGED`)・
+ * 今の検査を通らない(`REVIEW_NOT_REVIEWABLE`)ときは、判定し直しても通らないので申請し直しを
+ * 求める文言を出す(読み直しても画面は変わらない)。ほかの失敗は `useAsyncResult` がサーバの文言を出す。
  */
 async function onDecideFailed(code: string | undefined): Promise<void> {
-  if (code !== REVIEW_ALREADY_DECIDED) return;
+  const resubmit = reviewResubmitMessage(code);
+  if (resubmit !== null) {
+    toast(resubmit, 'error');
+    return;
+  }
+  if (code !== REVIEW_ALREADY_DECIDED) { return; }
   const reloaded = await load();
   toast(
     `この申請はすでに処理されています。${reloaded ? '画面を読み直しました。' : ''}`,
     'error',
   );
   const r = review.value;
-  if (reloaded && r && r.status !== 'pending') emit('decided', toReviewMeta(r));
+  if (reloaded && r && r.status !== 'pending') { emit('decided', toReviewMeta(r)); }
 }
 
 async function finalize(): Promise<void> {
-  if (busy.value || !canFinalize.value || counts.value.pending > 0) return;
+  if (busy.value || !canFinalize.value || counts.value.pending > 0) { return; }
 
   const accepted = await confirm({
     title: 'この申請を最終確定しますか？',
@@ -323,7 +333,7 @@ async function finalize(): Promise<void> {
     confirmLabel: '最終確定する',
     variant: 'destructive',
   });
-  if (!accepted) return;
+  if (!accepted) { return; }
 
   // 申請全体の承認メモは送らない(承認の理由は書かせない。パーツの却下理由だけを残す)。
   const res = await approveReview(undefined);
@@ -360,7 +370,7 @@ async function finalize(): Promise<void> {
  * 決着を親へ伝える。読み直した申請が決着済みならそれを、読み直しに失敗して承認待ちのまま
  * なら決着前の申請へ決着の内容を重ねたものを使う。承認・却下はサーバで成立しているので、
  * 承認待ちのまま伝えると一覧に決着済みの申請が承認待ちとして残り、ボタンも押せたままになる。
- * `review` は本体(html/css/filledHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)は
+ * `review` は本体(html/css/renderedHtml)を持つ `ReviewRequest`。一覧の親(`ReviewTabView`)は
  * メタだけを保持するので、本体を持ち越さないよう剥がしてから渡す。
  */
 function emitDecided(
@@ -372,7 +382,7 @@ function emitDecided(
     emit('decided', toReviewMeta(reloaded));
     return;
   }
-  if (!before) return;
+  if (!before) { return; }
   review.value = { ...before, ...decision };
   emit('decided', toReviewMeta(review.value));
 }
@@ -384,7 +394,7 @@ function emitDecided(
  */
 function notifySyncResult(sync: ApproveReviewResult['sync']): void {
   const r = pairSyncResultText(sync);
-  if (!r) return;
+  if (!r) { return; }
   toast(r.text, r.variant, r.variant === 'error' ? 8000 : 6000);
 }
 
@@ -394,12 +404,12 @@ function notifySyncResult(sync: ApproveReviewResult['sync']): void {
  * あったときだけ短く伝える(対象パーツ無しの承認で毎回鳴らさない)。
  */
 function notifyNoteMasterResult(noteMaster: ApproveReviewResult['noteMaster']): void {
-  if (!noteMaster) return;
+  if (!noteMaster) { return; }
   if (noteMaster.error) {
     toast(`注記マスタへの反映に失敗しました: ${noteMaster.error}`, 'error', 8000);
     return;
   }
-  if (noteMaster.updated.length === 0) return;
+  if (noteMaster.updated.length === 0) { return; }
   toast(
     `注記マスタへ ${noteMaster.updated.length} パーツを反映しました（次回作成のテンプレートに適用されます）`,
     'default',
@@ -421,7 +431,7 @@ const requestRejectTooLong = computed(
   () => rejectReasonProblem(requestRejectText.value, REQUEST_REJECT_REASON_MAX) === 'tooLong',
 );
 watch(requestRejectText, (v) => {
-  if (v.trim()) requestRejectError.value = false;
+  if (v.trim()) { requestRejectError.value = false; }
 });
 
 /** 申請ごと却下の理由欄をカードの先頭に開き、入力欄へ移る(見出しのリンクから呼ばれる)。 */
@@ -437,7 +447,7 @@ function closeRequestReject(): void {
 }
 
 async function submitRequestReject(): Promise<void> {
-  if (busy.value || requestRejectTooLong.value) return;
+  if (busy.value || requestRejectTooLong.value) { return; }
   // 却下は申請者へ戻す操作 — 理由が残らないと編集者が直しようがないため必須にする。
   const reason = requestRejectText.value.trim();
   if (!reason) {
@@ -469,9 +479,9 @@ const pdfGenerating = ref(false);
 
 /**
  * 通知バーの「PDF を開いて確認」— 申請版 1 文書を既存の PDF 出力経路(`PreviewView` の
- * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は申請の記入済み
- * インスタンス(`review.filledHtml`)、無ければ diff 由来の申請版本文(`afterBodyHtml` +
- * `cssAfter`)。値の差込は申請側で済んでいるため `sample` は空でよい。新しい PDF
+ * `exportPdf` と同じ `templatePreviewService.renderPdf`)で開く。対象は紙面と同じ申請版の本文
+ * (`afterBodyHtml` + `cssAfter`。作成経路はサーバが受付で原文から描いた本文、編集経路は申請の
+ * 値入り HTML)。申請者が送った値入り HTML は使わない。値の差込は済んでいるため `sample` は空でよい。新しい PDF
  * 生成経路・独自 fetch はここでは作らない。
  *
  * ダウンロードは `PreviewView.exportPdf` と同じアンカー download 方式を使う
@@ -480,15 +490,13 @@ const pdfGenerating = ref(false);
  * クリック後に revoke してリークさせない。
  */
 async function openPdf() {
-  if (!review.value) return;
+  if (!review.value) { return; }
   pdfGenerating.value = true;
   try {
-    // 記入済みインスタンスは描画済みの文書なので描画を通さない(理由は
-    // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所)。
-    // `filledHtml` が空文字の申請(描画中・描画失敗のまま申請)は diff 由来の申請版本文へ倒す。
-    // これも `renderTemplateBody` がサンプル値で描画した後の HTML なので、同じく描画を通さない
-    // (もう一度通すと、本文中の `{{` に見える文字が空の値で消える)。
-    const html = review.value.filledHtml || afterBodyHtml.value;
+    // 申請版の本文は描画済み(または値入り)なので描画を通さない(理由は
+    // `features/preview/services/templatePreviewService.ts` の `isFilled` の定義箇所。もう一度通すと、
+    // 本文中の `{{` に見える文字(作成経路で原文のまま見せた差し込みを含む)が空の値で消える)。
+    const html = afterBodyHtml.value;
     const res = await preview.renderPdf(
       html,
       cssAfter.value,
@@ -528,7 +536,7 @@ onMounted(load);
       <Loader2 class="h-4 w-4 animate-spin" /> 前後プレビューを生成中…
     </p>
     <p v-else-if="loadError && !review" class="text-sm text-destructive">
-      申請の読み込みに失敗しました。時間をおいて再度お試しください。
+      {{ renderErrorMessage ?? '申請の読み込みに失敗しました。時間をおいて再度お試しください。' }}
     </p>
 
     <section
@@ -612,7 +620,8 @@ onMounted(load);
         class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-3 py-2"
       >
         <div ref="toolsEl" class="flex min-w-0 flex-1 basis-[28rem]" />
-        <!-- 技術的警告(truncated / printOnlyCss / cssChanged)は 1 つの通知へ集約。 -->
+        <!-- 技術的警告(truncated / printOnlyCss / cssChanged と、作成経路の描画の注意)は 1 つの
+             通知へ集約。作成経路の紙面はサーバが全部の枝を描いた本文なので、常にそのことを添える。 -->
         <ReviewNoticeBar
           class="basis-full"
           :css-changed="cssChanged"
@@ -621,6 +630,10 @@ onMounted(load);
           :css-after="cssAfter"
           :print-only-css="printOnlyCss"
           :truncated="truncated"
+          :unrendered="review?.origin === 'create' ? (review.renderNotes?.unrendered ?? 0) : 0"
+          :escaped-safe="review?.origin === 'create' ? (review.renderNotes?.escapedSafe ?? 0) : 0"
+          :all-branches="review?.origin === 'create'"
+          :css-generated-text="cssGeneratedText"
           :pdf-generating="pdfGenerating"
           @open-pdf="openPdf"
         />

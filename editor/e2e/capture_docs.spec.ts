@@ -74,7 +74,9 @@ async function waitForTransitionsSettled(page: Page): Promise<void> {
     () =>
       document.getAnimations().every((a) => {
         const timing = a.effect?.getComputedTiming();
-        if (timing?.iterations === Number.POSITIVE_INFINITY) return true;
+        if (timing?.iterations === Number.POSITIVE_INFINITY) {
+          return true;
+        }
         return a.playState === 'finished' || a.playState === 'idle';
       }),
     undefined,
@@ -272,8 +274,9 @@ async function replaceWord(
   await editing.evaluate(
     (el, [f, t]) => {
       for (const n of Array.from(el.childNodes)) {
-        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(f))
+        if (n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').includes(f)) {
           n.textContent = (n.textContent ?? '').replace(f, t);
+        }
       }
       el.dispatchEvent(new InputEvent('input', { bubbles: true }));
     },

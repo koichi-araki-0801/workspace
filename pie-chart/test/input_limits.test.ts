@@ -9,13 +9,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { normalizeInputItems, parseRange, resolveInputData } from '../src/input/load.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { normalizeInputItems, resolveInputData } from '../src/input/load.js';
 import {
   MAX_JSON_BYTES,
   MAX_LABEL_CHARS,
-  MAX_RANGE_ROWS,
-  MAX_XLSX_BYTES,
   PIE_MAX_ITEMS,
   assertItemCount,
   assertLabelXmlSafe,
@@ -32,12 +30,35 @@ describe('上限値の固定', () => {
   it('件数上限は 32(n=32 で約 2 分・n=40 は 5 分でも未完了の実測に基づく)', () => {
     expect(PIE_MAX_ITEMS).toBe(32);
     expect(MAX_LABEL_CHARS).toBe(256);
-    expect(MAX_RANGE_ROWS).toBe(10_000);
   });
-  // xlsx は「圧縮後」のサイズしか見られない(exceljs が全エントリを先に展開する)。
-  // 業務入力の実サイズ(2 列 × 数十行 = 百 KB 台)に対して余裕のある 4 MiB へ下げてある。
-  it('xlsx の上限は 4 MiB(圧縮後サイズのみを見る緩和であることの固定)', () => {
-    expect(MAX_XLSX_BYTES).toBe(4 * 1024 * 1024);
+});
+
+// 上限は import 時に env から決まるので、env を差し替えてモジュールを読み直して確かめる。
+// 素の `Number()` だと `'64MB'` が NaN になり上限が黙って消えるため、不正値はエラーで固定する。
+describe('上限の env 上書き', () => {
+  const loadLimits = async () => {
+    vi.resetModules();
+    return import('../src/limits.js');
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('正の整数なら上限を上書きする', async () => {
+    vi.stubEnv('PIE_MAX_ITEMS', '40');
+    expect((await loadLimits()).PIE_MAX_ITEMS).toBe(40);
+  });
+
+  it.each(['64MB', '0', '-1'])('PIE_MAX_ITEMS=%s は読み込み時にエラーになる', async (raw) => {
+    vi.stubEnv('PIE_MAX_ITEMS', raw);
+    await expect(loadLimits()).rejects.toThrow(/PIE_MAX_ITEMS must be a positive integer/);
+  });
+
+  it('DB の待ち時間は 3600 秒を超えるとエラーになる', async () => {
+    vi.stubEnv('PIE_DB_QUERY_TIMEOUT_S', '3601');
+    await expect(loadLimits()).rejects.toThrow(/3600 or less/);
   });
 });
 
@@ -68,18 +89,6 @@ describe('ラベル長の上限', () => {
     expect(() => normalizeInputItems([[long, 1]])).toThrow(/PIE_MAX_LABEL_CHARS/);
     expect(() => normalizeInputItems([{ name: long, value: 1 }])).toThrow(/PIE_MAX_LABEL_CHARS/);
     expect(() => normalizeInputItems([['あ'.repeat(MAX_LABEL_CHARS), 1]])).not.toThrow();
-  });
-});
-
-describe('range の行数上限', () => {
-  it('A1:B99999999 は列幅検査を通っても行数で弾かれる', () => {
-    // 列幅 2 だけを見る検査だと、数億行の Row/Cell 実体化が素通りする。
-    expect(() => parseRange('A1:B99999999')).toThrow(/PIE_MAX_RANGE_ROWS/);
-    expect(() => parseRange(`A1:B${MAX_RANGE_ROWS}`)).not.toThrow();
-  });
-
-  it('通常のレンジは従来どおり解釈する(回帰)', () => {
-    expect(parseRange('A2:B11')).toEqual({ startRow: 2, endRow: 11, nameCol: 1, valueCol: 2 });
   });
 });
 
@@ -127,7 +136,7 @@ describe('dataJson の長さ上限', () => {
   });
 });
 
-// xlsx / dataJson と同じ funnel 思想を `--data-file` にも適用する。CLI 経由の検査なので
+// dataJson と同じ funnel 思想を `--data-file` にも適用する。CLI 経由の検査なので
 // 実プロセスで確認する(sea_packaging.test.ts と同じ tsx 起動の型)。
 describe('--data-file の長さ上限', () => {
   it('上限超過の一時 JSON ファイルは明示エラーで拒否される', () => {

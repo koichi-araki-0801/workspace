@@ -22,9 +22,11 @@ const sproc: SprocClient = {
 const SID = 'a'.repeat(64);
 let sessionIdFrom: (header: string | undefined) => string | undefined;
 let createSessionStore: typeof import('../src/auth/session.js').createSessionStore;
+let createSessionRepo: typeof import('../src/repositories/sessionRepo.js').createSessionRepo;
 
 beforeAll(async () => {
   ({ sessionIdFrom, createSessionStore } = await import('../src/auth/session.js'));
+  ({ createSessionRepo } = await import('../src/repositories/sessionRepo.js'));
 });
 
 describe('sessionIdFrom', () => {
@@ -75,7 +77,7 @@ describe('createSessionStore', () => {
   it('creates a 64 hex session id and passes it with the login id', async () => {
     callSproc.mockReset();
     callSproc.mockResolvedValue([]);
-    const id = await createSessionStore(sproc).createSession('admin');
+    const id = await createSessionStore(createSessionRepo(sproc)).createSession('admin');
     expect(id).toMatch(/^[0-9a-f]{64}$/);
     const [proc, 操作, params] = callSproc.mock.calls[0] as [string, string, { name: string }[]];
     expect(proc).toContain('セッション');
@@ -86,13 +88,15 @@ describe('createSessionStore', () => {
   it('returns null when the sproc yields no row (revoked or expired)', async () => {
     callSproc.mockReset();
     callSproc.mockResolvedValue([]);
-    await expect(createSessionStore(sproc).getSessionUser(SID)).resolves.toBeNull();
+    await expect(
+      createSessionStore(createSessionRepo(sproc)).getSessionUser(SID),
+    ).resolves.toBeNull();
   });
 
   it('passes the retention window to the purge operation', async () => {
     callSproc.mockReset();
     callSproc.mockResolvedValue([]);
-    await createSessionStore(sproc).purgeExpiredSessions(3);
+    await createSessionStore(createSessionRepo(sproc)).purgeExpiredSessions(3);
     expect(callSproc.mock.calls[0]?.[2]).toContainEqual({ name: '保持日数', value: 3 });
   });
 });

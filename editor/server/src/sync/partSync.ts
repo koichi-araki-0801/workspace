@@ -110,30 +110,42 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
   let i = 0;
   while (i < n) {
     const lt = html.indexOf('<', i);
-    if (lt < 0) return;
+    if (lt < 0) {
+      return;
+    }
     i = lt + 1;
     if (html.startsWith('!--', i)) {
       const close = html.indexOf('-->', i + 3);
-      if (close < 0) return;
+      if (close < 0) {
+        return;
+      }
       i = close + 3;
       continue;
     }
     const head = html[i];
     if (head === '!' || head === '?') {
       const gt = html.indexOf('>', i);
-      if (gt < 0) return;
+      if (gt < 0) {
+        return;
+      }
       i = gt + 1;
       continue;
     }
     const isClose = head === '/';
-    if (isClose) i++;
+    if (isClose) {
+      i++;
+    }
     const nameStart = i;
     if (i < n && isAsciiAlpha(html[i])) {
       i++;
-      while (i < n && isNameChar(html[i])) i++;
+      while (i < n && isNameChar(html[i])) {
+        i++;
+      }
     }
     // タグ名にならない `<` は文字データ。`i` は既に `lt` より先なので巻き戻さない。
-    if (i === nameStart) continue;
+    if (i === nameStart) {
+      continue;
+    }
     const name = html.slice(nameStart, i).toLowerCase();
     const attrsFrom = i;
     let end = -1;
@@ -141,7 +153,9 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
       const c = html[i];
       if (c === '"' || c === "'") {
         const q = html.indexOf(c, i + 1);
-        if (q < 0) return; // 閉じ引用符なし = 打ち切り(戻り読み禁止)
+        if (q < 0) {
+          return; // 閉じ引用符なし = 打ち切り(戻り読み禁止)
+        }
         i = q + 1;
         continue;
       }
@@ -151,7 +165,9 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
       }
       i++;
     }
-    if (end < 0) return; // 閉じ `>` なし = 打ち切り
+    if (end < 0) {
+      return; // 閉じ `>` なし = 打ち切り
+    }
     const attrsTo = end - 1;
     const selfClosing = attrsTo > attrsFrom && html[attrsTo - 1] === '/';
     yield {
@@ -164,13 +180,19 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
       attrsTo,
     };
     i = end;
-    if (isClose || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) continue;
+    if (isClose || selfClosing || !RAW_TEXT_ELEMENTS.has(name)) {
+      continue;
+    }
     // RAWTEXT: 最初に現れる `</name` で終わる(引用符を考慮して探すと二次の温床になる)。
     lower ??= asciiLower(html);
     const closeAt = findRawTextEnd(lower, name, i).at;
-    if (closeAt < 0) return;
+    if (closeAt < 0) {
+      return;
+    }
     const gt = html.indexOf('>', closeAt);
-    if (gt < 0) return;
+    if (gt < 0) {
+      return;
+    }
     yield {
       kind: 'end',
       name,
@@ -192,18 +214,30 @@ function* tokenizeHtml(html: string): Generator<HtmlToken> {
 function findPartId(html: string, from: number, to: number): string | null {
   let i = from;
   while (i < to) {
-    while (i < to && (isHtmlSpace(html[i]) || html[i] === '/')) i++;
-    if (i >= to) return null;
+    while (i < to && (isHtmlSpace(html[i]) || html[i] === '/')) {
+      i++;
+    }
+    if (i >= to) {
+      return null;
+    }
     const ns = i;
-    while (i < to && !isHtmlSpace(html[i]) && html[i] !== '=' && html[i] !== '/') i++;
+    while (i < to && !isHtmlSpace(html[i]) && html[i] !== '=' && html[i] !== '/') {
+      i++;
+    }
     const name = html.slice(ns, i).toLowerCase();
-    while (i < to && isHtmlSpace(html[i])) i++;
+    while (i < to && isHtmlSpace(html[i])) {
+      i++;
+    }
     if (html[i] !== '=' || i >= to) {
-      if (name === 'data-part-id') return null; // 値なし属性はパーツ id として扱わない
+      if (name === 'data-part-id') {
+        return null; // 値なし属性はパーツ id として扱わない
+      }
       continue;
     }
     i++;
-    while (i < to && isHtmlSpace(html[i])) i++;
+    while (i < to && isHtmlSpace(html[i])) {
+      i++;
+    }
     const q = html[i];
     let value: string;
     if (q === '"' || q === "'") {
@@ -217,10 +251,14 @@ function findPartId(html: string, from: number, to: number): string | null {
       }
     } else {
       const vs = i;
-      while (i < to && !isHtmlSpace(html[i])) i++;
+      while (i < to && !isHtmlSpace(html[i])) {
+        i++;
+      }
       value = html.slice(vs, i);
     }
-    if (name === 'data-part-id') return value;
+    if (name === 'data-part-id') {
+      return value;
+    }
   }
   return null;
 }
@@ -233,10 +271,11 @@ function findPartId(html: string, from: number, to: number): string | null {
  * `MAX_SYNC_SCAN_BYTES` 超過は throw する(空配列を返さない理由は同定数の doc を参照)。
  */
 export function extractSyncParts(html: string): SyncPart[] {
-  if (html.length > MAX_SYNC_SCAN_BYTES)
+  if (html.length > MAX_SYNC_SCAN_BYTES) {
     throw new Error(
       `同期対象の HTML が大きすぎます(${html.length} 文字 > 上限 ${MAX_SYNC_SCAN_BYTES})`,
     );
+  }
   const parts: SyncPart[] = [];
   const counts = new Map<string, number>();
   const push = (partId: string, start: number, end: number): void => {
@@ -263,11 +302,18 @@ export function extractSyncParts(html: string): SyncPart[] {
       }
       continue;
     }
-    if (isClose) continue;
+    if (isClose) {
+      continue;
+    }
     const partId = findPartId(html, t.attrsFrom, t.attrsTo);
-    if (partId === null) continue;
-    if (isSelfClose) push(partId, t.start, t.end);
-    else open = { tag: t.name, partId, start: t.start, depth: 1 };
+    if (partId === null) {
+      continue;
+    }
+    if (isSelfClose) {
+      push(partId, t.start, t.end);
+    } else {
+      open = { tag: t.name, partId, start: t.start, depth: 1 };
+    }
   }
   return parts;
 }
@@ -417,8 +463,11 @@ function duplicatedPartIds(...groups: readonly (readonly SyncPart[])[]): Set<str
   for (const parts of groups) {
     const seen = new Set<string>();
     for (const p of parts) {
-      if (seen.has(p.partId)) dup.add(p.partId);
-      else seen.add(p.partId);
+      if (seen.has(p.partId)) {
+        dup.add(p.partId);
+      } else {
+        seen.add(p.partId);
+      }
     }
   }
   return dup;
@@ -452,7 +501,9 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
   const reportedDuplicates = new Set<string>();
   /** 重複 id の報告は partId ごとに 1 回だけ出す(出現数ぶん並べても判断材料が増えない)。 */
   const reportDuplicate = (partId: string, partKey: string): void => {
-    if (reportedDuplicates.has(partId)) return;
+    if (reportedDuplicates.has(partId)) {
+      return;
+    }
     reportedDuplicates.add(partId);
     skipped.push({ partKey, reason: DUPLICATE_ID_REASON });
   };
@@ -475,26 +526,37 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
 
     if (duplicated.has(src.partId)) {
       reportDuplicate(src.partId, key);
-      if (prev) newParts[key] = prev;
-      if (tgt) insertAnchor = tgt.end;
+      if (prev) {
+        newParts[key] = prev;
+      }
+      if (tgt) {
+        insertAnchor = tgt.end;
+      }
       continue;
     }
 
     // 版固有宣言・非同期は転写もベースラインも取らない(意図的な独立メンテ)。
     if (policy === '非同期') {
-      if (tgt) insertAnchor = tgt.end;
+      if (tgt) {
+        insertAnchor = tgt.end;
+      }
       continue;
     }
     if (policy === `${input.sourceEdition}のみ` || policy === `${input.targetEdition}のみ`) {
-      if (tgt) insertAnchor = tgt.end;
+      if (tgt) {
+        insertAnchor = tgt.end;
+      }
       continue;
     }
     if (policy !== '同期') {
       // 未判断(null / カタログ外)。差分があるときだけ「要判断」として報せる(騒音抑制)。
       if (tgt) {
-        if (contentHash(src.html) !== contentHash(tgt.html))
+        if (contentHash(src.html) !== contentHash(tgt.html)) {
           skipped.push({ partKey: key, reason: '未判断(同期既定が未設定)' });
-        if (prev) newParts[key] = prev;
+        }
+        if (prev) {
+          newParts[key] = prev;
+        }
         insertAnchor = tgt.end;
       }
       continue;
@@ -565,7 +627,9 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
         // insertAnchor は据え置き(連続 added は seq が並び順を保つ)。
       } else {
         skipped.push({ partKey: key, reason: '挿入位置を特定できない(ペア側へ手動追加)' });
-        if (prev) newParts[key] = prev;
+        if (prev) {
+          newParts[key] = prev;
+        }
       }
     }
   }
@@ -573,13 +637,19 @@ export function computePairSync(input: PairSyncComputeInput): PairSyncComputeRes
   // target にのみ存在するパーツ: 削除の自動同期はしない。過去に同期していた(= source 側で
   // 意図的に消された可能性が高い)ものだけ報告する。版固有宣言・非同期は正当な片側存在。
   for (const tgt of tgtParts) {
-    if (srcMap.has(tgt.key)) continue;
+    if (srcMap.has(tgt.key)) {
+      continue;
+    }
     const prev = input.state.parts[tgt.key];
     const policy = policyOf(tgt.partId);
-    if (duplicated.has(tgt.partId)) reportDuplicate(tgt.partId, tgt.key);
-    else if (policy === '同期' && prev?.lastSynced)
+    if (duplicated.has(tgt.partId)) {
+      reportDuplicate(tgt.partId, tgt.key);
+    } else if (policy === '同期' && prev?.lastSynced) {
       skipped.push({ partKey: tgt.key, reason: 'ソース側で削除(削除は自動同期しない)' });
-    if (prev) newParts[tgt.key] = prev;
+    }
+    if (prev) {
+      newParts[tgt.key] = prev;
+    }
   }
 
   // 両版から消えたキーの状態は持ち越さない(掃除)。newParts に載せた分だけが生き残る。

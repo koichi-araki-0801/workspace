@@ -252,7 +252,11 @@ export function detectVisualHorizontalOverflow(
   );
   const tol = 1 / (cfg.svgUnitsPerMm * cfg.mmPerUnit + 1e-9);
   const [xmin, xmax] = horizontalLabelLimits(placement, cfg);
-  if (bboxRight > xmax + tol) return { overflow: true, side: 'right' };
-  if (bboxLeft < xmin - tol) return { overflow: true, side: 'left' };
+  if (bboxRight > xmax + tol) {
+    return { overflow: true, side: 'right' };
+  }
+  if (bboxLeft < xmin - tol) {
+    return { overflow: true, side: 'left' };
+  }
   return { overflow: false, side: null };
 }

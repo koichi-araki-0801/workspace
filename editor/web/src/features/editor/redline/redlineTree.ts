@@ -41,8 +41,12 @@ function isBlankText(s: string | undefined): boolean {
  * `type` の絞り込みをここ 1 か所へ集約する（他の型を text 扱いする回帰を防ぐ）。
  */
 function textOnlyContent(type: unknown, content: unknown): string | null {
-  if (type !== 'text') return null;
-  if (typeof content !== 'string' || content === '' || isBlankText(content)) return null;
+  if (type !== 'text') {
+    return null;
+  }
+  if (typeof content !== 'string' || content === '' || isBlankText(content)) {
+    return null;
+  }
   return content;
 }
 
@@ -54,7 +58,9 @@ function assignKeys(nodes: { base: string; node: Omit<RedlineNode, 'key'> }[]): 
 
 /** 定義の `classes` は文字列配列だが、モデル由来では `{ name }` の配列になることもある。 */
 function classNamesOf(classes: unknown): string[] {
-  if (!Array.isArray(classes)) return [];
+  if (!Array.isArray(classes)) {
+    return [];
+  }
   return (classes as (string | { name?: string })[]).map((c) =>
     typeof c === 'string' ? c : (c?.name ?? ''),
   );
@@ -70,7 +76,9 @@ function firstClassOf(classes: unknown): string | null {
  */
 function childDefsOrText(def: ComponentDefinition): ComponentDefinition[] {
   const kids = childDefs(def);
-  if (kids.length > 0) return kids;
+  if (kids.length > 0) {
+    return kids;
+  }
   const text = textOnlyContent(def.type, def.content);
   return text === null ? kids : [{ type: 'textnode', content: text }];
 }
@@ -89,7 +97,9 @@ function elKey(attrs: Record<string, unknown> | undefined, classes: unknown, tag
 /** パーサは子テキスト 1 つを配列でなくオブジェクトで返す。どちらでも配列に揃える。 */
 function childDefs(def: ComponentDefinition): ComponentDefinition[] {
   const c = def.components as ComponentDefinition | ComponentDefinition[] | string | undefined;
-  if (c == null || typeof c === 'string') return [];
+  if (c == null || typeof c === 'string') {
+    return [];
+  }
   return Array.isArray(c) ? c : [c];
 }
 
@@ -98,7 +108,9 @@ function defToNode(
 ): { base: string; node: Omit<RedlineNode, 'key'> } | null {
   if (def.type === 'textnode') {
     const text = typeof def.content === 'string' ? def.content : '';
-    if (isBlankText(text)) return null;
+    if (isBlankText(text)) {
+      return null;
+    }
     return { base: '#text', node: { kind: 'text', text, children: [], node: NULL_NODE } };
   }
   // `Omit<ComponentProperties,…> + 索引シグネチャ` の組で `||` 経由の絞り込みが `{}` に
@@ -115,12 +127,16 @@ function defToNode(
 export function fromDefinitions(
   defs: ComponentDefinition | ComponentDefinition[] | undefined,
 ): RedlineNode[] {
-  if (!defs) return [];
+  if (!defs) {
+    return [];
+  }
   const list = Array.isArray(defs) ? defs : [defs];
   const out: { base: string; node: Omit<RedlineNode, 'key'> }[] = [];
   for (const d of list) {
     const n = defToNode(d);
-    if (n) out.push(n);
+    if (n) {
+      out.push(n);
+    }
   }
   return assignKeys(out);
 }
@@ -136,7 +152,9 @@ function compToNode(comp: Component): { base: string; node: Omit<RedlineNode, 'k
   const type = String(comp.get('type') ?? '');
   if (type === 'textnode') {
     const text = String(comp.get('content') ?? '');
-    if (isBlankText(text)) return null;
+    if (isBlankText(text)) {
+      return null;
+    }
     return {
       base: '#text',
       node: { kind: 'text', text, children: [], node: () => comp.getEl() ?? null },
@@ -180,7 +198,9 @@ export function fromComponents(root: Component): RedlineNode[] {
   const out: { base: string; node: Omit<RedlineNode, 'key'> }[] = [];
   for (const c of compChildren(root)) {
     const n = compToNode(c);
-    if (n) out.push(n);
+    if (n) {
+      out.push(n);
+    }
   }
   return assignKeys(out);
 }
@@ -199,17 +219,24 @@ function isRenderableAttr(name: string): boolean {
  * 文字列のまま出る（削除要素の中身は他ユーザが書いた本文である）。
  */
 export function renderDefinition(def: ComponentDefinition, doc: Document): Node {
-  if (def.type === 'textnode')
+  if (def.type === 'textnode') {
     return doc.createTextNode(typeof def.content === 'string' ? def.content : '');
+  }
   // 同上の grapesjs 型の癖を避けるための明示キャスト。
   const el = doc.createElement(((def.tagName as string | undefined) || 'div').toLowerCase());
   const attrs = (def.attributes ?? {}) as Record<string, unknown>;
   for (const [k, v] of Object.entries(attrs)) {
-    if (!isRenderableAttr(k) || v == null || v === false) continue;
+    if (!isRenderableAttr(k) || v == null || v === false) {
+      continue;
+    }
     el.setAttribute(k, v === true ? '' : String(v));
   }
   const cls = classNamesOf(def.classes).filter(Boolean).join(' ');
-  if (cls) el.setAttribute('class', cls);
-  for (const k of childDefsOrText(def)) el.appendChild(renderDefinition(k, doc));
+  if (cls) {
+    el.setAttribute('class', cls);
+  }
+  for (const k of childDefsOrText(def)) {
+    el.appendChild(renderDefinition(k, doc));
+  }
   return el;
 }

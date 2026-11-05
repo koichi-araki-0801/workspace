@@ -77,8 +77,11 @@ d('gitRepo', () => {
       const log = await git.logForFile(rel);
       expect(log[0].author).toBe('tester');
     } finally {
-      if (saved === undefined) delete process.env.GIT_AUTHOR_NAME;
-      else process.env.GIT_AUTHOR_NAME = saved;
+      if (saved === undefined) {
+        delete process.env.GIT_AUTHOR_NAME;
+      } else {
+        process.env.GIT_AUTHOR_NAME = saved;
+      }
     }
   });
 
@@ -101,7 +104,9 @@ d('gitRepo', () => {
     // 新しい HEAD を作るため、先に取ると末尾の比較が本題と無関係な理由で落ちる。
     const before = await git.commitFiles('HEAD');
     const specs = ['templates', 'css', 'sync', '.gitignore', '.gitattributes'];
-    for (const spec of specs) fs.rmSync(path.join(tmp, spec), { recursive: true, force: true });
+    for (const spec of specs) {
+      fs.rmSync(path.join(tmp, spec), { recursive: true, force: true });
+    }
     try {
       const hash = await git.commitAll('対象ゼロ', { name: 'tester' });
       expect(hash).toBe(headBefore);
@@ -286,7 +291,9 @@ d('gitRepo', () => {
       git.withGitLock(async () => {
         order.push(n);
         await new Promise<void>((r) => gate.push(r));
-        if (n === 2) throw new Error('boom');
+        if (n === 2) {
+          throw new Error('boom');
+        }
         return n;
       });
     // 3 つを待たずに投げる。直列化されていれば、1 つ目が解ける前に 2 つ目は始まらない

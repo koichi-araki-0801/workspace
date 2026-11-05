@@ -19,7 +19,9 @@ export async function leaveAfterSave(
   { toLogin = false }: { toLogin?: boolean } = {},
   ask: typeof confirm = confirm,
 ): Promise<boolean> {
-  if ((await flush()) || toLogin) return true;
+  if ((await flush()) || toLogin) {
+    return true;
+  }
   return ask({
     title: '変更を保存できませんでした',
     description:

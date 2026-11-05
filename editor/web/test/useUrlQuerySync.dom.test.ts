@@ -22,7 +22,9 @@ vi.mock('vue-router', () => ({
 }));
 
 beforeEach(() => {
-  for (const k of Object.keys(routeQuery)) delete routeQuery[k];
+  for (const k of Object.keys(routeQuery)) {
+    delete routeQuery[k];
+  }
   router.currentRoute.value.query = {};
   router.replace.mockClear();
 });

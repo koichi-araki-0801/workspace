@@ -31,10 +31,14 @@ function inSetup<T>(fn: () => T, provide: boolean): T {
     },
   });
   const app = createApp(Comp);
-  if (provide) app.provide(REPOS_KEY, restRepositories);
+  if (provide) {
+    app.provide(REPOS_KEY, restRepositories);
+  }
   app.config.errorHandler = () => {};
   app.mount(document.createElement('div'));
-  if (caught) throw caught;
+  if (caught) {
+    throw caught;
+  }
   return out;
 }
 

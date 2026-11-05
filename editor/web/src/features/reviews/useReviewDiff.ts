@@ -14,7 +14,14 @@ import type {
   UpdateReviewPartDecisionsRequest,
 } from '@editor/shared';
 
-import { isErr, REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION } from '@editor/shared';
+import {
+  isErr,
+  REVIEW_ALREADY_DECIDED,
+  REVIEW_BASE_CHANGED,
+  REVIEW_NOT_REVIEWABLE,
+  REVIEW_PART_DECISION_TRANSITION,
+  REVIEW_RENDER_ERROR,
+} from '@editor/shared';
 import { ref } from 'vue';
 import { useReviewRepo } from '@/api/repositories';
 import { useAsyncResult } from '@/lib/useAsyncResult';
@@ -43,7 +50,14 @@ export function useReviewDiff(reqId: () => string) {
   const cssChanged = ref(false);
   /** 申請 CSS に印刷時だけ効く規則があるか(承認者の見えと成果物が乖離する)。 */
   const printOnlyCss = ref(false);
+  /** 申請者の CSS が文字を生むか(紙面にだけ出て、右欄の文字の差分に出ない)。 */
+  const cssGeneratedText = ref(false);
   const loadError = ref(false);
+  /**
+   * 作成経路の申請を承認画面に出せない理由(サーバが描けなかったなど)。読み込みの失敗の汎用の文言
+   * (「時間をおいて」)の代わりに出す。申請し直してもらうしかない失敗なので、待っても直らない。
+   */
+  const renderErrorMessage = ref<string | null>(null);
 
   /**
    * 申請を読み、現行版と diff してパーツ行・集計・CSS を状態へ載せる。失敗は loadError に倒す。
@@ -51,9 +65,13 @@ export function useReviewDiff(reqId: () => string) {
    */
   async function load(): Promise<boolean> {
     loadError.value = false;
+    renderErrorMessage.value = null;
     const res = await runLoad(() => diffService.buildDiff(reqId()));
     if (isErr(res)) {
       loadError.value = true;
+      if (res.error.code === REVIEW_RENDER_ERROR) {
+        renderErrorMessage.value = res.error.message;
+      }
       return false;
     }
     review.value = res.value.review;
@@ -66,6 +84,7 @@ export function useReviewDiff(reqId: () => string) {
     truncated.value = res.value.truncated;
     cssChanged.value = res.value.cssChanged;
     printOnlyCss.value = res.value.printOnlyCss;
+    cssGeneratedText.value = res.value.cssGeneratedText;
     return true;
   }
 
@@ -73,7 +92,12 @@ export function useReviewDiff(reqId: () => string) {
    * 判定・最終確定・申請ごと却下の失敗のうち、呼び出し側が読み直して自分の文言で知らせるもの。
    * `useAsyncResult` のトースト(サーバの文言)と二重に出さないよう黙らせる。
    */
-  const DECIDE_QUIET_CODES = [REVIEW_ALREADY_DECIDED, REVIEW_PART_DECISION_TRANSITION];
+  const DECIDE_QUIET_CODES = [
+    REVIEW_ALREADY_DECIDED,
+    REVIEW_PART_DECISION_TRANSITION,
+    REVIEW_BASE_CHANGED,
+    REVIEW_NOT_REVIEWABLE,
+  ];
   /** 判定・最終確定の文言に並ぶパーツのキーを、右欄の番号とパーツ名へ読み替える。 */
   const describe = (message: string) => describePartKeys(message, changes.value);
 
@@ -114,7 +138,9 @@ export function useReviewDiff(reqId: () => string) {
     truncated,
     cssChanged,
     printOnlyCss,
+    cssGeneratedText,
     loadError,
+    renderErrorMessage,
     loading,
     deciding,
     load,

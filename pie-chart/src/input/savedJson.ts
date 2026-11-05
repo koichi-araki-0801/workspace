@@ -122,7 +122,9 @@ export function resolveSavedJsonPath(
  * samples 形式とみなす。samples 形式で項目が複数あると、どれを描くか決められないので止める。
  */
 export function extractDataItems(parsed: unknown, label: string): unknown[] {
-  if (Array.isArray(parsed)) return parsed;
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
   if (parsed !== null && typeof parsed === 'object') {
     const entries = Object.entries(parsed as Record<string, unknown>);
     if (entries.length !== 1) {

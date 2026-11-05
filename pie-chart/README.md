@@ -1,8 +1,8 @@
 # pie-chart
 
-TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON / Excel / サンプル)を入力に、ラベルと引出線を自動配置した円グラフ SVG を生成する。2〜3 人チームでメンテしやすい粒度にモジュール分割している。
+TypeScript 製の円グラフ SVG レンダラ。`{name, value}` の配列(JSON / DB / サンプル)を入力に、ラベルと引出線を自動配置した円グラフ SVG を生成する。2〜3 人チームでメンテしやすい粒度にモジュール分割している。
 `out/svg_js/` の SVG 出力は 83 サンプルの回帰テスト (`verify/svg.ts`) で検証する。
-**レンダリング層は外部ライブラリ依存ゼロ**(D3.js 等は不採用)。Excel 入力のみ `exceljs`、フォント埋込のみ `subset-font` に依存し、それぞれ入力層・フォント層に隔離している。
+**レンダリング層は外部ライブラリ依存ゼロ**(D3.js 等は不採用)。フォント埋込のみ `subset-font` に依存し、フォント層に隔離している。
 
 ## セットアップ
 
@@ -33,22 +33,14 @@ CLI は `pnpm run cli <command>`(または直接 `tsx src/cli.ts <command>`)で�
 - `pnpm run cli one --sample asset_gbca_pdf_like --output-file out/test.svg`
 - `pnpm run cli one --data-file data/example.json --output-file out/test.svg`
 - `pnpm run cli one --data-json '[{"name":"A","value":60},{"name":"B","value":40}]' --output-file out/test.svg`
-- `pnpm run cli one --xlsx data.xlsx --sheet Sheet1 --range A2:B11 --output-file out/test.svg`
 - `pnpm run cli one --fund 0331A --base-date 2026-09-30 --chart-type 資産配分 --db-name usrap --output-file out/test.svg`
 - `pnpm run cli db-check --db-name usrap`(DB ドライバを読み込めるか、接続できるかの確認)
 - `pnpm run cli batch --output-dir out/svg`
 - `pnpm run cli batch --input-dir data --output-dir out/svg`
 
-`one` の入力は `--sample` / `--data-file` / `--data-json` / `--xlsx + --sheet + --range` / `--fund + --base-date + --chart-type`(ストアド)のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
+`one` の入力は `--sample` / `--data-file` / `--data-json` / `--fund + --base-date + --chart-type`(ストアド)のいずれか(`--output-file` 必須)。`batch` は既定で全サンプル、`--samples a,b,c` で対象を絞れる。`--input-dir` 指定時はそのディレクトリ内の `*.json` を一括処理する。
 
-#### Excel 入力の決まり
-
-- `--range` は 2 列固定(左=name、右=value)。3 列以上 / 1 列はエラー。
-- **ヘッダ行は指定しない**(データ行のみ渡す)。先頭行が「区分」「比率」のような文字列だと `Non-numeric value at row N` で落ちる。
-- 空行はスキップ、name 空欄や value 数値変換不可は明示エラー。
-- 数式セルは結果値、リッチテキスト/ハイパーリンクも展開して取り込む。
-- exceljs 依存は `src/input/load.ts` の xlsx 節に隔離(`parseRange` / `loadXlsxItems`)。
-- 制御文字など XML に載らない文字を含む name セルは明示エラーになる(切り詰めや除去はしない)。
+どの入力でも、制御文字など XML に載らない文字を含む name は明示エラーになる(切り詰めや除去はしない)。
 
 #### DB(SQL Server)入力の決まり
 
@@ -204,7 +196,7 @@ pie-chart/
 │   ├── types.ts                — 共通型 (Item / LayoutItem / Placement / Diagnostics / PieLayoutConfig)
 │   ├── config.ts               — createPieLayoutConfig + makeColors
 │   ├── input/
-│   │   ├── load.ts             — samples / xlsx 入力 + normalizeInputItems / resolveInputData*
+│   │   ├── load.ts             — samples / JSON 入力 + normalizeInputItems / resolveInputData*
 │   │   ├── db.ts               — DB(SQL Server)ストアド呼び出しと結果の判定
 │   │   ├── sproc.ts            — ストアド入力の入口 (開発版 / exe の振り分け・db-check)
 │   │   ├── sprocArgs.ts        — ストアド入力の引数検査 (基準日・ストアド名)
@@ -258,10 +250,10 @@ pie-chart/
 > 配置パイプラインの**設計正典は `docs/pie-chart/src/設計正典.md`**（旧 `ARCHITECTURE.md`。
 > モード×パス対応表・do-no-harm ゲート使い分け・却下済み設計案）。本節は概観のみ。
 
-レンダリング層は外部ライブラリを使わず、**プレーンな TypeScript で SVG タグの文字列を組み立てる**。Node でもブラウザでも同一コードが動く(DOM API・`<canvas>`・selection 抽象に依存しない)。Excel 入力のみ `exceljs`(`input/load.ts`)、フォント埋込のみ `subset-font`(`svg_export/font.ts`)に依存し、いずれも端の層に隔離している。
+レンダリング層は外部ライブラリを使わず、**プレーンな TypeScript で SVG タグの文字列を組み立てる**。Node でもブラウザでも同一コードが動く(DOM API・`<canvas>`・selection 抽象に依存しない)。フォント埋込のみ `subset-font`(`svg_export/font.ts`)に依存し、端の層に隔離している。
 
 ```
-入力 (samples.json / JSON / 配列 / xlsx / DB)
+入力 (samples.json / JSON / 配列 / DB)
    │  (input/load.ts: normalizeInputItems / resolveInputData{,Async}、DB は input/db.ts)
    ▼
 Item[] {name, value}
@@ -284,7 +276,7 @@ RenderResult { svg, diagnostics, config }
 | レイヤ | ファイル | 責務 |
 |---|---|---|
 | 型 | `src/types.ts` | 全体共通の TS interface(`Item` / `LayoutItem` / `Placement` / `Diagnostics` / `PieLayoutConfig` 等) |
-| データ | `src/input/load.ts` + `samples.json` + `src/input/db.ts` | サンプル読込、JSON / Excel / DB(SQL Server) 入力、`{name, value}` 正規化 |
+| データ | `src/input/load.ts` + `samples.json` + `src/input/db.ts` | サンプル読込、JSON / DB(SQL Server) 入力、`{name, value}` 正規化 |
 | 設定 | `src/config.ts` | pt 基準寸法・フォント・派生スケール getter 群(`createPieLayoutConfig`)+ 配色(`makeColors`) |
 | レイアウト | `src/layout/diagnostics.ts` | 論理座標系でのラベル位置決定(左右割当・Y 解決・上左カスケード・X 配置・flip 判定)。`layoutLabels` を section 構成 |
 | 幾何 | `src/layout/geometry.ts` | 純粋幾何/測定/ナッジ系ヘルパー(座標変換なし、SVG 文字列生成なし、副作用なし) |

@@ -65,7 +65,9 @@ describe('EMIT_REPAIR_PASSES の列', () => {
 
   it('scoringRun を持つのは stage=both のエントリのみ', () => {
     for (const p of EMIT_REPAIR_PASSES) {
-      if (p.scoringRun) expect(p.stage, `${p.name} の stage`).toBe('both');
+      if (p.scoringRun) {
+        expect(p.stage, `${p.name} の stage`).toBe('both');
+      }
     }
   });
 
@@ -73,7 +75,9 @@ describe('EMIT_REPAIR_PASSES の列', () => {
     // finalOnly は候補採点コンテキストのスキップ指定。stage='both'/'scoring' に付けると
     // `finalizeForScoring` (context 概念なし) へ漏れて採点列との一貫性が壊れるため禁止。
     for (const p of EMIT_REPAIR_PASSES) {
-      if (p.finalOnly) expect(p.stage, `${p.name} の stage`).toBeUndefined();
+      if (p.finalOnly) {
+        expect(p.stage, `${p.name} の stage`).toBeUndefined();
+      }
     }
   });
 });

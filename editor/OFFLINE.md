@@ -120,9 +120,9 @@ $env:NODE_ENV='production'; corepack pnpm --filter server start
   外部通信は発生しない。将来 viewer 更新で有効化された場合は、当該 `<script>` をローカル MathJax へ
   差し替える（`pnpm patch @vivliostyle/viewer` で永続化）。**検証 4** で PDF 生成がストール/失敗しないことを確認。
 - **GrapesJS の Font Awesome**: 既定 `cssIcons` が cdnjs の FA URL を document へ注入していたが、
-  `web/src/features/editor/useGrapes.ts` で `cssIcons: ''` として無効化し、FA グリフは
-  `web/src/main.ts` の `import 'font-awesome/css/font-awesome.css'` で**ローカル同梱**（Vite が
-  woff2 等を `dist/assets` に出力）。これでエディタ UI アイコンも CDN 非依存。**検証 6** で目視確認。
+  `web/src/features/editor/useGrapes.ts` で `cssIcons: ''` として無効化している。GrapesJS で FA の
+  class を使うのは既定パネル・StyleManager・`core:preview`・`image-editor` だけで、editor はどれも
+  使わないため FA 自体も同梱しない。アイコンは Lucide（`@lucide/vue`）で描く。**検証 6** で目視確認。
 
 ## Phase 2: Python 依存（pip）
 

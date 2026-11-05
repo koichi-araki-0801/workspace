@@ -39,7 +39,9 @@ export function reviewedPageOrder(
 
   for (let index = 0; index < beforeKeys.length; index++) {
     const key = beforeKeys[index];
-    if ((selectedHtml.get(key) ?? '') === '' || order.includes(key)) continue;
+    if ((selectedHtml.get(key) ?? '') === '' || order.includes(key)) {
+      continue;
+    }
 
     let previous: string | undefined;
     for (let i = index - 1; i >= 0; i--) {
@@ -62,8 +64,11 @@ export function reviewedPageOrder(
       }
     }
 
-    if (next !== undefined) order.splice(order.indexOf(next), 0, key);
-    else order.push(key);
+    if (next !== undefined) {
+      order.splice(order.indexOf(next), 0, key);
+    } else {
+      order.push(key);
+    }
   }
 
   return order;
@@ -71,10 +76,16 @@ export function reviewedPageOrder(
 
 /** 1 パーツについて、判定を当てた後に残る生 HTML(残らなければ空)。 */
 function selectedHtmlOf(block: DiffBlock, decision: PartDecisionState | undefined): string {
-  if (block.status === 'same') return block.rawAfterHtml;
+  if (block.status === 'same') {
+    return block.rawAfterHtml;
+  }
   const approved = decision?.status === 'approved';
-  if (block.status === 'changed') return approved ? block.rawAfterHtml : block.rawBeforeHtml;
-  if (block.status === 'added') return approved ? block.rawAfterHtml : '';
+  if (block.status === 'changed') {
+    return approved ? block.rawAfterHtml : block.rawBeforeHtml;
+  }
+  if (block.status === 'added') {
+    return approved ? block.rawAfterHtml : '';
+  }
   return approved ? '' : block.rawBeforeHtml;
 }
 
@@ -119,7 +130,9 @@ export function buildReviewedHtmlCandidate(
   const decisionByPartKey = new Map<string, PartDecisionState>();
   const duplicates = new Set<string>();
   for (const decision of decisions) {
-    if (decisionByPartKey.has(decision.partKey)) duplicates.add(decision.partKey);
+    if (decisionByPartKey.has(decision.partKey)) {
+      duplicates.add(decision.partKey);
+    }
     decisionByPartKey.set(decision.partKey, decision);
   }
   const pendingPartKeys: string[] = [];
@@ -154,8 +167,12 @@ export function buildReviewedHtmlCandidate(
   diff.pages.forEach((_page, index) => {
     const { text, endsWithInlineBreak } = pages[index];
     const appended = index >= diff.afterPageCount;
-    if (appended && text === '') return;
-    if (index > 0) html += appended && previousEndsWithInlineBreak ? '\n' : sep;
+    if (appended && text === '') {
+      return;
+    }
+    if (index > 0) {
+      html += appended && previousEndsWithInlineBreak ? '\n' : sep;
+    }
     html += text;
     previousEndsWithInlineBreak = text !== '' && endsWithInlineBreak;
   });

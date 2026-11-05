@@ -3,7 +3,7 @@
  * and their sample data. Output is committed so the editor has a value-filled
  * canvas without a runtime render; re-run after changing a template or sample:
  *
- *   npx vite-node scripts/genFilled.ts     (from editor/web)
+ *   pnpm run gen:filled     (from editor/web)
  *
  * 出力は編集タブ用の値入り HTML で、本番の `filled/` と同じく往復用の印も Jinja も持たない。
  * 作成タブの値入り表示は `toFilled` が実行時に作るので、ここでは使わない。
@@ -35,7 +35,9 @@ const sampleDir = resolve(web, '../fixtures/sample');
 // 出力はテスト用の filled fixtures のみ。REST 実体は dataRoot(git 管理)側が持つため、
 // ここからリポジトリ内の他の場所へは書き出さない。
 const outDirs = [resolve(web, '../fixtures/filled')];
-for (const d of outDirs) mkdirSync(d, { recursive: true });
+for (const d of outDirs) {
+  mkdirSync(d, { recursive: true });
+}
 
 const funds = fundMaster as Record<
   string,
@@ -73,8 +75,11 @@ for (const file of readdirSync(templatesDir).filter((f) => f.endsWith('.html')))
   const raw = readFileSync(resolve(templatesDir, file), 'utf8');
   const sample = resolveSample(attrs.fundCode, attrs);
   const { html: filled, diagnostics } = renderPlainFilled(raw, sample);
-  if (diagnostics.unsupported.length > 0)
+  if (diagnostics.unsupported.length > 0) {
     console.warn(`${file}: 解釈できない式 ${diagnostics.unsupported.join(' / ')}`);
-  for (const d of outDirs) writeFileSync(resolve(d, file), filled, 'utf8');
+  }
+  for (const d of outDirs) {
+    writeFileSync(resolve(d, file), filled, 'utf8');
+  }
   console.log(`wrote ${file} (${filled.length} chars)`);
 }

@@ -66,7 +66,9 @@ export function useComments(
       return;
     }
     const res = await repo.listNotes(tid);
-    if (!isLatest()) return;
+    if (!isLatest()) {
+      return;
+    }
     if (isErr(res)) {
       logError(res.error);
       return;
@@ -92,7 +94,9 @@ export function useComments(
   async function add(content: string, pathKey?: string): Promise<void> {
     const key = pathKey ?? currentKey();
     const tid = templateId();
-    if (!key || !tid || content.trim() === '') return;
+    if (!key || !tid || content.trim() === '') {
+      return;
+    }
     const res = await repo.addNote(tid, key, content);
     await settle(res);
   }
@@ -102,7 +106,9 @@ export function useComments(
    * (一覧から返信するとき、選択が別パーツへ移っていても返信先がずれない)。
    */
   async function reply(parent: PartNoteEntry, content: string): Promise<void> {
-    if (content.trim() === '') return;
+    if (content.trim() === '') {
+      return;
+    }
     const res = await repo.addNote(parent.templateId, parent.pathKey, content, {
       replyTo: parent.id,
     });
@@ -117,7 +123,9 @@ export function useComments(
 
   /** 投稿の本文を編集する。宛先は `entry.templateId`(投稿が属する版)。 */
   async function update(entry: PartNoteEntry, content: string): Promise<void> {
-    if (content.trim() === '') return;
+    if (content.trim() === '') {
+      return;
+    }
     const res = await repo.updateNote(entry.templateId, entry.id, { content });
     await settle(res);
   }

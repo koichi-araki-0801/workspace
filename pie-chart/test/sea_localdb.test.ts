@@ -33,7 +33,9 @@ const DB = `piechart_sproc_test_${process.pid}_${randomBytes(3).toString('hex')}
 function exeEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (!/^(DB_|PIE_)/i.test(k)) env[k] = v;
+    if (!/^(DB_|PIE_)/i.test(k)) {
+      env[k] = v;
+    }
   }
   return { ...env, ...extra };
 }
@@ -76,12 +78,16 @@ describe.skipIf(!enabled)('配布 exe でストアドを呼ぶ(LocalDB)', () => 
   beforeAll(async () => {
     sql = require('msnodesqlv8') as Sql;
     await sql.promises.query(conn('master'), `CREATE DATABASE [${DB}]`);
-    for (const proc of PROCS) await sql.promises.query(conn(DB), proc);
+    for (const proc of PROCS) {
+      await sql.promises.query(conn(DB), proc);
+    }
     work = mkdtempSync(join(tmpdir(), 'piechart-localdb-'));
   }, 120_000);
 
   afterAll(async () => {
-    if (work) rmSync(work, { recursive: true, force: true });
+    if (work) {
+      rmSync(work, { recursive: true, force: true });
+    }
     if (sql) {
       // beforeAll が DB を作る前に失敗していても、その失敗を隠さない。
       try {

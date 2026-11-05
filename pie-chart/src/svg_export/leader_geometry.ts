@@ -76,11 +76,17 @@ export type Pt = { x: number; y: number };
  * 載らないため、ラベル位置・採点・各 do-no-harm 判定は baseline と完全一致 (位置は不変)。
  */
 function shouldAttachTopCenter(p: Placement, box: BBox): boolean {
-  if (p.insideSlice) return false;
-  if (p.anchor === 'middle') return false; // 真上/真下の中央寄せは対象外
+  if (p.insideSlice) {
+    return false;
+  }
+  if (p.anchor === 'middle') {
+    return false; // 真上/真下の中央寄せは対象外
+  }
   // 縦: アンカーが box 上辺より明確に上 (leader がパイから降りてくる)。
   const tau = (box.top - box.bottom) * TOP_CENTER_ANCHOR_MARGIN; // box 高 (y-up で top>bottom) × 係数
-  if (p.leaderAnchor.y <= box.top + tau) return false;
+  if (p.leaderAnchor.y <= box.top + tau) {
+    return false;
+  }
   // 水平: アンカーが box の近縁 (pie 側の縦縁) を pie 側へ大きく越えていない = box のほぼ真上。
   // 越えていれば横ずれした側辺ラベルなので top-center は斜めになり不適 → side-center を維持。
   const overhang = Math.max(box.left - p.leaderAnchor.x, p.leaderAnchor.x - box.right, 0);
@@ -103,12 +109,18 @@ export function qualifiesTopCenterAttach(placement: Placement, cfg: PieLayoutCon
  * 通常の側辺ラベル (アンカー x が box 外) は非発火。
  */
 export function qualifiesSideEdgeCenterAttach(placement: Placement, cfg: PieLayoutConfig): boolean {
-  if (placement.insideSlice || placement.forceTopRight) return false;
-  if (placement.anchor === 'middle') return false;
+  if (placement.insideSlice || placement.forceTopRight) {
+    return false;
+  }
+  if (placement.anchor === 'middle') {
+    return false;
+  }
   // declip ラベルは `computeDrawnLeader` 先行分岐の専用接続 (declipSideAnchor / 縁中央) を持つ。
   // ここで対象にすると Pass 1e の再計算 (allowDiagonal=false) が Pass 1d の斜め畳みを
   // 横優先 L 字へ巻き戻す退行を起こす (例 currency_europe_heavy_8 ノルウェー/デンマーククローネ)。
-  if (placement.declipBottomLeader) return false;
+  if (placement.declipBottomLeader) {
+    return false;
+  }
   const box = placementBox(placement, cfg);
   return placement.leaderAnchor.x > box.left && placement.leaderAnchor.x < box.right;
 }
@@ -323,8 +335,11 @@ export function computeDrawnLeader(
       // (逆向きスタブ) が出る (例 アメリカ・ドル58%)。bend を anchor に畳み anchor→接続点を素直な
       // 直線にする (truncate が近縁で止める)。下記 rim 縮退分岐と同形で、drawn パスは元の部分集合。
       bend = { x: placement.leaderAnchor.x, y: placement.leaderAnchor.y };
-    } else if (anchorY > 0) bend = { x: bend.x, y: Math.max(endpoint.y, anchorY + minOffset) };
-    else if (anchorY < 0) bend = { x: bend.x, y: Math.min(endpoint.y, anchorY - minOffset) };
+    } else if (anchorY > 0) {
+      bend = { x: bend.x, y: Math.max(endpoint.y, anchorY + minOffset) };
+    } else if (anchorY < 0) {
+      bend = { x: bend.x, y: Math.min(endpoint.y, anchorY - minOffset) };
+    }
   } else if (placement.leaderBendFollowsEndpointX) {
     const anchorX = placement.leaderAnchor.x;
     const anchorY = placement.leaderAnchor.y;
@@ -336,8 +351,11 @@ export function computeDrawnLeader(
       // 手前で止める素直な斜線になる。斜線が円へ食い込む場合は下の W 弦リルートが 3 点テントへ
       // 戻すため、呼び出し側 (Pass 1d) は「2 点になった時だけ」採用して安全側に倒す。
       bend = { x: anchorX, y: anchorY };
-    } else if (anchorX > 0) bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
-    else if (anchorX < 0) bend = { x: Math.min(endpoint.x, anchorX - minOffset), y: anchorY };
+    } else if (anchorX > 0) {
+      bend = { x: Math.max(endpoint.x, anchorX + minOffset), y: anchorY };
+    } else if (anchorX < 0) {
+      bend = { x: Math.min(endpoint.x, anchorX - minOffset), y: anchorY };
+    }
   } else if (
     Math.hypot(
       placement.leaderBend.x - placement.leaderEndpoint.x,
@@ -583,11 +601,21 @@ export function isRedundantDominantRimLeader(
   pathPoints: Pt[],
   cfg: PieLayoutConfig,
 ): boolean {
-  if (!placement.dominantOutsideEdge || placement.insideSlice) return false;
-  if ((placement.item.percent ?? 0) < REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT) return false;
-  if (placement.item.forceOutsideLeader === true) return false;
-  if (placement.forceTopRight === true) return false;
-  if (pathPoints.length < 2) return false;
+  if (!placement.dominantOutsideEdge || placement.insideSlice) {
+    return false;
+  }
+  if ((placement.item.percent ?? 0) < REDUNDANT_RIM_LEADER_DOMINANT_MIN_PCT) {
+    return false;
+  }
+  if (placement.item.forceOutsideLeader === true) {
+    return false;
+  }
+  if (placement.forceTopRight === true) {
+    return false;
+  }
+  if (pathPoints.length < 2) {
+    return false;
+  }
   const a = pathPoints[0];
   const e = pathPoints[pathPoints.length - 1];
   return Math.hypot(e.x - a.x, e.y - a.y) <= radialFraction(cfg, 0.3, 2.8);
@@ -694,7 +722,9 @@ export function projectBoxToPixels(lb: BBox, coord: Coord): PixelBox {
 export function pathsCross(pa: Pt[], pb: Pt[]): boolean {
   for (let k = 0; k + 1 < pa.length; k += 1) {
     for (let m = 0; m + 1 < pb.length; m += 1) {
-      if (segmentsIntersect(pa[k], pa[k + 1], pb[m], pb[m + 1])) return true;
+      if (segmentsIntersect(pa[k], pa[k + 1], pb[m], pb[m + 1])) {
+        return true;
+      }
     }
   }
   return false;
@@ -710,10 +740,14 @@ export function realLeaderPaths(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): (Pt[] | null)[] {
-  if (cfg.perfCounters) cfg.perfCounters.realLeaderPaths += 1;
+  if (cfg.perfCounters) {
+    cfg.perfCounters.realLeaderPaths += 1;
+  }
   return placements.map((p) => {
     const r = computeDrawnLeader(p, cfg);
-    if (r.skipLeader) return null;
+    if (r.skipLeader) {
+      return null;
+    }
     return r.pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
   });
 }
@@ -745,12 +779,20 @@ function crossingPairsFrom(
   const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
     const pa = paths[i];
-    if (!pa) continue;
+    if (!pa) {
+      continue;
+    }
     for (let j = i + 1; j < paths.length; j += 1) {
       const pb = paths[j];
-      if (!pb) continue;
-      if (cfg?.perfCounters) cfg.perfCounters.pairTests += 1;
-      if (!pathsCross(pa, pb)) continue;
+      if (!pb) {
+        continue;
+      }
+      if (cfg?.perfCounters) {
+        cfg.perfCounters.pairTests += 1;
+      }
+      if (!pathsCross(pa, pb)) {
+        continue;
+      }
       const [x, y] = [placements[i].item.name, placements[j].item.name].sort();
       pairs.add(`${x}×${y}`);
     }
@@ -805,12 +847,19 @@ function throughPairsFrom(
   const pairs = new Set<string>();
   for (let i = 0; i < paths.length; i += 1) {
     const pts = paths[i];
-    if (!pts) continue;
+    if (!pts) {
+      continue;
+    }
     for (let j = 0; j < placements.length; j += 1) {
-      if (j === i) continue;
-      if (cfg?.perfCounters) cfg.perfCounters.pairTests += 1;
-      if (leaderCrossesBox(pts, pixelBoxes[j]))
+      if (j === i) {
+        continue;
+      }
+      if (cfg?.perfCounters) {
+        cfg.perfCounters.pairTests += 1;
+      }
+      if (leaderCrossesBox(pts, pixelBoxes[j])) {
         pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
+      }
     }
   }
   return pairs;
@@ -880,21 +929,33 @@ export function buildScoreBase(
   // 名前が重複する入力では差分を使わないので、行列は作らない (呼び出し側は `usable` を見て
   // 全走査へ落ちる)。空の行列を返すのは、型を分けずに「使ってはいけない基準」を表すため。
   const usable = names.size === n;
-  if (!usable) return { geo, crossMat: [], throughMat: [], usable };
+  if (!usable) {
+    return { geo, crossMat: [], throughMat: [], usable };
+  }
   const crossMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
   const throughMat = Array.from({ length: n }, () => new Array<boolean>(n).fill(false));
   for (let i = 0; i < n; i += 1) {
     const pa = geo.paths[i];
-    if (!pa) continue;
+    if (!pa) {
+      continue;
+    }
     for (let j = i + 1; j < n; j += 1) {
       const pb = geo.paths[j];
-      if (!pb) continue;
-      if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+      if (!pb) {
+        continue;
+      }
+      if (cfg.perfCounters) {
+        cfg.perfCounters.pairTests += 1;
+      }
       crossMat[i][j] = pathsCross(pa, pb);
     }
     for (let j = 0; j < n; j += 1) {
-      if (j === i) continue;
-      if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+      if (j === i) {
+        continue;
+      }
+      if (cfg.perfCounters) {
+        cfg.perfCounters.pairTests += 1;
+      }
       throughMat[i][j] = leaderCrossesBox(pa, geo.pixelBoxes[j]);
     }
   }
@@ -926,18 +987,26 @@ export function crossCountWithChanged(
   const n = placements.length;
   for (let i = 0; i < n; i += 1) {
     const pa = geo.paths[i];
-    if (!pa) continue;
+    if (!pa) {
+      continue;
+    }
     for (let j = i + 1; j < n; j += 1) {
       const pb = geo.paths[j];
-      if (!pb) continue;
+      if (!pb) {
+        continue;
+      }
       let hit: boolean;
       if (changed.has(i) || changed.has(j)) {
-        if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+        if (cfg.perfCounters) {
+          cfg.perfCounters.pairTests += 1;
+        }
         hit = pathsCross(pa, pb);
       } else {
         hit = base.crossMat[i][j];
       }
-      if (!hit) continue;
+      if (!hit) {
+        continue;
+      }
       const [x, y] = [placements[i].item.name, placements[j].item.name].sort();
       pairs.add(`${x}×${y}`);
     }
@@ -965,17 +1034,25 @@ export function throughCountWithChanged(
   const n = placements.length;
   for (let i = 0; i < n; i += 1) {
     const pa = geo.paths[i];
-    if (!pa) continue;
+    if (!pa) {
+      continue;
+    }
     for (let j = 0; j < n; j += 1) {
-      if (j === i) continue;
+      if (j === i) {
+        continue;
+      }
       let hit: boolean;
       if (changed.has(i) || changed.has(j)) {
-        if (cfg.perfCounters) cfg.perfCounters.pairTests += 1;
+        if (cfg.perfCounters) {
+          cfg.perfCounters.pairTests += 1;
+        }
         hit = leaderCrossesBox(pa, geo.pixelBoxes[j]);
       } else {
         hit = base.throughMat[i][j];
       }
-      if (!hit) continue;
+      if (!hit) {
+        continue;
+      }
       pairs.add(`${placements[i].item.name}>${placements[j].item.name}`);
     }
   }
@@ -1001,13 +1078,21 @@ function pathLength(pts: Pt[]): number {
  * 健全な放射 leader は内積 ≈ 1 なので非発火。
  */
 function isShortRimHuggingLeader(pathPoints: Pt[], cfg: PieLayoutConfig): boolean {
-  if (pathPoints.length < 2) return false;
+  if (pathPoints.length < 2) {
+    return false;
+  }
   const [a, b] = pathPoints;
   const da = Math.hypot(a.x, a.y);
   const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-  if (da < 1e-9 || segLen < 1e-9) return false;
-  if (Math.abs(da - cfg.pieRadius) >= radialFraction(cfg, 0.02, 0.2)) return false;
-  if (pathLength(pathPoints) >= radialFraction(cfg, 0.3, 2.8)) return false;
+  if (da < 1e-9 || segLen < 1e-9) {
+    return false;
+  }
+  if (Math.abs(da - cfg.pieRadius) >= radialFraction(cfg, 0.02, 0.2)) {
+    return false;
+  }
+  if (pathLength(pathPoints) >= radialFraction(cfg, 0.3, 2.8)) {
+    return false;
+  }
   const dotRadial = Math.abs(((b.x - a.x) * a.x + (b.y - a.y) * a.y) / (segLen * da));
   return dotRadial < SHORT_RIM_LEADER_DOT_RADIAL_MAX;
 }
@@ -1027,7 +1112,9 @@ function isShortRimHuggingLeader(pathPoints: Pt[], cfg: PieLayoutConfig): boolea
 export function countBundledRimStubs(placements: Placement[], cfg: PieLayoutConfig): number {
   const stubs = placements.map((p) => {
     const r = computeDrawnLeader(p, cfg);
-    if (r.skipLeader || !isShortRimHuggingLeader(r.pathPoints, cfg)) return null;
+    if (r.skipLeader || !isShortRimHuggingLeader(r.pathPoints, cfg)) {
+      return null;
+    }
     const [a, b] = r.pathPoints;
     const len = Math.hypot(b.x - a.x, b.y - a.y);
     return { anchor: a, dir: { x: (b.x - a.x) / len, y: (b.y - a.y) / len } };
@@ -1036,13 +1123,21 @@ export function countBundledRimStubs(placements: Placement[], cfg: PieLayoutConf
   let bundledCount = 0;
   for (let i = 0; i < stubs.length; i += 1) {
     const s = stubs[i];
-    if (!s) continue;
+    if (!s) {
+      continue;
+    }
     const hasNeighbour = stubs.some((o, j) => {
-      if (!o || i === j) return false;
-      if (Math.hypot(o.anchor.x - s.anchor.x, o.anchor.y - s.anchor.y) > maxAnchorGap) return false;
+      if (!o || i === j) {
+        return false;
+      }
+      if (Math.hypot(o.anchor.x - s.anchor.x, o.anchor.y - s.anchor.y) > maxAnchorGap) {
+        return false;
+      }
       return s.dir.x * o.dir.x + s.dir.y * o.dir.y > BUNDLED_RIM_STUB_MIN_DIR_COS;
     });
-    if (hasNeighbour) bundledCount += 1;
+    if (hasNeighbour) {
+      bundledCount += 1;
+    }
   }
   return bundledCount;
 }
@@ -1066,7 +1161,9 @@ export function boxOverlapMaxOf(boxes: BBox[]): number {
       const b = boxes[j];
       const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
       const oy = Math.min(a.top, b.top) - Math.max(a.bottom, b.bottom);
-      if (ox > 0 && oy > 0) m = Math.max(m, oy);
+      if (ox > 0 && oy > 0) {
+        m = Math.max(m, oy);
+      }
     }
   }
   return m;
@@ -1089,7 +1186,9 @@ export function boxPieIntrusionMaxOf(
 ): number {
   let m = 0;
   for (let i = 0; i < placements.length; i += 1) {
-    if (placements[i].insideSlice) continue;
+    if (placements[i].insideSlice) {
+      continue;
+    }
     const bx = boxes[i];
     m = Math.max(m, cfg.pieRadius - boxDistToOrigin(bx));
   }
@@ -1122,7 +1221,9 @@ export function boxViewOverflowMax(
 /** `boxViewOverflowMax` の box 配列版。 */
 export function boxViewOverflowMaxOf(boxes: BBox[], coord: Coord): number {
   let m = 0;
-  for (const lb of boxes) m = Math.max(m, boxViewOverflowOfBox(lb, coord));
+  for (const lb of boxes) {
+    m = Math.max(m, boxViewOverflowOfBox(lb, coord));
+  }
   return Math.max(0, m);
 }
 
@@ -1139,7 +1240,9 @@ export function projectBoxesToPixels(
 export function oobLeaderCountFrom(paths: (Pt[] | null)[], coord: Coord): number {
   let c = 0;
   for (const pts of paths) {
-    if (!pts) continue;
+    if (!pts) {
+      continue;
+    }
     for (const q of pts) {
       if (q.x < -1 || q.x > coord.width + 1 || q.y < -1 || q.y > coord.height + 1) {
         c += 1;
@@ -1181,7 +1284,9 @@ function angularStacksFrom(
   const left: AngularStack = [];
   const right: AngularStack = [];
   placements.forEach((p, i) => {
-    if (p.insideSlice) return;
+    if (p.insideSlice) {
+      return;
+    }
     // 意図的に角度順を破る/固定する その他 のみ除外する: コア帯 (右上逃がし or 真上垂直) と
     // 左拡張帯 (常に真上垂直 center 固定。アンカー最上・ラベル天井固定で構造的に concordant)、
     // および forceTopRight。帯外 (>122°) で左右スタックに通常 rim 配置された その他 は順序
@@ -1190,7 +1295,9 @@ function angularStacksFrom(
       return;
     }
     const pts = paths[i];
-    if (!pts || pts.length < 2) return;
+    if (!pts || pts.length < 2) {
+      return;
+    }
     const head = pts[0];
     const tail = pts[pts.length - 1];
     const anchor =
@@ -1235,7 +1342,9 @@ function discordantPairsOf(stacks: { left: AngularStack; right: AngularStack }):
     arr.sort((a, b) => a.labelY - b.labelY);
     for (let i = 0; i < arr.length; i += 1) {
       for (let j = i + 1; j < arr.length; j += 1) {
-        if (arr[j].anchorY < arr[i].anchorY - 2) dis += 1;
+        if (arr[j].anchorY < arr[i].anchorY - 2) {
+          dis += 1;
+        }
       }
     }
   }

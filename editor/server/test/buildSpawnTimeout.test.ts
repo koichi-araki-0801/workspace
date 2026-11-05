@@ -52,7 +52,9 @@ process.env.LOG_DIR = path.join(os.tmpdir(), 'editor-build-spawn-timeout-logs');
 describe('runBuildWorkerSpawn — timeout', () => {
   it('timeout で子のプロセスツリーを止め、タイムアウトとして reject する', async () => {
     const build = await import('../src/vivliostyle/build.js');
-    await expect(build.withBuildSlot((run) => run({}))).rejects.toThrow('タイムアウト(30ms)');
+    await expect(build.withBuildSlot((run) => run({}), 'tester')).rejects.toThrow(
+      'タイムアウト(30ms)',
+    );
     expect(state.killed).toEqual([fakeChild]);
     // 子だけを殺す `execFile` 組み込みの timeout には任せない(孫の chromium が残る)。
     expect(state.execOptions).not.toHaveProperty('timeout');

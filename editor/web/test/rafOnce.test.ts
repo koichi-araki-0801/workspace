@@ -11,7 +11,9 @@ function stubRaf() {
   return () => {
     const due = queue;
     queue = [];
-    for (const cb of due) cb(0);
+    for (const cb of due) {
+      cb(0);
+    }
   };
 }
 

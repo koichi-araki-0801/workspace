@@ -59,7 +59,9 @@ export function occurrenceKey(
   for (const s of siblings) {
     if (keyOf(s) === base) {
       n += 1;
-      if (s === el) break;
+      if (s === el) {
+        break;
+      }
     }
   }
   return `${base}#${n}`;

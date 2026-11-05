@@ -79,7 +79,9 @@ describe('POST /api/generate は 無認証モード(AUTH_REQUIRED=false)では s
       if (sql.includes(SP.template) && values[0] === '委託会社一覧') {
         return [{ 委託会社コード: 'R-XX01', 委託会社名: '会社 1', 委託会社略称: 'XX01' }];
       }
-      if (sql.includes(SP.template)) templateCalls += 1;
+      if (sql.includes(SP.template)) {
+        templateCalls += 1;
+      }
       return [];
     });
     const deps = createDeps(sproc, createSessionStub());

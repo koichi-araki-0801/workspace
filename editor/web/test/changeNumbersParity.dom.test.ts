@@ -92,15 +92,21 @@ function render(): HTMLElement {
 /** モデル木からクラスで component を探す。 */
 function byClass(cls: string): Component {
   const walk = (c: Component): Component | undefined => {
-    if (c.getClasses().includes(cls)) return c;
+    if (c.getClasses().includes(cls)) {
+      return c;
+    }
     for (const child of c.components()) {
       const hit = walk(child);
-      if (hit) return hit;
+      if (hit) {
+        return hit;
+      }
     }
     return undefined;
   };
   const hit = walk(g.editor.value?.getWrapper() as Component);
-  if (!hit) throw new Error(`no .${cls}`);
+  if (!hit) {
+    throw new Error(`no .${cls}`);
+  }
   return hit;
 }
 
@@ -128,7 +134,9 @@ async function reviewSide(canvasBody: string): Promise<ChangedPart[]> {
   const preview = await createTemplatePreviewService(templates, history, owner).loadForPreview(
     NAME,
   );
-  if (isErr(preview)) throw new Error(preview.error.message);
+  if (isErr(preview)) {
+    throw new Error(preview.error.message);
+  }
   const review: ReviewRequest = {
     id: 'req-1',
     templateId: NAME,
@@ -154,7 +162,9 @@ async function reviewSide(canvasBody: string): Promise<ChangedPart[]> {
     createCompareService(templates, history),
     parts,
   ).buildDiff('req-1');
-  if (isErr(res)) throw new Error(res.error.message);
+  if (isErr(res)) {
+    throw new Error(res.error.message);
+  }
   return res.value.changes;
 }
 
@@ -192,7 +202,9 @@ afterEach(() => {
   viewEl?.remove();
   viewEl = undefined;
   g.destroy();
-  for (const s of Array.from(document.head.querySelectorAll('style'))) s.remove();
+  for (const s of Array.from(document.head.querySelectorAll('style'))) {
+    s.remove();
+  }
 });
 
 describe('編集画面と承認タブの変更の番号', () => {
@@ -230,7 +242,9 @@ describe('編集画面と承認タブの変更の番号', () => {
       (k) => !/^#(text|attached)#/.test(k),
     );
     expect(partNumberKeys.length).toBeGreaterThan(0);
-    for (const key of partNumberKeys) expect(keys.has(key), key).toBe(true);
+    for (const key of partNumberKeys) {
+      expect(keys.has(key), key).toBe(true);
+    }
   });
 
   it('無変更なら両側とも番号は空', async () => {
@@ -311,8 +325,9 @@ describe('未編集で開いたときは番号を出さない(原文と GrapesJS
       'XX01_950124_20251020_全体版.html',
       'XX01_910024_20251117_全体版.html',
       'XX01_950155_20240710_交付版.html',
-    ])
+    ]) {
       expect(names).toContain(n);
+    }
   });
 
   it.each(allFilled)('%s: 確定版から開いて何もしなければ番号は空', async (_name, filled) => {

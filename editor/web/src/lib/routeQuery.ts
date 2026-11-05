@@ -23,6 +23,8 @@ export function safeRedirectPath(
   v: LocationQueryValue | LocationQueryValue[] | undefined,
 ): string | undefined {
   const s = firstQueryString(v);
-  if (!s?.startsWith('/') || s.startsWith('//')) return undefined;
+  if (!s?.startsWith('/') || s.startsWith('//')) {
+    return undefined;
+  }
   return s;
 }

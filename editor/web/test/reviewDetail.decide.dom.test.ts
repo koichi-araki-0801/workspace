@@ -8,6 +8,7 @@
 import {
   type ApproveReviewResult,
   appError,
+  conflict,
   err,
   numberChangedParts,
   ok,
@@ -123,7 +124,6 @@ const pendingReview: ReviewRequest = {
   baseCss: '',
   html: AFTER,
   css: '',
-  filledHtml: '',
 };
 
 function decision(partKey: string, status: ReviewPartDecision['status']): ReviewPartDecision {
@@ -161,6 +161,7 @@ function data(
     truncated: opts.truncated ?? false,
     cssChanged: false,
     printOnlyCss: false,
+    cssGeneratedText: false,
   };
 }
 
@@ -286,7 +287,9 @@ describe('ReviewDetail の判定と選択', () => {
     const d0 = data();
     serve(d0);
     const [c1, c2] = d0.changes;
-    if (!c1 || !c2) throw new Error('変更が 2 件ない');
+    if (!c1 || !c2) {
+      throw new Error('変更が 2 件ない');
+    }
     repo.updatePartDecisions.mockResolvedValue(
       err(
         appError(
@@ -322,7 +325,9 @@ describe('ReviewDetail の判定と選択', () => {
     await w.find('[data-next-pending]').trigger('click');
     await flushPromises();
     expect(row(w, 1).attributes('data-selected')).toBe('true');
-    for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('1');
+    for (const p of panels) {
+      expect(p.api.gotoPart).toHaveBeenLastCalledWith('1');
+    }
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
     const [key, no] = w.emitted('select')?.at(-1) ?? [];
     expect(no).toBe(1);
@@ -348,7 +353,9 @@ describe('ReviewDetail の判定と選択', () => {
     await readyPanels();
     await row(w, 2).find('[data-review-name]').trigger('click');
     await flushPromises();
-    for (const p of panels) expect(p.api.gotoPart).toHaveBeenLastCalledWith('2');
+    for (const p of panels) {
+      expect(p.api.gotoPart).toHaveBeenLastCalledWith('2');
+    }
   });
 
   it('選択中のパーツをもう一度押すと選択が外れ、select と slot の selectedKey が null に戻る', async () => {
@@ -453,7 +460,9 @@ describe('ReviewDetail の申請カード', () => {
     expect(w.find('[data-review-card]').exists()).toBe(false);
     resolve(ok(structuredClone(data())));
     // マイクロタスクだけを進める(タスクの切れ目 = ブラウザが描く機会を挟まない)。
-    for (let i = 0; i < 10 && !w.find('[data-review-card]').exists(); i++) await nextTick();
+    for (let i = 0; i < 10 && !w.find('[data-review-card]').exists(); i++) {
+      await nextTick();
+    }
     expect(w.find('[data-review-card]').exists()).toBe(true);
     // カードが出たのと同じ flush で、もう移っている。
     expect(w.find('[data-review-tools] [data-page-prev]').exists()).toBe(true);
@@ -676,6 +685,23 @@ describe('ReviewDetail の最終確定', () => {
     expect(repo.approveReview).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['REVIEW_BASE_CHANGED', '申請の後で確定版が変わりました。申請し直してもらってください'],
+    [
+      'REVIEW_NOT_REVIEWABLE',
+      'この申請は今の検査を通らないため承認できません。申請し直してもらってください',
+    ],
+  ])('最終確定が %s の 409 なら、申請し直しを求める文言を 1 つだけ出す', async (code, text) => {
+    repo.approveReview.mockResolvedValue(err(appError('conflict', 'サーバの文言', { code })));
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(toast).mock.calls).toEqual([[text, 'error']]);
+    expect(vi.mocked(toastError)).not.toHaveBeenCalled();
+    expect(w.emitted('decided')).toBeUndefined();
+  });
+
   it('最終確定のほかの失敗は今の文言のまま', async () => {
     repo.approveReview.mockResolvedValue(
       err(appError('internal', '承認の反映に失敗しました。時間をおいて再度お試しください。')),
@@ -858,6 +884,72 @@ describe('ReviewDetail の申請ごと却下', () => {
 // ── 7. PDF とページ送り ──
 
 describe('ReviewDetail の PDF とページ送り', () => {
+  it('作成経路は応答に値入り HTML が混ざっていても使わず、申請版の本文(afterBodyHtml)で PDF にする', async () => {
+    serve(
+      data({
+        review: {
+          origin: 'create',
+          renderedHtml: '<body><p>描いた本文</p></body>',
+          filledHtml: '<p>偽の文言</p>',
+        } as Partial<ReviewRequest>,
+      }),
+    );
+    renderPdf.mockResolvedValue(ok(new Blob(['%PDF'])));
+    const w = await mountDetail();
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() });
+    w.findComponent({ name: 'ReviewNoticeBar' }).vm.$emit('open-pdf');
+    await flushPromises();
+    const [html, , , , skipJinja] = renderPdf.mock.calls[0] as unknown[];
+    expect(html).toBe('<p>{{ 描画済みの本文 }}</p>');
+    expect(skipJinja).toBe(true);
+  });
+
+  it('作成経路の注意の件数と、全部の枝を描いたことを注意の帯へ渡す', async () => {
+    serve(
+      data({
+        review: {
+          origin: 'create',
+          renderedHtml: '<body><p>x</p></body>',
+          renderNotes: { unrendered: 3, escapedSafe: 1, unrenderedSources: [] },
+        },
+      }),
+    );
+    const w = await mountDetail();
+    const bar = w.findComponent({ name: 'ReviewNoticeBar' });
+    expect(bar.props('unrendered')).toBe(3);
+    expect(bar.props('escapedSafe')).toBe(1);
+    expect(bar.props('allBranches')).toBe(true);
+  });
+
+  it('申請者の CSS が文字を生むことを注意の帯へ渡す', async () => {
+    const d = data();
+    d.cssGeneratedText = true;
+    serve(d);
+    const w = await mountDetail();
+    expect(w.findComponent({ name: 'ReviewNoticeBar' }).props('cssGeneratedText')).toBe(true);
+  });
+
+  it('編集経路は全部の枝の注意を出さない', async () => {
+    serve(data());
+    const w = await mountDetail();
+    const bar = w.findComponent({ name: 'ReviewNoticeBar' });
+    expect(bar.props('allBranches')).toBe(false);
+    expect(bar.props('unrendered')).toBe(0);
+  });
+
+  it('作成経路の本文を描けない申請は、読み込みの失敗の代わりにその理由を出す', async () => {
+    buildDiff.mockResolvedValue(
+      err(
+        conflict('この申請は承認画面で表示できません。申請し直してもらってください', {
+          code: 'REVIEW_RENDER_ERROR',
+        }),
+      ),
+    );
+    const w = await mountDetail();
+    expect(w.text()).toContain('この申請は承認画面で表示できません。申請し直してもらってください');
+    expect(w.text()).not.toContain('申請の読み込みに失敗しました');
+  });
+
   it('記入済みインスタンスが無ければ、描画済みの申請版本文を描画に通さず PDF にする', async () => {
     serve(data());
     renderPdf.mockResolvedValue(ok(new Blob(['%PDF'])));

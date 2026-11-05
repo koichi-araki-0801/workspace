@@ -40,7 +40,9 @@ export function zipBodyRoutesFor(prefix: string): ReadonlySet<string> {
 
 /** 登録パターンが許可リストに載っているか(クエリ・フラグメントは落として比較する)。 */
 export function isZipBodyRoute(allowed: ReadonlySet<string>, routedUrl: unknown): boolean {
-  if (typeof routedUrl !== 'string') return false;
+  if (typeof routedUrl !== 'string') {
+    return false;
+  }
   return allowed.has(routedUrl.split(/[?#]/, 1)[0]);
 }
 

@@ -2,7 +2,7 @@
 // limits.ts — 資源上限の一元管理
 // =============================================================================
 // pie-chart はオペレータが手元で回す CLI で、ネットワークサービスではない。実害は
-// 「`--range` の指定ミスや行数の多い SELECT で何時間も固まる」という自己 DoS であり、
+// 「入力の指定ミスや行数の多いストアドの結果で何時間も固まる」という自己 DoS であり、
 // **黙って数時間回るのが最悪の壊れ方**。したがって上限超過は degrade でも既定への
 // フォールバックでもなく**明示エラー**にし、メッセージに「上限値・実際の値・上げ方」を
 // 必ず含める(オペレータが即座に指定ミスと分かることが実際の価値)。
@@ -17,9 +17,12 @@ import { hasXmlInvalidChars } from './svg_export/values.js';
  */
 function envPositiveInt(name: string, def: number): number {
   const raw = process.env[name];
-  if (raw === undefined) return def;
-  if (!/^\d+$/.test(raw.trim()) || Number(raw) <= 0)
+  if (raw === undefined) {
+    return def;
+  }
+  if (!/^\d+$/.test(raw.trim()) || Number(raw) <= 0) {
     throw new Error(`${name} must be a positive integer (got "${raw}").`);
+  }
   return Number(raw);
 }
 
@@ -41,15 +44,17 @@ const PIE_WARN_ITEMS = 16;
  * 指定ミスと分かることが、速く描けることより実際の価値。
  */
 export function assertItemCount(count: number): void {
-  if (count > PIE_MAX_ITEMS)
+  if (count > PIE_MAX_ITEMS) {
     throw new Error(
       `Too many items: ${count} (limit ${PIE_MAX_ITEMS}). ` +
         'Label placement grows worse than cubically in the item count, so a larger chart ' +
         'would run for many minutes. Reduce the data, or raise the limit deliberately with ' +
         `PIE_MAX_ITEMS=<n> (n=${PIE_MAX_ITEMS} already takes about two minutes).`,
     );
-  if (count > PIE_WARN_ITEMS)
+  }
+  if (count > PIE_WARN_ITEMS) {
     console.warn(`[pie-chart] ${count} items: label placement may take tens of seconds.`);
+  }
 }
 
 /**
@@ -62,42 +67,23 @@ export function assertItemCount(count: number): void {
  * なので、上限系と同じ様式(実際の値・原因・対処)の明示エラーで落とす。
  */
 export function assertTotalValue(total: number): void {
-  if (!Number.isFinite(total) || total <= 0)
+  if (!Number.isFinite(total) || total <= 0) {
     throw new Error(
       `Sum of |value| is not a usable number (got ${String(total)}). ` +
         'Percentages would all come out as 0.0%, so the chart is refused instead of being ' +
         'written silently. Check the input for overflowing magnitudes (values near 1e308).',
     );
+  }
 }
 
 /** ラベル 1 件の最大文字数。切り詰めると出力が黙って変わるためエラーにする。 */
 export const MAX_LABEL_CHARS = envPositiveInt('PIE_MAX_LABEL_CHARS', 256);
 
-/** `--range` が跨げる行数。実データ最終行とは別に、指定そのものの正気度を見る。 */
-export const MAX_RANGE_ROWS = envPositiveInt('PIE_MAX_RANGE_ROWS', 10_000);
-
-/**
- * 読み込む xlsx の**圧縮後**ファイルサイズ上限。exceljs は zip 内の全エントリを無条件に
- * 展開して JS 文字列へ載せる(必要判定は展開の**後**)ため、展開バイト数の予算を pie-chart
- * 側から掛ける手段が無い。つまりこの値は**展開後サイズの上限ではない** — 高圧縮率の XML を
- * 詰めた小さな .xlsx は展開後に何桁も大きくなり、`--range` が 10 行しか指していなくても
- * range 検査へ到達する前にメモリを食い潰せる(zip 爆弾)。
- *
- * 運用条件(この上限が守れない部分を人が守る): **信用できない .xlsx を開かない。**
- * 業務入力は「2 列 × 数十行の集計表」で、実ファイルは百 KB 台に収まる。既定はそれに対して
- * 十分な余裕を持たせた 4 MiB へ下げ、圧縮率 1000:1 の細工でも展開が数 GB 規模に留まるように
- * している(それでも落ちうるので、上の運用条件が主で本値は緩和)。他所から受け取った
- * .xlsx を扱う運用が要るなら、上限を上げるのではなく exceljs を「必要なエントリだけを
- * inflate 出力バイト数の予算付きで読む」実装へ置き換えること。
- */
-export const MAX_XLSX_BYTES = envPositiveInt('PIE_MAX_XLSX_BYTES', 4 * 1024 * 1024);
-
 /** `--data-json` の文字列長上限。 */
 export const MAX_JSON_BYTES = envPositiveInt('PIE_MAX_JSON_BYTES', 8 * 1024 * 1024);
 
 /**
- * ストアドの結果セットが持てる行数。`MAX_RANGE_ROWS` と同水準で、意味も同じ
- * 「指定そのものの正気度を見る」— 集計を忘れたストアドが明細を数十万行返すと、行 → 項目の
+ * ストアドの結果セットが持てる行数。集計を忘れたストアドが明細を数十万行返すと、行 → 項目の
  * 変換とそれに続く `Object.keys` / 文字列化で待たされたうえ、最後に `PIE_MAX_ITEMS` で
  * 落ちる。どこで落ちたか分かるよう、行の変換に入る前に行数で切る。
  *
@@ -129,13 +115,17 @@ export const DB_QUERY_TIMEOUT_S = (() => {
  * `svg_export/values.ts` の `hasXmlInvalidChars` を再利用し、除去ロジックを重複させない。
  */
 export function assertLabelXmlSafe(name: string): void {
-  if (!hasXmlInvalidChars(name)) return;
+  if (!hasXmlInvalidChars(name)) {
+    return;
+  }
   // 位置は正規表現の再実装でなく hasXmlInvalidChars の 1 文字ずつの再適用で求める
   // (判定ロジックを 2 箇所に持たない)。for..of はサロゲートペアを 1 コードポイントとして
   // 扱うため、孤立サロゲートだけを 1 コード単位として検出できる。
   let index = 0;
   for (const ch of name) {
-    if (hasXmlInvalidChars(ch)) break;
+    if (hasXmlInvalidChars(ch)) {
+      break;
+    }
     index += ch.length;
   }
   const codePoint = name.codePointAt(index);

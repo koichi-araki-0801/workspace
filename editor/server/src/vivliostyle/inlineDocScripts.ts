@@ -75,10 +75,14 @@ function isUnsafeToInline(body: string): boolean {
 function rebuildOpenTag(tag: TagSpan): string | undefined {
   let type = '';
   for (const a of tag.attrs) {
-    if (a.name === 'src') continue;
+    if (a.name === 'src') {
+      continue;
+    }
     if (a.name === 'type') {
       type = a.value.trim().toLowerCase();
-      if (!INLINEABLE_SCRIPT_TYPES.has(type)) return undefined;
+      if (!INLINEABLE_SCRIPT_TYPES.has(type)) {
+        return undefined;
+      }
       continue;
     }
     return undefined;
@@ -100,7 +104,9 @@ interface Replacement {
  * `inlineCss.dropEndOf` と同じ考え方で、raw text の中身と終了タグまでを 1 単位として扱う。
  */
 function elementEnd(tags: readonly TagSpan[], index: number, tag: TagSpan): number {
-  if (tag.rawText === undefined) return tag.end;
+  if (tag.rawText === undefined) {
+    return tag.end;
+  }
   const contentEnd = tag.end + tag.rawText.length;
   const next = tags[index + 1];
   return next?.isEnd && next.name === tag.name && next.start === contentEnd ? next.end : contentEnd;
@@ -121,31 +127,47 @@ export async function inlineDocScripts(
   servedRoot: string,
   served: ReadonlySet<string>,
 ): Promise<string> {
-  if (served.size === 0) return html;
+  if (served.size === 0) {
+    return html;
+  }
   const scan = scanTags(html);
   // 走査が一意に決まらない入力は加工しない(`inlineCss` と同じ fail closed)。
-  if (!scan.ok) return html;
+  if (!scan.ok) {
+    return html;
+  }
 
   const replacements: Replacement[] = [];
   for (const [i, tag] of scan.tags.entries()) {
-    if (tag.isEnd || tag.name !== 'script') continue;
+    if (tag.isEnd || tag.name !== 'script') {
+      continue;
+    }
     const src = tag.attrs.find((a) => a.name === 'src');
-    if (src === undefined) continue;
+    if (src === undefined) {
+      continue;
+    }
     const rel = resolveDocAssetPath(src.value, DOC_DIR);
-    if (rel === undefined || !served.has(rel)) continue;
+    if (rel === undefined || !served.has(rel)) {
+      continue;
+    }
     const openTag = rebuildOpenTag(tag);
-    if (openTag === undefined) continue;
+    if (openTag === undefined) {
+      continue;
+    }
 
     const source = path.join(servedRoot, ...rel.split('/'));
     let body: string;
     try {
       const stat = await fs.stat(source);
-      if (!stat.isFile() || stat.size > MAX_INLINE_SCRIPT_BYTES) continue;
+      if (!stat.isFile() || stat.size > MAX_INLINE_SCRIPT_BYTES) {
+        continue;
+      }
       body = await fs.readFile(source, 'utf8');
     } catch {
       continue;
     }
-    if (isUnsafeToInline(body)) continue;
+    if (isUnsafeToInline(body)) {
+      continue;
+    }
 
     replacements.push({
       start: tag.start,
@@ -154,7 +176,9 @@ export async function inlineDocScripts(
       text: `${openTag}\n${neutralizeRawTextClose(body, 'script')}\n</script>`,
     });
   }
-  if (replacements.length === 0) return html;
+  if (replacements.length === 0) {
+    return html;
+  }
 
   const out: string[] = [];
   let cursor = 0;

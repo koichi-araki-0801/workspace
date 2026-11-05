@@ -14,7 +14,7 @@ import {
 const TTL = 1000;
 
 /** 既定の操作主体。所有者検査そのものは `previewOwnership.test.ts` が受け持つ。 */
-const OWNER: PreviewActor = { loginId: 'editor1', isAdmin: false };
+const OWNER: PreviewActor = { loginId: 'editor1' };
 
 function fakeHandle(port: number): PreviewServerHandle & { close: ReturnType<typeof vi.fn> } {
   return { port, close: vi.fn(async () => {}) };
@@ -172,7 +172,9 @@ describe('PreviewManager', () => {
     expect(peak).toBeLessThanOrEqual(2);
 
     // ブロック中の starter を解放して全 start を決着させる。
-    for (const release of releases) release();
+    for (const release of releases) {
+      release();
+    }
     const outcomes = await Promise.all(starts);
     expect(outcomes.filter((o) => o === 'ok').length).toBeLessThanOrEqual(2);
     expect(mgr.list(OWNER).length).toBeLessThanOrEqual(2);

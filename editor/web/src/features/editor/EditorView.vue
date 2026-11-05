@@ -187,7 +187,7 @@ watch(
     bubbleResizeObserver?.disconnect();
     bubbleResizeObserver = null;
     const el = instance?.$el as HTMLElement | null | undefined;
-    if (!el || typeof ResizeObserver === 'undefined') return;
+    if (!el || typeof ResizeObserver === 'undefined') { return; }
     bubbleResizeObserver = new ResizeObserver(() => measureBubble());
     bubbleResizeObserver.observe(el);
   },
@@ -229,8 +229,8 @@ const railCurrentPage = computed(() =>
 /** レールのジャンプ。1 ページ表示はページ送り、全ページ連続表示は当該ページ先頭へスクロール。 */
 function onRailGo(page: number): void {
   const i = page - 1;
-  if (g.singlePageMode.value) g.goToPage(i);
-  else g.scrollToPage(i);
+  if (g.singlePageMode.value) { g.goToPage(i); }
+  else { g.scrollToPage(i); }
 }
 
 // ── 左右ペインの折りたたみ(狭幅で canvas を広く使うため) ──
@@ -264,7 +264,7 @@ const pendingReview = computed(() => pendingReviews.byTemplate[props.id]?.[0] ??
 
 /** 承認待ちバッジのクリック。承認タブをこのテンプレートで開く。 */
 async function goReview() {
-  if (!pendingReview.value) return;
+  if (!pendingReview.value) { return; }
   await autosave.flush();
   router.push({ name: 'reviews', query: { template: props.id } });
 }
@@ -279,7 +279,7 @@ onMounted(() => {
   // 承認待ちバッジの表示材料を取り直す(ベストエフォート。失敗してもバッジが出ないだけ)。
   void pendingReviews.refresh();
   const el = canvasEl.value;
-  if (!el) return;
+  if (!el) { return; }
   canvasResizeObserver = new ResizeObserver(() => {
     g.remeasureNextFrame(g.updateScrollMode);
   });
@@ -310,7 +310,7 @@ const helpOpen = ref(false);
  */
 async function manualSave(): Promise<void> {
   await autosave.flush();
-  if (autosave.state.value === 'saved') toastSuccess('保存しました');
+  if (autosave.state.value === 'saved') { toastSuccess('保存しました'); }
 }
 
 // グローバルショートカット(元に戻す / やり直す / 保存 / ズーム / 削除 / ヘルプ)。canvas の

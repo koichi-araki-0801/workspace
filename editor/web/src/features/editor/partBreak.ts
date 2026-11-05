@@ -57,7 +57,9 @@ function nearestBreak(items: Element[], i: number, root: Element, edge: BreakEdg
 
 /** `part` が根の直下のパーツなら、`pageItems` の並びとその位置。対象外なら null。 */
 function locate(part: Element, root: Element): { items: Element[]; i: number } | null {
-  if (part.parentElement !== root || isPagebreakEl(part)) return null;
+  if (part.parentElement !== root || isPagebreakEl(part)) {
+    return null;
+  }
   const items = pageItems(Array.from(root.children));
   const i = items.indexOf(part);
   return i < 0 ? null : { items, i };
@@ -81,7 +83,9 @@ function stateAt(
   at: { items: Element[]; i: number },
 ): PartBreakState {
   const read = (edge: BreakEdge): BreakSource | null => {
-    if (nearestBreak(at.items, at.i, root, edge) !== null) return 'div';
+    if (nearestBreak(at.items, at.i, root, edge) !== null) {
+      return 'div';
+    }
     return inlineBreak(part, edge) ? 'inline' : null;
   };
   return { before: read('before'), after: read('after') };
@@ -104,8 +108,12 @@ export function planBreakToggle(
   on: boolean,
 ): BreakPlan | null {
   const at = locate(part, root);
-  if (!at || (stateAt(part, root, at)[edge] !== null) === on) return null;
-  if (on) return { insert: edge, remove: [], stripProps: ignoredInlineBreakProps(part, edge) };
+  if (!at || (stateAt(part, root, at)[edge] !== null) === on) {
+    return null;
+  }
+  if (on) {
+    return { insert: edge, remove: [], stripProps: ignoredInlineBreakProps(part, edge) };
+  }
   const nearest = nearestBreak(at.items, at.i, root, edge);
   return {
     insert: null,

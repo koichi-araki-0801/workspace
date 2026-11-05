@@ -47,7 +47,9 @@ export function withFileLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
   chains.set(key, chained);
   void chained.then(() => {
     // 自分が最後尾のままならエントリを掃除する(後から積まれていれば触らない)。
-    if (chains.get(key) === chained) chains.delete(key);
+    if (chains.get(key) === chained) {
+      chains.delete(key);
+    }
   });
   return run;
 }

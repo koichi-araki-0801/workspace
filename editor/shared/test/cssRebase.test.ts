@@ -100,7 +100,9 @@ describe('rewriteCssUrlSpans — url() を後ろから置き換える', () => {
     let out = css;
     for (const span of [...collectCssUrlSpans(css)].reverse()) {
       const next = f(span);
-      if (next === undefined) continue;
+      if (next === undefined) {
+        continue;
+      }
       out = `${out.slice(0, span.start)}${next}${out.slice(span.end)}`;
     }
     return out;
@@ -120,7 +122,9 @@ describe('rewriteCssUrlSpans — url() を後ろから置き換える', () => {
     (span) => `url(${span.value.length}${'x'.repeat(span.end - span.start)})`,
   ];
   it.each(inputs)('%j: 置き換え前のループと同じ結果になる', (css) => {
-    for (const f of fs) expect(rewriteCssUrlSpans(css, f)).toBe(oldLoop(css, f));
+    for (const f of fs) {
+      expect(rewriteCssUrlSpans(css, f)).toBe(oldLoop(css, f));
+    }
   });
 
   it('undefined を返した url() は残し、文字列を返した url() だけを置き換える', () => {

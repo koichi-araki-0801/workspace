@@ -75,7 +75,9 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
   const url = new URL(`${BASE}${path}`, window.location.origin);
   if (opts.query) {
     for (const [k, v] of Object.entries(opts.query)) {
-      if (v != null && v !== '') url.searchParams.set(k, v);
+      if (v != null && v !== '') {
+        url.searchParams.set(k, v);
+      }
     }
   }
   const hasBody = opts.body !== undefined;
@@ -91,8 +93,14 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
     throw network(KIND_MESSAGE.network, { cause: e });
   }
   // セッション切れは呼び出し元へ返すだけでは画面が認証済みのまま残る(`sessionExpiry.ts`)。
-  if (res.status === 401) notifyUnauthorized();
-  if (!res.ok) throw await toError(res);
-  if (res.status === 204) return undefined as T;
+  if (res.status === 401) {
+    notifyUnauthorized();
+  }
+  if (!res.ok) {
+    throw await toError(res);
+  }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return (await res.json()) as T;
 }

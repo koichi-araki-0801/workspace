@@ -119,7 +119,11 @@ function specificity(selector: string): [number, number, number] {
 }
 
 const beats = (a: number[], b: number[]): boolean => {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) {
+      return a[i] > b[i];
+    }
+  }
   return false;
 };
 

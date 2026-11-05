@@ -46,8 +46,11 @@ async function everyRel(): Promise<Set<string>> {
   const walk = async (abs: string, rel: string): Promise<void> => {
     const entries = await fs.readdir(abs, { withFileTypes: true }).catch(() => []);
     for (const e of entries) {
-      if (e.isDirectory()) await walk(path.join(abs, e.name), `${rel}/${e.name}`);
-      else out.add(`${rel}/${e.name}`);
+      if (e.isDirectory()) {
+        await walk(path.join(abs, e.name), `${rel}/${e.name}`);
+      } else {
+        out.add(`${rel}/${e.name}`);
+      }
     }
   };
   await walk(cssDir, 'css');

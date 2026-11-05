@@ -92,9 +92,13 @@ export function parseDecls(text: string): Array<[string, string]> {
   const out: Array<[string, string]> = [];
   for (const decl of text.replace(/\/\*[\s\S]*?(?:\*\/|$)/g, ' ').split(';')) {
     const colon = decl.indexOf(':');
-    if (colon < 0) continue;
+    if (colon < 0) {
+      continue;
+    }
     const prop = decl.slice(0, colon).trim().toLowerCase();
-    if (!PROP_NAME_RE.test(prop)) continue;
+    if (!PROP_NAME_RE.test(prop)) {
+      continue;
+    }
     const value = decl
       .slice(colon + 1)
       .replace(/!\s*important\s*$/i, '')
@@ -112,10 +116,14 @@ export function parseDecls(text: string): Array<[string, string]> {
  */
 function inlineBreakKind(el: Element, edge: 'before' | 'after'): BreakKind | null {
   const style = el.getAttribute('style');
-  if (!style) return null;
+  if (!style) {
+    return null;
+  }
   let kind: BreakKind | null = null;
   for (const [prop, value] of parseDecls(style)) {
-    if (prop === `break-${edge}`) kind = breakKind(value);
+    if (prop === `break-${edge}`) {
+      kind = breakKind(value);
+    }
   }
   return kind;
 }
@@ -168,9 +176,15 @@ export function chipSource(el: Element, attr: string): string {
  * `isElementizingChip` で拾って警告する。
  */
 function isVanishingChip(el: Element): boolean {
-  if (!el.classList.contains(MARKER_ATTRS.chipClass)) return false;
-  if (el.hasAttribute(MARKER_ATTRS.jinja)) return true;
-  if (el.getAttribute(MARKER_ATTRS.opaqueKind) !== 'rawtext') return false;
+  if (!el.classList.contains(MARKER_ATTRS.chipClass)) {
+    return false;
+  }
+  if (el.hasAttribute(MARKER_ATTRS.jinja)) {
+    return true;
+  }
+  if (el.getAttribute(MARKER_ATTRS.opaqueKind) !== 'rawtext') {
+    return false;
+  }
   return !RAWTEXT_PART_SOURCE_RE.test(chipSource(el, MARKER_ATTRS.opaque));
 }
 
@@ -231,13 +245,17 @@ export function splitPages<T extends Element>(blocks: readonly T[]): PageSplit<T
     const sep = isPagebreakEl(el);
     const before = inlineBreakKind(el, 'before');
     if (n === 0) {
-      if (before === 'left' || before === 'right') firstSide = before;
+      if (before === 'left' || before === 'right') {
+        firstSide = before;
+      }
     } else {
       const sided = [before, after].find((k) => k === 'left' || k === 'right');
       const kind = sided ?? before ?? after;
       if (kind) {
         pages.push([]);
-        if (kind !== 'page' && sideOf(pages.length - 1) !== kind) pages.push([]);
+        if (kind !== 'page' && sideOf(pages.length - 1) !== kind) {
+          pages.push([]);
+        }
       }
     }
     const cur = pages.length - 1;

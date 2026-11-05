@@ -28,7 +28,9 @@ function parseLeaders(svg: string): Pt[][] {
     for (const c of m[1].matchAll(/[ML]([\d.\-]+),([\d.\-]+)/g)) {
       pts.push({ x: parseFloat(c[1]), y: parseFloat(c[2]) });
     }
-    if (pts.length >= 2) leaders.push(pts);
+    if (pts.length >= 2) {
+      leaders.push(pts);
+    }
   }
   return leaders;
 }
@@ -36,7 +38,9 @@ function parseLeaders(svg: string): Pt[][] {
 /** 最初のスライス path "M cx,cy L.. A r,.." から円の中心・半径を取る (`svg.ts` の `parsePieGeometry` と同式)。 */
 function parsePie(svg: string): { cx: number; cy: number; r: number } | null {
   const m = svg.match(/<path d="M([\d.\-]+),([\d.\-]+) L[\d.\-]+,[\d.\-]+ A([\d.\-]+),/);
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
@@ -44,7 +48,9 @@ function countParsedCrossings(leaders: Pt[][]): number {
   let c = 0;
   for (let i = 0; i < leaders.length; i += 1) {
     for (let j = i + 1; j < leaders.length; j += 1) {
-      if (pathsCross(leaders[i], leaders[j])) c += 1;
+      if (pathsCross(leaders[i], leaders[j])) {
+        c += 1;
+      }
     }
   }
   return c;
@@ -88,12 +94,16 @@ async function main(): Promise<void> {
     const items = resolveInputData({ data: (entry as { items: unknown[] }).items });
     const { svg, diagnostics } = await renderPdfStylePieToSvg(items, {});
     const fs = diagnostics?.finalScore;
-    if (!fs) continue; // 単一スライス等 finalScore 無しはスキップ
+    if (!fs) {
+      continue; // 単一スライス等 finalScore 無しはスキップ
+    }
     checked += 1;
     clipsTotal += fs.clips;
 
     const pie = parsePie(svg);
-    if (!pie) continue;
+    if (!pie) {
+      continue;
+    }
     const leaders = parseLeaders(svg);
     const emittedCross = countParsedCrossings(leaders);
     const emittedPie = countParsedPie(leaders, pie);

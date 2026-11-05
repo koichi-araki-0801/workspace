@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-diffreuse-'));
@@ -60,9 +61,13 @@ d('申請の差分の使い回し', () => {
   it('判定の保存で計算した差分を最終確定でも使い、差分の計算は 1 回だけ', async () => {
     const tplId = 'XX01_730001_20250101_交付版';
     fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, 'filled', `${tplId}.html`), '<p>既存の値入り</p>', 'utf8');
+    fs.writeFileSync(
+      path.join(tmp, 'filled', `${tplId}.html`),
+      filledDoc('<p>既存の値入り</p>'),
+      'utf8',
+    );
     const meta = await reviews.submitReview(
-      { templateId: tplId, html: '<p>新しい本文</p>', css: '.x{}', origin: 'edit' },
+      { templateId: tplId, html: filledDoc('<p>新しい本文</p>'), css: '.x{}', origin: 'edit' },
       submitter,
     );
     calls.diff = 0;
@@ -78,7 +83,7 @@ d('申請の差分の使い回し', () => {
     expect(calls.finalizeDiffs).toHaveLength(1);
     expect(calls.finalizeDiffs[0]).toMatchObject({ truncated: false });
     expect(fs.readFileSync(path.join(tmp, 'filled', `${tplId}.html`), 'utf8')).toBe(
-      '<p>新しい本文</p>',
+      filledDoc('<p>新しい本文</p>'),
     );
   });
 
@@ -86,9 +91,13 @@ d('申請の差分の使い回し', () => {
     const { cachedReviewIds } = await import('../src/repositories/reviewRepo.js');
     const submitEdit = async (tplId: string) => {
       fs.mkdirSync(path.join(tmp, 'filled'), { recursive: true });
-      fs.writeFileSync(path.join(tmp, 'filled', `${tplId}.html`), '<p>既存の値入り</p>', 'utf8');
+      fs.writeFileSync(
+        path.join(tmp, 'filled', `${tplId}.html`),
+        filledDoc('<p>既存の値入り</p>'),
+        'utf8',
+      );
       const meta = await reviews.submitReview(
-        { templateId: tplId, html: '<p>変えた本文</p>', css: '.x{}', origin: 'edit' },
+        { templateId: tplId, html: filledDoc('<p>変えた本文</p>'), css: '.x{}', origin: 'edit' },
         submitter,
       );
       await reviews.updatePartDecisions(
@@ -99,6 +108,7 @@ d('申請の差分の使い回し', () => {
       const cached = cachedReviewIds();
       expect(cached.diffs).toContain(meta.id);
       expect(cached.keys).toContain(meta.id);
+      expect(cached.reviewable).toContain(meta.id);
       return meta.id;
     };
     const approved = await submitEdit('XX01_730002_20250101_交付版');
@@ -109,6 +119,7 @@ d('申請の差分の使い回し', () => {
     for (const id of [approved, rejected]) {
       expect(after.diffs).not.toContain(id);
       expect(after.keys).not.toContain(id);
+      expect(after.reviewable).not.toContain(id);
     }
   });
 });

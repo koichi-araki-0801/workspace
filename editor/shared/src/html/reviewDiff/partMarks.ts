@@ -56,7 +56,9 @@ export function numberChangedParts(diff: HtmlDiff): ChangedPart[] {
     const blockByKey = new Map<string, DiffBlock>(page.blocks.map((b) => [b.key, b]));
     for (const key of reviewedPageOrder(page.beforeKeys, page.afterKeys, all)) {
       const block = blockByKey.get(key);
-      if (block === undefined || block.status === 'same') continue;
+      if (block === undefined || block.status === 'same') {
+        continue;
+      }
       const hasBefore = block.status !== 'added';
       const hasAfter = block.status !== 'removed';
       const existing = byKey.get(block.partKey);
@@ -111,13 +113,19 @@ function firstText(node: Node): string {
   for (const child of Array.from(node.childNodes)) {
     if (child.nodeType === TEXT_NODE) {
       const text = (child.textContent ?? '').replace(/\s+/g, ' ').trim();
-      if (text !== '') return text;
+      if (text !== '') {
+        return text;
+      }
     } else if (child.nodeType === ELEMENT_NODE) {
       const el = child as Element;
       // 赤入れの旧文言は名前にしない。
-      if (el.hasAttribute('data-redline')) continue;
+      if (el.hasAttribute('data-redline')) {
+        continue;
+      }
       const found = firstText(el);
-      if (found !== '') return found;
+      if (found !== '') {
+        return found;
+      }
     }
   }
   return '';
@@ -138,6 +146,8 @@ export function partDisplayName(input: {
   firstText: string;
   fallbackLabel: string;
 }): string {
-  if (input.catalogName !== undefined && input.catalogName !== '') return input.catalogName;
+  if (input.catalogName !== undefined && input.catalogName !== '') {
+    return input.catalogName;
+  }
   return input.firstText !== '' ? input.firstText : input.fallbackLabel;
 }

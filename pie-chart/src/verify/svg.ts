@@ -80,7 +80,9 @@ const oracleCfg = createPieLayoutConfig();
 
 function visualLineUnits(text: string): number {
   let sum = 0;
-  for (const ch of text) sum += bodyVisualCharEm(ch, oracleCfg);
+  for (const ch of text) {
+    sum += bodyVisualCharEm(ch, oracleCfg);
+  }
   return sum;
 }
 
@@ -105,9 +107,13 @@ function textBBox(t: TextInfo): BBox {
   }
 
   let left: number;
-  if (t.anchor === 'start') left = t.x;
-  else if (t.anchor === 'end') left = t.x - totalW;
-  else left = t.x - totalW / 2;
+  if (t.anchor === 'start') {
+    left = t.x;
+  } else if (t.anchor === 'end') {
+    left = t.x - totalW;
+  } else {
+    left = t.x - totalW / 2;
+  }
 
   let top: number;
   if (t.baseline === 'text-after-edge') {
@@ -139,7 +145,9 @@ function parseJsSlices(content: string): number {
   for (const m of content.matchAll(/<path[^>]+>/g)) {
     const tag = m[0];
     const fill = tag.match(/\bfill="([^"]+)"/)?.[1] ?? '';
-    if (fill && fill !== '#ffffff' && fill !== 'none') count++;
+    if (fill && fill !== '#ffffff' && fill !== 'none') {
+      count++;
+    }
   }
   return count;
 }
@@ -160,7 +168,9 @@ function parseJsSliceOrder(content: string): { name: string; percent: number }[]
 
 function parsePieGeometry(content: string): PieGeometry | null {
   const m = content.match(/<path d="M([\d.\-]+),([\d.\-]+) L[\d.\-]+,[\d.\-]+ A([\d.\-]+),/);
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   return { cx: parseFloat(m[1]), cy: parseFloat(m[2]), r: parseFloat(m[3]) };
 }
 
@@ -179,7 +189,9 @@ function parseJsLabels(content: string): { texts: TextInfo[]; leaders: (Point[] 
     const nameScaleX = Number.isFinite(sxRaw) ? sxRaw : 1;
     const lineCountAttr = groupAttrs.match(/data-line-count="([^"]+)"/)?.[1];
     const textM = inner.match(/<text([^>]+)>([\s\S]*?)<\/text>/);
-    if (!textM) continue;
+    if (!textM) {
+      continue;
+    }
     const attrs = textM[1];
     const textInner = textM[2];
     const x = parseFloat(attrs.match(/\bx="([^"]+)"/)?.[1] ?? 'NaN');
@@ -191,7 +203,9 @@ function parseJsLabels(content: string): { texts: TextInfo[]; leaders: (Point[] 
     const lineCount = lineCountAttr ? parseInt(lineCountAttr, 10) : tspanTexts.length || 1;
     // 表示・メッセージ用テキスト: 2 行は " / " 連結、1 行はそのまま連結。
     const text = lineCount >= 2 ? tspanTexts.join(' / ') : tspanTexts.join('');
-    if (Number.isNaN(x) || Number.isNaN(y) || !text.trim()) continue;
+    if (Number.isNaN(x) || Number.isNaN(y) || !text.trim()) {
+      continue;
+    }
     texts.push({
       x,
       y,
@@ -225,7 +239,9 @@ function distancePointToSegment(p: Point, a: Point, b: Point): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  if (lenSq === 0) {
+    return Math.hypot(p.x - a.x, p.y - a.y);
+  }
   let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq;
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
@@ -245,9 +261,13 @@ function bboxIntrudesPie(bbox: BBox, pie: PieGeometry, tolerance = 2): boolean {
 
 function parseViewBox(content: string): ViewBox | null {
   const m = content.match(/viewBox="([^"]+)"/);
-  if (!m) return null;
+  if (!m) {
+    return null;
+  }
   const parts = m[1].split(/\s+/).map(Number);
-  if (parts.length !== 4 || parts.some((v) => Number.isNaN(v))) return null;
+  if (parts.length !== 4 || parts.some((v) => Number.isNaN(v))) {
+    return null;
+  }
   return { x: parts[0], y: parts[1], width: parts[2], height: parts[3] };
 }
 
@@ -261,12 +281,22 @@ function bboxOutOfViewBox(
   const right = bbox.right - (vb.x + vb.width);
   const bottom = bbox.bottom - (vb.y + vb.height);
   const maxOut = Math.max(left, top, right, bottom);
-  if (maxOut <= tolerance) return null;
+  if (maxOut <= tolerance) {
+    return null;
+  }
   const sides: string[] = [];
-  if (left > tolerance) sides.push(`left ${Math.round(left)}px`);
-  if (top > tolerance) sides.push(`top ${Math.round(top)}px`);
-  if (right > tolerance) sides.push(`right ${Math.round(right)}px`);
-  if (bottom > tolerance) sides.push(`bottom ${Math.round(bottom)}px`);
+  if (left > tolerance) {
+    sides.push(`left ${Math.round(left)}px`);
+  }
+  if (top > tolerance) {
+    sides.push(`top ${Math.round(top)}px`);
+  }
+  if (right > tolerance) {
+    sides.push(`right ${Math.round(right)}px`);
+  }
+  if (bottom > tolerance) {
+    sides.push(`bottom ${Math.round(bottom)}px`);
+  }
   return { depth: Math.round(maxOut), sides: sides.join(', ') };
 }
 
@@ -286,10 +316,18 @@ function segmentsIntersect(a: Point, b: Point, c: Point, d: Point, tolerance = 0
   const d2 = cross(c, d, b);
   const d3 = cross(a, b, c);
   const d4 = cross(a, b, d);
-  if (Math.abs(d1) <= tolerance) return false;
-  if (Math.abs(d2) <= tolerance) return false;
-  if (Math.abs(d3) <= tolerance) return false;
-  if (Math.abs(d4) <= tolerance) return false;
+  if (Math.abs(d1) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d2) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d3) <= tolerance) {
+    return false;
+  }
+  if (Math.abs(d4) <= tolerance) {
+    return false;
+  }
   return d1 > 0 !== d2 > 0 && d3 > 0 !== d4 > 0;
 }
 
@@ -381,7 +419,9 @@ for (const name of allNames) {
 
   if (pie) {
     for (let i = 0; i < jsTexts.length; i++) {
-      if (jsTexts[i].insideSlice) continue;
+      if (jsTexts[i].insideSlice) {
+        continue;
+      }
       const bbox = textBBox(jsTexts[i]);
       if (bboxIntrudesPie(bbox, pie)) {
         const depth = Math.round(
@@ -395,7 +435,9 @@ for (const name of allNames) {
       }
     }
     for (const points of leaderPaths) {
-      if (!points) continue;
+      if (!points) {
+        continue;
+      }
       for (let i = 0; i + 1 < points.length; i++) {
         if (segmentIntrudesPie(points[i], points[i + 1], pie)) {
           const dist = distancePointToSegment({ x: pie.cx, y: pie.cy }, points[i], points[i + 1]);
@@ -410,9 +452,13 @@ for (const name of allNames) {
   }
 
   for (let i = 0; i < leaderPaths.length; i++) {
-    if (!leaderPaths[i]) continue;
+    if (!leaderPaths[i]) {
+      continue;
+    }
     for (let j = i + 1; j < leaderPaths.length; j++) {
-      if (!leaderPaths[j]) continue;
+      if (!leaderPaths[j]) {
+        continue;
+      }
       const cross = findLeaderCrossing(leaderPaths[i]!, leaderPaths[j]!);
       if (cross) {
         const ti = jsTexts[i]?.text ?? `path #${i}`;
@@ -432,8 +478,12 @@ for (const name of allNames) {
       const bottom = box.bottom - pad;
       const inA = p1.x >= left && p1.x <= right && p1.y >= top && p1.y <= bottom;
       const inB = p2.x >= left && p2.x <= right && p2.y >= top && p2.y <= bottom;
-      if (inA && inB) return false;
-      if (inA || inB) return true;
+      if (inA && inB) {
+        return false;
+      }
+      if (inA || inB) {
+        return true;
+      }
       const corners = [
         { x: left, y: top },
         { x: right, y: top },
@@ -443,15 +493,21 @@ for (const name of allNames) {
       for (let k = 0; k < 4; k += 1) {
         const c = corners[k];
         const d = corners[(k + 1) % 4];
-        if (segmentsIntersect(p1, p2, c, d)) return true;
+        if (segmentsIntersect(p1, p2, c, d)) {
+          return true;
+        }
       }
       return false;
     };
     for (let i = 0; i < leaderPaths.length; i += 1) {
       const points = leaderPaths[i];
-      if (!points) continue;
+      if (!points) {
+        continue;
+      }
       for (let j = 0; j < jsTexts.length; j += 1) {
-        if (j === i) continue;
+        if (j === i) {
+          continue;
+        }
         const box = textBBox(jsTexts[j]);
         for (let k = 0; k + 1 < points.length; k += 1) {
           if (segIntersectsBox(points[k], points[k + 1], box)) {
@@ -471,7 +527,9 @@ for (const name of allNames) {
 
   for (let i = 0; i < leaderPaths.length; i++) {
     const points = leaderPaths[i];
-    if (!points) continue;
+    if (!points) {
+      continue;
+    }
     const bends = Math.max(0, points.length - 2);
     if (bends > 1) {
       const ti = jsTexts[i]?.text ?? `path #${i}`;
@@ -489,7 +547,9 @@ for (const name of allNames) {
       }
     }
     for (const points of leaderPaths) {
-      if (!points) continue;
+      if (!points) {
+        continue;
+      }
       let maxOut = 0;
       let worstPoint: Point | null = null;
       for (const p of points) {
@@ -513,7 +573,9 @@ for (const name of allNames) {
   if (jsSliceOrder.length > 0) {
     const countBy = (names: string[]): Map<string, number> => {
       const m = new Map<string, number>();
-      for (const n of names) m.set(n, (m.get(n) ?? 0) + 1);
+      for (const n of names) {
+        m.set(n, (m.get(n) ?? 0) + 1);
+      }
       return m;
     };
     const labelCounts = countBy(jsTexts.map((t) => t.name));
@@ -563,9 +625,13 @@ for (const name of allNames) {
     const rightStack: StackEntry[] = [];
     for (let i = 0; i < jsTexts.length; i += 1) {
       const t = jsTexts[i];
-      if (t.insideSlice) continue;
+      if (t.insideSlice) {
+        continue;
+      }
       const pts = leaderPaths[i];
-      if (!pts || pts.length < 2) continue;
+      if (!pts || pts.length < 2) {
+        continue;
+      }
       // アンカー = 中心に近い側の端点 (円周 rim ≈ r。ラベル側は r より外)。
       const head = pts[0];
       const tail = pts[pts.length - 1];
@@ -580,14 +646,18 @@ for (const name of allNames) {
       // 名前不問で逆転判定から除外する。交差回避のため遠い slice を上段に積む仕様で意図的に角度順を
       // 破るため (本体 angularStacks も forceTopRight を除外)。「その他」逃がし (topBandSonohokaRight)・
       // top-band 小スライス逃がし (topBandSmallRight / markLeftStackTopBandEscapeRight) 共通。
-      if (inTopBand && oppositeSide) continue;
+      if (inTopBand && oppositeSide) {
+        continue;
+      }
       // "その他" は加えて左拡張帯 ((108°,122°], 真上垂直 center 固定) も除外する: center 配置
       // (baseline=bottom) と rim 配置 (baseline=top) の生 y 属性は基準辺が異なり比較できないため、
       // 本体 angularStacks と同様に除外する。帯外 (>122°) の通常 rim その他 は逆転判定に参加させる。
       if (t.name.startsWith('その他')) {
         const inLeftExt =
           norm > 90 + TOP_BAND_HALF_WIDTH_DEG && norm <= 90 + SONOHOKA_LEFT_EXT_HALF_WIDTH_DEG;
-        if (inTopBand || inLeftExt || oppositeSide) continue;
+        if (inTopBand || inLeftExt || oppositeSide) {
+          continue;
+        }
       }
       const cbox = textBBox(t);
       const entry: StackEntry = {

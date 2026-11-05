@@ -54,7 +54,9 @@ describe('partRepo', () => {
       await repo.listParts(q);
     }
     expect(calls).toHaveLength(4);
-    for (const c of calls) expect(c.params.some((x) => x.name === '版種')).toBe(false);
+    for (const c of calls) {
+      expect(c.params.some((x) => x.name === '版種')).toBe(false);
+    }
   });
 
   it('対象版種 を targetEdition に写し、NULL は null にする', async () => {
@@ -82,7 +84,9 @@ describe('partRepo', () => {
       await repo.listParts(q);
     }
     expect(calls).toHaveLength(4);
-    for (const c of calls) expect(c.params.some((x) => x.name === '委託会社コード')).toBe(false);
+    for (const c of calls) {
+      expect(c.params.some((x) => x.name === '委託会社コード')).toBe(false);
+    }
   });
 
   it('委託会社コード を RTRIM して companyCode に写し、NULL は null にする', async () => {

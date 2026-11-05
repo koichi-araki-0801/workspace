@@ -73,7 +73,9 @@ function classifySide(angle: number): 'left' | 'right' {
 
 /** ラベル名の長さから推定行数を返す。compactLabel フラグなら常に 1 行。 */
 function estimateTextLines(name: string, cfg: PieLayoutConfig, isCompact: boolean): number {
-  if (isCompact || cfg.compactLabel) return 1;
+  if (isCompact || cfg.compactLabel) {
+    return 1;
+  }
   return name.length >= cfg.veryLongLabelLen ? 3 : 2;
 }
 
@@ -226,19 +228,45 @@ function collectSliceCounts(profiles: LayoutItem[]) {
  * 派生フラグ (dominantWithDensePeriphery / leftStackMode 等) を diag に設定する。
  */
 function deriveModeTags(diag: Diagnostics): void {
-  if (diag.manyItems) diag.modeTags.push('many_items');
-  if (diag.ultraDenseItems) diag.modeTags.push('ultra_dense_items');
-  if (diag.oneSideDense) diag.modeTags.push('one_side_dense');
-  if (diag.oneSideVeryDense) diag.modeTags.push('one_side_very_dense');
-  if (diag.topSmallDense) diag.modeTags.push('top_small_dense');
-  if (diag.topTinyDense) diag.modeTags.push('top_tiny_dense');
-  if (diag.lowerGapIsTight) diag.modeTags.push('lower_gap_tight');
-  if (diag.longLabelDense) diag.modeTags.push('long_label_dense');
-  if (diag.upperLeftLongDense) diag.modeTags.push('upper_left_long_dense');
-  if (diag.upperRightLongDense) diag.modeTags.push('upper_right_long_dense');
-  if (diag.upperLeftSmallCount! >= 3) diag.modeTags.push('upper_left_small_dense');
-  if (diag.upperRightSmallCount! >= 3) diag.modeTags.push('upper_right_small_dense');
-  if (diag.bottomSmallCount! >= 2) diag.modeTags.push('bottom_small_dense');
+  if (diag.manyItems) {
+    diag.modeTags.push('many_items');
+  }
+  if (diag.ultraDenseItems) {
+    diag.modeTags.push('ultra_dense_items');
+  }
+  if (diag.oneSideDense) {
+    diag.modeTags.push('one_side_dense');
+  }
+  if (diag.oneSideVeryDense) {
+    diag.modeTags.push('one_side_very_dense');
+  }
+  if (diag.topSmallDense) {
+    diag.modeTags.push('top_small_dense');
+  }
+  if (diag.topTinyDense) {
+    diag.modeTags.push('top_tiny_dense');
+  }
+  if (diag.lowerGapIsTight) {
+    diag.modeTags.push('lower_gap_tight');
+  }
+  if (diag.longLabelDense) {
+    diag.modeTags.push('long_label_dense');
+  }
+  if (diag.upperLeftLongDense) {
+    diag.modeTags.push('upper_left_long_dense');
+  }
+  if (diag.upperRightLongDense) {
+    diag.modeTags.push('upper_right_long_dense');
+  }
+  if (diag.upperLeftSmallCount! >= 3) {
+    diag.modeTags.push('upper_left_small_dense');
+  }
+  if (diag.upperRightSmallCount! >= 3) {
+    diag.modeTags.push('upper_right_small_dense');
+  }
+  if (diag.bottomSmallCount! >= 2) {
+    diag.modeTags.push('bottom_small_dense');
+  }
 
   // dominantWithDensePeriphery: 支配 slice (>=50%) + ultra-dense 周辺。
   const dominantWithDensePeriphery =
@@ -246,12 +274,16 @@ function deriveModeTags(diag: Diagnostics): void {
     diag.ultraDenseItems &&
     diag.upperLeftSmallCount! >= 3 &&
     diag.totalCount! >= 10;
-  if (dominantWithDensePeriphery) diag.modeTags.push('dominantWithDensePeriphery');
+  if (dominantWithDensePeriphery) {
+    diag.modeTags.push('dominantWithDensePeriphery');
+  }
 
   // leftStackMode: 左側 small slice >=4 件で発火する汎用ケース。
   const leftStackMode = diag.upperLeftSmallCount! >= 4;
   diag.leftStackMode = leftStackMode;
-  if (leftStackMode) diag.modeTags.push('left_stack');
+  if (leftStackMode) {
+    diag.modeTags.push('left_stack');
+  }
 
   // twoLineLeftStackMode: 左列 (その他除く) に外側ラベルが多数 (>=6) 寄る過密チャートで、全 2 行を
   // 維持したまま canvas 全高の密ピッチ縦 1 列へ再配置する (applyTwoLineLeftColumn)。leftStackMode
@@ -259,14 +291,18 @@ function deriveModeTags(diag: Diagnostics): void {
   // 縦クランプ (scaledLabelRadius) を外して全高を使うことで解消し、参考 PDF の全 2 行縦積みを再現する。
   const twoLineLeftStackMode = !leftStackMode && (diag.leftColumnCount ?? 0) >= 6;
   diag.twoLineLeftStackMode = twoLineLeftStackMode;
-  if (twoLineLeftStackMode) diag.modeTags.push('two_line_left_stack');
+  if (twoLineLeftStackMode) {
+    diag.modeTags.push('two_line_left_stack');
+  }
 
   // topBandClusterMode: 12時近傍 (mid 90°±30°) に small slice が 4 件以上集まる密集ケース。
   // 12時 真近のスライスを含むと leftStackMode と並行発火する。applyTopBandClusterReorder で
   // Y順序を midAngle 順に並べ替え、12時 真近ラベルはクラスタ最下段+gap に固定する。
   const topBandClusterMode = (diag.topBandClusterCount ?? 0) >= 4;
   diag.topBandClusterMode = topBandClusterMode;
-  if (topBandClusterMode) diag.modeTags.push('top_band_cluster');
+  if (topBandClusterMode) {
+    diag.modeTags.push('top_band_cluster');
+  }
 
   diag.upperLeftTriadEligible = !leftStackMode && !dominantWithDensePeriphery;
 
@@ -357,9 +393,15 @@ function baseGap(item: LayoutItemReady, diagnostics: Diagnostics, cfg: PieLayout
   }
   if (item.isUpperLeft && diagnostics.modeTags.includes('upper_left_small_dense')) {
     gap += 0.07 * cfg.gapScale;
-    if (item.textLines >= 2) gap += 0.05 * cfg.gapScale;
-    if (item.textLines >= 3 || item.isLong) gap += 0.05 * cfg.gapScale;
-    if (item.textLines >= 3) gap += 0.08 * cfg.gapScale;
+    if (item.textLines >= 2) {
+      gap += 0.05 * cfg.gapScale;
+    }
+    if (item.textLines >= 3 || item.isLong) {
+      gap += 0.05 * cfg.gapScale;
+    }
+    if (item.textLines >= 3) {
+      gap += 0.08 * cfg.gapScale;
+    }
   }
   return gap;
 }
@@ -386,17 +428,21 @@ function pairGap(
 
 /** sideItems が canvas 上下端からはみ出していれば、全体を平行移動する。 */
 function clampSideRange(sideItems: LayoutItemReady[], cfg: PieLayoutConfig): void {
-  if (sideItems.length === 0) return;
+  if (sideItems.length === 0) {
+    return;
+  }
   const under = cfg.scaledYBottom - sideItems[sideItems.length - 1].finalY;
-  if (under > 0)
+  if (under > 0) {
     sideItems.forEach((item) => {
       item.finalY = item.finalY + under;
     });
+  }
   const over = sideItems[0].finalY - cfg.scaledYTop;
-  if (over > 0)
+  if (over > 0) {
     sideItems.forEach((item) => {
       item.finalY = item.finalY - over;
     });
+  }
 }
 
 /** sideItems の初期 finalY を naturalY から canvas 上下端でクランプ。 */
@@ -531,7 +577,9 @@ function resolveSidePositions(
   diagnostics: Diagnostics,
   cfg: PieLayoutConfig,
 ): void {
-  if (sideItems.length === 0) return;
+  if (sideItems.length === 0) {
+    return;
+  }
   setInitialFinalY(sideItems, side, cfg);
   if (side === 'right') {
     resolveRightSidePositions(sideItems, diagnostics, cfg);
@@ -598,7 +646,9 @@ function estimateUpperLeftStackHeight(
   cfg: PieLayoutConfig,
   { forceOneLine = false }: { forceOneLine?: boolean } = {},
 ): number {
-  if (items.length === 0) return 0;
+  if (items.length === 0) {
+    return 0;
+  }
   const sorted = [...items].sort((a, b) => b.midAngle - a.midAngle);
   const bottom = sorted[0];
   let stackTop = Math.sin(degToRad(bottom.midAngle)) + upperLeftMinRiseBase(bottom.midAngle, cfg);
@@ -617,7 +667,9 @@ function pickFlipCandidate(
   maxDeg: number,
 ): LayoutItemReady | null {
   const candidates = remaining.filter((item) => item.midAngle > minDeg && item.midAngle <= maxDeg);
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) {
+    return null;
+  }
   return candidates.reduce((best, current) => (current.midAngle < best.midAngle ? current : best));
 }
 
@@ -646,7 +698,9 @@ function applyBottomFlipToLeft(
   });
 
   right.forEach((rightItem) => {
-    if (!rightItem.flipToLeft) return;
+    if (!rightItem.flipToLeft) {
+      return;
+    }
     left.forEach((leftItem) => {
       if (Math.abs(rightItem.finalY - leftItem.finalY) < cfg.scaledMinGap) {
         const newY = rightItem.finalY + cfg.scaledMinGap;
@@ -665,7 +719,9 @@ function applyBottomFlipToLeft(
  */
 function applyFlipToRight(left: LayoutItemReady[], cfg: PieLayoutConfig): void {
   left.forEach((item) => {
-    if (!item.flipToRight) return;
+    if (!item.flipToRight) {
+      return;
+    }
     item.finalX = -item.finalX;
     if (item.finalY < cfg.pieRadius + cfg.flipPieClearance) {
       const radius = cfg.scaledLabelRadius;
@@ -679,7 +735,9 @@ function applyFlipToRight(left: LayoutItemReady[], cfg: PieLayoutConfig): void {
 /** pass 2 で使える「pie 円外へ leader を出せる最大角度」を計算する。 */
 function computePass2MaxAngle(cfg: PieLayoutConfig): number {
   const sinThreshold = cfg.pieRadius - cfg.scaledRadialExitLen + FLIP_PASS2_SAFETY_MARGIN;
-  if (sinThreshold >= 1) return FLIP_PRIMARY_MAX_DEG;
+  if (sinThreshold >= 1) {
+    return FLIP_PRIMARY_MAX_DEG;
+  }
   const refAngleDeg = radToDeg(Math.asin(sinThreshold));
   return 180 - refAngleDeg;
 }
@@ -693,16 +751,22 @@ function flipUpperLeftStackToRight(
   cfg: PieLayoutConfig,
 ): void {
   const upperLeftAll = left.filter((item) => item.isUpperLeft && !item.flipToRight);
-  if (upperLeftAll.length === 0) return;
+  if (upperLeftAll.length === 0) {
+    return;
+  }
   const topLimit = cfg.scaledYTop;
   const pass2MaxAngle = computePass2MaxAngle(cfg);
 
   const scored = upperLeftAll
     .map((item) => {
       let tier: number | null;
-      if (item.midAngle <= FLIP_PRIMARY_MAX_DEG) tier = 1;
-      else if (item.midAngle <= pass2MaxAngle) tier = 2;
-      else tier = null;
+      if (item.midAngle <= FLIP_PRIMARY_MAX_DEG) {
+        tier = 1;
+      } else if (item.midAngle <= pass2MaxAngle) {
+        tier = 2;
+      } else {
+        tier = null;
+      }
       return { item, tier };
     })
     .filter((c) => c.tier != null)
@@ -711,7 +775,9 @@ function flipUpperLeftStackToRight(
   const forceOneLine = diagnostics.leftStackMode === true;
   let remaining = upperLeftAll;
   for (const { item } of scored) {
-    if (estimateUpperLeftStackHeight(remaining, cfg, { forceOneLine }) <= topLimit) break;
+    if (estimateUpperLeftStackHeight(remaining, cfg, { forceOneLine }) <= topLimit) {
+      break;
+    }
     item.flipToRight = true;
     remaining = remaining.filter((i) => i !== item);
   }
@@ -732,7 +798,9 @@ function flipUpperLeftStackToRight(
   // allowTopBandThreeFlip: もう 1 件追加 flip。
   if (diagnostics.allowTopBandThreeFlip && remaining.length >= flipAllowThreeMinRemaining(cfg)) {
     const toFlip = pickFlipCandidate(remaining, FLIP_PRIMARY_MAX_DEG, flipDenseExtendedMaxDeg(cfg));
-    if (toFlip != null) toFlip.flipToRight = true;
+    if (toFlip != null) {
+      toFlip.flipToRight = true;
+    }
   }
 }
 
@@ -771,17 +839,27 @@ function buildUpperLeftStackFns(
 } {
   const denseDominantMode = Boolean(diagnostics.forceLowerLeftCompactBand);
   const minRise = (item: LayoutItemReady) => {
-    if (denseDominantMode) return 0.005;
+    if (denseDominantMode) {
+      return 0.005;
+    }
     let rise = upperLeftMinRiseBase(item.midAngle, cfg);
-    if (item.textLines >= 3) rise += 0.014;
-    if (item.isLong) rise += 0.01;
+    if (item.textLines >= 3) {
+      rise += 0.014;
+    }
+    if (item.isLong) {
+      rise += 0.01;
+    }
     return rise;
   };
 
   const renderGap = (lower: LayoutItemReady, upperItem: LayoutItemReady) => {
     let gap = upperLeftStackGap(lower.textLines, upperItem.textLines, cfg);
-    if (lower.isLong || upperItem.isLong) gap += 0.012;
-    if (lower.isVeryLong || upperItem.isVeryLong) gap += 0.01;
+    if (lower.isLong || upperItem.isLong) {
+      gap += 0.012;
+    }
+    if (lower.isVeryLong || upperItem.isVeryLong) {
+      gap += 0.01;
+    }
     return gap;
   };
 
@@ -801,7 +879,9 @@ function stackUpperLeftY(
   gapFn: (prev: LayoutItemReady, current: LayoutItemReady) => number,
 ): number[] {
   const result: number[] = [];
-  if (items.length === 0) return result;
+  if (items.length === 0) {
+    return result;
+  }
   result[0] = items[0].anchorY + riseFn(items[0]);
   for (let i = 1; i < items.length; i += 1) {
     const minY = items[i].anchorY + riseFn(items[i]);
@@ -820,7 +900,9 @@ function assignUpperLeftRenderY(
   const upper = [
     ...sideItems.filter((item) => item.isUpperLeft && !item.flipToRight && !item.topBandSmallRight),
   ].sort((a, b) => a.finalY - b.finalY);
-  if (upper.length === 0) return;
+  if (upper.length === 0) {
+    return;
+  }
 
   assignUpperLeftMetadata(upper, diagnostics);
   const { minRise, renderGapFn, minGapFn, denseDominantMode } = buildUpperLeftStackFns(
@@ -880,7 +962,9 @@ function markUpperLeftStackRimY(
   diagnostics: Diagnostics,
   cfg: PieLayoutConfig,
 ): void {
-  if (diagnostics.upperLeftTriadEligible !== true) return;
+  if (diagnostics.upperLeftTriadEligible !== true) {
+    return;
+  }
   const eligible = upper.filter(
     (it) =>
       it.isUpperLeft &&
@@ -888,7 +972,9 @@ function markUpperLeftStackRimY(
       !it.topBandSmallRight &&
       Number.isFinite(it.upperLeftRenderY),
   );
-  if (eligible.length < 2) return;
+  if (eligible.length < 2) {
+    return;
+  }
   const overlapTol = pxToLogical(cfg, 8);
   const minSep = labelHeightUnits(2, cfg) + overlapTol;
   const rimY = (it: LayoutItemReady) => Math.sin(degToRad(it.midAngle)) * cfg.pieRadius;
@@ -900,8 +986,12 @@ function markUpperLeftStackRimY(
       break;
     }
   }
-  if (!overlaps) return;
-  for (const it of eligible) it.useStackRimY = true;
+  if (!overlaps) {
+    return;
+  }
+  for (const it of eligible) {
+    it.useStackRimY = true;
+  }
 }
 
 /**
@@ -958,7 +1048,9 @@ function isDominantTop(diag: Diagnostics, minPct: number): boolean {
  * 引出線が放射方向を向かなくなる (どのスライス由来か読めない短スタブが出る条件)。
  */
 function sideStackDisplacement(sideItems: LayoutItemReady[], cfg: PieLayoutConfig): number {
-  if (sideItems.length === 0) return 0;
+  if (sideItems.length === 0) {
+    return 0;
+  }
   const total = sideItems.reduce((sum, it) => sum + Math.abs(it.finalY - it.naturalY), 0);
   return total / sideItems.length / labelHeightUnits(1, cfg);
 }
@@ -975,7 +1067,9 @@ function sideStackDisplacement(sideItems: LayoutItemReady[], cfg: PieLayoutConfi
  */
 function sideColumnPackingRatio(sideItems: LayoutItemReady[], cfg: PieLayoutConfig): number {
   const span = cfg.scaledYTop - cfg.scaledYBottom;
-  if (span <= 0) return 1;
+  if (span <= 0) {
+    return 1;
+  }
   const boxes = sideItems.reduce((sum, it) => sum + labelHeightUnits(it.textLines, cfg), 0);
   const gaps = Math.max(0, sideItems.length - 1) * cfg.scaledMinGap;
   return (boxes + gaps) / span;
@@ -985,7 +1079,9 @@ function sideColumnPackingRatio(sideItems: LayoutItemReady[], cfg: PieLayoutConf
 function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
   let best = items[0];
   for (const it of items) {
-    if (Math.abs(it.midAngle - 90) < Math.abs(best.midAngle - 90)) best = it;
+    if (Math.abs(it.midAngle - 90) < Math.abs(best.midAngle - 90)) {
+      best = it;
+    }
   }
   return best;
 }
@@ -1002,8 +1098,12 @@ function nearestToTwelveOClock(items: LayoutItemReady[]): LayoutItemReady {
  *  - 候補のうち 12時 (90°) に最も近い 1 件だけに付与
  */
 function markTopBandSmallRight(left: LayoutItemReady[], diagnostics: Diagnostics): void {
-  if (diagnostics.upperLeftTriadEligible !== true) return;
-  if (!left.some((it) => it.useStackRimY === true)) return;
+  if (diagnostics.upperLeftTriadEligible !== true) {
+    return;
+  }
+  if (!left.some((it) => it.useStackRimY === true)) {
+    return;
+  }
   const candidates = left.filter(
     (it) =>
       it.isSmall &&
@@ -1012,7 +1112,9 @@ function markTopBandSmallRight(left: LayoutItemReady[], diagnostics: Diagnostics
       !isOtherCategory(it.name) &&
       it.flipToRight === true,
   );
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
   nearestToTwelveOClock(candidates).topBandSmallRight = true;
 }
 
@@ -1040,7 +1142,9 @@ function markClippedUpperLeftLongDrop(
   diagnostics: Diagnostics,
   cfg: PieLayoutConfig,
 ): void {
-  if (diagnostics.twoLineLeftStackMode || diagnostics.topBandClusterMode) return;
+  if (diagnostics.twoLineLeftStackMode || diagnostics.topBandClusterMode) {
+    return;
+  }
 
   const floorScale = cfg.nameCondenseSteps[0] ?? 0.7;
   const viewBoxLeft = -cfg.svgWidthPx / 2 / cfg.pxPerUnit;
@@ -1050,17 +1154,29 @@ function markClippedUpperLeftLongDrop(
   // -(pieRadius + clearance)。長体下限でもこの最悪ケースで viewBox 左端を越えるなら見切れ得る。
   const worstAnchorX = -(cfg.pieRadius + cfg.pieLabelClearance);
   const candidates = left.filter((it) => {
-    if (it.flipToRight || it.flipToLeft) return false;
-    if (!(it.isUpperLeft && it.isLong)) return false;
-    if (isOtherCategory(it.name)) return false;
-    if (!angleInBand(normalizeAngle(it.midAngle), 180, 30)) return false;
+    if (it.flipToRight || it.flipToLeft) {
+      return false;
+    }
+    if (!(it.isUpperLeft && it.isLong)) {
+      return false;
+    }
+    if (isOtherCategory(it.name)) {
+      return false;
+    }
+    if (!angleInBand(normalizeAngle(it.midAngle), 180, 30)) {
+      return false;
+    }
     const width = scaledLabelWidthUnits(it.name, it.percentText ?? '', 2, floorScale, cfg);
     return worstAnchorX - width < viewBoxLeft - tol;
   });
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
   let best = candidates[0];
   for (const it of candidates) {
-    if (Math.cos(degToRad(it.midAngle)) < Math.cos(degToRad(best.midAngle))) best = it;
+    if (Math.cos(degToRad(it.midAngle)) < Math.cos(degToRad(best.midAngle))) {
+      best = it;
+    }
   }
   // 識別のみ。通常レイアウト/カスケードは無変更 (rim 2 行で見切れる baseline のまま) に保ち、
   // svg_export 側 applyLowerLeftDropFallback が emit 最終段で下left ドロップを試し、チャート全体の
@@ -1106,8 +1222,12 @@ const nearFarSplit = (slivers: LayoutItemReady[]): void => {
   let near = slivers[0];
   let far = slivers[0];
   for (const it of slivers) {
-    if (Math.abs(it.midAngle - 90) < Math.abs(near.midAngle - 90)) near = it;
-    if (Math.abs(it.midAngle - 90) > Math.abs(far.midAngle - 90)) far = it;
+    if (Math.abs(it.midAngle - 90) < Math.abs(near.midAngle - 90)) {
+      near = it;
+    }
+    if (Math.abs(it.midAngle - 90) > Math.abs(far.midAngle - 90)) {
+      far = it;
+    }
   }
   near.forceOutsideLeader = true;
   far.forceOutsideLeader = true;
@@ -1193,16 +1313,26 @@ function markTopBandSlivers(
   left: LayoutItemReady[],
   diagnostics: Diagnostics,
 ): void {
-  if (isDenseClusterMode(diagnostics)) return;
+  if (isDenseClusterMode(diagnostics)) {
+    return;
+  }
   for (const r of TOP_BAND_SLIVER_RULES) {
-    if (!isDominantTop(diagnostics, r.domMinPct)) continue;
+    if (!isDominantTop(diagnostics, r.domMinPct)) {
+      continue;
+    }
     if (r.domMaxExclusivePct !== undefined && isDominantTop(diagnostics, r.domMaxExclusivePct)) {
       continue;
     }
-    if (diagnostics.totalCount !== r.totalCount) continue;
+    if (diagnostics.totalCount !== r.totalCount) {
+      continue;
+    }
     const slivers = topBandLeftSlivers(left, r.sliverSize, 'exclude');
-    if (slivers.length !== r.sliverCount) continue;
-    if (!r.witness(left, candidates)) continue;
+    if (slivers.length !== r.sliverCount) {
+      continue;
+    }
+    if (!r.witness(left, candidates)) {
+      continue;
+    }
     r.apply(slivers);
   }
 }
@@ -1232,11 +1362,21 @@ function markLeftStackUpperEscapeRight(
   cfg: PieLayoutConfig,
   count: number,
 ): void {
-  if (count <= 0) return;
-  if (diagnostics.topBandClusterMode === true) return;
-  if (sideColumnPackingRatio(left, cfg) <= 1) return;
-  if (sideStackDisplacement(left, cfg) <= 1) return;
-  if (sideColumnPackingRatio(right, cfg) >= 0.5) return;
+  if (count <= 0) {
+    return;
+  }
+  if (diagnostics.topBandClusterMode === true) {
+    return;
+  }
+  if (sideColumnPackingRatio(left, cfg) <= 1) {
+    return;
+  }
+  if (sideStackDisplacement(left, cfg) <= 1) {
+    return;
+  }
+  if (sideColumnPackingRatio(right, cfg) >= 0.5) {
+    return;
+  }
   const candidates = leftStackUpperEscapeCandidates(left);
   // forceOutsideLeader で rank 9 起点 (buildOutsideLeaderDraft) = 1 行フォーム。右上の縦余白は
   // 冠〜viewBox 上端で約 2 箱分しかなく、2 行だと積んだ下段が円に食い込む
@@ -1287,20 +1427,26 @@ function markBottomCenterBelow(
   diagnostics: Diagnostics,
   cfg: PieLayoutConfig,
 ): void {
-  if (diagnostics.topBandClusterMode || diagnostics.leftStackMode) return;
+  if (diagnostics.topBandClusterMode || diagnostics.leftStackMode) {
+    return;
+  }
   const cosTol = 0.06; // 真下付近のみを拾う cos 許容差 (小さいほど真下限定)
   const inBand = (it: LayoutItemReady) =>
     angleInBand(normalizeAngle(it.midAngle), 270, BOTTOM_CENTER_HALF_DEG) &&
     Math.abs(Math.cos(degToRad(it.midAngle))) < cosTol &&
     (it.percent ?? 0) < DOMINANT_BELOW_CENTER_MIN_PCT;
   const cands = candidates.filter(inBand);
-  if (cands.length !== 1) return;
+  if (cands.length !== 1) {
+    return;
+  }
   const it = cands[0];
   const clearance = radialFraction(cfg, 0.012, 0.12);
   const boxTop = -(cfg.pieRadius + clearance);
   const boxBottom = boxTop - labelHeightUnits(Math.min(2, it.textLines ?? 2), cfg);
   const tol = pxToLogical(cfg, 2);
-  if (boxBottom < cfg.canvasYlim[0] - tol) return;
+  if (boxBottom < cfg.canvasYlim[0] - tol) {
+    return;
+  }
   it.bottomCenterBelow = true;
 }
 
@@ -1315,14 +1461,24 @@ function markBottomCenterBelow(
  * するため (regression 実測)。inside 行きになる item に立っても buildOutsideRimDraft は通らず無害。
  */
 function markDenseSideOutsidePush(left: LayoutItemReady[], diagnostics: Diagnostics): void {
-  if (!diagnostics.leftStackMode) return;
+  if (!diagnostics.leftStackMode) {
+    return;
+  }
   for (const it of left) {
-    if (isOtherCategory(it.name)) continue;
-    if (it.topBandSmallRight || it.forceOutsideLeader || it.loneTopSliverLeader) continue;
-    if (it.clusterTopBand || it.bottomCenterBelow) continue;
+    if (isOtherCategory(it.name)) {
+      continue;
+    }
+    if (it.topBandSmallRight || it.forceOutsideLeader || it.loneTopSliverLeader) {
+      continue;
+    }
+    if (it.clusterTopBand || it.bottomCenterBelow) {
+      continue;
+    }
     // 上帯 (12時近傍) の小スライスは『その他』の水平 leader と交差しやすく、B (交差修復) の
     // 射程外 (『その他』は上帯扱いで stack 除外) なので押し出さない。
-    if (it.isTop) continue;
+    if (it.isTop) {
+      continue;
+    }
     it.denseSideOutsidePush = true;
   }
 }
@@ -1337,14 +1493,24 @@ function markDenseSideOutsidePush(left: LayoutItemReady[], diagnostics: Diagnost
  * 55.6/36.7/7.7・67/33・72/28。`startangle=90`+時計回りで最大は右・第2は左に来るが、念のため side でも検証。
  */
 function markBisectedPie(candidates: LayoutItemReady[]): void {
-  if (candidates.length < 2) return;
+  if (candidates.length < 2) {
+    return;
+  }
   const byPct = [...candidates].sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0));
   const s0 = byPct[0];
   const s1 = byPct[1];
-  if ((s0.percent ?? 0) < DOMINANT_OUTSIDE_EDGE_MIN_PCT) return;
-  if ((s1.percent ?? 0) < BISECT_SECOND_MIN_PCT) return;
-  if ((s0.percent ?? 0) + (s1.percent ?? 0) < BISECT_PAIR_MIN_PCT) return;
-  if (s0.side !== 'right' || s1.side !== 'left') return;
+  if ((s0.percent ?? 0) < DOMINANT_OUTSIDE_EDGE_MIN_PCT) {
+    return;
+  }
+  if ((s1.percent ?? 0) < BISECT_SECOND_MIN_PCT) {
+    return;
+  }
+  if ((s0.percent ?? 0) + (s1.percent ?? 0) < BISECT_PAIR_MIN_PCT) {
+    return;
+  }
+  if (s0.side !== 'right' || s1.side !== 'left') {
+    return;
+  }
   s0.bisectedDominantCenter = true;
   s1.bisectedSecondSliceNoLeader = true;
 }
@@ -1357,13 +1523,23 @@ function markBisectedPie(candidates: LayoutItemReady[]): void {
  * `markBisectedPie` の後に呼び、二分割で確定済の s0 は再マークしない。
  */
 function markSingleDominantInside(candidates: LayoutItemReady[]): void {
-  if (candidates.length < 2) return;
+  if (candidates.length < 2) {
+    return;
+  }
   const s0 = [...candidates].sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))[0];
-  if (s0.bisectedDominantCenter) return;
-  if (s0.side !== 'right') return;
+  if (s0.bisectedDominantCenter) {
+    return;
+  }
+  if (s0.side !== 'right') {
+    return;
+  }
   const pct = s0.percent ?? 0;
-  if (pct < DOMINANT_OUTSIDE_EDGE_MIN_PCT) return;
-  if (pct >= DOMINANT_BELOW_CENTER_MIN_PCT) return;
+  if (pct < DOMINANT_OUTSIDE_EDGE_MIN_PCT) {
+    return;
+  }
+  if (pct >= DOMINANT_BELOW_CENTER_MIN_PCT) {
+    return;
+  }
   s0.singleDominantInside = true;
 }
 
@@ -1380,9 +1556,14 @@ function placeX(
     const y = Math.max(-innerRadius, Math.min(innerRadius, item.finalY));
     const yRatio = Math.abs(y) / radius;
     let xScale = 1.16 - 0.16 * yRatio;
-    if (item.isBottom) xScale += 0.03;
-    else if (y < cfg.lowerBandYThreshold) xScale += 0.02;
-    if (item.isUpperLeft && item.isLong) xScale += 0.02;
+    if (item.isBottom) {
+      xScale += 0.03;
+    } else if (y < cfg.lowerBandYThreshold) {
+      xScale += 0.02;
+    }
+    if (item.isUpperLeft && item.isLong) {
+      xScale += 0.02;
+    }
     if (item.isUpperLeft) {
       const topTier = Math.max(0, Math.min(1, (150 - item.midAngle) / 60));
       let denseBoost = 0;
@@ -1393,10 +1574,18 @@ function placeX(
         const rankRatio = rank / Math.max(1, count - 1);
         denseBoost += 0.05 * (1 - rankRatio);
       }
-      if (diagnostics.upperLeftLongDense) denseBoost += 0.04;
-      if (diagnostics.topSmallDense) denseBoost += 0.02;
-      if (item.textLines >= 3) denseBoost += 0.04;
-      if (item.isVeryLong) denseBoost += 0.03;
+      if (diagnostics.upperLeftLongDense) {
+        denseBoost += 0.04;
+      }
+      if (diagnostics.topSmallDense) {
+        denseBoost += 0.02;
+      }
+      if (item.textLines >= 3) {
+        denseBoost += 0.04;
+      }
+      if (item.isVeryLong) {
+        denseBoost += 0.03;
+      }
       xScale += denseBoost;
     }
     const baseX = Math.sqrt(Math.max(0, radius * radius - y * y));
@@ -1419,7 +1608,9 @@ function spreadSmallSlicesX(
       it.percent! < cfg.smallSliceThreshold &&
       Math.abs(it.finalY) > cfg.pieRadius * 0.7,
   );
-  if (smalls.length < 3) return;
+  if (smalls.length < 3) {
+    return;
+  }
   smalls.sort((a, b) => b.finalY - a.finalY);
   const innerBound = cfg.scaledLabelRadius + cfg.cornerGap;
   const xMin = side === 'left' ? cfg.canvasXlim[0] : innerBound;
@@ -1445,17 +1636,27 @@ function hasDominantOutsideEdgeOverflow1Line(
   // svg_export 側 DOMINANT_OUTSIDE_OVERFLOW_TOLERANCE_PX (=4px) と同値で揃える。
   const tol = pxToLogical(cfg, 4);
   for (const item of candidates) {
-    if ((item.percent ?? 0) < DOMINANT_OUTSIDE_EDGE_MIN_PCT) continue;
+    if ((item.percent ?? 0) < DOMINANT_OUTSIDE_EDGE_MIN_PCT) {
+      continue;
+    }
     const angle = normalizeAngle(item.midAngle ?? 0);
-    if (angleInBand(angle, 90, TOP_BAND_HALF_WIDTH_DEG)) continue;
-    if (angleInBand(angle, 270, BOTTOM_BAND_HALF_WIDTH_DEG)) continue;
+    if (angleInBand(angle, 90, TOP_BAND_HALF_WIDTH_DEG)) {
+      continue;
+    }
+    if (angleInBand(angle, 270, BOTTOM_BAND_HALF_WIDTH_DEG)) {
+      continue;
+    }
     const cosA = Math.cos(degToRad(angle));
-    if (Math.abs(cosA) < DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD) continue;
+    if (Math.abs(cosA) < DOMINANT_OUTSIDE_ANCHOR_COS_THRESHOLD) {
+      continue;
+    }
     const widthUnits = visualTextWidthUnits([`${item.name} ${item.percentText ?? ''}`], cfg);
     const anchorX = cosA > 0 ? cfg.pieRadius : -cfg.pieRadius;
     const labelRight = cosA > 0 ? anchorX + widthUnits : anchorX;
     const labelLeft = cosA > 0 ? anchorX : anchorX - widthUnits;
-    if (labelRight > xmax + tol || labelLeft < xmin - tol) return true;
+    if (labelRight > xmax + tol || labelLeft < xmin - tol) {
+      return true;
+    }
   }
   return false;
 }
@@ -1518,8 +1719,12 @@ export function layoutLabels(
     mids,
   );
   for (let i = 0; i < candidates.length; i += 1) {
-    if (forceFlipFlags[i]) candidates[i].flipToRight = true;
-    if (horizontalLowerLeftFlags[i]) candidates[i].forceHorizontalLowerLeftDrop = true;
+    if (forceFlipFlags[i]) {
+      candidates[i].flipToRight = true;
+    }
+    if (horizontalLowerLeftFlags[i]) {
+      candidates[i].forceHorizontalLowerLeftDrop = true;
+    }
   }
 
   const left = candidates.filter((item) => item.side === 'left');
@@ -1564,13 +1769,17 @@ export function layoutLabels(
     const viewBoxLeft = -cfg.svgWidthPx / 2 / cfg.pxPerUnit;
     const deepOverflowTol = 0.04; // ≈ 6 SVG px の安全代
     for (const it of left) {
-      if (it.flipToRight || it.flipToLeft || it.topBandSmallRight) continue;
+      if (it.flipToRight || it.flipToLeft || it.topBandSmallRight) {
+        continue;
+      }
       const text1 = `${it.name} ${it.percentText ?? ''}`;
       const width1 = visualTextWidthUnits([text1], cfg);
       const cosA = Math.cos(degToRad(it.midAngle));
       const textXRim = cosA * cfg.pieRadius;
       const leftEdge1Line = Math.abs(cosA) < 0.15 ? textXRim - width1 / 2 : textXRim - width1;
-      if (leftEdge1Line < viewBoxLeft - deepOverflowTol) continue;
+      if (leftEdge1Line < viewBoxLeft - deepOverflowTol) {
+        continue;
+      }
       it.preferOneLineCascade = true;
       it.compactLabel = true;
       it.textLines = 1;
@@ -1586,7 +1795,9 @@ export function layoutLabels(
     if (cluster.length >= 4) {
       for (const it of cluster) {
         it.clusterTopBand = true;
-        if (Math.abs(it.midAngle - 90) <= 5) it.clusterTopBandBottom = true;
+        if (Math.abs(it.midAngle - 90) <= 5) {
+          it.clusterTopBandBottom = true;
+        }
       }
     }
   }

@@ -36,7 +36,7 @@ const candidates = computed(() => {
 
 async function search(q: DropdownQuery) {
   const result = await run(() => repo.listTemplates(q));
-  if (isErr(result)) return;
+  if (isErr(result)) { return; }
   // 結合 PDF は確定済みだけを綴じる。`listTemplates` は編集タブが生成直後のテンプレへ
   // 到達できるよう pending(`status:'draft'`)も返すので、絞り込みは呼び出し側で行う。
   rows.value = result.value.filter((m) => m.status === 'published');
@@ -67,13 +67,13 @@ const progress = ref<{ done: number; total: number } | null>(null);
 /** 進捗表示の文言。レンダ中は n/m、全件レンダ後(サーバ組版待ち)は生成中表示へ切り替える。 */
 const progressLabel = computed(() => {
   const p = progress.value;
-  if (!p) return '';
-  if (p.done < p.total) return `${p.done + 1}/${p.total} 件目をレンダリング中…`;
+  if (!p) { return ''; }
+  if (p.done < p.total) { return `${p.done + 1}/${p.total} 件目をレンダリング中…`; }
   return 'PDF を生成しています…';
 });
 
 async function exportPdf() {
-  if (selection.value.length === 0 || exporting.value) return;
+  if (selection.value.length === 0 || exporting.value) { return; }
   exporting.value = true;
   progress.value = { done: 0, total: selection.value.length };
   try {
@@ -83,7 +83,7 @@ async function exportPdf() {
         progress.value = { done, total };
       }),
     );
-    if (isErr(result)) return;
+    if (isErr(result)) { return; }
     // ブラウザ標準のダウンロードへ流す(プレビュー画面の単体 PDF 出力と同じ UX)。
     const url = URL.createObjectURL(result.value);
     const a = document.createElement('a');

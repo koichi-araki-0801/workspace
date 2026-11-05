@@ -67,7 +67,9 @@ export function scrollDelta(
   estimate: number = ROW_HEIGHT_ESTIMATE,
 ): number {
   let sum = 0;
-  for (const h of heights) sum += h;
+  for (const h of heights) {
+    sum += h;
+  }
   return sum - estimate * heights.length;
 }
 
@@ -95,7 +97,11 @@ export function rejectReasonProblem(
   text: string,
   max: number = REJECT_REASON_MAX,
 ): 'empty' | 'tooLong' | null {
-  if (!text.trim()) return 'empty';
-  if (reasonLength(text) > max) return 'tooLong';
+  if (!text.trim()) {
+    return 'empty';
+  }
+  if (reasonLength(text) > max) {
+    return 'tooLong';
+  }
   return null;
 }

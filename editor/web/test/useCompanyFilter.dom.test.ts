@@ -26,7 +26,9 @@ function setup(id: string, listCompanies = vi.fn(async () => ok(COMPANIES))) {
     }),
     { global: { provide: { [REPOS_KEY as symbol]: { templates: { listCompanies } } } } },
   );
-  if (!filter) throw new Error('setup が走っていない');
+  if (!filter) {
+    throw new Error('setup が走っていない');
+  }
   return { templateId, filter };
 }
 

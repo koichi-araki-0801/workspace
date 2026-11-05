@@ -15,10 +15,6 @@ import { useAuthStore } from './stores/auth';
 import '@fontsource-variable/noto-sans-jp/index.css';
 import '@fontsource-variable/noto-serif-jp/index.css';
 import '@fontsource-variable/jetbrains-mono/index.css';
-// GrapesJS の layer/toolbar アイコン用 Font Awesome glyph。ローカル bundle により
-// エディタが cdnjs から FA を取得しなくなる(GrapesJS の `cssIcons` は `useGrapes.ts`
-// で空にし, リモート `<link>` 注入を止めている)。`editor/OFFLINE.md` を参照。
-import 'font-awesome/css/font-awesome.css';
 import './assets/index.css';
 
 initTheme();
@@ -36,7 +32,9 @@ app.use(router);
 setUnauthorizedHandler(() => {
   useAuthStore().reset();
   const current = router.currentRoute.value;
-  if (current.name === 'login') return;
+  if (current.name === 'login') {
+    return;
+  }
   void router.replace({ name: 'login', query: { redirect: current.fullPath } });
 });
 

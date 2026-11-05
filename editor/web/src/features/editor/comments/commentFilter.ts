@@ -55,16 +55,22 @@ export function threadsOf(entries: readonly PartNoteEntry[]): CommentThread[] {
   const parents = entries
     .filter((e) => e.replyTo === null)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  for (const p of parents) byParent.set(p.id, { parent: p, replies: [], lastAt: activityAt(p) });
+  for (const p of parents) {
+    byParent.set(p.id, { parent: p, replies: [], lastAt: activityAt(p) });
+  }
   const replies = entries
     .filter((e) => e.replyTo !== null)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   for (const r of replies) {
     const t = byParent.get(r.replyTo as string);
-    if (!t) continue;
+    if (!t) {
+      continue;
+    }
     t.replies.push(r);
     const at = activityAt(r);
-    if (at > t.lastAt) t.lastAt = at;
+    if (at > t.lastAt) {
+      t.lastAt = at;
+    }
   }
   return [...byParent.values()];
 }
@@ -89,7 +95,9 @@ export function openThreadCount(entries: readonly PartNoteEntry[]): number {
 /** 表示用の日時(年は省く。同一基準日のスレッドなので月日と時刻で足りる)。 */
 export function formatCommentAt(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
+  if (Number.isNaN(d.getTime())) {
+    return '';
+  }
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
@@ -99,7 +107,9 @@ export function formatCommentAt(iso: string): string {
 
 function matchesQuery(t: CommentThread, query: string): boolean {
   const q = query.trim().toLowerCase();
-  if (q === '') return true;
+  if (q === '') {
+    return true;
+  }
   const all = [t.parent, ...t.replies];
   return all.some(
     (e) => e.content.toLowerCase().includes(q) || e.createdBy.toLowerCase().includes(q),
@@ -118,12 +128,20 @@ export function filterThreads(
 ): CommentThread[] {
   const out = threads.filter((t) => {
     const p = t.parent;
-    if (filter.status !== 'all' && p.status !== filter.status) return false;
-    if (filter.author !== null && p.createdBy !== filter.author) return false;
-    if (filter.onlySelected && p.pathKey !== ctx.selectedKey) return false;
+    if (filter.status !== 'all' && p.status !== filter.status) {
+      return false;
+    }
+    if (filter.author !== null && p.createdBy !== filter.author) {
+      return false;
+    }
+    if (filter.onlySelected && p.pathKey !== ctx.selectedKey) {
+      return false;
+    }
     return matchesQuery(t, filter.query);
   });
-  if (filter.sort === 'updated') return out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  if (filter.sort === 'updated') {
+    return out.sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  }
   const order = (t: CommentThread) =>
     ctx.partOrder.get(t.parent.pathKey) ?? Number.MAX_SAFE_INTEGER;
   return out.sort(

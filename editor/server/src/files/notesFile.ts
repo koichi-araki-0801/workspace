@@ -141,7 +141,9 @@ function emptyNotesMap(): NoteEntriesMap {
 function normalizeStored(parsed: Record<string, unknown>): NoteEntriesMap {
   const out = emptyNotesMap();
   for (const [key, value] of Object.entries(parsed)) {
-    if (!Array.isArray(value)) continue;
+    if (!Array.isArray(value)) {
+      continue;
+    }
     out[key] = value.filter(looksLikeStoredNoteEntry).map(withCommentDefaults);
   }
   return out;
@@ -158,18 +160,23 @@ async function readNotesResult(templateId: string): Promise<NotesReadResult> {
   } catch (e) {
     return (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? missing() : unreadable();
   }
-  if (size > MAX_NOTES_FILE_BYTES) return unreadable();
+  if (size > MAX_NOTES_FILE_BYTES) {
+    return unreadable();
+  }
   let raw: string;
   try {
     raw = await fs.readFile(file, 'utf8');
   } catch (e) {
     return (e as NodeJS.ErrnoException)?.code === 'ENOENT' ? missing() : unreadable();
   }
-  if (!raw) return missing();
+  if (!raw) {
+    return missing();
+  }
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (parsed !== null && typeof parsed === 'object')
+    if (parsed !== null && typeof parsed === 'object') {
       return { notes: normalizeStored(parsed as Record<string, unknown>), unreadable: false };
+    }
     return unreadable();
   } catch {
     // 壊れたメモファイルで編集画面ごと落とさない(メモは注釈で、本体は git 側が正典)。
@@ -194,11 +201,12 @@ export async function readNotes(templateId: string): Promise<NoteEntriesMap> {
  */
 export async function readNotesStrict(templateId: string): Promise<NoteEntriesMap> {
   const res = await readNotesResult(templateId);
-  if (res.unreadable)
+  if (res.unreadable) {
     throw validation(
       'このテンプレートのメモファイルを読み取れないため保存できません' +
         '(サイズ超過・破損・読み取り失敗)。既存のメモを失わないよう、保存を中止しました。',
     );
+  }
   return res.notes;
 }
 
@@ -212,11 +220,12 @@ export async function readNotesStrict(templateId: string): Promise<NoteEntriesMa
 export async function writeNotes(templateId: string, notes: NoteEntriesMap): Promise<void> {
   const body = `${JSON.stringify(notes, null, 2)}\n`;
   const bytes = Buffer.byteLength(body, 'utf8');
-  if (bytes > MAX_NOTES_FILE_BYTES)
+  if (bytes > MAX_NOTES_FILE_BYTES) {
     throw validation(
       `このテンプレートのメモが上限(${Math.floor(MAX_NOTES_FILE_BYTES / 1024 / 1024)}MB)を` +
         '超えるため保存できません。不要なメモを削除してください。',
     );
+  }
   await fs.mkdir(notesDir(), { recursive: true });
   await atomicWrite(fileFor(templateId), body);
 }

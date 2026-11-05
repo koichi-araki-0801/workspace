@@ -66,7 +66,9 @@ export function useRedline(deps: RedlineDeps) {
 
   function clear(): void {
     const root = rootEl();
-    if (root) clearRedline(root);
+    if (root) {
+      clearRedline(root);
+    }
   }
 
   /**
@@ -101,9 +103,13 @@ export function useRedline(deps: RedlineDeps) {
     const el = comp?.getEl();
     const root = rootEl();
     // `el` が `root` 自身、または `root` の子孫でない場合は登り続けると `<html>` まで届く。
-    if (!el || !root || el === root || !root.contains(el)) return;
+    if (!el || !root || el === root || !root.contains(el)) {
+      return;
+    }
     let part: HTMLElement = el;
-    while (part.parentElement && part.parentElement !== root) part = part.parentElement;
+    while (part.parentElement && part.parentElement !== root) {
+      part = part.parentElement;
+    }
     clearRedlineWithin(part);
   }
 
@@ -115,12 +121,18 @@ export function useRedline(deps: RedlineDeps) {
     const ed = deps.editor.value;
     const root = rootEl();
     applyBodyClass();
-    if (!ed || !root || !baseline) return;
+    if (!ed || !root || !baseline) {
+      return;
+    }
     // RTE 中 / drag 中は DOM に触らない — `clearRedline` の `normalize()` が contenteditable の
     // caret を乱す、または Sorter が読む子要素構成を変えてしまうため。
-    if (deps.editing.value || dragging) return;
+    if (deps.editing.value || dragging) {
+      return;
+    }
     clearRedline(root);
-    if (!enabled.value || !deps.dirty.value) return;
+    if (!enabled.value || !deps.dirty.value) {
+      return;
+    }
     try {
       // `rootEl()` が非 null を返した時点で wrapper の存在は確定している(型は
       // `ComponentWrapper | undefined`)。
@@ -136,7 +148,9 @@ export function useRedline(deps: RedlineDeps) {
   }
 
   function schedule(): void {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = setTimeout(() => {
       timer = null;
       recompute();
@@ -160,7 +174,9 @@ export function useRedline(deps: RedlineDeps) {
 
   function onDragStart(): void {
     dragging = true;
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = null;
     clear();
   }
@@ -174,7 +190,9 @@ export function useRedline(deps: RedlineDeps) {
   watch(deps.dirty, schedule);
   // 画面離脱後に debounce が発火しても、参照先の canvas は既に破棄されている。
   onUnmounted(() => {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   });
 
   return {

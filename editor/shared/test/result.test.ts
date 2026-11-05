@@ -6,14 +6,18 @@ describe('ok / err / isOk / isErr', () => {
     const r = ok(5);
     expect(isOk(r)).toBe(true);
     expect(isErr(r)).toBe(false);
-    if (isOk(r)) expect(r.value).toBe(5);
+    if (isOk(r)) {
+      expect(r.value).toBe(5);
+    }
   });
 
   it('constructs and narrows an error', () => {
     const r = err('boom');
     expect(isErr(r)).toBe(true);
     expect(isOk(r)).toBe(false);
-    if (isErr(r)) expect(r.error).toBe('boom');
+    if (isErr(r)) {
+      expect(r.error).toBe('boom');
+    }
   });
 });
 

@@ -16,8 +16,12 @@ type PartConflict = PairSyncStatus['conflicts'][number];
 /** パーツの競合 1 件の項目。削除系は、消した側の版種で書く(相手の版種は版種の入れ替え)。 */
 function partConflictLabel(c: PartConflict): string {
   const { deletedIn } = c;
-  if (!deletedIn) return `${c.partKey}〔${c.kind}〕`;
-  if (c.kind === 'ペア側削除') return `${c.partKey}〔${deletedIn}で削除〕`;
+  if (!deletedIn) {
+    return `${c.partKey}〔${c.kind}〕`;
+  }
+  if (c.kind === 'ペア側削除') {
+    return `${c.partKey}〔${deletedIn}で削除〕`;
+  }
   if (c.kind === 'ペア側削除・ソース変更') {
     const other = EDITION_SYNC_PAIRS[deletedIn];
     return other
@@ -38,7 +42,9 @@ export function cssRuleLabel(key: string): string {
   } catch {
     return key;
   }
-  if (!Array.isArray(parts) || parts.length === 0) return key;
+  if (!Array.isArray(parts) || parts.length === 0) {
+    return key;
+  }
   const last = parts.at(-1);
   const nth = typeof last === 'number' ? last : null;
   const names = (nth === null ? parts : parts.slice(0, -1)).filter(
@@ -54,24 +60,32 @@ export function cssRuleLabel(key: string): string {
  * 返すので、パーツのキーに添えてそのまま出す。
  */
 function valueCheckText(s: PairSyncStatus): string | null {
-  if (s.valueChecks.length === 0) return null;
+  if (s.valueChecks.length === 0) {
+    return null;
+  }
   const items = s.valueChecks.map((v) => `${v.partKey}〔${v.reasons.join('。')}〕`);
   return `ペア（${s.pairTemplateId}）から写した ${s.valueChecks.length} 件のパーツの値を確かめてください: ${items.join('、')}`;
 }
 
 /** 編集画面のバナー。競合も値の確認も無ければ null。 */
 export function pairSyncConflictText(s: PairSyncStatus | null): string | null {
-  if (!s) return null;
+  if (!s) {
+    return null;
+  }
   const conflicts = conflictText(s);
   const values = valueCheckText(s);
-  if (conflicts === null) return values;
+  if (conflicts === null) {
+    return values;
+  }
   return values === null ? conflicts : `${conflicts}。${values}`;
 }
 
 function conflictText(s: PairSyncStatus): string | null {
   const n = s.conflicts.length;
   const m = s.cssConflicts.length;
-  if (n === 0 && m === 0) return null;
+  if (n === 0 && m === 0) {
+    return null;
+  }
   const what =
     m === 0
       ? `${n} 件のパーツ`
@@ -93,7 +107,9 @@ function conflictText(s: PairSyncStatus): string | null {
 export function pairSyncResultText(
   sync: PairSyncSummary | null | undefined,
 ): { text: string; variant: 'error' | 'default' } | null {
-  if (!sync) return null;
+  if (!sync) {
+    return null;
+  }
   if (sync.error) {
     return {
       text: `ペア(${sync.pairTemplateId})への自動同期に失敗しました: ${sync.error}`,
@@ -102,7 +118,9 @@ export function pairSyncResultText(
   }
   const cssApplied = sync.css?.applied.length ?? 0;
   const skipped = sync.skipped.length + (sync.css?.conflicts.length ?? 0);
-  if (sync.applied.length === 0 && cssApplied === 0 && skipped === 0) return null;
+  if (sync.applied.length === 0 && cssApplied === 0 && skipped === 0) {
+    return null;
+  }
   const cssNote = cssApplied > 0 ? `・書式 ${cssApplied} 規則` : '';
   const skippedNote = skipped > 0 ? `・スキップ ${skipped} 件(要確認)` : '';
   // 写したパーツのうち値を確かめてほしいもの(写し元の値のまま・写し先の値が欠けた)。理由は

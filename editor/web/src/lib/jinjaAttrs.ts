@@ -50,20 +50,34 @@ const B64 = '[A-Za-z0-9+/]*={0,2}';
 const RT_RE = new RegExp(`^${RT_COMMENT_PREFIX}(?:([oc]):(\\d+):(${B64})|x:(\\d+)|t:(${B64}))$`);
 
 export function rtComment(m: RtMarker): string {
-  if (m.kind === 'x') return `<!--${RT_COMMENT_PREFIX}x:${m.id}-->`;
-  if (m.kind === 't') return `<!--${RT_COMMENT_PREFIX}t:${b64encodeUtf8(m.payload)}-->`;
+  if (m.kind === 'x') {
+    return `<!--${RT_COMMENT_PREFIX}x:${m.id}-->`;
+  }
+  if (m.kind === 't') {
+    return `<!--${RT_COMMENT_PREFIX}t:${b64encodeUtf8(m.payload)}-->`;
+  }
   return `<!--${RT_COMMENT_PREFIX}${m.kind}:${m.id}:${b64encodeUtf8(m.payload)}-->`;
 }
 
 /** コメントの本文を読む。`jinja-rt:` で始まらなければ null、始まるのに崩れていれば 'invalid'。 */
 export function parseRtCommentData(data: string): RtMarker | 'invalid' | null {
-  if (!data.trimStart().startsWith(RT_COMMENT_PREFIX)) return null;
+  if (!data.trimStart().startsWith(RT_COMMENT_PREFIX)) {
+    return null;
+  }
   const m = RT_RE.exec(data);
-  if (!m) return 'invalid';
+  if (!m) {
+    return 'invalid';
+  }
   try {
-    if (m[1]) return { kind: m[1] as 'o' | 'c', id: Number(m[2]), payload: b64decodeUtf8(m[3]) };
-    if (m[4]) return { kind: 'x', id: Number(m[4]) };
-    if (!m[5]) return 'invalid';
+    if (m[1]) {
+      return { kind: m[1] as 'o' | 'c', id: Number(m[2]), payload: b64decodeUtf8(m[3]) };
+    }
+    if (m[4]) {
+      return { kind: 'x', id: Number(m[4]) };
+    }
+    if (!m[5]) {
+      return 'invalid';
+    }
     return { kind: 't', payload: b64decodeUtf8(m[5]) };
   } catch {
     return 'invalid';

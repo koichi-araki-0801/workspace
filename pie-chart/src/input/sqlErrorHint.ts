@@ -69,7 +69,9 @@ const SQLSTATE_HINTS = new Map<string, string>([
 export function sqlErrorHint(sqlstate?: string, code?: number): string | undefined {
   if (code !== undefined) {
     const byCode = CODE_HINTS.get(code);
-    if (byCode) return byCode;
+    if (byCode) {
+      return byCode;
+    }
     if (code >= USER_ERROR_MIN) {
       return 'ストアドがエラーを返しました。ストアドの中の条件(ファンドコード・基準日・グラフ種別)を確認してください';
     }

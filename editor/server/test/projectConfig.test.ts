@@ -253,6 +253,13 @@ describe('その他のフィールド', () => {
     expect(parse({ entry: 'a.md', title: '報告書', size: 'A4' }).title).toBe('報告書');
   });
 
+  it('size は用紙名か「幅,高さ」だけを受ける(@page へ素通しで埋め込まれるため)', () => {
+    expect(parse({ entry: 'a.md', size: '210mm,297mm' }).size).toBe('210mm,297mm');
+    expect(() =>
+      parse({ entry: 'a.md', size: 'A4;}body{background:url(file:///C:/x.png)}' }),
+    ).toThrow();
+  });
+
   it('受理したキーだけが出力に載る(片方向の移し替えである)', () => {
     const out = parse({ entry: 'a.md', title: 't' });
     expect(Object.keys(out).sort()).toEqual(['base', 'css', 'entry', 'title']);

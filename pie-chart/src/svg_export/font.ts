@@ -48,7 +48,9 @@ const PROJECT_ROOT = ((): string => {
  */
 const REQUIRED_FONT_CHARS: Set<string> = (() => {
   const set = new Set('0123456789.,%△ \n');
-  for (let cp = 0xff61; cp <= 0xff9f; cp += 1) set.add(String.fromCodePoint(cp));
+  for (let cp = 0xff61; cp <= 0xff9f; cp += 1) {
+    set.add(String.fromCodePoint(cp));
+  }
   return set;
 })();
 
@@ -74,13 +76,19 @@ function loadFontBuffer(absPath: string): Buffer {
  */
 function sniffFontFormat(buf: Buffer): { mime: string; format: string } | null {
   const magic = buf.toString('latin1', 0, 4);
-  if (magic === 'wOF2') return { mime: 'font/woff2', format: 'woff2' };
-  if (magic === 'wOFF') return { mime: 'font/woff', format: 'woff' };
+  if (magic === 'wOF2') {
+    return { mime: 'font/woff2', format: 'woff2' };
+  }
+  if (magic === 'wOFF') {
+    return { mime: 'font/woff', format: 'woff' };
+  }
   // sfnt 系。0x00010000=TrueType / OTTO=CFF / true,ttcf,typ1=Apple 系の別綴り。
-  if (magic === 'OTTO' || magic === 'true' || magic === 'ttcf' || magic === 'typ1')
+  if (magic === 'OTTO' || magic === 'true' || magic === 'ttcf' || magic === 'typ1') {
     return { mime: 'font/ttf', format: 'truetype' };
-  if (buf.length >= 4 && buf.readUInt32BE(0) === 0x0001_0000)
+  }
+  if (buf.length >= 4 && buf.readUInt32BE(0) === 0x0001_0000) {
     return { mime: 'font/ttf', format: 'truetype' };
+  }
   return null;
 }
 
@@ -101,7 +109,9 @@ export async function buildFontFaceDefs(
 
   const charSet = new Set(REQUIRED_FONT_CHARS);
   if (usedChars) {
-    for (const ch of usedChars) charSet.add(ch);
+    for (const ch of usedChars) {
+      charSet.add(ch);
+    }
   }
   const chars = [...charSet].sort().join('');
   const cacheKey = `${absPath}::${cfg.embedFontFamilyName}::${cfg.fontWeight}::${chars}`;
@@ -117,7 +127,9 @@ export async function buildFontFaceDefs(
     } catch (err: any) {
       // SEA ではフォントは exe に同梱済みなので、読めない = 配布物が壊れている。@font-face
       // 無しで黙って続行すると壊れた配布物が動いているように見えるため、そのまま投げる。
-      if (isSea()) throw err;
+      if (isSea()) {
+        throw err;
+      }
       console.warn(
         `[svg_export] embedFont enabled but font not found at ${absPath}: ${err.message}`,
       );
@@ -137,7 +149,9 @@ export async function buildFontFaceDefs(
     // SEA ではフルフォント fallback を行わない。このフォールバックは「subset-font が
     // 動かなかったこと」を配布先から見えなくする仕掛けで、偽モジュール差し込みや配布物の
     // 破損を検知不能にする。dev は `out/_baseline` の byte-diff が検知するので現行維持。
-    if (isSea()) throw err;
+    if (isSea()) {
+      throw err;
+    }
     // dev の fallback は「フォントとして解釈できたときだけ」。`subsetFont` が投げる主因は
     // `fontverter` の `detectFormat`(Unrecognized font signature)= 渡されたバイト列が
     // フォントでないことなので、そこで原本へ落とすと**フォントでないファイルの全バイトが

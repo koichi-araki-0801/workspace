@@ -28,9 +28,13 @@ export function readConfirmedCanonical(
   templateId: string,
   updatedAt: string | null,
 ): ConfirmedCanonical | null {
-  if (!updatedAt) return null;
+  if (!updatedAt) {
+    return null;
+  }
   const e = readMap()[templateId];
-  if (!e || e.updatedAt !== updatedAt) return null;
+  if (!e || e.updatedAt !== updatedAt) {
+    return null;
+  }
   return { html: e.html, css: e.css };
 }
 
@@ -39,7 +43,9 @@ export function writeConfirmedCanonical(
   updatedAt: string | null,
   value: ConfirmedCanonical,
 ): void {
-  if (!updatedAt) return;
+  if (!updatedAt) {
+    return;
+  }
   const map = readMap();
   delete map[templateId]; // 削除→再追加でキー順の末尾 = 最近使用に置く
   map[templateId] = { updatedAt, ...value };
@@ -48,7 +54,9 @@ export function writeConfirmedCanonical(
   } catch {
     // quota: 古い順に間引いて 1 回だけ再試行。それでも駄目なら諦める(判定はフォールバックする)。
     const keys = Object.keys(map);
-    for (const k of keys.slice(0, Math.max(0, keys.length - 1))) delete map[k];
+    for (const k of keys.slice(0, Math.max(0, keys.length - 1))) {
+      delete map[k];
+    }
     try {
       localStorage.setItem(confirmedCanonicalKey(), JSON.stringify(map));
     } catch {

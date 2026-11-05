@@ -47,8 +47,12 @@ const OTHER = 'XX01_999999_全体版';
 function listSources(dir = SRC, base = SRC): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) return listSources(p, base);
-    if (!e.name.endsWith('.ts')) return [];
+    if (e.isDirectory()) {
+      return listSources(p, base);
+    }
+    if (!e.name.endsWith('.ts')) {
+      return [];
+    }
     return [path.relative(base, p).split(path.sep).join('/')];
   });
 }
@@ -89,7 +93,9 @@ describe('書込プリミティブの import 許可リスト', () => {
     const actual = listSources().filter((rel) => {
       const text = fs.readFileSync(path.join(SRC, rel), 'utf8');
       const m = /import\s*\{([^}]*)\}\s*from\s*'(?:\.\.?\/)*files\/templateFiles\.js'/.exec(text);
-      if (!m) return false;
+      if (!m) {
+        return false;
+      }
       return /\b(templatePath|resolveTemplateCssPath|filledPath)\b/.test(m[1]);
     });
     expect(actual).toEqual(['repositories/confirmedWrite.ts']);
@@ -197,6 +203,23 @@ describe('applyConfirmedWrite — 迂回入力の拒否', () => {
       }),
     ).rejects.toSatisfy(isAppError);
     expect(read(SOURCE)).toBe('<html><script>col.width=1</script><p>本文</p></html>');
+  });
+
+  it('承認経路でも `<!x` 宣言の後ろに隠した script は拒否する', async () => {
+    const base = '<!doctype html><html><body><p>本文</p></body></html>';
+    seed(SOURCE, base);
+    await expect(
+      confirmedWrite.applyConfirmedWrite({
+        kind: 'review-approve',
+        target: 'template',
+        templateId: SOURCE,
+        html: base.replace('</body>', '{% if false %}<!x{% endif %}<script>evil()</script></body>'),
+        css: '',
+        author: 'approver1',
+        commitMessage: 'm',
+      }),
+    ).rejects.toMatchObject({ code: 'TEMPLATE_SCRIPT_IMMUTABLE' });
+    expect(read(SOURCE)).toBe(base);
   });
 
   it('ペア転写でも実行コードの追加は拒否する(機械転写を実行面の抜け道にしない)', async () => {

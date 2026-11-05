@@ -106,10 +106,14 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
     }
     try {
       const diff = await htmlWorker.buildHtmlDiff(baseline, ctx.current());
-      if (mine !== seq || again) return;
+      if (mine !== seq || again) {
+        return;
+      }
       numbers.value = splitNumbers(numberChangedParts(diff), ctx.nameById?.() ?? new Map());
     } catch (e) {
-      if (mine !== seq || again) return;
+      if (mine !== seq || again) {
+        return;
+      }
       // 古い番号を残すと、直したパーツと違う場所に丸数字が出る。出さない側へ倒す。
       logError(unexpected('change numbers failed', { cause: e }));
       numbers.value = emptyNumbers();
@@ -140,8 +144,12 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
   }
 
   function schedule(): void {
-    if (ctx.baseline() === null) return;
-    if (timer) clearTimeout(timer);
+    if (ctx.baseline() === null) {
+      return;
+    }
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = setTimeout(() => {
       timer = null;
       performance.clearMarks(CHANGE_RUN_MARK);
@@ -151,14 +159,18 @@ export function useChangeNumbers(ctx: ChangeNumbersContext): {
   }
 
   async function flush(): Promise<void> {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = null;
     await compute();
   }
 
   /** 予約・投げ直しの印・計算中の結果を捨てる(画面を離れるとき)。 */
   function cancel(): void {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = null;
     again = false;
     seq += 1;
@@ -233,26 +245,38 @@ export function createChangeCheckScheduler(opts: {
     notify() {
       const counting = opts.baseline() !== null;
       const reading = () => opts.onRead !== undefined && (opts.wantsRead?.() ?? true);
-      if (!counting && !reading()) return;
+      if (!counting && !reading()) {
+        return;
+      }
       if (counting) {
         performance.clearMarks(CHANGE_NOTIFY_MARK);
         performance.mark(CHANGE_NOTIFY_MARK);
       }
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       timer = setTimeout(() => {
         timer = null;
-        if (opts.baseline() === null && !reading()) return;
+        if (opts.baseline() === null && !reading()) {
+          return;
+        }
         const body = opts.readBody();
-        if (reading()) opts.onRead?.(body);
+        if (reading()) {
+          opts.onRead?.(body);
+        }
         // 番号を出さない経路(比較元が null)は、読んだ本文を渡すだけで終える。
-        if (opts.baseline() === null || body === last) return;
+        if (opts.baseline() === null || body === last) {
+          return;
+        }
         last = body;
         opts.schedule();
       }, wait);
     },
     lastBody: () => last,
     cancel() {
-      if (timer) clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       timer = null;
     },
   };

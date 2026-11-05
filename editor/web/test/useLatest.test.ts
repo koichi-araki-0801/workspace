@@ -27,7 +27,9 @@ describe('useLatest', () => {
     async function load(value: string, delayMs: number) {
       const isLatest = latest.begin();
       await new Promise((r) => setTimeout(r, delayMs));
-      if (!isLatest()) return;
+      if (!isLatest()) {
+        return;
+      }
       applied.push(value);
     }
     const slow = load('old', 20);

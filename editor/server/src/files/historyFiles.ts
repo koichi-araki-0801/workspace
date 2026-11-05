@@ -56,7 +56,9 @@ async function rotateIfNeeded(kind: HistoryKind): Promise<void> {
     .stat(fileFor(kind))
     .then((s) => s.size)
     .catch(() => 0);
-  if (size < MAX_HISTORY_BYTES) return;
+  if (size < MAX_HISTORY_BYTES) {
+    return;
+  }
   for (let gen = MAX_HISTORY_GENERATIONS; gen >= 1; gen--) {
     const from = gen === 1 ? fileFor(kind) : genFileFor(kind, gen - 1);
     await fs.rm(genFileFor(kind, gen), { force: true }).catch(() => {});
@@ -100,14 +102,18 @@ async function readTail(file: string): Promise<string> {
     const { size } = await handle.stat();
     const start = Math.max(0, size - MAX_HISTORY_TAIL_BYTES);
     const length = size - start;
-    if (length === 0) return '';
+    if (length === 0) {
+      return '';
+    }
     const buf = Buffer.alloc(length);
     // 実際に読めたバイト数で切る。`read` は要求より少なく返しうる(追記中のファイルが
     // stat 後に切り詰められた場合など)ので、`buf` 全体を文字列化すると末尾の未書込領域が
     // NUL の並びとして混ざり、その行の JSON.parse が黙って落ちる = 履歴が欠ける。
     const { bytesRead } = await handle.read(buf, 0, length, start);
     const text = buf.subarray(0, bytesRead).toString('utf8');
-    if (start === 0) return text;
+    if (start === 0) {
+      return text;
+    }
     const nl = text.indexOf('\n');
     return nl < 0 ? '' : text.slice(nl + 1);
   } catch {
@@ -140,10 +146,14 @@ export async function readHistory<T>(
     // 末尾から遡る = 新しい順。上限に達したら残りは読まない。
     for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
       const line = lines[i];
-      if (line.length === 0) continue;
+      if (line.length === 0) {
+        continue;
+      }
       try {
         const entry = JSON.parse(line) as T;
-        if (opts.where === undefined || opts.where(entry)) out.push(entry);
+        if (opts.where === undefined || opts.where(entry)) {
+          out.push(entry);
+        }
       } catch {
         // 追記の競合等で壊れた行は飛ばす。1 行の破損でフィード全体を落とさない。
       }

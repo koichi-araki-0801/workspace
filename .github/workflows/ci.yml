@@ -71,6 +71,9 @@ jobs:
       - name: Lint & format check (Biome)
         run: pnpm run check:ci
 
+      - name: Block statement check (Biome, pie-chart / scripts)
+        run: pnpm run lint:blocks
+
       - name: Unused code check (knip)
         run: pnpm run knip
 

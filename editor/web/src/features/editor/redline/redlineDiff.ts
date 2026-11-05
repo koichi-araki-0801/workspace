@@ -33,10 +33,16 @@ export type RedlineOp =
     };
 
 function diffText(b: RedlineNode, l: RedlineNode, budget: LcsBudget, out: RedlineOp[]): void {
-  if (collapse(b.text) === collapse(l.text)) return;
+  if (collapse(b.text) === collapse(l.text)) {
+    return;
+  }
   const { ops } = diffTokens(tokenize(b.text ?? ''), tokenize(l.text ?? ''), budget);
-  if (ops.some((o) => o.type === 'del')) out.push({ kind: 'delText', node: l.node, ops });
-  if (ops.some((o) => o.type === 'ins')) out.push({ kind: 'insText', node: l.node, ops });
+  if (ops.some((o) => o.type === 'del')) {
+    out.push({ kind: 'delText', node: l.node, ops });
+  }
+  if (ops.some((o) => o.type === 'ins')) {
+    out.push({ kind: 'insText', node: l.node, ops });
+  }
 }
 
 function removedOp(
@@ -65,7 +71,9 @@ function insertionPoint(
 ): NodeResolver | null {
   for (let i = index + 1; i < base.length; i++) {
     const l = liveByKey.get(base[i].key);
-    if (l) return l.node;
+    if (l) {
+      return l.node;
+    }
   }
   return null;
 }
@@ -99,7 +107,9 @@ function diffChildren(
   }
 
   base.forEach((b, i) => {
-    if (liveByKey.has(b.key)) return;
+    if (liveByKey.has(b.key)) {
+      return;
+    }
     out.push(removedOp(b, parent, insertionPoint(base, i, liveByKey)));
   });
 }

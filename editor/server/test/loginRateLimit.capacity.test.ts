@@ -20,7 +20,9 @@ const NOW = 1_700_000_000_000;
 /** 1 試行を通し切る(in-flight を残さない)。 */
 function attempt(ip: string, id: string, now: number) {
   const r = beginCredentialAttempt('login', ip, id, now);
-  if (r.ok) settleCredentialAttempt(r.ticket, 'failure');
+  if (r.ok) {
+    settleCredentialAttempt(r.ticket, 'failure');
+  }
   return r;
 }
 
@@ -30,7 +32,9 @@ function fillTable(now: number): void {
   while (loginAttemptEntryCount() < LOGIN_MAX_ENTRIES) {
     attempt(`10.0.${Math.floor(i / 250)}.${i % 250}`, `filler-${i}`, now);
     i += 1;
-    if (i > LOGIN_MAX_ENTRIES * 2) throw new Error('表が埋まらない');
+    if (i > LOGIN_MAX_ENTRIES * 2) {
+      throw new Error('表が埋まらない');
+    }
   }
 }
 
@@ -50,11 +54,15 @@ describe('上限に達した表の扱い', () => {
     // 退避方式だとここで「まだ 0 回」に戻り通ってしまう。拒否方式なら閾値超過で拒否。
     const r = attempt('1.2.3.4', 'victim', NOW);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.code).toBe('LOGIN_RATE_LIMITED');
+    if (!r.ok) {
+      expect(r.error.code).toBe('LOGIN_RATE_LIMITED');
+    }
   });
 
   it('拒否中のキーは、表を溢れさせても解除されない', async () => {
-    for (let i = 0; i <= LOGIN_MAX_FAILURES; i++) attempt('9.9.9.9', 'blocked', NOW);
+    for (let i = 0; i <= LOGIN_MAX_FAILURES; i++) {
+      attempt('9.9.9.9', 'blocked', NOW);
+    }
     expect(attempt('9.9.9.9', 'blocked', NOW).ok).toBe(false);
 
     fillTable(NOW);

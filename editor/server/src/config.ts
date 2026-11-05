@@ -117,7 +117,9 @@ type AppConfigFile = z.infer<typeof appConfigSchema>;
 /** `appconfig.json` を読み込み検証する。ファイルが無ければ `{}` を返す。 */
 function loadFileConfig(): AppConfigFile {
   const file = process.env.APP_CONFIG ?? path.join(repoRoot, 'appconfig.json');
-  if (!fs.existsSync(file)) return {};
+  if (!fs.existsSync(file)) {
+    return {};
+  }
 
   let raw: unknown;
   try {
@@ -180,10 +182,16 @@ const ENV_FALSE_TOKENS: ReadonlySet<string> = new Set(['0', 'false', 'no', 'off'
  * 既定へ倒す案は「静かな降格」が残るので採らない — 誤記は起動中止で運用者に届ける。
  */
 function envFlag(name: string, envVal: string | undefined): boolean | undefined {
-  if (envVal === undefined) return undefined;
+  if (envVal === undefined) {
+    return undefined;
+  }
   const t = envVal.trim().toLowerCase();
-  if (ENV_TRUE_TOKENS.has(t)) return true;
-  if (ENV_FALSE_TOKENS.has(t)) return false;
+  if (ENV_TRUE_TOKENS.has(t)) {
+    return true;
+  }
+  if (ENV_FALSE_TOKENS.has(t)) {
+    return false;
+  }
   throw new Error(
     `[config] ${name}=${JSON.stringify(envVal)} は真偽値として解釈できません。` +
       ` 真: ${[...ENV_TRUE_TOKENS].join('/')} / 偽: ${[...ENV_FALSE_TOKENS].join('/')}` +
@@ -220,7 +228,9 @@ export function envNumber(
   def: number,
   opts: EnvNumberOptions = {},
 ): number {
-  if (envVal === undefined) return def;
+  if (envVal === undefined) {
+    return def;
+  }
   const raw = envVal.trim();
   const min = opts.min ?? 0;
   const range =
@@ -231,12 +241,22 @@ export function envNumber(
       `[config] ${name}=${JSON.stringify(envVal)} は${why}。${range}を指定してください。`,
     );
   };
-  if (!DECIMAL_NUMBER_RE.test(raw)) return fail('10 進の数値として解釈できません');
+  if (!DECIMAL_NUMBER_RE.test(raw)) {
+    return fail('10 進の数値として解釈できません');
+  }
   const n = Number(raw);
-  if (!Number.isFinite(n)) return fail('有限の数値ではありません');
-  if (opts.integer && !Number.isInteger(n)) return fail('整数ではありません');
-  if (n < min || (opts.exclusiveMin && n === min)) return fail(`下限 ${min} を満たしません`);
-  if (opts.max !== undefined && n > opts.max) return fail(`上限 ${opts.max} を超えています`);
+  if (!Number.isFinite(n)) {
+    return fail('有限の数値ではありません');
+  }
+  if (opts.integer && !Number.isInteger(n)) {
+    return fail('整数ではありません');
+  }
+  if (n < min || (opts.exclusiveMin && n === min)) {
+    return fail(`下限 ${min} を満たしません`);
+  }
+  if (opts.max !== undefined && n > opts.max) {
+    return fail(`上限 ${opts.max} を超えています`);
+  }
   return n;
 }
 
@@ -283,7 +303,9 @@ const SHA256_HEX_RE = /^[0-9a-f]{64}$/i;
  * 無防備が残る(`envNumber` と同じ方針)。
  */
 export function parseScriptSha256(value: string | undefined, source: string): string | undefined {
-  if (value === undefined) return undefined;
+  if (value === undefined) {
+    return undefined;
+  }
   const v = value.trim();
   if (!SHA256_HEX_RE.test(v)) {
     throw new Error(
@@ -345,7 +367,9 @@ export const config = {
      * 生成時に保存する)を読む。社内 LAN 前提でファイル併置を許容する割り切り。
      */
     get passphrase(): string | undefined {
-      if (process.env.HTTPS_PFX_PASSPHRASE) return process.env.HTTPS_PFX_PASSPHRASE;
+      if (process.env.HTTPS_PFX_PASSPHRASE) {
+        return process.env.HTTPS_PFX_PASSPHRASE;
+      }
       const passFile = `${this.pfxPath}.pass`;
       return fs.existsSync(passFile) ? fs.readFileSync(passFile, 'utf8').trim() : undefined;
     },
@@ -507,6 +531,14 @@ export const config = {
   vivliostyle: {
     /** ライブプレビューサーバのライフサイクル(`previewManager.ts` 参照)。 */
     preview: {
+      /**
+       * 外部向けライブプレビュー API(`/api/preview` と `/api/preview/:id*`)を開くか。既定は
+       * off(404)。viewer は文書の `<script src>` を自分の head に作り直して app のオリジンで
+       * 動かすため、他人の作った zip や誘われた URL を開くだけで、開いた人のセッションで
+       * 文書の script が動く。SPA と e2e はこの経路を使わない(画面内プレビューは
+       * `/api/preview-host/*` で、この設定の対象外)。
+       */
+      enabled: envFlag('VIVLIO_PREVIEW_ENABLED', process.env.VIVLIO_PREVIEW_ENABLED) ?? false,
       /** Vite preview サーバの loopback bind。Fastify がここへ proxy する。 */
       host: process.env.VIVLIO_PREVIEW_HOST ?? '127.0.0.1',
       /** proxy トラフィックがこのミリ秒数だけ無いと preview セッションを自動 close する。 */
@@ -682,7 +714,9 @@ export const config = {
  */
 export function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
-  if (h === 'localhost' || h === '::1' || h === '::ffff:127.0.0.1') return true;
+  if (h === 'localhost' || h === '::1' || h === '::ffff:127.0.0.1') {
+    return true;
+  }
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
@@ -721,14 +755,22 @@ export function resolveAllowedHosts(opts: {
   const out = new Set(['localhost', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
   if (!isLoopbackHost(opts.host)) {
     // LAN 公開時のみ、この機械の実体名・実アドレスを足す(利用者がブラウザに打つ値)。
-    if (opts.hostname) out.add(norm(opts.hostname));
-    for (const a of opts.addresses) out.add(norm(a));
+    if (opts.hostname) {
+      out.add(norm(opts.hostname));
+    }
+    for (const a of opts.addresses) {
+      out.add(norm(a));
+    }
     // `0.0.0.0` / `::` は bind の指定であって名乗る名前ではないので足さない。
-    if (!/^(?:0\.0\.0\.0|::)$/.test(norm(opts.host))) out.add(norm(opts.host));
+    if (!/^(?:0\.0\.0\.0|::)$/.test(norm(opts.host))) {
+      out.add(norm(opts.host));
+    }
   }
   for (const h of (opts.extra ?? '').split(',')) {
     const v = norm(h);
-    if (v) out.add(v);
+    if (v) {
+      out.add(v);
+    }
   }
   return out;
 }
@@ -738,7 +780,9 @@ export function resolveAllowedHosts(opts: {
  * 値が無い / 複数ある形は落とす(HTTP/1.1 では必須で、重複は前段との食い違いを作れる)。
  */
 export function isAllowedHost(value: string | string[] | undefined, allowed: Set<string>): boolean {
-  if (typeof value !== 'string' || value === '') return false;
+  if (typeof value !== 'string' || value === '') {
+    return false;
+  }
   const v = value.trim().toLowerCase();
   // `[::1]:24680` と `host:24680` と `host` の 3 形。IPv6 リテラルは括弧で括られる。
   const name = v.startsWith('[') ? v.slice(1, v.indexOf(']')) : v.split(':')[0];
@@ -778,35 +822,41 @@ export interface ExposureOptions {
  *    (TLS 無し + Secure 有効)は前段リバースプロキシで終端する正当な構成なので見ない。
  */
 export function assertSafeExposure(opts: ExposureOptions): void {
-  if (!isLoopbackHost(opts.previewHost))
+  if (!isLoopbackHost(opts.previewHost)) {
     throw new Error(
       `[config] VIVLIO_PREVIEW_HOST=${opts.previewHost} は loopback ではありません。` +
         ' preview サーバは Fastify の認証(preHandler)の外側で待ち受けるため、公開すると' +
         ' 展開済み zip の中身を無認証で配ることになります。127.0.0.1 のままにしてください。',
     );
+  }
   // 拒むのは「利用者が COOKIE_SECURE=false と**明示した**」場合だけ。未指定時の
   // 既定値で拒むと、`HTTPS=true` を dev で指定しただけで起動が止まり、しかも
   // 利用者が一度も書いていない変数を原因として名指すことになる。
-  if (opts.tlsEnabled && !opts.cookieSecure && opts.cookieSecureExplicit === false)
+  if (opts.tlsEnabled && !opts.cookieSecure && opts.cookieSecureExplicit === false) {
     throw new Error(
       '[config] HTTPS=true と COOKIE_SECURE=false は同時に指定できません。' +
         ' TLS で待ち受けるなら セッション cookie の Secure 属性を落とす理由がありません。',
     );
-  if (isLoopbackHost(opts.host)) return;
-  if (!opts.requireAuth)
+  }
+  if (isLoopbackHost(opts.host)) {
+    return;
+  }
+  if (!opts.requireAuth) {
     throw new Error(
       `[config] HOST=${opts.host} は loopback ではない(=外部から到達できる)のに認証が無効です。` +
         ' LAN へ公開するなら AUTH_REQUIRED=true を指定してください' +
         '(editor\\start.bat は lan 指定時に自動で立てます)。' +
         ' 同一マシンだけで使うなら HOST を 127.0.0.1 のままにしてください。',
     );
-  if (!opts.tlsEnabled && !opts.allowPlaintext)
+  }
+  if (!opts.tlsEnabled && !opts.allowPlaintext) {
     throw new Error(
       `[config] HOST=${opts.host} で外部公開するのに TLS が無効です。ログイン ID と` +
         ' パスワードが同一 LAN から平文で読めます。`editor\\scripts\\setup-lan-https.bat` で' +
         ' 証明書を作って HTTPS=true で起動してください。どうしても平文で運用する場合のみ' +
         ' `start.bat rest lan-plain`(= ALLOW_PLAINTEXT_LAN=1)を使ってください。',
     );
+  }
 }
 
 /**
@@ -867,9 +917,13 @@ export function isPreAuthBufferedRequest(
   routedUrl: string | undefined,
   contentType: string | undefined,
 ): boolean {
-  if (isBufferedUploadContentType(contentType)) return true;
+  if (isBufferedUploadContentType(contentType)) {
+    return true;
+  }
   // 本文を持たないメソッド(GET/HEAD/DELETE)は積みようがないので、無駄なセッション解決を避ける。
-  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') return false;
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH') {
+    return false;
+  }
   const pathOnly = (routedUrl ?? '').split(/[?#]/, 1)[0];
   return RAISED_BODY_LIMIT_PATHS.includes(pathOnly);
 }
@@ -888,7 +942,9 @@ export function inlineScriptCspHashes(html: string): string[] {
     // index.html は CRLF になりうるため、生バイト列のまま計算すると必ず不一致になり、
     // inline script が落とされる(実測で判明)。
     const body = m[1].replace(/\r\n?/g, '\n');
-    if (body.length === 0) continue;
+    if (body.length === 0) {
+      continue;
+    }
     hashes.push(`'sha256-${crypto.createHash('sha256').update(body, 'utf8').digest('base64')}'`);
   }
   return hashes;
@@ -949,7 +1005,9 @@ export function assertImagesDirOutsideCommittedAreas(opts: {
     const rel = path.relative(path.resolve(opts.gitRepoDir, area), target);
     const inside =
       rel === '' || !(rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel));
-    if (!inside) continue;
+    if (!inside) {
+      continue;
+    }
     throw new Error(
       `[config] imagesDir(${opts.imagesDir})が承認コミットの対象 ${area}/ の内側にあります。` +
         ' 画像が承認コミットへ巻き込まれるため起動を中止しました。' +

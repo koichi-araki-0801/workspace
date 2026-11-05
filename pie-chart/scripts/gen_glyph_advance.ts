@@ -33,13 +33,27 @@ const WEIGHT_FONT: Record<string, string> = {
 // layout/geometry.ts visualCharEm のフォールバック heuristic と同じ予測値 (全角1.0/半角0.5)。
 // テーブル未収録 codepoint はこの値が使われるため、予測と一致する advance は収録不要。
 const heuristicEm = (cp: number): number => {
-  if (cp >= 0x4e00 && cp <= 0x9fff) return 1;
-  if (cp >= 0x3040 && cp <= 0x309f) return 1;
-  if (cp >= 0x30a0 && cp <= 0x30ff) return 1;
-  if (cp >= 0x3000 && cp <= 0x303f) return 1;
-  if (cp >= 0xff01 && cp <= 0xff60) return 1;
-  if (cp >= 0xffe0 && cp <= 0xffe6) return 1;
-  if (cp === 0x25b3) return 1;
+  if (cp >= 0x4e00 && cp <= 0x9fff) {
+    return 1;
+  }
+  if (cp >= 0x3040 && cp <= 0x309f) {
+    return 1;
+  }
+  if (cp >= 0x30a0 && cp <= 0x30ff) {
+    return 1;
+  }
+  if (cp >= 0x3000 && cp <= 0x303f) {
+    return 1;
+  }
+  if (cp >= 0xff01 && cp <= 0xff60) {
+    return 1;
+  }
+  if (cp >= 0xffe0 && cp <= 0xffe6) {
+    return 1;
+  }
+  if (cp === 0x25b3) {
+    return 1;
+  }
   return 0.5;
 };
 
@@ -93,12 +107,15 @@ async function parseFontEntries(
       const ro = u16(rangeO + s * 2);
       for (let cp = st; cp <= end && cp !== 0xffff; cp += 1) {
         let gid: number;
-        if (ro === 0) gid = (cp + delta) & 0xffff;
-        else {
+        if (ro === 0) {
+          gid = (cp + delta) & 0xffff;
+        } else {
           const gi = u16(rangeO + s * 2 + ro + (cp - st) * 2);
           gid = gi === 0 ? 0 : (gi + delta) & 0xffff;
         }
-        if (gid !== 0) codeToGid.set(cp, gid);
+        if (gid !== 0) {
+          codeToGid.set(cp, gid);
+        }
       }
     }
   }
@@ -111,7 +128,9 @@ async function parseFontEntries(
       const end = u32(o + 4);
       const sg = u32(o + 8);
       for (let cp = start; cp <= end; cp += 1) {
-        if (!codeToGid.has(cp)) codeToGid.set(cp, sg + (cp - start));
+        if (!codeToGid.has(cp)) {
+          codeToGid.set(cp, sg + (cp - start));
+        }
       }
     }
   }
@@ -121,7 +140,9 @@ async function parseFontEntries(
   const entries: [number, number][] = [];
   for (const [cp, gid] of [...codeToGid.entries()].sort((a, b2) => a[0] - b2[0])) {
     const em = Math.round(advEm(gid) * 10000) / 10000;
-    if (em !== heuristicEm(cp)) entries.push([cp, em]);
+    if (em !== heuristicEm(cp)) {
+      entries.push([cp, em]);
+    }
   }
   return { unitsPerEm, entries };
 }

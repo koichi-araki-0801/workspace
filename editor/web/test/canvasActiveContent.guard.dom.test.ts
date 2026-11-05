@@ -294,7 +294,9 @@ describe('canvas 語彙の census(許可リストが実テンプレを削らな�
       out.attributes = Object.fromEntries(Array.from(e.attributes).map((a) => [a.name, a.value]));
     }
     const kids = Array.from(node.childNodes);
-    if (kids.length > 0) out.childNodes = kids.map(toParsed);
+    if (kids.length > 0) {
+      out.childNodes = kids.map(toParsed);
+    }
     return out;
   }
 
@@ -303,7 +305,9 @@ describe('canvas 語彙の census(許可リストが実テンプレを削らな�
     for (const sub of ['filled', 'templates']) {
       const dir = path.join(FIXTURES, sub);
       for (const name of readdirSync(dir)) {
-        if (!name.endsWith('.html')) continue;
+        if (!name.endsWith('.html')) {
+          continue;
+        }
         // canvas へ入るのは `<body>` の inner だけ(`templateEditorService.loadForEdit`)。
         // head の `meta`/`link`/`title` は許可リストに無いが、そもそも canvas へ届かない。
         const raw = readFileSync(path.join(dir, name), 'utf8');
@@ -315,7 +319,9 @@ describe('canvas 語彙の census(許可リストが実テンプレを削らな�
       content?: string;
     }>;
     for (const p of parts) {
-      if (typeof p.content === 'string') out.push({ label: `parts/${p.id}`, html: p.content });
+      if (typeof p.content === 'string') {
+        out.push({ label: `parts/${p.id}`, html: p.content });
+      }
     }
     return out;
   }

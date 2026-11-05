@@ -143,8 +143,12 @@ export function finalizeForScoring(
   // `when` 述語は leftStackMode しか読まないため、採点側は最小の Diagnostics 形で受け渡す。
   const diag = leftStackMode ? ({ leftStackMode: true } as Diagnostics) : null;
   for (const pass of EMIT_REPAIR_PASSES) {
-    if (pass.stage !== 'both' && pass.stage !== 'scoring') continue;
-    if (pass.when && !pass.when(diag)) continue;
+    if (pass.stage !== 'both' && pass.stage !== 'scoring') {
+      continue;
+    }
+    if (pass.when && !pass.when(diag)) {
+      continue;
+    }
     (pass.scoringRun ?? pass.run)(copy, cfg, coord);
   }
   return copy;
@@ -178,7 +182,9 @@ export function countDefects(
       const b = pboxes[j];
       const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left);
       const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-      if (ox > 0 && oy >= 6) issues += 1;
+      if (ox > 0 && oy >= 6) {
+        issues += 1;
+      }
     }
   }
   const crossings = countLeaderCrossings(finalized, cfg, coord);
@@ -294,7 +300,9 @@ function separateCrossingPairs(
   const stack = placements.filter(
     (p) => !p.item.clusterTopBand && !p.insideSlice && (side === 'left' ? p.x < 0 : p.x > 0),
   );
-  if (stack.length < 2) return;
+  if (stack.length < 2) {
+    return;
+  }
   const inStack = new Set(stack);
   const tol = pxToLogical(cfg, 2);
   const yLo = cfg.canvasYlim[0];
@@ -312,7 +320,9 @@ function separateCrossingPairs(
   const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
 
   const beforeCross = countLeaderCrossings(placements, cfg, coord);
-  if (beforeCross === 0) return; // 交差が無ければ触らない (OK チャートを乱さない)
+  if (beforeCross === 0) {
+    return; // 交差が無ければ触らない (OK チャートを乱さない)
+  }
   const beforeOverlap = maxOverlap();
   const beforeOutOfView = anyOutOfView();
   const beforePie = maxPieIntrusion();
@@ -325,7 +335,9 @@ function separateCrossingPairs(
     let pair: [Placement, Placement] | null = null;
     for (let i = 0; i < placements.length && !pair; i += 1) {
       const pa = paths[i];
-      if (!pa || !inStack.has(placements[i])) continue;
+      if (!pa || !inStack.has(placements[i])) {
+        continue;
+      }
       for (let j = i + 1; j < placements.length; j += 1) {
         const pb = paths[j];
         if (pb && inStack.has(placements[j]) && pathsCross(pa, pb)) {
@@ -334,7 +346,9 @@ function separateCrossingPairs(
         }
       }
     }
-    if (!pair) break;
+    if (!pair) {
+      break;
+    }
     const a = sinOf(pair[0]) >= sinOf(pair[1]) ? pair[0] : pair[1]; // 角度が高い (上) 側
     const b = a === pair[0] ? pair[1] : pair[0]; // 低い (下) 側
     const ba = placementBox(a, cfg);
@@ -406,7 +420,9 @@ function untangleAngularOrderBySwap(
       ) &&
       (side === 'left' ? p.x < 0 : p.x > 0),
   );
-  if (stack.length < 2) return;
+  if (stack.length < 2) {
+    return;
+  }
 
   const tol = pxToLogical(cfg, 2);
   const tolPx = 2;
@@ -441,9 +457,14 @@ function untangleAngularOrderBySwap(
     const halfW = cfg.svgWidthPx / 2 / cfg.pxPerUnit;
     const b = placementBox(p, cfg);
     let shift = 0;
-    if (b.left < -halfW) shift = -halfW - b.left;
-    else if (b.right > halfW) shift = halfW - b.right;
-    if (shift === 0) return;
+    if (b.left < -halfW) {
+      shift = -halfW - b.left;
+    } else if (b.right > halfW) {
+      shift = halfW - b.right;
+    }
+    if (shift === 0) {
+      return;
+    }
     const measured = placementExtent(p, cfg);
     const nudged = nudgeTextAwayFromPie(p.x + shift, p.y, p.anchor, p.baseline, measured, cfg);
     p.x = nudged.x;
@@ -456,7 +477,9 @@ function untangleAngularOrderBySwap(
     for (let i = 0; i + 1 < stack.length; i += 1) {
       const up = stack[i]; // 上
       const lo = stack[i + 1]; // 下
-      if (sinOf(up) >= sinOf(lo) - 1e-9) continue; // 既に正順 (上が高 sin)
+      if (sinOf(up) >= sinOf(lo) - 1e-9) {
+        continue; // 既に正順 (上が高 sin)
+      }
       const beforeInv = countAngularDiscordantPairs(placements, cfg, coord);
       const beforeCross = countLeaderCrossings(placements, cfg, coord);
       const beforeOverlap = maxOverlap();
@@ -540,7 +563,9 @@ function untangleAngularOrderBySwap(
         break;
       }
     }
-    if (!swapped) break;
+    if (!swapped) {
+      break;
+    }
   }
 }
 
@@ -581,7 +606,9 @@ function relieveColumnOverlap(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): void {
-  if (stack.length < 2) return;
+  if (stack.length < 2) {
+    return;
+  }
   stack.sort((a, b) => b.y - a.y); // logical y 降順 = 視覚 上 → 下
 
   const tol = pxToLogical(cfg, 2);
@@ -606,11 +633,15 @@ function relieveColumnOverlap(
         moved = true;
       }
     }
-    if (!moved) break;
+    if (!moved) {
+      break;
+    }
   }
   const shift = ys.map((y, i) => y - centers[i]);
   const needAny = shift.some((s) => Math.abs(s) > tol);
-  if (!needAny) return;
+  if (!needAny) {
+    return;
+  }
 
   // 局所 (スタック内) の重なりが改善したかを主指標にする。全 placement 横断の maxOverlap は他所の
   // tight 対が支配して局所改善を覆い隠す (例 currency_many_small_10 は別所に同等の tight があり全体
@@ -631,7 +662,9 @@ function relieveColumnOverlap(
   // 再ハグすると横位置が乱れて新規重なりを生む (applyLeftStackGapClose は rim
   // ハグするが、本パスは leader を残すので X を動かさない)。leader は p.y 変更に追従して再描画される。
   for (let i = 0; i < stack.length; i += 1) {
-    if (Math.abs(shift[i]) <= tol) continue;
+    if (Math.abs(shift[i]) <= tol) {
+      continue;
+    }
     const p = stack[i];
     p.y += shift[i];
     clampPlacement(p);
@@ -692,15 +725,21 @@ function pullOutsideOverflowTowardPie(
   // middle (内側等) は対象外。flip 済みは実描画サイドが anchor と一致するのでそのまま扱える。
   const candidates = placements
     .map((p) => {
-      if (p.insideSlice) return null;
-      if (p.anchor !== 'end' && p.anchor !== 'start') return null;
+      if (p.insideSlice) {
+        return null;
+      }
+      if (p.anchor !== 'end' && p.anchor !== 'start') {
+        return null;
+      }
       const b = placementBox(p, cfg);
       const over = p.anchor === 'end' ? -halfW - b.left : b.right - halfW;
       return over > tol ? { p, over } : null;
     })
     .filter((e): e is { p: Placement; over: number } => e !== null)
     .sort((a, b) => b.over - a.over); // 見切れ量の大きい順 (最も目立つ見切れから戻す)。
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
 
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const maxPie = (): number => boxPieIntrusionMax(placements, cfg);
@@ -715,7 +754,9 @@ function pullOutsideOverflowTowardPie(
     const hugX = nudgeTextAwayFromPie(seedX, p.y, p.anchor, p.baseline, measured, cfg).x;
     // pie へ向かう向き (左ラベル=右/+、右ラベル=左/-) にのみ動かす。逆向き (外へ) は見切れを増やすので不可。
     const movesTowardPie = p.anchor === 'end' ? hugX > p.x + tol : hugX < p.x - tol;
-    if (!movesTowardPie) continue;
+    if (!movesTowardPie) {
+      continue;
+    }
 
     const beforeOverlap = maxOverlap();
     const beforePie = maxPie();
@@ -733,7 +774,9 @@ function pullOutsideOverflowTowardPie(
       maxPie() > beforePie + tol ||
       countLeaderCrossings(placements, cfg, coord) > beforeCross ||
       countLeaderThroughLabels(placements, cfg, coord) > beforeThrough;
-    if (harm) p.x = origX;
+    if (harm) {
+      p.x = origX;
+    }
   }
 }
 
@@ -750,7 +793,9 @@ function pullOutsideOverflowTowardPie(
  */
 function placementLineBoxes(p: Placement, cfg: PieLayoutConfig): BBox[] {
   const box = placementBox(p, cfg);
-  if (p.lines.length < 2) return [box];
+  if (p.lines.length < 2) {
+    return [box];
+  }
   const sx = p.nameScaleX ?? 1;
   // nameSplit は lines = [名前前半(長体), 名前後半+%(原寸)]、通常 2 行は [名前(長体), %(原寸)]。
   const rows: Array<{ text: string; sx: number }> = p.nameSplit
@@ -821,7 +866,9 @@ function relaxStructuralCondense(
   // 許す。端ぴったりはグリフが切れて見えるため数 px の安全代を残す。
   const hardHalf = cfg.svgWidthPx / 2 / cfg.pxPerUnit - 4 / cfg.pxPerUnit;
   const candidates = placements.filter((p) => !p.insideSlice && (p.nameScaleX ?? 1) < 1 - 1e-9);
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
 
   // box が `hardHalf` (= 実 viewBox 端の数 px 内側) を越える量。ラベル単位で評価する (グローバル最大で
   // 測ると、既に見切れる別ラベルがある図で全ラベルをそこまで広げてしまう)。`hardHalf` で測るので、開始時
@@ -866,7 +913,9 @@ function relaxStructuralCondense(
         const afterLineBoxes = placementLineBoxes(p, cfg);
         const cnt6 = pxToLogical(cfg, 6);
         for (const q of placements) {
-          if (q === p) continue;
+          if (q === p) {
+            continue;
+          }
           const b = placementBox(q, cfg);
           const qLines = placementLineBoxes(q, cfg);
           // (c1) 行 sub-box 対の実 ink 横交差非増加。
@@ -928,7 +977,9 @@ function unsqueezeCondensedByShiftTowardPie(
       (p.nameScaleX ?? 1) < 1 - 1e-9 &&
       (p.anchor === 'end' || p.anchor === 'start'),
   );
-  if (candidates.length === 0) return;
+  if (candidates.length === 0) {
+    return;
+  }
   // do-no-harm ゲート: countDefects (clips/crossings/pie/total=見切れ+重なり) に加え、countDefects が
   // 数えない「leader が他ラベル box を貫通」(`countLeaderThroughLabels`) も非増加を要求する
   // (`relaxStructuralCondense` のガード(d)と同じ — シフトで leader 形状が変わり box 貫通し得るため)。
@@ -953,10 +1004,13 @@ function unsqueezeCondensedByShiftTowardPie(
     const fullBox = placementBox(p, cfg);
     // box が最接近する pie 上の y (applyVisualViewBoxNudge と同じ導出)。
     let closestPieY = 0;
-    if (fullBox.bottom > cfg.pieRadius) closestPieY = fullBox.bottom;
-    else if (fullBox.top < -cfg.pieRadius) closestPieY = fullBox.top;
-    else
+    if (fullBox.bottom > cfg.pieRadius) {
+      closestPieY = fullBox.bottom;
+    } else if (fullBox.top < -cfg.pieRadius) {
+      closestPieY = fullBox.top;
+    } else {
       closestPieY = Math.abs(fullBox.top) < Math.abs(fullBox.bottom) ? fullBox.top : fullBox.bottom;
+    }
     const pieSideCapped = Math.abs(closestPieY) < cfg.pieRadius;
     // 実効クリアランス (viewBox 収まりキャップ、full 幅基準)。狙い値のままだと幅広ラベルの
     // pie 側キャップが早く頭打ちになり、下限 (`pieLabelClearanceMin`) なら解けた長体が残る。
@@ -1033,12 +1087,22 @@ function escapeUpperLeftTinyLeaders(
   const nearVerticalDx = radialFraction(cfg, 0.02, 0.18);
   const group = placements.filter((p) => {
     // rim ラベルも Pass 1 で leader が描かれる。よって「描かれる」判定は !insideSlice。
-    if (p.insideSlice) return false;
+    if (p.insideSlice) {
+      return false;
+    }
     const it = p.item;
-    if (it.side !== 'left') return false;
-    if (it.isSmall !== true) return false;
-    if (p.anchor !== 'end') return false;
-    if (it.flipToRight || it.flipToLeft) return false;
+    if (it.side !== 'left') {
+      return false;
+    }
+    if (it.isSmall !== true) {
+      return false;
+    }
+    if (p.anchor !== 'end') {
+      return false;
+    }
+    if (it.flipToRight || it.flipToLeft) {
+      return false;
+    }
     if (!angleInBand(normalizeAngle(it.midAngle ?? 0), 180, NINE_OCLOCK_ESCAPE_HALF_WIDTH_DEG)) {
       return false;
     }
@@ -1049,7 +1113,9 @@ function escapeUpperLeftTinyLeaders(
     return Math.abs(e.x - a.x) < nearVerticalDx;
   });
   // 単独 leader は曖昧でなく、3 枚以上は back-to-back でない別構成なので、ちょうど 2 枚 (対) のみ扱う。
-  if (group.length !== 2) return;
+  if (group.length !== 2) {
+    return;
+  }
 
   // do-no-harm 指標 (全 placement 横断。separateCrossingPairs / applyLeftStackGapClose と同性質)。
   const tol = pxToLogical(cfg, 2);
@@ -1077,8 +1143,12 @@ function escapeUpperLeftTinyLeaders(
   // 「2型」back-to-back の不変条件: 両者がほぼ同一 anchor Y かつほぼ同幅。これが成り立つ時だけ
   // (y, baseline) 交換が同一 box 同士の交換 = union フットプリント不変となり、verify が既に許容済みの
   // 配置に厳密一致する (退行0)。同幅でない/離れて積まれた対 (長名や別側構成) には介入しない。
-  if (Math.abs(hi.y - lo.y) > tol) return;
-  if (Math.abs(placementExtent(hi, cfg).width - placementExtent(lo, cfg).width) > tol) return;
+  if (Math.abs(hi.y - lo.y) > tol) {
+    return;
+  }
+  if (Math.abs(placementExtent(hi, cfg).width - placementExtent(lo, cfg).width) > tol) {
+    return;
+  }
   const hiBox = placementBox(hi, cfg);
   const loBox = placementBox(lo, cfg);
   const hiCenter = (hiBox.top + hiBox.bottom) / 2;
@@ -1183,11 +1253,15 @@ function countBoxPieIntrusions(
   const cyp = coord.yScale(0);
   let n = 0;
   for (const p of placements) {
-    if (p.insideSlice) continue;
+    if (p.insideSlice) {
+      continue;
+    }
     const b = placementPixelRect(p, cfg, coord);
     const closestX = Math.max(b.left, Math.min(cxp, b.right));
     const closestY = Math.max(b.top, Math.min(cyp, b.bottom));
-    if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) n += 1;
+    if (Math.hypot(closestX - cxp, closestY - cyp) < pieRpx - 2) {
+      n += 1;
+    }
   }
   return n;
 }
@@ -1220,7 +1294,9 @@ function selfLeaderPathPx(
   cfg: PieLayoutConfig,
   coord: Coord,
 ): { x: number; y: number }[] | null {
-  if (p.insideSlice) return null;
+  if (p.insideSlice) {
+    return null;
+  }
   const { pathPoints } = computeDrawnLeader(p, cfg);
   return pathPoints.map((pt) => ({ x: coord.xScale(pt.x), y: coord.yScale(pt.y) }));
 }
@@ -1273,14 +1349,20 @@ function relieveLeaderNeighborContact(
   const tolPx = 1;
   const maxIter = 24;
   for (const p of placements) {
-    if (p.insideSlice) continue;
+    if (p.insideSlice) {
+      continue;
+    }
     const measure = (): number => {
       const self = selfLeaderPathPx(p, cfg, coord);
-      if (!self) return 0;
+      if (!self) {
+        return 0;
+      }
       const paths = realLeaderPaths(placements, cfg, coord);
       let minDist = Number.POSITIVE_INFINITY;
       for (let j = 0; j < placements.length; j += 1) {
-        if (placements[j] === p) continue;
+        if (placements[j] === p) {
+          continue;
+        }
         const nb = placementPixelRect(placements[j], cfg, coord);
         for (let k = 0; k + 1 < self.length; k += 1) {
           minDist = Math.min(
@@ -1317,11 +1399,15 @@ function relieveLeaderNeighborContact(
         }
       }
       // minDist≈0 は交差/貫通 (hard defect) なので near-contact 対象外。
-      if (!Number.isFinite(minDist) || minDist < 0.5) return 0;
+      if (!Number.isFinite(minDist) || minDist < 0.5) {
+        return 0;
+      }
       return Math.max(0, targetPx - minDist);
     };
     const startDef = measure();
-    if (startDef <= tolPx) continue;
+    if (startDef <= tolPx) {
+      continue;
+    }
     const before = measureHardDefects(placements, cfg, coord);
     tryMoveWithGuard(
       p,
@@ -1413,7 +1499,9 @@ export function seamSnapshot(placements: Placement[]): SeamSnap[] {
   }));
 }
 export function seamRestore(snap: SeamSnap[]): void {
-  for (const { p, v } of snap) Object.assign(p, v);
+  for (const { p, v } of snap) {
+    Object.assign(p, v);
+  }
 }
 
 /**
@@ -1429,7 +1517,9 @@ export function trySeamMutation(
 ): boolean {
   const snap = seamSnapshot(placements);
   mutate();
-  if (isBetter()) return true;
+  if (isBetter()) {
+    return true;
+  }
   seamRestore(snap);
   return false;
 }
@@ -1447,7 +1537,9 @@ export function tryMoveWithGuard(
   const snapX = target.x;
   const snapY = target.y;
   mutate();
-  if (keep()) return true;
+  if (keep()) {
+    return true;
+  }
   target.x = snapX;
   target.y = snapY;
   return false;
@@ -1508,7 +1600,9 @@ export function measureRepairVecFrom(
   coord: Coord,
   geo: LeaderGeometry,
 ): RepairVec {
-  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
+  if (cfg.perfCounters) {
+    cfg.perfCounters.measureRepairVec += 1;
+  }
   return {
     cross: countLeaderCrossingsFrom(placements, geo, cfg),
     pieCross: leaderPieCrossCountFrom(geo.paths, cfg, coord),
@@ -1547,7 +1641,9 @@ export function measureRepairVecDelta(
   if (!base.usable || changed.length >= placements.length) {
     return measureRepairVecFrom(placements, cfg, coord, geo);
   }
-  if (cfg.perfCounters) cfg.perfCounters.measureRepairVec += 1;
+  if (cfg.perfCounters) {
+    cfg.perfCounters.measureRepairVec += 1;
+  }
   const set = new Set(changed);
   const out: RepairVec = {
     cross: crossCountWithChanged(placements, geo, base, set, cfg),
@@ -1619,7 +1715,9 @@ export function enforceFinalPieClearance(
   const pieR = cfg.pieRadius;
   const maxPieIntrusion = (): number => boxPieIntrusionMax(placements, cfg);
   const beforePie = maxPieIntrusion();
-  if (beforePie <= tol) return; // 円内侵入なし → 無変更 (OK チャートを乱さない)。
+  if (beforePie <= tol) {
+    return; // 円内侵入なし → 無変更 (OK チャートを乱さない)。
+  }
 
   const maxOverlap = (): number => boxOverlapMax(placements, cfg);
   const maxViewOverflow = (): number => boxViewOverflowMax(placements, cfg, coord);
@@ -1631,9 +1729,13 @@ export function enforceFinalPieClearance(
   const snapshot = placements.map((p) => ({ p, x: p.x, y: p.y }));
 
   for (const p of placements) {
-    if (p.insideSlice) continue;
+    if (p.insideSlice) {
+      continue;
+    }
     const bx = placementBox(p, cfg);
-    if (pieR - boxDistToOrigin(bx) <= tol) continue; // このラベルは侵入していない。
+    if (pieR - boxDistToOrigin(bx) <= tol) {
+      continue; // このラベルは侵入していない。
+    }
     const ext = placementExtent(p, cfg);
     const nudged = nudgeTextAwayFromPie(p.x, p.y, p.anchor, p.baseline, ext, cfg);
     p.x = nudged.x;
@@ -1666,7 +1768,9 @@ function leaderPieCrossCountFrom(
   const pieRPx = Math.abs(coord.xScale(cfg.pieRadius) - coord.xScale(0));
   let c = 0;
   for (const path of paths) {
-    if (path && leaderPathEntersPie(path, cx, cy, pieRPx)) c += 1;
+    if (path && leaderPathEntersPie(path, cx, cy, pieRPx)) {
+      c += 1;
+    }
   }
   return c;
 }
@@ -1702,7 +1806,9 @@ function collectDefectInvolved(
   const involved = new Set<number>();
   for (let i = 0; i < paths.length; i += 1) {
     const pa = paths[i];
-    if (!pa) continue;
+    if (!pa) {
+      continue;
+    }
     for (let j = i + 1; j < paths.length; j += 1) {
       const pb = paths[j];
       if (pb && pathsCross(pa, pb)) {
@@ -1710,7 +1816,9 @@ function collectDefectInvolved(
         involved.add(j);
       }
     }
-    if (leaderPathEntersPie(pa, cx, cy, pieRPx)) involved.add(i);
+    if (leaderPathEntersPie(pa, cx, cy, pieRPx)) {
+      involved.add(i);
+    }
     for (let j = 0; j < placements.length; j += 1) {
       if (j !== i && leaderCrossesBox(pa, boxes[j])) {
         involved.add(i);
@@ -1721,9 +1829,13 @@ function collectDefectInvolved(
   // 箱が円に食い込むラベルも対象 (verify "label inside pie")。rim 再ハグ候補で外へ出す。
   for (let i = 0; i < placements.length; i += 1) {
     const p = placements[i];
-    if (p.insideSlice) continue;
+    if (p.insideSlice) {
+      continue;
+    }
     const bx = placementBox(p, cfg);
-    if (cfg.pieRadius - boxDistToOrigin(bx) > tol) involved.add(i);
+    if (cfg.pieRadius - boxDistToOrigin(bx) > tol) {
+      involved.add(i);
+    }
   }
   const order = [...involved].sort((a, b) =>
     placements[a].item.name.localeCompare(placements[b].item.name, 'ja'),
@@ -1778,15 +1890,21 @@ interface ResidualRepairCtx {
 // 無ければ元の bend/フラグへ戻して false。 (単独手・複合手の両方から使う)
 function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
   const { placements, cfg, coord, pxUnit, vecOf, better } = ctx;
-  if (cfg.perfCounters) cfg.perfCounters.tryBendGridOn += 1;
+  if (cfg.perfCounters) {
+    cfg.perfCounters.tryBendGridOn += 1;
+  }
   const drawn2 = computeDrawnLeader(p, cfg);
-  if (drawn2.skipLeader || drawn2.pathPoints.length < 2) return false;
+  if (drawn2.skipLeader || drawn2.pathPoints.length < 2) {
+    return false;
+  }
   const a2 = drawn2.pathPoints[0];
   const e2 = drawn2.detectPathPoints[drawn2.detectPathPoints.length - 1];
   const tA = Math.atan2(a2.y, a2.x);
   const tE = Math.atan2(e2.y, e2.x);
   const dT = wrapPi(tE - tA);
-  if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) return false;
+  if (Math.abs(dT) < 0.05 || Math.abs(dT) > LEADER_MAX_ANGULAR_DIFF_RAD) {
+    return false;
+  }
   const sv = {
     bend: { ...p.leaderBend },
     fy: p.leaderBendFollowsEndpointY,
@@ -1809,7 +1927,9 @@ function tryBendGridOn(ctx: ResidualRepairCtx, p: Placement): boolean {
       p.leaderBend = { x: rr * Math.cos(th), y: rr * Math.sin(th) };
       p.leaderBendFollowsEndpointY = false;
       p.leaderBendFollowsEndpointX = false;
-      if (better(measure(), cur2)) return true;
+      if (better(measure(), cur2)) {
+        return true;
+      }
     }
   }
   p.leaderBend = sv.bend;
@@ -1824,7 +1944,9 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
   const { placements, cfg, coord, pxUnit, vecOf, better } = ctx;
   for (const i of order) {
     const p = placements[i];
-    if (p.insideSlice || p.forceTopRight) continue;
+    if (p.insideSlice || p.forceTopRight) {
+      continue;
+    }
     let adopted = false;
     const drawn = computeDrawnLeader(p, cfg);
     const a = drawn.pathPoints[0];
@@ -1909,7 +2031,9 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
             if (myPath) {
               const allPaths = realLeaderPaths(placements, cfg, coord);
               for (let j = 0; j < placements.length; j += 1) {
-                if (j === i) continue;
+                if (j === i) {
+                  continue;
+                }
                 const q = allPaths[j];
                 if (
                   q &&
@@ -1917,7 +2041,9 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
                   !placements[j].insideSlice &&
                   !placements[j].forceTopRight
                 ) {
-                  if (tryBendGridOn(ctx, placements[j])) movedIdx.add(j);
+                  if (tryBendGridOn(ctx, placements[j])) {
+                    movedIdx.add(j);
+                  }
                 }
               }
             }
@@ -1962,13 +2088,19 @@ function tryRebendInvolved(ctx: ResidualRepairCtx, order: number[], cur: Residua
         );
       }
     }
-    if (adopted) return true; // 不具合集合が変わったので外側 iter で再列挙する
+    if (adopted) {
+      return true; // 不具合集合が変わったので外側 iter で再列挙する
+    }
   }
   return false;
 }
 /** base に無い要素が cand に 1 つでもあれば true (合計据え置きの局所入替を検出する)。 */
 export function hasNewPair(cand: Set<string>, base: Set<string>): boolean {
-  for (const k of cand) if (!base.has(k)) return true;
+  for (const k of cand) {
+    if (!base.has(k)) {
+      return true;
+    }
+  }
   return false;
 }
 
@@ -1983,10 +2115,14 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
   const pairs: [number, number][] = [];
   for (let i = 0; i < allPaths.length; i += 1) {
     const pa = allPaths[i];
-    if (!pa) continue;
+    if (!pa) {
+      continue;
+    }
     for (let j = i + 1; j < allPaths.length; j += 1) {
       const pb = allPaths[j];
-      if (pb && pathsCross(pa, pb)) pairs.push([i, j]);
+      if (pb && pathsCross(pa, pb)) {
+        pairs.push([i, j]);
+      }
     }
   }
   pairs.sort((m, n) =>
@@ -2013,7 +2149,9 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
   for (const [ia, ib] of pairs) {
     const pa = placements[ia];
     const pb = placements[ib];
-    if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) continue;
+    if (pa.insideSlice || pb.insideSlice || pa.forceTopRight || pb.forceTopRight) {
+      continue;
+    }
     swapBase ??= buildScoreBase(placements, cfg, coord);
     const base = swapBase;
     const adopted = trySeamMutation(
@@ -2038,7 +2176,9 @@ function trySwapCrossingPairs(ctx: ResidualRepairCtx, cur: ResidualVec): boolean
         return ok;
       },
     );
-    if (adopted) return true;
+    if (adopted) {
+      return true;
+    }
   }
   return false;
 }
@@ -2059,7 +2199,9 @@ function tryRestackLeftColumn(
     (p) => !p.insideSlice && !p.forceTopRight && p.x < 0 && !isOtherCategory(p.item.name),
   );
   const anyInvolved = stack.some((p) => [...involved].some((i) => placements[i] === p));
-  if (stack.length < 2 || !anyInvolved) return false;
+  if (stack.length < 2 || !anyInvolved) {
+    return false;
+  }
   const byAngle = sortByAngleDesc([...stack]);
   const curTop = Math.max(...stack.map((p) => placementBox(p, cfg).top));
   // 円より上のスロットは rim ハグ X が 0 (中央) になり、右上エスケープの riser/斜線の
@@ -2098,7 +2240,9 @@ function tryRestackLeftColumn(
         return ok;
       },
     );
-    if (adopted) return true;
+    if (adopted) {
+      return true;
+    }
   }
   return false;
 }
@@ -2128,7 +2272,9 @@ export function repairResidualLeaderDefects(
   // の順に「最初に改善した 1 手」を採る。どの手も改善しなければ収束として終了 (最大 6 周)。
   for (let iter = 0; iter < 6; iter += 1) {
     const cur = vecOf();
-    if (cur.crossPie + cur.through === 0 && cur.boxPie <= tol) return;
+    if (cur.crossPie + cur.through === 0 && cur.boxPie <= tol) {
+      return;
+    }
     const { order, involved } = collectDefectInvolved(placements, cfg, coord, tol);
     if (process.env.PIE_CHART_DEBUG_REPAIR) {
       console.error(
@@ -2136,9 +2282,15 @@ export function repairResidualLeaderDefects(
       );
     }
     let improved = tryRebendInvolved(ctx, order, cur);
-    if (!improved) improved = trySwapCrossingPairs(ctx, cur);
-    if (!improved) improved = tryRestackLeftColumn(ctx, involved, cur);
-    if (!improved) return;
+    if (!improved) {
+      improved = trySwapCrossingPairs(ctx, cur);
+    }
+    if (!improved) {
+      improved = tryRestackLeftColumn(ctx, involved, cur);
+    }
+    if (!improved) {
+      return;
+    }
   }
 }
 
@@ -2349,9 +2501,15 @@ export function applyEmitRepairPasses(
 ): void {
   const debug = Boolean(process.env.PIE_CHART_DEBUG_REPAIR);
   for (const pass of EMIT_REPAIR_PASSES) {
-    if (pass.stage === 'scoring') continue;
-    if (pass.finalOnly && context === 'candidateScoring') continue;
-    if (pass.when && !pass.when(diagnostics)) continue;
+    if (pass.stage === 'scoring') {
+      continue;
+    }
+    if (pass.finalOnly && context === 'candidateScoring') {
+      continue;
+    }
+    if (pass.when && !pass.when(diagnostics)) {
+      continue;
+    }
     if (debug) {
       const before = measureRepairVec(textPlacements, cfg, view);
       pass.run(textPlacements, cfg, view);
@@ -2359,10 +2517,14 @@ export function applyEmitRepairPasses(
       const diffs = (Object.keys(before) as (keyof RepairVec)[])
         .filter((k) => before[k] !== after[k])
         .map((k) => `${k} ${Number(before[k].toFixed(2))}->${Number(after[k].toFixed(2))}`);
-      if (diffs.length > 0) console.error(`[emit-pass] ${pass.name}: ${diffs.join(', ')}`);
+      if (diffs.length > 0) {
+        console.error(`[emit-pass] ${pass.name}: ${diffs.join(', ')}`);
+      }
     } else {
       pass.run(textPlacements, cfg, view);
     }
-    if (process.env.PIE_CHART_STOP_AFTER_PASS === pass.name) return;
+    if (process.env.PIE_CHART_STOP_AFTER_PASS === pass.name) {
+      return;
+    }
   }
 }

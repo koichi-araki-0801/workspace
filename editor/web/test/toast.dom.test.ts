@@ -42,7 +42,9 @@ describe('toast', () => {
     toast('a');
     toast('b');
     const first = toasts[0]?.id;
-    if (first == null) throw new Error('toast not pushed');
+    if (first == null) {
+      throw new Error('toast not pushed');
+    }
     dismissToast(first);
     expect(toasts).toHaveLength(1);
     expect(toasts[0]?.message).toBe('b');

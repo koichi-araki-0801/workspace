@@ -62,6 +62,15 @@ export default defineConfig({
         'editor/shared/src/jinja/fillRender.ts',
         'editor/shared/src/jinja/safeMarkup.ts',
         'editor/shared/src/jinja/containsJinja.ts',
+        // 不変ゲートがテキストの位置の Jinja を通すかの判定。緩むと描画で生まれる実行面が
+        // 承認を経ずに確定テンプレートへ入る。
+        'editor/shared/src/jinja/inertJinja.ts',
+        // 作成経路の受付の検査と承認画面の値の描き方。緩むと、承認画面に出ず本番だけに出る本文を通す。
+        'editor/shared/src/jinja/reviewableSource.ts',
+        'editor/shared/src/jinja/revealExpr.ts',
+        'editor/shared/src/jinja/createReviewRender.ts',
+        // 本文の外側の固定(両経路の受付と承認)。緩むと、承認画面に出ない head や body の属性を通す。
+        'editor/shared/src/html/documentFrame.ts',
         'editor/shared/src/html/htmlLex.ts',
         'editor/shared/src/html/partHtmlCompare.ts',
         'editor/shared/src/html/rawText.ts',
@@ -84,6 +93,11 @@ export default defineConfig({
         // 下書き入出力が承認・編集画面の到達可能性を左右するため、被覆を切らさない。
         'editor/server/src/repositories/templateRepo.ts',
         'editor/server/src/repositories/commonSample.ts',
+        // 層の窓口。セッション・注記マスタ・ユーザー行の写し方は sproc の契約をそのまま写す
+        // 形なので、操作名・引数名の取り違えを単体テストで止める。
+        'editor/server/src/repositories/sessionRepo.ts',
+        'editor/server/src/repositories/noteMasterRepo.ts',
+        'editor/server/src/repositories/userRow.ts',
         'editor/server/src/files/pendingFiles.ts',
         'editor/server/src/files/syncFiles.ts',
         // テンプレ実体のパス解決と下書きの入出力。`assertTemplateId` / `assertTemplateAttributeToken` を
@@ -133,6 +147,10 @@ export default defineConfig({
         'editor/server/src/vivliostyle/buildWorkerPool.ts',
         // プール非経由(`poolSize <= 0`)のフォールバックにも同じ受付制御を効かせる層。
         'editor/server/src/vivliostyle/buildAdmission.ts',
+        // PDF 出力の人ごとの上限。1 人で共有の枠を埋めさせない層なので対象へ入れる。
+        'editor/server/src/vivliostyle/buildUserQuota.ts',
+        // ビルド用ワーカーがブラウザへ WebRTC の UDP を止めるフラグを必ず渡す層(起動前の関所)。
+        'editor/server/scripts/browserLaunchGuard.mjs',
         // 資源上限の層。上限そのものと、上限を守るための
         // 直列化・適用範囲の限定は、迂回されると単一プロセスが 1 リクエストで止まる。
         'editor/server/src/files/atomic.ts',
@@ -285,6 +303,7 @@ export default defineConfig({
         'editor/web/src/features/compare/CompareSideSelector.vue',
         'editor/web/src/features/templates/components/CreateFundSelect.vue',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
+        'editor/web/src/features/reviews/services/cssGeneratedText.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
         'editor/web/src/features/reviews/reviewPartMaps.ts',
         'editor/web/src/lib/partNames.ts',

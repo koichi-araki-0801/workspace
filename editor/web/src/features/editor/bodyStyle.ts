@@ -52,7 +52,9 @@ function isCarriableStyle(style: Element): boolean {
 /** 文書の中の運んでよい `<style>` を置き場へ差し替える。 */
 function swapStyles(doc: Document): void {
   for (const style of Array.from(doc.querySelectorAll('style'))) {
-    if (!isCarriableStyle(style)) continue;
+    if (!isCarriableStyle(style)) {
+      continue;
+    }
     const holder = doc.createElement('span');
     placeholders.set(holder, { source: style.outerHTML, css: style.textContent ?? '' });
     style.replaceWith(holder);
@@ -73,10 +75,14 @@ export const bodyStyleParserHtml: CustomParserHtml = (str, options) => {
   }
   const doc = parser.parseFromString(str, mimeType);
   swapStyles(doc);
-  if (options.asDocument) return doc as unknown as HTMLElement;
+  if (options.asDocument) {
+    return doc as unknown as HTMLElement;
+  }
   const { head, body } = doc;
   // 既定のパーサと同じく、head の script を body の末尾へ、head の残りを body の先頭へ移す。
-  for (const node of Array.from(head.querySelectorAll('script'))) body.appendChild(node);
+  for (const node of Array.from(head.querySelectorAll('script'))) {
+    body.appendChild(node);
+  }
   Array.from(head.children).forEach((node, i) => {
     body.insertBefore(node, body.children[i] ?? null);
   });
@@ -134,7 +140,9 @@ export function renderJinjaStyleCss(source: string, sample: SampleData): string 
     const { html } = renderPlainFilled(source, sample);
     const body = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body;
     const style = body.firstElementChild;
-    if (body.childNodes.length !== 1 || style?.localName !== 'style') return null;
+    if (body.childNodes.length !== 1 || style?.localName !== 'style') {
+      return null;
+    }
     return style.textContent;
   } catch {
     return null;
@@ -153,16 +161,21 @@ export function bodyStyleCssTexts(
   const out: string[] = [];
   const visit = (c: Component): void => {
     const type = c.get('type');
-    if (type === BODY_STYLE_TYPE) out.push(c.get('styleCss') as string);
-    else if (type === RAWTEXT_CHIP_TYPE && sample) {
+    if (type === BODY_STYLE_TYPE) {
+      out.push(c.get('styleCss') as string);
+    } else if (type === RAWTEXT_CHIP_TYPE && sample) {
       const encoded = c.getAttributes()[DATA_OPAQUE];
       const css =
         typeof encoded === 'string' ? renderJinjaStyleCss(b64decodeSafe(encoded), sample) : null;
-      if (css !== null) out.push(css);
+      if (css !== null) {
+        out.push(css);
+      }
     }
     c.components().forEach(visit);
   };
-  if (root) visit(root);
+  if (root) {
+    visit(root);
+  }
   return out.filter((css) => css.trim() !== '');
 }
 

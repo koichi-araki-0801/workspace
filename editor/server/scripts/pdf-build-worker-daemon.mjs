@@ -10,14 +10,21 @@
 // 契約(IPC): 親 → 子 `{ id:number, opts:object }`(`opts` は `@vivliostyle/cli` の `build()` 引数)。
 //            子 → 親 `{ id, ok:true }` 成功 / `{ id, ok:false, error:string }` 失敗。
 // `build()` は 1 度に 1 件のみ(単一プロセス/ブラウザで並行実行しない前提。親が直列化する)。
+//
+// CLI を読む前に `browserLaunchGuard.mjs` の `hardenBrowserLaunch` を呼び、ブラウザの起動に
+// WebRTC の UDP を止めるフラグを必ず付ける。失敗したら起動ごと失敗させる(親はワーカーの
+// 異常終了としてジョブを失敗させる)。
 import { existsSync } from 'node:fs';
+import { hardenBrowserLaunch } from './browserLaunchGuard.mjs';
 
+const guard = await hardenBrowserLaunch(import.meta.resolve('@vivliostyle/cli'));
 // 起動時に 1 度だけ import する(spawn 版がジョブ毎に払う重コストはここ)。
 const { build } = await import('@vivliostyle/cli');
 
 process.on('message', async (msg) => {
   const { id, opts } = msg ?? {};
   try {
+    guard.rememberBrowser(opts?.executableBrowser);
     await build(opts);
     // build() が解決しても出力が無いケースは失敗扱い(親が PDF を read する前に検出する)。
     const outPath = opts?.output?.[0]?.path;
