@@ -244,7 +244,7 @@ export function rowsToItems(rows: unknown[][]): Array<[string, number]> {
   for (let i = 0; i < rows.length; i += 1) {
     const [nameRaw, valueRaw] = rows[i];
     const name = nameRaw == null ? '' : String(nameRaw).trim();
-    const item = rowToItem(name, valueRaw, i + 1, () => String(valueRaw));
+    const item = rowToItem(name, valueRaw, i + 1);
     if (item) {
       items.push(item);
     }

@@ -223,6 +223,10 @@ describe('rowsToItems', () => {
     ]);
     expect(() => rowsToItems([[null, 3]])).toThrow(/Empty name at row 1/);
   });
+  it('読めない値は行番号と列値の文字列化を添えて投げる', () => {
+    expect(() => rowsToItems([['株式', 'abc']])).toThrow('Non-numeric value at row 1 (got "abc").');
+    expect(() => rowsToItems([['株式', true]])).toThrow('Non-numeric value at row 1 (got "true").');
+  });
   it('0 行・全行空・上限超えは query 段階のエラー', () => {
     expect(() => rowsToItems([])).toThrow(/returned no rows/);
     expect(() => rowsToItems([[null, null]])).toThrow(/all blank/);
