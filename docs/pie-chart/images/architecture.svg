@@ -19,18 +19,14 @@
   </defs>
   <rect width="1200" height="680" fill="#FFFFFF"/>
 
-  <!-- 入力 3 系統 -->
-  <rect class="panel" x="60" y="40" width="310" height="90" rx="8"/>
-  <text class="name" x="215" y="76" text-anchor="middle">JSON / samples.json</text>
-  <text class="small" x="215" y="104" text-anchor="middle">配列 {name, value} を直接読込</text>
+  <!-- 入力 2 系統 -->
+  <rect class="panel" x="215" y="40" width="310" height="90" rx="8"/>
+  <text class="name" x="370" y="76" text-anchor="middle">JSON / samples.json</text>
+  <text class="small" x="370" y="104" text-anchor="middle">配列 {name, value} を直接読込</text>
 
-  <rect class="panel" x="445" y="40" width="310" height="90" rx="8"/>
-  <text class="name" x="600" y="76" text-anchor="middle">Excel（.xlsx）</text>
-  <text class="small mono" x="600" y="104" text-anchor="middle">input/load.ts / exceljs</text>
-
-  <rect class="panel" x="830" y="40" width="310" height="90" rx="8"/>
-  <text class="name" x="985" y="76" text-anchor="middle">DB（SQL Server）</text>
-  <text class="small mono" x="985" y="104" text-anchor="middle">input/db.ts / msnodesqlv8</text>
+  <rect class="panel" x="675" y="40" width="310" height="90" rx="8"/>
+  <text class="name" x="830" y="76" text-anchor="middle">DB（SQL Server）</text>
+  <text class="small mono" x="830" y="104" text-anchor="middle">input/db.ts / msnodesqlv8</text>
 
   <!-- 正規化 -->
   <rect class="box" x="340" y="180" width="520" height="72" rx="8"/>
@@ -71,11 +67,10 @@
   <text class="small" x="600" y="636" text-anchor="middle">out/svg_js　83 サンプルを out/_baseline と byte 比較・verify/svg.ts で独立検証</text>
 
   <!-- エッジ -->
-  <line class="edge" x1="215" y1="132" x2="450" y2="174"/>
-  <line class="edge" x1="600" y1="132" x2="600" y2="174"/>
-  <line class="edge" x1="985" y1="132" x2="750" y2="174"/>
+  <line class="edge" x1="370" y1="132" x2="480" y2="174"/>
+  <line class="edge" x1="830" y1="132" x2="720" y2="174"/>
   <line class="edge" x1="600" y1="254" x2="600" y2="294"/>
   <line class="edge" x1="600" y1="532" x2="600" y2="574"/>
 
-  <text class="small" x="600" y="672" text-anchor="middle">外部依存（exceljs / msnodesqlv8 / subset-font）は端の層に隔離。レンダリング層は依存ゼロ</text>
+  <text class="small" x="600" y="672" text-anchor="middle">外部依存（msnodesqlv8 / subset-font）は端の層に隔離。レンダリング層は依存ゼロ</text>
 </svg>

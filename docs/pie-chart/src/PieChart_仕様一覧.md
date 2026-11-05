@@ -14,11 +14,10 @@ title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
 | 3 | 入力 | Item.value | `number` | スライス値。割合は内部で算出 |
 | 4 | 入力 | JSONファイル | `Item[] ([{name, value}, ...])` | --data-file で指定 |
 | 5 | 入力 | JSON直渡し | `Item[] (CLI文字列)` | --data-json で直接指定 |
-| 6 | 入力 | Excel(xlsx) | `2列固定 (左=name, 右=value)` | --xlsx + --sheet + --range（例 A2:B11。見出し行は含めない） |
-| 7 | 入力 | DB(SQL Server) | `ストアドの結果セット` | --fund / --base-date / --chart-type。先頭2列固定。Windows統合認証。exe 版も対応（ドライバ内蔵） |
-| 8 | 出力 | SVG文字列 | `600×450px 固定` | スライスpath・ラベル・リーダー線・WOFF2埋込フォント |
-| 9 | 出力 | テキスト要素 | `<text>（実テキスト）` | ラベルとパーセンテージは後から検索可能 |
-| 10 | 出力 | リーダー線 | `<path>（引出線）` | 決定的シリアライズ（同一入力→同一バイト） |
+| 6 | 入力 | DB(SQL Server) | `ストアドの結果セット` | --fund / --base-date / --chart-type。先頭2列固定。Windows統合認証。exe 版も対応（ドライバ内蔵） |
+| 7 | 出力 | SVG文字列 | `600×450px 固定` | スライスpath・ラベル・リーダー線・WOFF2埋込フォント |
+| 8 | 出力 | テキスト要素 | `<text>（実テキスト）` | ラベルとパーセンテージは後から検索可能 |
+| 9 | 出力 | リーダー線 | `<path>（引出線）` | 決定的シリアライズ（同一入力→同一バイト） |
 
 # CLI・設定
 
@@ -32,31 +31,30 @@ title: PieChart 仕様一覧（入出力 / CLI・設定 / テスト）
 | 6 | オプション | `--sample` |  | サンプル名で選択 |
 | 7 | オプション | `--data-file` |  | JSONファイル指定 |
 | 8 | オプション | `--data-json` |  | JSON文字列を直渡し |
-| 9 | オプション | `--xlsx / --sheet / --range` |  | Excel範囲入力（3 つとも必須。例 A2:B11） |
-| 10 | オプション | `--fund / --base-date / --chart-type` |  | ストアドへ位置バインドで渡す。3 つそろえて指定。基準日は YYYY-MM-DD か YYYYMMDD |
-| 11 | オプション | `--db-server / --db-name` | `env DB_SERVER / DB_NAME` | 接続先（既定は運用の sv29wdbp03\ipass / usrap、env で上書き）。Windows統合認証固定 |
-| 12 | オプション | `--save-json` | `--output-file の拡張子を .json に` | 取得結果（samples 形式）の保存先 |
-| 13 | オプション | `--font-weight` | `400 \| 700` | フォントウェイト切替 |
-| 14 | オプション | `--stroke-ratio` | `number` | faux-bold のストローク調整 |
-| 15 | オプション | `--output-file / --output-dir` |  | 出力先指定 |
-| 16 | 設定 | `svgWidthPx / svgHeightPx` | `600 / 450` | SVG寸法（固定） |
-| 17 | 設定 | `pieHeightRatio` | `0.7` | 直径 = 450 × 0.7 = 315px |
-| 18 | 設定 | `baselineFontSize` | `20` | 基準フォントサイズ |
-| 19 | 設定 | `fontSize` | `40` | 実描画。40 × 0.68 ≈ 27.2px |
-| 20 | 設定 | `labelRadius` | `1.19` | ラベル配置半径倍率 |
-| 21 | 設定 | `startangle` | `90.0` | 12時を0°に |
-| 22 | 設定 | `minGap` | `0.16` | ラベル最小間隔 |
-| 23 | 設定 | `smallSliceThreshold` | `6.0` | 小スライス判定（%） |
-| 24 | 設定 | `denseCountThreshold` | `9` | 密判定のスライス数閾値 |
+| 9 | オプション | `--fund / --base-date / --chart-type` |  | ストアドへ位置バインドで渡す。3 つそろえて指定。基準日は YYYY-MM-DD か YYYYMMDD |
+| 10 | オプション | `--db-server / --db-name` | `env DB_SERVER / DB_NAME` | 接続先（既定は運用の sv29wdbp03\ipass / usrap、env で上書き）。Windows統合認証固定 |
+| 11 | オプション | `--save-json` | `--output-file の拡張子を .json に` | 取得結果（samples 形式）の保存先 |
+| 12 | オプション | `--font-weight` | `400 \| 700` | フォントウェイト切替 |
+| 13 | オプション | `--stroke-ratio` | `number` | faux-bold のストローク調整 |
+| 14 | オプション | `--output-file / --output-dir` |  | 出力先指定 |
+| 15 | 設定 | `svgWidthPx / svgHeightPx` | `600 / 450` | SVG寸法（固定） |
+| 16 | 設定 | `pieHeightRatio` | `0.7` | 直径 = 450 × 0.7 = 315px |
+| 17 | 設定 | `baselineFontSize` | `20` | 基準フォントサイズ |
+| 18 | 設定 | `fontSize` | `40` | 実描画。40 × 0.68 ≈ 27.2px |
+| 19 | 設定 | `labelRadius` | `1.19` | ラベル配置半径倍率 |
+| 20 | 設定 | `startangle` | `90.0` | 12時を0°に |
+| 21 | 設定 | `minGap` | `0.16` | ラベル最小間隔 |
+| 22 | 設定 | `smallSliceThreshold` | `6.0` | 小スライス判定（%） |
+| 23 | 設定 | `denseCountThreshold` | `9` | 密判定のスライス数閾値 |
 
 # テスト仕様
 
 | No | テスト | テスト観点 | 期待結果 | 結果 |
 |:--:|---|---|---|:--:|
 | 1 | `test/input_load.test.ts` | タプル/オブジェクト変換・型強制・エラーケース | 正規化が仕様どおり | 未 |
-| 2 | `test/input_xlsx.test.ts` | 範囲解析（`parseRange`）・2 列固定・書式不正エラー | Excel入力が正しく読める | 未 |
+| 2 | `test/input_number.test.ts` | 数値解釈（桁区切り・10 進以外の拒否・指数・空白） | DB / JSON の数値が仕様どおり | 未 |
 | 3 | `test/input_db.test.ts` | 接続文字列の許可リスト・ストアドの呼び出し文・結果セットの判定・SQLSTATE の振り分け | DB入力の入口が仕様どおり | 未 |
-| 4 | `test/input_limits.test.ts` | 入力の資源上限（件数・ラベル長・range 行数・データ長・値の総和）の退行ガード | 上限超過が明示エラー | 未 |
+| 4 | `test/input_limits.test.ts` | 入力の資源上限（件数・ラベル長・データ長・値の総和）の退行ガード | 上限超過が明示エラー | 未 |
 | 5 | `test/config.test.ts` | パラメータ override・派生スケール計算・配色（`makeColors`） | config が一致 | 未 |
 | 6 | `test/geometry.test.ts` | 座標変換・BBox・overlap・ナッジ | 幾何計算が正しい | 未 |
 | 7 | `test/placement.test.ts` | leader path・上部「その他」の帯判定と rim 配置 | ラベル配置が一致 | 未 |
