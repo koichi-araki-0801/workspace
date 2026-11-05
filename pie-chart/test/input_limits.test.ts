@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { normalizeInputItems, resolveInputData } from '../src/input/load.js';
 import {
   MAX_JSON_BYTES,
@@ -30,6 +30,35 @@ describe('上限値の固定', () => {
   it('件数上限は 32(n=32 で約 2 分・n=40 は 5 分でも未完了の実測に基づく)', () => {
     expect(PIE_MAX_ITEMS).toBe(32);
     expect(MAX_LABEL_CHARS).toBe(256);
+  });
+});
+
+// 上限は import 時に env から決まるので、env を差し替えてモジュールを読み直して確かめる。
+// 素の `Number()` だと `'64MB'` が NaN になり上限が黙って消えるため、不正値はエラーで固定する。
+describe('上限の env 上書き', () => {
+  const loadLimits = async () => {
+    vi.resetModules();
+    return import('../src/limits.js');
+  };
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('正の整数なら上限を上書きする', async () => {
+    vi.stubEnv('PIE_MAX_ITEMS', '40');
+    expect((await loadLimits()).PIE_MAX_ITEMS).toBe(40);
+  });
+
+  it.each(['64MB', '0', '-1'])('PIE_MAX_ITEMS=%s は読み込み時にエラーになる', async (raw) => {
+    vi.stubEnv('PIE_MAX_ITEMS', raw);
+    await expect(loadLimits()).rejects.toThrow(/PIE_MAX_ITEMS must be a positive integer/);
+  });
+
+  it('DB の待ち時間は 3600 秒を超えるとエラーになる', async () => {
+    vi.stubEnv('PIE_DB_QUERY_TIMEOUT_S', '3601');
+    await expect(loadLimits()).rejects.toThrow(/3600 or less/);
   });
 });
 
