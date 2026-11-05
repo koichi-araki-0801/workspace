@@ -3,7 +3,7 @@
  * and their sample data. Output is committed so the editor has a value-filled
  * canvas without a runtime render; re-run after changing a template or sample:
  *
- *   npx vite-node scripts/genFilled.ts     (from editor/web)
+ *   pnpm run gen:filled     (from editor/web)
  *
  * 出力は編集タブ用の値入り HTML で、本番の `filled/` と同じく往復用の印も Jinja も持たない。
  * 作成タブの値入り表示は `toFilled` が実行時に作るので、ここでは使わない。
