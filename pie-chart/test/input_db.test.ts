@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sqlErrorHint } from '../src/input/sqlErrorHint.js';
 import {
+  type ConnOpts,
   type MsSqlDriver,
   type MsSqlResults,
-  buildConnectionString,
   buildSprocStatement,
   callSprocItems,
   checkConnection,
   classifySqlError,
+  connectionStringFor,
   normalizeConnExtra,
   pickSingleResultSet,
   resolveConnTarget,
@@ -16,7 +17,10 @@ import {
 import { DbStageError } from '../src/input/dbStage.js';
 import { MAX_DB_ROWS } from '../src/limits.js';
 
-describe('buildConnectionString', () => {
+/** 本番(`sproc.ts` と子プロセス)と同じ 2 段: 接続先を検証してから接続文字列を組む。 */
+const connectionStringOf = (opts: ConnOpts): string => connectionStringFor(resolveConnTarget(opts));
+
+describe('接続文字列の組み立て(resolveConnTarget → connectionStringFor)', () => {
   const saved = { ...process.env };
   beforeEach(() => {
     // process.env への代入は文字列強制される(undefined 代入は "undefined" になる)ため
@@ -31,13 +35,13 @@ describe('buildConnectionString', () => {
   });
 
   it('server / database を省くと既定の接続先(運用の DB)で Trusted_Connection を付ける', () => {
-    expect(buildConnectionString({})).toBe(
+    expect(connectionStringOf({})).toBe(
       String.raw`Driver={ODBC Driver 17 for SQL Server};Server=sv29wdbp03\ipass;Database=usrap;Trusted_Connection=yes;`,
     );
   });
   it('明示の server / driver / extra を反映する', () => {
     expect(
-      buildConnectionString({
+      connectionStringOf({
         server: 'db01',
         database: 'd',
         driver: 'ODBC Driver 18 for SQL Server',
@@ -49,11 +53,11 @@ describe('buildConnectionString', () => {
   });
   it('database が無ければ env DB_NAME を使う', () => {
     process.env.DB_NAME = 'fromenv';
-    expect(buildConnectionString({})).toContain('Database=fromenv;');
+    expect(connectionStringOf({})).toContain('Database=fromenv;');
   });
   it('server が無ければ env DB_SERVER を使う', () => {
     process.env.DB_SERVER = 'db02';
-    expect(buildConnectionString({})).toContain('Server=db02;');
+    expect(connectionStringOf({})).toContain('Server=db02;');
   });
 
   // ここからが本題: 接続文字列は `;` 区切りの key=value 列なので、値に `;` を通すと
@@ -66,7 +70,7 @@ describe('buildConnectionString', () => {
       'localhost;Trusted_Connection=no;UID=sa;PWD=p',
       'localhost,99999999',
     ]) {
-      expect(() => buildConnectionString({ database: 'd', server: bad }), bad).toThrow(
+      expect(() => connectionStringOf({ database: 'd', server: bad }), bad).toThrow(
         /Invalid server/,
       );
     }
@@ -74,30 +78,30 @@ describe('buildConnectionString', () => {
   it('正当な server の形は通す (インスタンス名・ポート・localdb)', () => {
     const good = ['localhost', 'db01\\SQLEXPRESS', 'tcp:10.0.0.1,1433', '(localdb)\\MSSQLLocalDB'];
     for (const ok of good) {
-      const build = () => buildConnectionString({ database: 'd', server: ok });
+      const build = () => connectionStringOf({ database: 'd', server: ok });
       expect(build, ok).not.toThrow();
       expect(build()).toContain(`Server=${ok};`);
     }
   });
   it('database へのキーワード注入を拒否する', () => {
     for (const bad of ['usrap;FILEDSN=x', 'usrap}', '1db', '']) {
-      expect(() => buildConnectionString({ database: bad }), bad).toThrow(
+      expect(() => connectionStringOf({ database: bad }), bad).toThrow(
         /Invalid database name|database is required/,
       );
     }
   });
   it('未知の ODBC ドライバ名を拒否する', () => {
-    expect(() => buildConnectionString({ database: 'd', driver: 'X};FILEDSN=y' })).toThrow(
+    expect(() => connectionStringOf({ database: 'd', driver: 'X};FILEDSN=y' })).toThrow(
       /Unknown ODBC driver/,
     );
     // 部分一致で通ってしまう綴りも拒否する (完全一致の集合メンバシップ)。
-    expect(() => buildConnectionString({ database: 'd', driver: 'ODBC Driver 17' })).toThrow(
+    expect(() => connectionStringOf({ database: 'd', driver: 'ODBC Driver 17' })).toThrow(
       /Unknown ODBC driver/,
     );
   });
   it('env 経由の注入も同じく拒否する', () => {
     process.env.DB_SERVER = 'localhost;FILEDSN=x';
-    expect(() => buildConnectionString({ database: 'd' })).toThrow(/Invalid server/);
+    expect(() => connectionStringOf({ database: 'd' })).toThrow(/Invalid server/);
   });
 });
 
@@ -124,7 +128,7 @@ describe('normalizeConnExtra', () => {
   });
   it('DB_CONN_EXTRA 経由でも接続文字列に混ざらない', () => {
     process.env.DB_CONN_EXTRA = 'FILEDSN=\\\\evil\\s\\x.dsn';
-    expect(() => buildConnectionString({ database: 'd' })).toThrow(/is not allowed/);
+    expect(() => connectionStringOf({ database: 'd' })).toThrow(/is not allowed/);
     delete process.env.DB_CONN_EXTRA;
   });
 });

@@ -156,11 +156,6 @@ export function connectionStringFor(t: ConnTarget): string {
   return `Driver=${odbcBraceValue(t.driver)};Server=${t.server};Database=${t.database};Trusted_Connection=yes;${t.extra}`;
 }
 
-/** `resolveConnTarget` と `connectionStringFor` をまとめて呼ぶ。 */
-export function buildConnectionString(opts: ConnOpts): string {
-  return connectionStringFor(resolveConnTarget(opts));
-}
-
 // ── 2. ストアドの呼び出しと結果の判定 ────────────────────────────────────────
 
 /** msnodesqlv8 の `promises.query` の戻り値のうち、本ファイルが使う部分。 */
