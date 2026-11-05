@@ -23,7 +23,6 @@
     "clsx": "^2.1.1",
     "comlink": "^4.4.2",
     "dompurify": "^3.4.17",
-    "font-awesome": "4.7.0",
     "grapesjs": "0.23.8",
     "js-beautify": "^2.0.3",
     "linkedom": "0.18.13",

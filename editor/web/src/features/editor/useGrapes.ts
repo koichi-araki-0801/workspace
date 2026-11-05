@@ -634,8 +634,8 @@ export function useGrapes(options: UseGrapesOptions = {}) {
       // 差し替える(`bodyStyle.ts`)。
       parser: { parserHtml: bodyStyleParserHtml },
       // GrapesJS 既定の cssIcons(cdnjs Font Awesome の <link>)を空にし、CDN から
-      // 何も取得させない。layer/toolbar icon が使う FA glyph は main.ts の
-      // `import 'font-awesome/...'` で代わりにローカル同梱している。
+      // 何も取得させない。FA の class を使うのは既定パネル・StyleManager・core:preview・
+      // image-editor だけで、どれも使っていないので FA 自体を同梱しない。
       cssIcons: '',
       // component script 機能(`data-gjs-script` prop)を使わないので、`getHtml()` が
       // 収集した JS を `<script>` として**連結して返す**既定を切る。これが true のままだと、
