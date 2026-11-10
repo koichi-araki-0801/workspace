@@ -140,6 +140,24 @@ describe('report routes', () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it('POST fill returns an error response when generation fails', async () => {
+    m.generateFilled.mockRejectedValue(
+      Object.assign(new Error('boom'), { kind: 'unexpected', statusCode: 502 }),
+    );
+    const res = await app.inject({ method: 'POST', url: `/templates/${ID}/fill` });
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+  });
+
+  it('POST report-pdf returns an error response when a gate rejects', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/templates/${ID}/report-pdf`,
+      payload: { html: '<img src="https://evil.example/x.png">' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(m.generateReportPdf).not.toHaveBeenCalled();
+  });
+
   it('GET status returns enabled:false when report is unset', async () => {
     m.report = undefined;
     const res = await app.inject({ method: 'GET', url: '/report/status' });
