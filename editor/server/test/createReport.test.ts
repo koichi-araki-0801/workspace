@@ -124,6 +124,30 @@ describe('generateFilled', () => {
     ]);
   });
 
+  it('spawns once for ids that differ only in case', async () => {
+    let running = 0;
+    let maxRunning = 0;
+    execFileMock.mockImplementation((...a: unknown[]) => {
+      const cb = a[a.length - 1] as Callback;
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      for (const name of ['AB01_880008_20231117_交付版.html', 'ab01_880008_20231117_交付版.html']) {
+        fs.writeFileSync(path.join(root, 'filled', name), 'x');
+      }
+      setTimeout(() => {
+        running -= 1;
+        cb(null, '', '');
+      }, 20);
+      return { on: vi.fn() };
+    });
+    await Promise.all([
+      generateFilled('AB01_880008_20231117_交付版', 'R'),
+      generateFilled('ab01_880008_20231117_交付版', 'R'),
+    ]);
+    expect(maxRunning).toBe(1);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects REPORT_OUTPUT_MISSING when script exits 0 without output', async () => {
     mockRun();
     await expect(generateFilled(ID, '01281')).rejects.toMatchObject({

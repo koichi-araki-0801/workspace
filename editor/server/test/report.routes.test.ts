@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSessionStub, decorateSessionStore } from './helpers/sessionStub.js';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-report-routes-'));
@@ -100,6 +100,9 @@ describe('report routes', () => {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });
   });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
   beforeEach(() => {
     m.role = 'editor';
     m.report = {};
@@ -170,7 +173,6 @@ describe('report routes', () => {
         error: 'boom',
       }),
     ]);
-    spy.mockRestore();
   });
 
   it('POST fill success is audited with created', async () => {
@@ -183,7 +185,6 @@ describe('report routes', () => {
         detail: { created: true },
       }),
     ]);
-    spy.mockRestore();
   });
 
   it('POST report-pdf success is audited with pdfBytes', async () => {
@@ -200,7 +201,6 @@ describe('report routes', () => {
         detail: { pdfBytes: 8 },
       }),
     ]);
-    spy.mockRestore();
   });
 
   it('POST report-pdf rejection is 400 and audited as report.pdf failure', async () => {
@@ -215,7 +215,6 @@ describe('report routes', () => {
     expect(auditRecords(spy, 'report.pdf')).toEqual([
       expect.objectContaining({ outcome: 'failure', resource: { templateId: ID } }),
     ]);
-    spy.mockRestore();
   });
 
   it('POST fill for an unknown company is 400 with REPORT_COMPANY_UNKNOWN', async () => {
