@@ -16,8 +16,11 @@
 //     css/  images/  js/    <- 通す(フォントは css/fonts/)
 //     それ以外              <- 拒む(templates/・filled/・pdf-input/ 自身・dataRoot の外)
 //
-// 通す形は `../<置き場>/<名前>/…/<名前>` だけ。値の復号は 1 回だけ(HTML 属性は文字参照、CSS は
-// 走査器のエスケープ解決)で、その結果に `?` `#` `%` `\` `:` と制御文字があれば拒む。各名前は
+// 通す形は `../<置き場>/<名前>/…/<名前>` だけ。文字参照は解かない: 走査器が渡す属性値は
+// 引用符を外しただけの原文で、こちらの復号器と組版器の HTML パーサの復号(名前付き実体の表・
+// セミコロン無しの旧形式)が一致する保証が無いため、取得系属性に `&` があれば拒む。`style` 属性
+// だけは直列化器が必ず出す `&quot;` などの決まった形に限って解く(`decodeSerializerEntities`)。
+// CSS の値は走査器のエスケープ解決の後で、その値に `&` `?` `#` `%` `\` `:` と制御文字があれば拒む。各名前は
 // `.` `..`・末尾の `.` や空白(Windows が黙って落とす)・`<>"|?*:` を含むものを拒む。
 //
 // 埋め込み文書の要素(`iframe` / `object` / `embed` / `frame`)と `<meta http-equiv=refresh>` は
@@ -25,7 +28,6 @@
 import {
   collectCssStringsInFunctions,
   collectCssUrlSpans,
-  decodeHtmlEntities,
   fetchUrlAttrsFor,
   findExternalRefsInCss,
   isSelfContainedUrl,
@@ -66,9 +68,12 @@ const REF_OUTSIDE_MESSAGE =
   'PDF の入力 HTML が、資産の置き場(css/・images/・js/)の外を参照しているため PDF を作れません。' +
   '参照を ../css/ ../images/ ../js/ の下へ直してから出してください。';
 
-/** 復号後の値に現れてはならない文字(URL として読むか字面で読むかで指す場所が割れる文字と制御文字)。 */
+/**
+ * 値に現れてはならない文字。URL として読むか字面で読むかで指す場所が割れる文字、文字参照の
+ * 解き方で読みが割れる `&`、制御文字。
+ */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字を拒むための文字クラス
-const FORBIDDEN_IN_PATH_RE = /[?#%\\:\u0000-\u001f\u007f]/;
+const FORBIDDEN_IN_PATH_RE = /[?#%&\\:\u0000-\u001f\u007f]/;
 
 /** 1 つの名前(セグメント)に現れてはならない文字(Windows のファイル名に使えない文字)。 */
 const FORBIDDEN_IN_SEGMENT_RE = /[<>"|?*:]/;
@@ -119,12 +124,51 @@ function collectCssRefs(css: string, out: string[]): void {
   }
 }
 
-/** `<meta http-equiv=refresh>` か(属性名・値は文字参照を解いて比べる)。 */
+/**
+ * `<meta http-equiv=refresh>` か。値に文字参照(`&`)があれば解かずに refresh とみなす
+ * (解き方の違いで見逃さない側へ倒す)。
+ */
 function isMetaRefresh(tag: TagSpan): boolean {
   return tag.attrs.some(
     (a) =>
-      a.name === 'http-equiv' && decodeHtmlEntities(a.value).trim().toLowerCase() === 'refresh',
+      a.name === 'http-equiv' &&
+      (a.value.includes('&') || a.value.trim().toLowerCase() === 'refresh'),
   );
+}
+
+/** 直列化器が属性値に出す文字参照(セミコロン付きの決まった形)と、解いた文字。 */
+const SERIALIZER_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ['&amp;', '&'],
+  ['&quot;', '"'],
+  ['&#39;', "'"],
+  ['&apos;', "'"],
+  ['&lt;', '<'],
+  ['&gt;', '>'],
+  ['&nbsp;', '\u00a0'],
+]);
+
+/**
+ * `style` 属性の値の文字参照を、直列化器が出す決まった形だけ解く(`style="url(&quot;…&quot;)"` は
+ * DOM の直列化で必ず現れる)。それ以外の `&` があれば、どう解かれるか言い切れないので undefined。
+ */
+function decodeSerializerEntities(value: string): string | undefined {
+  let out = '';
+  let i = 0;
+  while (i < value.length) {
+    if (value[i] !== '&') {
+      out += value[i];
+      i++;
+      continue;
+    }
+    const end = value.indexOf(';', i);
+    const decoded = end < 0 ? undefined : SERIALIZER_ENTITIES.get(value.slice(i, end + 1));
+    if (decoded === undefined) {
+      return undefined;
+    }
+    out += decoded;
+    i = end + 1;
+  }
+  return out;
 }
 
 /** 開始タグ 1 つの取得系属性のうち、通せないものを `out` へ積む。 */
@@ -142,9 +186,12 @@ function collectTagRefs(tag: TagSpan, out: string[]): void {
     if (!watched.includes(a.name) || NON_URL_ATTRS.has(a.name)) {
       continue;
     }
-    // 文字参照を 1 回だけ解き、その値を分ける(ブラウザも復号してから srcset を分ける)。
-    const value = decodeHtmlEntities(a.value);
-    const urls = SRCSET_ATTRS.has(a.name) ? splitSrcsetUrls(value) : [value];
+    // 文字参照は解かない。`&` を含む値は `isContainedValue` が拒む(資産の参照に `&` は要らない)。
+    const urls = SRCSET_ATTRS.has(a.name) ? splitSrcsetUrls(a.value) : [a.value];
+    if (a.value.includes('&')) {
+      out.push(`<${tag.name} ${a.name}="${a.value}">`);
+      continue;
+    }
     for (const url of urls) {
       if (!isContainedValue(url)) {
         out.push(`<${tag.name} ${a.name}="${url}">`);
@@ -172,7 +219,12 @@ function collectHtmlRefs(html: string, out: string[], depth: number): void {
     }
     for (const a of tag.attrs) {
       if (a.name === 'style') {
-        collectCssRefs(decodeHtmlEntities(a.value), out);
+        const css = decodeSerializerEntities(a.value);
+        if (css === undefined) {
+          out.push(`<${tag.name} style="${a.value}">`);
+        } else {
+          collectCssRefs(css, out);
+        }
       }
     }
     if (!tag.isEnd) {

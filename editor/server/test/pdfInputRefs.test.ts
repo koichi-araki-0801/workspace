@@ -72,6 +72,18 @@ describe('assertPdfInputRefsContained', () => {
     '<img src="../images/a|b.svg">',
     '<img src="../images">',
     '<img src="../images/">',
+    // 文字参照の解き方は組版器と一致する保証が無いので、`&` を含む参照は拒む。
+    '<img src="../images/a&amp;b.svg">',
+    '<img src="../images/a&bsol;..&bsol;..&bsol;x.png">',
+    '<img src="../images/a&percnt;2e.svg">',
+    '<img src="../images/a&quest/../../x.png">',
+    '<img src="../images/a&#x5c;..&#x5c;x.png">',
+    '<img srcset="../images/a.svg 1x, ../images/b&#x5c;..&#x5c;x.png 2x">',
+    '<div style="background:url(../images/a&bsol;..&bsol;x.png)"></div>',
+    '<div style="background:url(../images/a&percnt;2e.png)"></div>',
+    '<div style="background:url(../images/a&quest/../../x.png)"></div>',
+    '<style>.a{background:url(../images/a&bsol;x.png)}</style>',
+    '<meta http-equiv="&#114;efresh" content="0;url=../../x">',
   ])('rejects %s', (html) => {
     rejects(html);
   });
@@ -82,7 +94,8 @@ describe('assertPdfInputRefsContained', () => {
     '<link rel="stylesheet" href="../css/会社_ファンド_版種.css">',
     '<img src="../images/xx01/図 1.svg">',
     '<img src="../IMAGES/XX01/a.svg">',
-    '<img src="../images/a&amp;b.svg">',
+    '<div style="background:url(&quot;../images/a.png&quot;)"></div>',
+    '<div style="font-family:&quot;MS ゴシック&quot;;background:url(../images/a.png)"></div>',
     '<script src="../js/x.js"></script>',
     '<img srcset="../images/a.svg 1x, ../images/b.svg 2x">',
     '<style>@font-face{src:url(../css/fonts/a.woff2) format("woff2")}</style>',
