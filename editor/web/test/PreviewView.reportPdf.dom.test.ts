@@ -59,8 +59,9 @@ function tplOf(id: string): Template {
 
 async function mountView(
   id: string,
-  status: 'enabled' | 'disabled' | 'error',
+  status: 'enabled' | 'disabled' | 'error' | 'pending',
   buildReportPdf = vi.fn(async () => ok(new Blob(['pdf']))),
+  isFilled = id === FILLED_ID,
 ) {
   h.loadForPreview.mockResolvedValue(
     ok({
@@ -72,12 +73,16 @@ async function mountView(
       previewDoc: '<html><body>x</body></html>',
       renderError: null,
       hasDraft: false,
-      isFilled: id === FILLED_ID,
+      isFilled,
     }),
   );
   const templates = {
-    getReportStatus: vi.fn(async () =>
-      status === 'error' ? err({ message: 'x' }) : ok({ enabled: status === 'enabled' }),
+    getReportStatus: vi.fn(() =>
+      status === 'pending'
+        ? new Promise<never>(() => {})
+        : Promise.resolve(
+            status === 'error' ? err({ message: 'x' }) : ok({ enabled: status === 'enabled' }),
+          ),
     ),
     buildReportPdf,
   };
@@ -155,5 +160,39 @@ describe('PreviewView の単体 PDF 経路', () => {
     expect(h.toastError).toHaveBeenCalledWith('サーバの失敗文言');
     expect(h.renderPdf).not.toHaveBeenCalled();
     expect(h.recordPdfExport).not.toHaveBeenCalled();
+  });
+
+  it('disables PDF button until status resolves', async () => {
+    const { w, templates } = await mountView(FILLED_ID, 'pending');
+    const btn = w.findAll('button').find((b) => b.text().includes('PDF出力'));
+    expect(btn?.attributes('disabled')).toBeDefined();
+    await btn?.trigger('click');
+    await flushPromises();
+    expect(h.renderPdf).not.toHaveBeenCalled();
+    expect(templates.buildReportPdf).not.toHaveBeenCalled();
+  });
+
+  it('keeps crop marks out of the on-screen preview on report path', async () => {
+    const on = await mountView(FILLED_ID, 'enabled');
+    expect(on.w.findComponent({ name: 'PreviewPanel' }).props('html')).not.toContain('crop');
+    const off = await mountView(FILLED_ID, 'disabled');
+    expect(off.w.findComponent({ name: 'PreviewPanel' }).props('html')).toContain('crop');
+  });
+
+  it('shows the message and skips renderPdf when renderReportDocument fails', async () => {
+    h.renderReportDocument.mockResolvedValue(err({ code: 'CONFLICT', message: '組み立て失敗' }));
+    const { w, templates } = await mountView(FILLED_ID, 'enabled');
+    await clickPdf(w);
+    expect(h.toastError).toHaveBeenCalledWith('組み立て失敗');
+    expect(h.renderPdf).not.toHaveBeenCalled();
+    expect(templates.buildReportPdf).not.toHaveBeenCalled();
+  });
+
+  it('uses renderPdf for a 3-part id even when isFilled is true', async () => {
+    const { w, templates } = await mountView(SKELETON_ID, 'enabled', undefined, true);
+    await clickPdf(w);
+    expect(h.renderPdf).toHaveBeenCalledTimes(1);
+    expect(templates.buildReportPdf).not.toHaveBeenCalled();
+    expect(w.text()).toContain('トンボ');
   });
 });

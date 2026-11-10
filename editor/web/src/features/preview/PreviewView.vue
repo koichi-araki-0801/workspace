@@ -5,7 +5,7 @@
 // 上部バーは編集画面(`EditorTopBar`)と揃え, ズーム(+/-/%)とページ送り(◁ x/y ▷)を集約する。
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
-import { isErr, isOk, type Result, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
+import { isErr, isOk, isValidTemplateId, type Result, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
 import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -68,13 +68,19 @@ const isFilled = ref(false);
 const cropMarks = ref(true);
 // create_report 連携が有効か。状態の取得に失敗したら無効として今までの経路(vivliostyle)を使う。
 const reportEnabled = ref(false);
+// 状態の確定(取得失敗も「確定・無効扱い」)。確定前に PDF を出すと、組版の違う PDF を黙って渡す
+// ことがあるので、確定までは PDF 出力を押させない。
+const reportStatusResolved = ref(false);
 // 値入り HTML のときだけ create_report で単体 PDF を作る(作成タブのスケルトンは対象外)。
 // この経路はトンボを足さないので、トンボの切替も出さない。
-const useReportPdf = computed(() => reportEnabled.value && isFilled.value);
+// 経路は id の形(4 つ区切り)で決める。`isFilled` だけでは 3 つ区切りの id も通ってしまう。
+const useReportPdf = computed(
+  () => reportEnabled.value && isFilled.value && isValidTemplateId(props.id),
+);
 // プレビュー表示用ドキュメント。`previewDoc`(ベース)へトンボ CSS を後段注入する。トグル変更で
 // `PreviewPanel`(`watch(() => props.html, render)`)が再描画し即反映される。
 const displayDoc = computed(() =>
-  previewDoc.value ? withCropMarks(previewDoc.value, cropMarks.value) : '',
+  previewDoc.value ? withCropMarks(previewDoc.value, cropMarks.value && !useReportPdf.value) : '',
 );
 // 初期ロード失敗(API・Worker いずれも含む)を画面に出すためのフラグ。トースト一回だけだと
 // 見逃して「無音の白紙」になるため、本文領域に常設のエラー表示を出す。
@@ -142,6 +148,8 @@ async function loadReportStatus(): Promise<void> {
     reportEnabled.value = isOk(status) && status.value.enabled;
   } catch {
     // 状態が分からないときは連携なしとして扱う。
+  } finally {
+    reportStatusResolved.value = true;
   }
 }
 
@@ -369,7 +377,7 @@ async function exportPdf() {
         </Button>
       </Tooltip>
       <!-- 読込に失敗した状態では本文が空のまま。押させると空の PDF を出してしまう。 -->
-      <Button variant="outline" size="sm" :disabled="exporting || loadFailed" @click="exportPdf">
+      <Button variant="outline" size="sm" :disabled="exporting || loadFailed || !reportStatusResolved" @click="exportPdf">
         <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
         <FileDown v-else class="h-4 w-4" /> PDF出力
       </Button>
