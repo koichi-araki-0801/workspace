@@ -341,16 +341,21 @@ function resolveReportTimeoutMs(): number {
 
 /** `config.report` を組み立てる。script が無ければ機能ごと無効(`undefined`)。 */
 function resolveReportSpec(): ScriptSpec | undefined {
+  // 空文字の env は未設定と見なさず appconfig の値を隠す(`python.script` の `??` と同じ)。
+  // `python.script` は空文字がそのまま使われて壊れるが、report は空文字を「無効」として扱う。
   const script = process.env.REPORT_SCRIPT ?? file.report?.script;
+  // 指紋は script の有無に関係なく検査する。script を書き忘れたまま指紋だけ打ち間違えた
+  // 設定を黙って無視すると、あとで script を足したときに初めて落ちる。
+  const scriptSha256 =
+    process.env.REPORT_SCRIPT_SHA256 !== undefined
+      ? parseScriptSha256(process.env.REPORT_SCRIPT_SHA256, '環境変数 REPORT_SCRIPT_SHA256')
+      : parseScriptSha256(file.report?.scriptSha256, 'appconfig.json の report.scriptSha256');
   if (script === undefined || script === '') {
     return undefined;
   }
   return {
     script: toPath(script),
-    scriptSha256:
-      process.env.REPORT_SCRIPT_SHA256 !== undefined
-        ? parseScriptSha256(process.env.REPORT_SCRIPT_SHA256, '環境変数 REPORT_SCRIPT_SHA256')
-        : parseScriptSha256(file.report?.scriptSha256, 'appconfig.json の report.scriptSha256'),
+    scriptSha256,
     timeoutMs: resolveReportTimeoutMs(),
   };
 }

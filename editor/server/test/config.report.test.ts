@@ -20,6 +20,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 type ConfigModule = typeof import('../src/config.js');
 
 const KEYS = [
+  'PY_GENERATE_SCRIPT',
   'REPORT_SCRIPT',
   'REPORT_SCRIPT_SHA256',
   'REPORT_TIMEOUT_MS',
@@ -107,10 +108,31 @@ describe('config.report', () => {
   it('rejects report.timeoutMs over 600000', async () => {
     await expect(
       importConfig({}, { report: { script: 'r.py', timeoutMs: 600_001 } }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/report\.timeoutMs/);
     await expect(
       importConfig({ REPORT_SCRIPT: 'r.py', REPORT_TIMEOUT_MS: '600001' }),
     ).rejects.toThrow(/REPORT_TIMEOUT_MS/);
+  });
+
+  it('empty REPORT_SCRIPT is treated like empty PY_GENERATE_SCRIPT', async () => {
+    // 空文字の env は未設定でなく「設定済み」: appconfig の script を隠す(python.script と同じ)。
+    // python.script は空のまま使われて壊れるが、report は機能ごと無効になる。
+    const appconfig = { report: { script: 'C:\\file\\r.py' } };
+    const report = await importConfig({ REPORT_SCRIPT: '' }, appconfig);
+    expect(report.config.report).toBeUndefined();
+    const python = await importConfig({ PY_GENERATE_SCRIPT: '' }, { python: { script: 'x.py' } });
+    expect(path.basename(python.config.python.script)).not.toBe('x.py');
+  });
+
+  it('validates scriptSha256 even when no script is configured', async () => {
+    await expect(importConfig({ REPORT_SCRIPT_SHA256: 'zz' })).rejects.toThrow(
+      /REPORT_SCRIPT_SHA256/,
+    );
+    await expect(importConfig({}, { report: { scriptSha256: 'zz' } })).rejects.toThrow(
+      /report\.scriptSha256/,
+    );
+    const { config } = await importConfig({ REPORT_SCRIPT_SHA256: HEX });
+    expect(config.report).toBeUndefined();
   });
 
   it('report の未知キーは起動中止(strict)', async () => {
