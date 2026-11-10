@@ -5,11 +5,11 @@
 // 上部バーは編集画面(`EditorTopBar`)と揃え, ズーム(+/-/%)とページ送り(◁ x/y ▷)を集約する。
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
-import { isErr, isOk, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
+import { isErr, isOk, type Result, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
 import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { useFundAssetRepo, useReviewRepo } from '@/api/repositories';
+import { useFundAssetRepo, useReviewRepo, useTemplateRepo } from '@/api/repositories';
 import AttributeBar from '@/components/AttributeBar.vue';
 import PageNav from '@/components/PageNav.vue';
 import PageRail from '@/components/PageRail.vue';
@@ -30,6 +30,7 @@ import {
 } from '@/lib/assetWarnings';
 import { withCropMarks } from '@/lib/cropMarks';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
+import { renderReportDocument } from '@/lib/pdfDocument';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
 import { useEditorSessionStore } from '@/stores/editorSession';
@@ -45,6 +46,7 @@ const props = defineProps<{ id: string }>();
 
 const preview = useTemplatePreviewService();
 const reviews = useReviewRepo();
+const templates = useTemplateRepo();
 const fundAssets = useFundAssetRepo();
 const changedSummaryService = useChangedSummaryService();
 const route = useRoute();
@@ -64,6 +66,11 @@ const isFilled = ref(false);
 // トンボ(トリムマーク)の ON/OFF。画面内トグルのみで保持し, 初期は ON。表示用の `displayDoc`
 // と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持する。
 const cropMarks = ref(true);
+// create_report 連携が有効か。状態の取得に失敗したら無効として今までの経路(vivliostyle)を使う。
+const reportEnabled = ref(false);
+// 値入り HTML のときだけ create_report で単体 PDF を作る(作成タブのスケルトンは対象外)。
+// この経路はトンボを足さないので、トンボの切替も出さない。
+const useReportPdf = computed(() => reportEnabled.value && isFilled.value);
 // プレビュー表示用ドキュメント。`previewDoc`(ベース)へトンボ CSS を後段注入する。トグル変更で
 // `PreviewPanel`(`watch(() => props.html, render)`)が再描画し即反映される。
 const displayDoc = computed(() =>
@@ -129,7 +136,17 @@ async function inspectServedImages(doc: string): Promise<void> {
   }
 }
 
+async function loadReportStatus(): Promise<void> {
+  try {
+    const status = await templates.getReportStatus();
+    reportEnabled.value = isOk(status) && status.value.enabled;
+  } catch {
+    // 状態が分からないときは連携なしとして扱う。
+  }
+}
+
 onMounted(async () => {
+  void loadReportStatus();
   const res = await runLoad(() =>
     preview.loadForPreview(props.id, {
       editorCssBaseline: sessionStore.cssBaselineOf(props.id),
@@ -225,16 +242,29 @@ async function submitForReview() {
   }
 }
 
+/** create_report 経路。文書の組み立て・サーバの失敗とも vivliostyle へは切り替えない。 */
+async function buildReportPdf(): Promise<Result<Blob>> {
+  const doc = await renderReportDocument(
+    props.id,
+    restoredHtml.value,
+    template.value?.meta.attributes.companyCode ?? null,
+  );
+  if (isErr(doc)) { return doc; }
+  return templates.buildReportPdf(props.id, doc.value);
+}
+
 async function exportPdf() {
   const res = await runExport(() =>
-    preview.renderPdf(
-      restoredHtml.value,
-      css.value,
-      sample.value,
-      cropMarks.value,
-      isFilled.value,
-      template.value?.meta.attributes.companyCode ?? null,
-    ),
+    useReportPdf.value
+      ? buildReportPdf()
+      : preview.renderPdf(
+          restoredHtml.value,
+          css.value,
+          sample.value,
+          cropMarks.value,
+          isFilled.value,
+          template.value?.meta.attributes.companyCode ?? null,
+        ),
   );
   if (isErr(res)) { return; }
   const url = URL.createObjectURL(res.value);
@@ -328,7 +358,7 @@ async function exportPdf() {
 
       <!-- トンボ(トリムマーク)ON/OFF。ON は塗り(default), OFF は輪郭(outline)で状態を示す。
            表示(`displayDoc`)と PDF 出力(`exportPdf`)の双方へ効く。 -->
-      <Tooltip text="トンボ(トリムマーク)の表示切替">
+      <Tooltip v-if="!useReportPdf" text="トンボ(トリムマーク)の表示切替">
         <Button
           :variant="cropMarks ? 'default' : 'outline'"
           size="sm"
