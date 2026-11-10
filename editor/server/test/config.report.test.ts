@@ -121,7 +121,8 @@ describe('config.report', () => {
     const report = await importConfig({ REPORT_SCRIPT: '' }, appconfig);
     expect(report.config.report).toBeUndefined();
     const python = await importConfig({ PY_GENERATE_SCRIPT: '' }, { python: { script: 'x.py' } });
-    expect(path.basename(python.config.python.script)).not.toBe('x.py');
+    // 空文字は repoRoot(= editor/)に解決され、appconfig の x.py は使われない。
+    expect(python.config.python.script).toBe(path.resolve(import.meta.dirname, '..', '..'));
   });
 
   it('validates scriptSha256 even when no script is configured', async () => {
@@ -133,6 +134,18 @@ describe('config.report', () => {
     );
     const { config } = await importConfig({ REPORT_SCRIPT_SHA256: HEX });
     expect(config.report).toBeUndefined();
+  });
+
+  it('treats empty report scriptSha256 as unset', async () => {
+    const env = await importConfig({ REPORT_SCRIPT_SHA256: '  ' });
+    expect(env.config.report).toBeUndefined();
+    const file = await importConfig({}, { report: { scriptSha256: '' } });
+    expect(file.config.report).toBeUndefined();
+    const withScript = await importConfig(
+      { REPORT_SCRIPT: 'r.py', REPORT_SCRIPT_SHA256: '' },
+      { report: { scriptSha256: '' } },
+    );
+    expect(withScript.config.report?.scriptSha256).toBeUndefined();
   });
 
   it('report の未知キーは起動中止(strict)', async () => {
