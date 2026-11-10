@@ -9,6 +9,8 @@ import {
   notFound,
   parseSkeletonFileName,
   parseTemplateFileName,
+  REPORT_BUSY_USER,
+  REPORT_BUSY_USER_MESSAGE,
   REPORT_COMPANY_UNKNOWN,
   type ReportStatus,
   type SkeletonAttributes,
@@ -17,12 +19,17 @@ import {
 } from '@editor/shared';
 import { config } from '../config.js';
 import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
-import { generateFilled, generateReportPdf } from '../generate/createReport.js';
+import {
+  assertReportEnabled,
+  generateFilled,
+  generateReportPdf,
+} from '../generate/createReport.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { assertPdfInputRefsContained } from '../security/pdfInputRefs.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
+import { PerUserBuildGate } from '../vivliostyle/buildUserQuota.js';
 import { assertNoEditingMarkers } from './editingMarkerGate.js';
 import type { TemplateRepo } from './templateRepo.js';
 
@@ -30,13 +37,22 @@ export interface ReportRepo {
   status(): ReportStatus;
   listSkeletons(): Promise<SkeletonAttributes[]>;
   fill(id: string, actor: string): Promise<FillResult>;
-  buildPdf(id: string, html: string): Promise<Buffer>;
+  buildPdf(id: string, html: string, actor: string): Promise<Buffer>;
 }
 
 /** 略称の比較キー。Rep1 の略称は固定長で末尾に空白が付きうる。 */
 const companyKey = (code: string): string => code.trimEnd().toLowerCase();
 
 const PDF_WHERE = 'report-pdf';
+
+/** 単体 PDF の人ごとの上限を超えたときの Error(`errorHandler` が 503 と code をそのまま返す)。 */
+function reportBusyUserError(): Error {
+  return Object.assign(new Error(REPORT_BUSY_USER_MESSAGE), {
+    kind: 'unexpected' as const,
+    code: REPORT_BUSY_USER,
+    statusCode: 503,
+  });
+}
 
 /** id(4 区切り)の会社略称から Rep1 の委託会社コードを引く。Rep1 に無ければ 400。 */
 async function resolveRep1Code(
@@ -64,6 +80,10 @@ function parseFilledId(id: string): NonNullable<ReturnType<typeof parseTemplateF
 }
 
 export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>): ReportRepo {
+  // 単体 PDF の人ごとの上限(実行中 1・待ち 1)。閲覧者にも開いたので、1 人が続けて押して
+  // 生成器の共有の枠(全員で数本)を埋めないようにする(`/api/build` の `BUILD_BUSY_USER` と同じ形)。
+  const perUser = new PerUserBuildGate(reportBusyUserError);
+
   async function listSkeletons(): Promise<SkeletonAttributes[]> {
     const files = await listTemplateFiles();
     return files.flatMap((f) => {
@@ -74,6 +94,12 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
 
   async function fill(id: string, actor: string): Promise<FillResult> {
     const attrs = parseFilledId(id);
+    assertReportEnabled();
+    // 既にあれば開くだけ。DB(会社コード)を見ないので、DB が落ちていても既存の値入り HTML は開ける。
+    // 生成側もロックの中で同じ確認をする(ここは DB を照会しないための先回り)。
+    if (await filledExists(`${id}.html`)) {
+      return { created: false };
+    }
     // 元のテンプレート(3 区切り)が確定していなければ、値入りにする元が無い。
     const skeleton = skeletonFileName(attrs);
     const files = await listTemplateFiles();
@@ -94,7 +120,7 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
     return { created: result.created };
   }
 
-  async function buildPdf(id: string, html: string): Promise<Buffer> {
+  async function buildPdf(id: string, html: string, actor: string): Promise<Buffer> {
     const attrs = parseFilledId(id);
     // 不変性検査の基準は filled/ の実体。無いまま通すと基準が空になり、任意の script が通りうる。
     if (!(await filledExists(`${id}.html`))) {
@@ -109,8 +135,11 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
       templateId: id,
       where: PDF_WHERE,
     });
-    const rep1 = await resolveRep1Code(templates, attrs.companyCode);
-    return generateReportPdf(id, html, rep1);
+    assertReportEnabled();
+    return perUser.run(actor, async () => {
+      const rep1 = await resolveRep1Code(templates, attrs.companyCode);
+      return generateReportPdf(id, html, rep1);
+    });
   }
 
   return {

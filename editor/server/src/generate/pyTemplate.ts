@@ -299,6 +299,7 @@ function generatorSpec(): ScriptSpec {
     script: config.python.script,
     scriptSha256: config.python.scriptSha256,
     timeoutMs: config.python.timeoutMs,
+    label: 'generator',
   };
 }
 

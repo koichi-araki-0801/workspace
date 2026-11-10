@@ -43,6 +43,22 @@ const ERR_503_BUILD_BUSY_USER = {
   ),
 };
 
+/** create_report 連携(fill と report-pdf)が共通に返す失敗。`code` で分岐できる。 */
+const ERR_REPORT = {
+  '404': err('対象が存在しない (kind=not_found)。連携が無効なときは code=REPORT_DISABLED'),
+  '500': err(
+    'サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは ' +
+      'code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH',
+  ),
+  '502': err('create_report が異常終了した (kind=unexpected, code=REPORT_RUN_FAILED)'),
+  '503': err(
+    '生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。' +
+      'report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも ' +
+      '(kind=unexpected, code=REPORT_BUSY_USER)',
+  ),
+  '504': err('create_report が制限時間内に終わらなかった (kind=unexpected, code=REPORT_TIMEOUT)'),
+};
+
 /**
  * 外部向けライブプレビュー(`/preview` と `/preview/{id}*`)の前置き。既定は無効で、
  * サーバの設定 `VIVLIO_PREVIEW_ENABLED` を真にしたときだけ使える。
@@ -456,11 +472,13 @@ export function buildOpenApiDocument() {
           requestParams: { path: z.object({ id: z.string() }) },
           responses: {
             '200': json('生成結果', s.FillResult),
-            ...ERR_400,
+            '400': err(
+              'リクエスト検証エラー (kind=validation)。会社の委託会社コードが Rep1 に無いときは ' +
+                'code=REPORT_COMPANY_UNKNOWN',
+            ),
             ...ERR_401,
             ...ERR_403_EDITOR,
-            ...ERR_404,
-            ...ERR_500,
+            ...ERR_REPORT,
           },
         },
       },
@@ -477,11 +495,16 @@ export function buildOpenApiDocument() {
               description: 'PDF バイナリ',
               content: { 'application/pdf': { schema: PdfBinary } },
             },
-            ...ERR_400,
+            '400': err(
+              'リクエスト検証エラー (kind=validation)。外部参照は code=DOCUMENT_EXTERNAL_REF、' +
+                'dataRoot の css/・images/・js/ の外を指す参照は code=REPORT_INPUT_REF_OUTSIDE、' +
+                '委託会社コードが Rep1 に無いときは code=REPORT_COMPANY_UNKNOWN',
+            ),
             ...ERR_401,
-            ...ERR_403_EDITOR,
-            ...ERR_404,
-            ...ERR_500,
+            '403': err(
+              '`<script>` が確定済みの値入り HTML と違う (kind=forbidden)。閲覧者も呼べる',
+            ),
+            ...ERR_REPORT,
           },
         },
       },

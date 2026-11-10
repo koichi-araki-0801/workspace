@@ -14,7 +14,8 @@ const m = vi.hoisted(() => ({
   ensureRepo: vi.fn(),
   report: {} as unknown,
 }));
-vi.mock('../src/generate/createReport.js', () => ({
+vi.mock('../src/generate/createReport.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/generate/createReport.js')>()),
   generateFilled: m.generateFilled,
   generateReportPdf: m.generateReportPdf,
 }));
@@ -40,7 +41,13 @@ vi.mock('../src/config.js', async (importOriginal) => {
   };
 });
 
-import { REPORT_COMPANY_UNKNOWN, REPORT_INPUT_REF_OUTSIDE } from '@editor/shared';
+import {
+  REPORT_BUSY_USER,
+  REPORT_BUSY_USER_MESSAGE,
+  REPORT_COMPANY_UNKNOWN,
+  REPORT_DISABLED,
+  REPORT_INPUT_REF_OUTSIDE,
+} from '@editor/shared';
 import { createReportRepo } from '../src/repositories/reportRepo.js';
 
 const ID = 'XX01_950037_20240710_交付版';
@@ -79,12 +86,38 @@ describe('reportRepo', () => {
   });
 
   it('fill resolves rep1 code ignoring trailing spaces and case', async () => {
+    m.filledExists.mockResolvedValue(false);
     const repo = repoWith([{ companyCode: 'xx01   ', rep1CompanyCode: ' R-XX01 ' }]);
     await repo.fill(ID, 'alice');
     expect(m.generateFilled).toHaveBeenCalledWith(ID, 'R-XX01');
   });
 
+  it('fill opens an existing filled without asking the DB', async () => {
+    const repo = createReportRepo({
+      listCompanies: async () => {
+        throw new Error('db down');
+      },
+    });
+    expect(await repo.fill(ID, 'alice')).toEqual({ created: false });
+    expect(m.generateFilled).not.toHaveBeenCalled();
+    expect(m.commitAll).not.toHaveBeenCalled();
+  });
+
+  it('fill and buildPdf reject REPORT_DISABLED before asking the DB', async () => {
+    m.report = undefined;
+    m.filledExists.mockResolvedValue(false);
+    const listCompanies = vi.fn(async () => []);
+    const repo = createReportRepo({ listCompanies });
+    await expect(repo.fill(ID, 'alice')).rejects.toMatchObject({ code: REPORT_DISABLED });
+    m.filledExists.mockResolvedValue(true);
+    await expect(repo.buildPdf(ID, '<p>ok</p>', 'alice')).rejects.toMatchObject({
+      code: REPORT_DISABLED,
+    });
+    expect(listCompanies).not.toHaveBeenCalled();
+  });
+
   it('fill rejects REPORT_COMPANY_UNKNOWN', async () => {
+    m.filledExists.mockResolvedValue(false);
     const repo = repoWith([{ companyCode: 'ZZ99', rep1CompanyCode: 'R-ZZ99' }]);
     await expect(repo.fill(ID, 'alice')).rejects.toMatchObject({
       code: REPORT_COMPANY_UNKNOWN,
@@ -94,6 +127,7 @@ describe('reportRepo', () => {
   });
 
   it('fill rejects not_found when skeleton is missing', async () => {
+    m.filledExists.mockResolvedValue(false);
     m.listTemplateFiles.mockResolvedValue([]);
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
     await expect(repo.fill(ID, 'alice')).rejects.toMatchObject({ kind: 'not_found' });
@@ -107,6 +141,7 @@ describe('reportRepo', () => {
   });
 
   it('fill commits only when created', async () => {
+    m.filledExists.mockResolvedValue(false);
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
     expect(await repo.fill(ID, 'alice')).toEqual({ created: true });
     expect(m.commitAll).toHaveBeenCalledTimes(1);
@@ -119,6 +154,7 @@ describe('reportRepo', () => {
   });
 
   it('fill survives a git commit failure', async () => {
+    m.filledExists.mockResolvedValue(false);
     m.commitAll.mockRejectedValue(new Error('lock'));
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
     expect(await repo.fill(ID, 'alice')).toEqual({ created: true });
@@ -126,7 +162,7 @@ describe('reportRepo', () => {
 
   it('buildPdf passes the html to the generator', async () => {
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    const pdf = await repo.buildPdf(ID, '<p>ok</p>');
+    const pdf = await repo.buildPdf(ID, '<p>ok</p>', 'alice');
     expect(pdf.toString()).toBe('%PDF');
     expect(m.generateReportPdf).toHaveBeenCalledWith(ID, '<p>ok</p>', 'R-XX01');
   });
@@ -134,7 +170,9 @@ describe('reportRepo', () => {
   it('buildPdf rejects html whose scripts differ from filled', async () => {
     m.readFilledHtml.mockResolvedValue('<p>ok</p><script>a()</script>');
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, '<p>ok</p><script>evil()</script>')).rejects.toMatchObject({
+    await expect(
+      repo.buildPdf(ID, '<p>ok</p><script>evil()</script>', 'alice'),
+    ).rejects.toMatchObject({
       kind: 'forbidden',
     });
     expect(m.generateReportPdf).not.toHaveBeenCalled();
@@ -142,9 +180,9 @@ describe('reportRepo', () => {
 
   it('buildPdf rejects external refs', async () => {
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, '<img src="https://evil.example/x.png">')).rejects.toMatchObject(
-      { kind: 'validation' },
-    );
+    await expect(
+      repo.buildPdf(ID, '<img src="https://evil.example/x.png">', 'alice'),
+    ).rejects.toMatchObject({ kind: 'validation' });
     expect(m.generateReportPdf).not.toHaveBeenCalled();
   });
 
@@ -157,7 +195,7 @@ describe('reportRepo', () => {
     '<img srcset="../images/a.svg 1x, ../../x.png 2x">',
   ])('buildPdf rejects refs outside the asset dirs: %s', async (html) => {
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, html)).rejects.toMatchObject({
+    await expect(repo.buildPdf(ID, html, 'alice')).rejects.toMatchObject({
       kind: 'validation',
       code: REPORT_INPUT_REF_OUTSIDE,
     });
@@ -170,29 +208,59 @@ describe('reportRepo', () => {
       '<img src="../images/XX01/a.svg"><script src="../js/x.js"></script>';
     m.readFilledHtml.mockResolvedValue(html);
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await repo.buildPdf(ID, html);
+    await repo.buildPdf(ID, html, 'alice');
     expect(m.generateReportPdf).toHaveBeenCalledTimes(1);
   });
 
   it('buildPdf rejects editing markers', async () => {
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, '<!-- jinja-rt:abc --><p>x</p>')).rejects.toMatchObject({
-      kind: 'validation',
-    });
+    await expect(repo.buildPdf(ID, '<!-- jinja-rt:abc --><p>x</p>', 'alice')).rejects.toMatchObject(
+      {
+        kind: 'validation',
+      },
+    );
     expect(m.generateReportPdf).not.toHaveBeenCalled();
   });
 
   it('buildPdf rejects not_found when filled is missing', async () => {
     m.filledExists.mockResolvedValue(false);
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, '<p>ok</p>')).rejects.toMatchObject({ kind: 'not_found' });
+    await expect(repo.buildPdf(ID, '<p>ok</p>', 'alice')).rejects.toMatchObject({
+      kind: 'not_found',
+    });
     expect(m.generateReportPdf).not.toHaveBeenCalled();
   });
 
   it('buildPdf rejects REPORT_COMPANY_UNKNOWN', async () => {
     const repo = repoWith([]);
-    await expect(repo.buildPdf(ID, '<p>ok</p>')).rejects.toMatchObject({
+    await expect(repo.buildPdf(ID, '<p>ok</p>', 'alice')).rejects.toMatchObject({
       code: REPORT_COMPANY_UNKNOWN,
     });
+  });
+
+  it('buildPdf limits one user to one running and one waiting', async () => {
+    const releases: Array<() => void> = [];
+    m.generateReportPdf.mockImplementation(
+      () => new Promise<Buffer>((resolve) => releases.push(() => resolve(Buffer.from('%PDF')))),
+    );
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    const first = repo.buildPdf(ID, '<p>ok</p>', 'alice');
+    const second = repo.buildPdf(ID, '<p>ok</p>', 'alice');
+    await expect(repo.buildPdf(ID, '<p>ok</p>', 'alice')).rejects.toMatchObject({
+      code: REPORT_BUSY_USER,
+      message: REPORT_BUSY_USER_MESSAGE,
+      statusCode: 503,
+    });
+    // ほかの人の枠は別なので、alice の実行中でも bob は始まる。
+    const other = repo.buildPdf(ID, '<p>ok</p>', 'bob');
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    for (const r of releases.splice(0)) {
+      r();
+    }
+    await first;
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    releases[0]();
+    await Promise.all([second, other]);
+    expect(m.generateReportPdf).toHaveBeenCalledTimes(3);
   });
 });

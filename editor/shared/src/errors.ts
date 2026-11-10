@@ -135,3 +135,10 @@ export const REPORT_DISABLED = 'REPORT_DISABLED';
  * 外へ出る参照はサーバ上の任意のファイルを PDF へ写せる。
  */
 export const REPORT_INPUT_REF_OUTSIDE = 'REPORT_INPUT_REF_OUTSIDE';
+/**
+ * 同じ人の単体 PDF(create_report)が「実行中 1・待ち 1」を超えたときの 503 の `code`
+ * (`BUILD_BUSY_USER` と同じ考え方。生成器の共有の枠を 1 人で埋めさせない)。
+ */
+export const REPORT_BUSY_USER = 'REPORT_BUSY_USER';
+/** `REPORT_BUSY_USER` の文言。server が返し、web はそのまま出す。 */
+export const REPORT_BUSY_USER_MESSAGE = '前の PDF の作成が終わってから、もう一度出してください';

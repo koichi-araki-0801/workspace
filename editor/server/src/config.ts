@@ -71,8 +71,6 @@ const appConfigSchema = z
         pendingDir: z.string().optional(),
         reviewsDir: z.string().optional(),
         syncDir: z.string().optional(),
-        pdfInputDir: z.string().optional(),
-        pdfDir: z.string().optional(),
         tmpDir: z.string().optional(),
         logDir: z.string().optional(),
         webDist: z.string().optional(),
@@ -367,6 +365,7 @@ function resolveReportSpec(): ScriptSpec | undefined {
     script: toPath(script),
     scriptSha256,
     timeoutMs: resolveReportTimeoutMs(),
+    label: 'report',
   };
 }
 
@@ -487,10 +486,14 @@ export const config = {
    * .gitignore しない)。ポリシー(同期既定)は DB のパーツカタログ列で、ここには持たない。
    */
   syncDir: resolveDataPath(process.env.SYNC_DIR, file.paths?.syncDir, 'sync'),
-  /** create_report に渡す PDF の入力置き場(git 管理外。`ensureRepo` が `/pdf-input/` を .gitignore する)。 */
-  pdfInputDir: resolveDataPath(process.env.PDF_INPUT_DIR, file.paths?.pdfInputDir, 'pdf-input'),
-  /** create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。 */
-  pdfDir: resolveDataPath(process.env.PDF_DIR, file.paths?.pdfDir, 'pdf'),
+  /**
+   * create_report に渡す PDF の入力置き場(git 管理外。`ensureRepo` が `/pdf-input/` を .gitignore する)。
+   * 上書きの設定は持たない。create_report は自分の dataRoot 直下の `pdf-input/` を読むので、
+   * 場所を変えると必ず「出力が無い」になり、確定領域へ向けてしまう危険だけが残る。
+   */
+  pdfInputDir: path.join(dataRoot, 'pdf-input'),
+  /** create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。固定の理由は上と同じ。 */
+  pdfDir: path.join(dataRoot, 'pdf'),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
   gitRepoDir: process.env.GIT_REPO_DIR === undefined ? dataRoot : toPath(process.env.GIT_REPO_DIR),
 

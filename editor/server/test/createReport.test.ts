@@ -16,8 +16,7 @@ const { execFileMock, root } = vi.hoisted(() => {
   process.env.TEMPLATES_DIR = `${r}/templates`;
   process.env.FILLED_DIR = `${r}/filled`;
   process.env.PENDING_DIR = `${r}/pending`;
-  process.env.PDF_INPUT_DIR = `${r}/pdf-input`;
-  process.env.PDF_DIR = `${r}/pdf`;
+  process.env.DATA_ROOT = r;
   process.env.REPORT_SCRIPT = `${r}/report/create_report.py`;
   delete process.env.REPORT_SCRIPT_SHA256;
   delete process.env.REPORT_TIMEOUT_MS;
@@ -27,6 +26,7 @@ vi.mock('node:child_process', () => ({ execFile: execFileMock }));
 
 import { config } from '../src/config.js';
 import {
+  clearReportWorkDirs,
   generateFilled,
   generateReportPdf,
   reportArgs,
@@ -99,6 +99,13 @@ describe('reportArgs', () => {
     expect(reportArgs('01281', ATTRS, 'pdf')[4]).toBe('--pdf-only');
     expect(() => reportArgs('../x', ATTRS, 'html')).toThrow();
   });
+  it.each([
+    ['rep1', () => reportArgs('-x', ATTRS, 'html')],
+    ['fund', () => reportArgs('01281', { ...ATTRS, fundCode: '--pdf-only' }, 'html')],
+    ['edition', () => reportArgs('01281', { ...ATTRS, editionType: '-版' }, 'html')],
+  ])('rejects a %s value starting with - so it cannot become a flag', (_label, run) => {
+    expect(run).toThrow(expect.objectContaining({ kind: 'validation' }));
+  });
 });
 
 describe('generateFilled', () => {
@@ -170,6 +177,20 @@ describe('generateFilled', () => {
     const err = await generateFilled(ID, '01281').catch((e: Error) => e);
     expect(err).toMatchObject({ code: REPORT_RUN_FAILED, statusCode: 502 });
     expect((err as Error).message).not.toContain('secret');
+  });
+
+  it.each([
+    ['failure', REPORT_RUN_FAILED, false],
+    ['timeout', REPORT_TIMEOUT, true],
+  ])('removes a half-written filled file after a %s', async (_label, code, killed) => {
+    execFileMock.mockImplementation((...a: unknown[]) => {
+      const cb = a[a.length - 1] as Callback;
+      fs.writeFileSync(filledFile, 'partial');
+      setImmediate(() => cb(Object.assign(new Error('x'), { killed }), '', ''));
+      return { on: vi.fn() };
+    });
+    await expect(generateFilled(ID, '01281')).rejects.toMatchObject({ code });
+    expect(fs.existsSync(filledFile)).toBe(false);
   });
 
   it('rejects an invalid id with validation', async () => {
@@ -296,5 +317,24 @@ describe('generateReportPdf', () => {
       code: REPORT_RUN_FAILED,
     });
     expect(fs.existsSync(inputFile)).toBe(false);
+  });
+});
+
+describe('clearReportWorkDirs', () => {
+  it('empties pdf-input/ and pdf/ left by an abnormal exit', async () => {
+    fs.writeFileSync(inputFile, '<p>left</p>');
+    fs.writeFileSync(pdfFile, '%PDF');
+    fs.mkdirSync(path.join(root, 'pdf', 'sub'));
+    await clearReportWorkDirs();
+    expect(fs.readdirSync(path.join(root, 'pdf-input'))).toEqual([]);
+    expect(fs.readdirSync(path.join(root, 'pdf'))).toEqual([]);
+  });
+
+  it('keeps filled/ untouched and tolerates missing folders', async () => {
+    fs.writeFileSync(filledFile, 'x');
+    fs.rmSync(path.join(root, 'pdf-input'), { recursive: true });
+    fs.rmSync(path.join(root, 'pdf'), { recursive: true });
+    await expect(clearReportWorkDirs()).resolves.toBeUndefined();
+    expect(fs.readFileSync(filledFile, 'utf8')).toBe('x');
   });
 });

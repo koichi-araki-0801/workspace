@@ -50,7 +50,7 @@ export const reportRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'report'> }> = 
       const pdf = await auditedRethrow(
         request,
         'report.pdf',
-        () => report.buildPdf(id, request.body.html),
+        () => report.buildPdf(id, request.body.html, actorOf(request)),
         {
           success: (p) => ({ resource: { templateId: id }, detail: { pdfBytes: p.length } }),
           failure: () => ({ resource: { templateId: id } }),

@@ -25,7 +25,8 @@ const m = vi.hoisted(() => ({
   report: undefined as unknown,
   role: 'editor',
 }));
-vi.mock('../src/generate/createReport.js', () => ({
+vi.mock('../src/generate/createReport.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/generate/createReport.js')>()),
   generateFilled: m.generateFilled,
   generateReportPdf: m.generateReportPdf,
 }));
@@ -125,6 +126,7 @@ describe('report routes', () => {
   });
 
   it('POST fill returns {created:true}', async () => {
+    fs.rmSync(path.join(filledDir, `${ID}.html`));
     const res = await app.inject({ method: 'POST', url: `/templates/${ID}/fill` });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ created: true });
@@ -160,6 +162,7 @@ describe('report routes', () => {
   });
 
   it('POST fill failure is 502 and audited as report.fill failure', async () => {
+    fs.rmSync(path.join(filledDir, `${ID}.html`));
     const spy = vi.spyOn(logger, 'info');
     m.generateFilled.mockRejectedValue(
       Object.assign(new Error('boom'), { kind: 'unexpected', statusCode: 502 }),
@@ -177,6 +180,7 @@ describe('report routes', () => {
   });
 
   it('POST fill success is audited with created', async () => {
+    fs.rmSync(path.join(filledDir, `${ID}.html`));
     const spy = vi.spyOn(logger, 'info');
     await app.inject({ method: 'POST', url: `/templates/${ID}/fill` });
     expect(auditRecords(spy, 'report.fill')).toEqual([

@@ -3,7 +3,7 @@
 // =============================================================================
 // 値入り(4 つ区切り)のテンプレートで連携が有効なときだけ create_report の経路を使い、それ以外は
 // 今までの vivliostyle(`renderPdf`)。create_report の失敗では vivliostyle へ切り替えない。
-import { err, ok, type Template } from '@editor/shared';
+import { err, ok, REPORT_BUSY_USER, REPORT_BUSY_USER_MESSAGE, type Template } from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -160,6 +160,16 @@ describe('PreviewView の単体 PDF 経路', () => {
     expect(h.toastError).toHaveBeenCalledWith('サーバの失敗文言');
     expect(h.renderPdf).not.toHaveBeenCalled();
     expect(h.recordPdfExport).not.toHaveBeenCalled();
+  });
+
+  it('shows the per-user limit message as is', async () => {
+    const build = vi.fn(async () =>
+      err({ kind: 'unexpected', code: REPORT_BUSY_USER, message: REPORT_BUSY_USER_MESSAGE }),
+    );
+    const { w } = await mountView(FILLED_ID, 'enabled', build);
+    await clickPdf(w);
+    expect(h.toastError).toHaveBeenCalledWith(REPORT_BUSY_USER_MESSAGE);
+    expect(h.renderPdf).not.toHaveBeenCalled();
   });
 
   it('disables PDF button while status is pending for a report candidate', async () => {

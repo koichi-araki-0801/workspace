@@ -135,6 +135,31 @@ describe('NewBaseDateDialog', () => {
     expect(button('開く')?.disabled).toBe(true);
   });
 
+  it('tells to create a template first when there is none', async () => {
+    mountDialog(
+      async () => ok({ created: true }),
+      async () => ok([]),
+    );
+    await flushPromises();
+    expect(document.body.textContent).toContain(
+      '作成済みのテンプレートがありません。先に作成タブで作成してください',
+    );
+    expect(document.body.querySelector('select')?.disabled).toBe(true);
+  });
+
+  it('does not show the empty message while the list is loading or has items', async () => {
+    let resolve!: (v: unknown) => void;
+    mountDialog(
+      async () => ok({ created: true }),
+      () => new Promise((r) => (resolve = r)),
+    );
+    await flushPromises();
+    expect(document.body.textContent).not.toContain('作成済みのテンプレートがありません');
+    resolve(ok(SKELETONS));
+    await flushPromises();
+    expect(document.body.textContent).not.toContain('作成済みのテンプレートがありません');
+  });
+
   it('recovers from skeleton list failure via retry', async () => {
     const list = vi
       .fn()

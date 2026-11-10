@@ -160,18 +160,17 @@ describe('config.pdfInputDir / pdfDir', () => {
     expect(config.pdfDir).toBe(path.join(tmp, 'data', 'pdf'));
   });
 
-  it('env が appconfig より優先される', async () => {
+  it('PDF_INPUT_DIR / PDF_DIR の env は効かない(create_report は自分の dataRoot 直下を読むため)', async () => {
     const a = path.join(tmp, 'a');
-    const b = path.join(tmp, 'b');
+    const { config } = await importConfig({ PDF_INPUT_DIR: a, PDF_DIR: a });
+    expect(config.pdfInputDir).toBe(path.join(tmp, 'data', 'pdf-input'));
+    expect(config.pdfDir).toBe(path.join(tmp, 'data', 'pdf'));
+  });
+
+  it('appconfig の paths.pdfInputDir / pdfDir は未知キーとして起動中止(strict)', async () => {
     const c = path.join(tmp, 'c');
-    const { config } = await importConfig(
-      { PDF_INPUT_DIR: a, PDF_DIR: b },
-      { paths: { pdfInputDir: c, pdfDir: c } },
-    );
-    expect(config.pdfInputDir).toBe(a);
-    expect(config.pdfDir).toBe(b);
-    const viaFile = await importConfig({}, { paths: { pdfInputDir: c, pdfDir: c } });
-    expect(viaFile.config.pdfInputDir).toBe(c);
+    await expect(importConfig({}, { paths: { pdfInputDir: c } })).rejects.toThrow();
+    await expect(importConfig({}, { paths: { pdfDir: c } })).rejects.toThrow();
   });
 });
 

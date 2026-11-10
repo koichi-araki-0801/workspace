@@ -196,7 +196,8 @@ export async function renderPdfDocument(
  * 連結せず `<link href="../css/…">` で参照させる(サーバが同じ相対位置に CSS を置いて組版
  * する)。入力が body だけでも参照が付くよう、`<head>` に link を必ず 1 本置く。
  * script は落とさない(`renderPdfDocument` と同じ方針)。トンボは足さない。
- * link はサニタイズの後に足す: `sanitizePdfRoot` は stylesheet の link を落とすため。
+ * link はサニタイズの後に足す。PDF 用のサニタイズは `<link>` を残すので、入力に同じ href の
+ * link があれば先に除いて 1 本にそろえる。
  */
 export async function renderReportDocument(
   id: string,

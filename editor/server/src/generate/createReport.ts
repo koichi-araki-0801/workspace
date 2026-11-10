@@ -66,22 +66,39 @@ export function toIsoBaseDate(yyyymmdd: string): string {
 }
 
 /**
- * create_report.py の引数を組む。各値はファイル名に使うトークンとして検査する(先頭が `-` の値で
- * フラグに化けるのも、ここで弾く)。
+ * 位置引数に渡す値を検査する。ファイル名に使うトークンとして検め、さらに先頭の `-` を拒む
+ * (`--pdf-only` のような値はスクリプトの引数解析でフラグに化ける)。
  */
+function argToken(label: string, value: string): string {
+  const token = assertTemplateAttributeToken(label, value);
+  if (token.startsWith('-')) {
+    throw validation(`${label}の先頭に - は使えません: ${value}`);
+  }
+  return token;
+}
+
+/** create_report.py の引数を組む。各値は `argToken` で検査する。 */
 export function reportArgs(
   rep1CompanyCode: string,
   attrs: FilledTemplateAttributes,
   mode: ReportMode,
 ): string[] {
   return [
-    assertTemplateAttributeToken('委託会社コード', rep1CompanyCode),
-    assertTemplateAttributeToken('ファンドコード', attrs.fundCode),
+    argToken('委託会社コード', rep1CompanyCode),
+    argToken('ファンドコード', attrs.fundCode),
     toIsoBaseDate(attrs.baseDate),
-    assertTemplateAttributeToken('版種', attrs.editionType),
+    argToken('版種', attrs.editionType),
     mode === 'html' ? '--html-only' : '--pdf-only',
     '--fund-only',
   ];
+}
+
+/**
+ * 機能が有効か確かめる。無効(`config.report` が未設定)なら 404(`REPORT_DISABLED`)。
+ * 呼び出し側が DB の照会より前に断るために公開する(`reportRepo.ts`)。
+ */
+export function assertReportEnabled(): void {
+  requireReport();
 }
 
 /** 機能が有効なら設定を返す。無効(`config.report` が未設定)なら 404。 */
@@ -102,8 +119,15 @@ function parseId(id: string): FilledTemplateAttributes {
   return attrs;
 }
 
-/** スクリプトを枠の中で走らせ、失敗を `REPORT_TIMEOUT`(504) / `REPORT_RUN_FAILED`(502) へ写す。 */
-async function runReport(spec: ScriptSpec, args: string[]): Promise<void> {
+/**
+ * スクリプトを枠の中で走らせ、失敗を `REPORT_TIMEOUT`(504) / `REPORT_RUN_FAILED`(502) へ写す。
+ * `onScriptFailure` はスクリプトが起動後に失敗したとき(書きかけの出力が残りうるとき)だけ呼ぶ。
+ */
+async function runReport(
+  spec: ScriptSpec,
+  args: string[],
+  onScriptFailure: () => Promise<void> = async () => undefined,
+): Promise<void> {
   await withGeneratorSlot(async () => {
     await assertScriptFingerprint(spec);
     try {
@@ -116,12 +140,13 @@ async function runReport(spec: ScriptSpec, args: string[]): Promise<void> {
         { script: spec.script, args, stderr: err.stderr.slice(-STDERR_TAIL_CHARS) },
         '[report] create_report の実行に失敗しました',
       );
+      await onScriptFailure();
       if (err.timedOut) {
         throw reportError('create_report が制限時間内に終わりませんでした', REPORT_TIMEOUT, 504);
       }
       throw reportError('create_report の実行に失敗しました', REPORT_RUN_FAILED, 502);
     }
-  });
+  }, 'report');
 }
 
 /** スクリプトが正常終了したのに出力が無いときの失敗(dataRoot の設定違いが典型)。 */
@@ -150,7 +175,9 @@ export async function generateFilled(
     if (await filledExists(fileName)) {
       return { created: false };
     }
-    await runReport(spec, args);
+    // 起動前に無いことをロックの中で確かめたので、失敗後にあるファイルは今回の書きかけと断定できる。
+    // 残すと次回から「既にある」として開かれ、壊れた値入り HTML が正になる。
+    await runReport(spec, args, () => removeQuietly(path.join(config.filledDir, fileName)));
     if (!(await filledExists(fileName))) {
       throw outputMissing(`filled/${fileName}`);
     }
@@ -195,4 +222,24 @@ export async function generateReportPdf(
       await removeQuietly(output);
     }
   });
+}
+
+/** フォルダの中身を消す(フォルダ自体は残す)。無ければ何もしない。 */
+async function emptyDir(dir: string): Promise<void> {
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return;
+  }
+  await Promise.all(names.map((n) => fs.rm(path.join(dir, n), { recursive: true, force: true })));
+}
+
+/**
+ * 起動時に `pdf-input/` と `pdf/` の中身を消す。通常は応答後に消しているが、組版中に
+ * プロセスが落ちると未承認の内容が dataRoot に残るため。どちらも作業フォルダで、
+ * 起動直後に使用中のファイルは無い。
+ */
+export async function clearReportWorkDirs(): Promise<void> {
+  await Promise.all([emptyDir(config.pdfInputDir), emptyDir(config.pdfDir)]);
 }

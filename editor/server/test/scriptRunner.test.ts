@@ -21,6 +21,8 @@ import {
   assertScriptFingerprint,
   GENERATE_QUEUE_FULL_MESSAGE,
   GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+  REPORT_FINGERPRINT_MISMATCH_MESSAGE,
+  REPORT_QUEUE_FULL_MESSAGE,
   runPythonScript,
   ScriptRunError,
   type ScriptSpec,
@@ -42,6 +44,7 @@ const spec = (over: Partial<ScriptSpec> = {}): ScriptSpec => ({
   script: path.join(tmpRoot, 'gen', 'src', 'run.py'),
   scriptSha256: undefined,
   timeoutMs: 1234,
+  label: 'generator',
   ...over,
 });
 
@@ -102,6 +105,19 @@ describe('assertScriptFingerprint', () => {
     });
   });
 
+  it('uses the create_report wording and log tag for a report spec', async () => {
+    const { logger } = await import('../src/logger.js');
+    const spy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
+    const s = { ...writeScript(), scriptSha256: 'deadbeef', label: 'report' as const };
+    await expect(assertScriptFingerprint(s)).rejects.toMatchObject({
+      message: REPORT_FINGERPRINT_MISMATCH_MESSAGE,
+      code: 'GENERATOR_FINGERPRINT_MISMATCH',
+    });
+    expect(String(spy.mock.calls[0]?.[1])).toMatch(/^\[report\] /);
+    expect(REPORT_FINGERPRINT_MISMATCH_MESSAGE).not.toContain('テンプレート生成器');
+    spy.mockRestore();
+  });
+
   it('rejects when the script cannot be read', async () => {
     await expect(assertScriptFingerprint(spec({ scriptSha256: 'x' }))).rejects.toMatchObject({
       code: 'GENERATOR_FINGERPRINT_MISMATCH',
@@ -129,6 +145,21 @@ describe('withGeneratorSlot', () => {
       code: 'GENERATE_QUEUE_FULL',
       statusCode: 503,
     });
+    release();
+    await held;
+    await waiting;
+  });
+
+  it('uses the create_report wording when the queue is full for a report run', async () => {
+    let release!: () => void;
+    const held = withGeneratorSlot(() => new Promise<void>((resolve) => (release = resolve)));
+    const waiting = withGeneratorSlot(async () => 1);
+    await expect(withGeneratorSlot(async () => 2, 'report')).rejects.toMatchObject({
+      message: REPORT_QUEUE_FULL_MESSAGE,
+      code: 'GENERATE_QUEUE_FULL',
+      statusCode: 503,
+    });
+    expect(REPORT_QUEUE_FULL_MESSAGE).not.toContain('テンプレート生成');
     release();
     await held;
     await waiting;

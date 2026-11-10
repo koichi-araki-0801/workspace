@@ -935,7 +935,7 @@
             }
           },
           "400": {
-            "description": "リクエスト検証エラー (kind=validation)",
+            "description": "リクエスト検証エラー (kind=validation)。会社の委託会社コードが Rep1 に無いときは code=REPORT_COMPANY_UNKNOWN",
             "content": {
               "application/json": {
                 "schema": {
@@ -965,7 +965,7 @@
             }
           },
           "404": {
-            "description": "対象が存在しない (kind=not_found)",
+            "description": "対象が存在しない (kind=not_found)。連携が無効なときは code=REPORT_DISABLED",
             "content": {
               "application/json": {
                 "schema": {
@@ -975,7 +975,37 @@
             }
           },
           "500": {
-            "description": "サーバ内部エラー (kind=unexpected)",
+            "description": "サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "create_report が異常終了した (kind=unexpected, code=REPORT_RUN_FAILED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも (kind=unexpected, code=REPORT_BUSY_USER)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "create_report が制限時間内に終わらなかった (kind=unexpected, code=REPORT_TIMEOUT)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1028,7 +1058,7 @@
             }
           },
           "400": {
-            "description": "リクエスト検証エラー (kind=validation)",
+            "description": "リクエスト検証エラー (kind=validation)。外部参照は code=DOCUMENT_EXTERNAL_REF、dataRoot の css/・images/・js/ の外を指す参照は code=REPORT_INPUT_REF_OUTSIDE、委託会社コードが Rep1 に無いときは code=REPORT_COMPANY_UNKNOWN",
             "content": {
               "application/json": {
                 "schema": {
@@ -1048,7 +1078,7 @@
             }
           },
           "403": {
-            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
+            "description": "`<script>` が確定済みの値入り HTML と違う (kind=forbidden)。閲覧者も呼べる",
             "content": {
               "application/json": {
                 "schema": {
@@ -1058,7 +1088,7 @@
             }
           },
           "404": {
-            "description": "対象が存在しない (kind=not_found)",
+            "description": "対象が存在しない (kind=not_found)。連携が無効なときは code=REPORT_DISABLED",
             "content": {
               "application/json": {
                 "schema": {
@@ -1068,7 +1098,37 @@
             }
           },
           "500": {
-            "description": "サーバ内部エラー (kind=unexpected)",
+            "description": "サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "create_report が異常終了した (kind=unexpected, code=REPORT_RUN_FAILED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも (kind=unexpected, code=REPORT_BUSY_USER)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "create_report が制限時間内に終わらなかった (kind=unexpected, code=REPORT_TIMEOUT)",
             "content": {
               "application/json": {
                 "schema": {

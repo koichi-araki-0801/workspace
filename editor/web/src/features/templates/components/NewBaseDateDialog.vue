@@ -31,6 +31,12 @@ const filling = ref(false);
 const failure = ref<string | null>(null);
 // 失敗の種別。一覧の取得失敗は一覧を取り直し、作成の失敗は作成をやり直す。
 const failureKind = ref<'list' | 'fill'>('fill');
+// 一覧を取り終えたか。取得中に空の案内を出さないため。
+const listLoaded = ref(false);
+// 選べるテンプレートが 0 件なら、選択欄の代わりに作成タブへの案内を出す。
+const noSkeletons = computed(
+  () => listLoaded.value && failure.value === null && skeletons.value.length === 0,
+);
 
 /** 失敗の `code` ごとの利用者向け文言。ここに無い `code` は server の `message` をそのまま出す。 */
 const FAILURE_TEXT: Record<string, string> = {
@@ -51,8 +57,10 @@ function label(s: SkeletonAttributes): string {
 
 async function loadSkeletons() {
   failure.value = null;
+  listLoaded.value = false;
   const res = await repo.listReportSkeletons();
   skeletons.value = isErr(res) ? [] : res.value;
+  listLoaded.value = !isErr(res);
   if (isErr(res)) {
     failureKind.value = 'list';
     failure.value = res.error.message;
@@ -123,12 +131,15 @@ async function submit() {
         <select
           v-model="selected"
           class="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-          :disabled="filling"
+          :disabled="filling || noSkeletons"
         >
           <option value="" disabled>選択</option>
           <option v-for="(s, i) in skeletons" :key="i" :value="String(i)">{{ label(s) }}</option>
         </select>
       </label>
+      <p v-if="noSkeletons" class="text-xs text-muted-foreground" role="status">
+        作成済みのテンプレートがありません。先に作成タブで作成してください
+      </p>
       <label class="block space-y-1">
         <span class="text-xs text-muted-foreground">基準日</span>
         <input

@@ -14,11 +14,15 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
 
+/** 起動するスクリプトの種類。利用者への文言とログの接頭辞を選ぶ(`SCRIPT_TEXTS`)。 */
+type ScriptLabel = 'generator' | 'report';
+
 /** 起動するスクリプトの指定。指紋が `undefined` のときは照合しない。 */
 export interface ScriptSpec {
   script: string;
   scriptSha256: string | undefined;
   timeoutMs: number;
+  label: ScriptLabel;
 }
 
 /**
@@ -35,6 +39,33 @@ export const GENERATOR_FINGERPRINT_MISMATCH_MESSAGE =
  */
 export const GENERATE_QUEUE_FULL_MESSAGE =
   'テンプレート生成の順番待ちが混み合っています。しばらく待ってから再実行してください';
+
+/**
+ * create_report の指紋が合わないときの文言。テストから直接検証するために公開する。
+ * @public
+ */
+export const REPORT_FINGERPRINT_MISMATCH_MESSAGE =
+  'create_report の指紋が設定と一致しないため、実行を中止しました。管理者に連絡してください';
+
+/** create_report の待ち行列が満杯のときの文言。テストから直接検証するために公開する。 */
+export const REPORT_QUEUE_FULL_MESSAGE =
+  'PDF の作成の順番待ちが混み合っています。しばらく待ってから再実行してください';
+
+/** スクリプトの種類ごとの文言とログの接頭辞。枠と指紋の部品は共有し、出す文だけを分ける。 */
+const SCRIPT_TEXTS: Readonly<
+  Record<ScriptLabel, { logTag: string; fingerprintMismatch: string; queueFull: string }>
+> = {
+  generator: {
+    logTag: '[generate]',
+    fingerprintMismatch: GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+    queueFull: GENERATE_QUEUE_FULL_MESSAGE,
+  },
+  report: {
+    logTag: '[report]',
+    fingerprintMismatch: REPORT_FINGERPRINT_MISMATCH_MESSAGE,
+    queueFull: REPORT_QUEUE_FULL_MESSAGE,
+  },
+};
 
 /**
  * 利用者へそのまま出せる文言と状態コードを持つ Error。`errorHandler` は `kind` を持つ値の
@@ -56,6 +87,7 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
     return;
   }
   const script = spec.script;
+  const texts = SCRIPT_TEXTS[spec.label];
   let actual: string;
   try {
     actual = createHash('sha256')
@@ -64,24 +96,16 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
   } catch (err) {
     logger.error(
       { err, script },
-      `[generate] ${path.basename(script)} を読めず指紋を照合できません — 生成を拒否しました`,
+      `${texts.logTag} ${path.basename(script)} を読めず指紋を照合できません — 起動を拒否しました`,
     );
-    throw generatorError(
-      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
-      GENERATOR_FINGERPRINT_MISMATCH,
-      500,
-    );
+    throw generatorError(texts.fingerprintMismatch, GENERATOR_FINGERPRINT_MISMATCH, 500);
   }
   if (actual !== expected) {
     logger.error(
       { script, expected, actual },
-      `[generate] ${path.basename(script)} の指紋が設定と一致しません — 生成を拒否しました`,
+      `${texts.logTag} ${path.basename(script)} の指紋が設定と一致しません — 起動を拒否しました`,
     );
-    throw generatorError(
-      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
-      GENERATOR_FINGERPRINT_MISMATCH,
-      500,
-    );
+    throw generatorError(texts.fingerprintMismatch, GENERATOR_FINGERPRINT_MISMATCH, 500);
   }
 }
 
@@ -92,12 +116,19 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
 const GENERATE_GATE = new BuildAdmissionGate({
   maxConcurrent: config.python.maxConcurrency,
   maxQueue: config.python.maxQueue,
-  queueFullError: () => generatorError(GENERATE_QUEUE_FULL_MESSAGE, GENERATE_QUEUE_FULL, 503),
 });
 
-/** 同時実行の枠を取って `fn` を走らせる。満杯なら `GENERATE_QUEUE_FULL`(503)で断る。 */
-export function withGeneratorSlot<T>(fn: () => Promise<T>): Promise<T> {
-  return GENERATE_GATE.run(fn);
+/**
+ * 同時実行の枠を取って `fn` を走らせる。満杯なら `GENERATE_QUEUE_FULL`(503)で断る。
+ * 文言は `label` のスクリプトのもの(枠は全スクリプトで 1 つ)。
+ */
+export function withGeneratorSlot<T>(
+  fn: () => Promise<T>,
+  label: ScriptLabel = 'generator',
+): Promise<T> {
+  return GENERATE_GATE.run(fn, () =>
+    generatorError(SCRIPT_TEXTS[label].queueFull, GENERATE_QUEUE_FULL, 503),
+  );
 }
 
 /**
