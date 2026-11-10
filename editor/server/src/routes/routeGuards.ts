@@ -65,6 +65,12 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`DELETE ${api(apiPaths.templateDraft)}`]: 'editor',
   [`POST ${api(apiPaths.generate)}`]: 'editor',
 
+  // report — 状態と一覧は閲覧者にも開き、生成と PDF は編集者以上
+  [`GET ${api(apiPaths.reportStatus)}`]: 'auth',
+  [`GET ${api(apiPaths.reportSkeletons)}`]: 'auth',
+  [`POST ${api(apiPaths.templateFill)}`]: 'editor',
+  [`POST ${api(apiPaths.templateReportPdf)}`]: 'editor',
+
   // parts
   [`GET ${api(apiPaths.partClassificationOptions)}`]: 'auth',
   [`GET ${api(apiPaths.parts)}`]: 'auth',

@@ -430,6 +430,61 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      [toOpenApiPath(apiPaths.reportStatus)]: {
+        get: {
+          tags: ['templates'],
+          summary: 'create_report 連携が有効か',
+          operationId: 'getReportStatus',
+          responses: { '200': json('有効かどうか', s.ReportStatus), ...ERR_401 },
+        },
+      },
+      [toOpenApiPath(apiPaths.reportSkeletons)]: {
+        get: {
+          tags: ['templates'],
+          summary: '値入り HTML を作れるテンプレート(templates/)の一覧',
+          operationId: 'getReportSkeletons',
+          responses: { '200': json('テンプレートの属性一覧', s.ReportSkeletons), ...ERR_401 },
+        },
+      },
+      [toOpenApiPath(apiPaths.templateFill)]: {
+        post: {
+          tags: ['templates'],
+          summary: '新しい基準日の値入り HTML(filled/)を create_report で生成',
+          operationId: 'fillTemplate',
+          description:
+            '既に `filled/<id>.html` があれば何もせず `created: false` を返す(承認済みの内容を守る)。',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '200': json('生成結果', s.FillResult),
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_403_EDITOR,
+            ...ERR_404,
+            ...ERR_500,
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.templateReportPdf)]: {
+        post: {
+          tags: ['templates'],
+          summary: '編集中の値入り HTML から単体 PDF を create_report で組版',
+          operationId: 'buildReportPdf',
+          description: EXTERNAL_REF_CONTRACT,
+          requestParams: { path: z.object({ id: z.string() }) },
+          requestBody: { content: { 'application/json': { schema: s.ReportPdfRequest } } },
+          responses: {
+            '200': {
+              description: 'PDF バイナリ',
+              content: { 'application/pdf': { schema: PdfBinary } },
+            },
+            ...ERR_400,
+            ...ERR_401,
+            ...ERR_403_EDITOR,
+            ...ERR_404,
+            ...ERR_500,
+          },
+        },
+      },
       [toOpenApiPath(apiPaths.templateSampleData)]: {
         get: {
           tags: ['templates'],

@@ -235,6 +235,11 @@ export type GenerateImported = z.infer<typeof sch.GenerateImported>;
 
 export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 
+export type ReportStatus = z.infer<typeof sch.ReportStatus>;
+export type ReportSkeletons = z.infer<typeof sch.ReportSkeletons>;
+export type FillResult = z.infer<typeof sch.FillResult>;
+export type ReportPdfRequest = z.infer<typeof sch.ReportPdfRequest>;
+
 export type SaveDraftRequest = z.infer<typeof sch.SaveDraftRequest>;
 
 /**
