@@ -162,15 +162,23 @@ describe('PreviewView の単体 PDF 経路', () => {
     expect(h.recordPdfExport).not.toHaveBeenCalled();
   });
 
-  it('disables PDF button until status resolves', async () => {
-    const { w, templates } = await mountView(FILLED_ID, 'pending');
+  it('disables PDF button while status is pending for a report candidate', async () => {
+    const { w } = await mountView(FILLED_ID, 'pending');
     const btn = w.findAll('button').find((b) => b.text().includes('PDF出力'));
     expect(btn?.attributes('disabled')).toBeDefined();
-    await btn?.trigger('click');
-    await flushPromises();
-    expect(h.renderPdf).not.toHaveBeenCalled();
-    expect(templates.buildReportPdf).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    'keeps PDF button enabled for a 3-part id while status is pending (isFilled=%s)',
+    async (isFilled) => {
+      const { w, templates } = await mountView(SKELETON_ID, 'pending', undefined, isFilled);
+      const btn = w.findAll('button').find((b) => b.text().includes('PDF出力'));
+      expect(btn?.attributes('disabled')).toBeUndefined();
+      await clickPdf(w);
+      expect(h.renderPdf).toHaveBeenCalledTimes(1);
+      expect(templates.buildReportPdf).not.toHaveBeenCalled();
+    },
+  );
 
   it('keeps crop marks out of the on-screen preview on report path', async () => {
     const on = await mountView(FILLED_ID, 'enabled');

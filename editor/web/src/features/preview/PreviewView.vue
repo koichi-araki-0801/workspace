@@ -74,9 +74,11 @@ const reportStatusResolved = ref(false);
 // 値入り HTML のときだけ create_report で単体 PDF を作る(作成タブのスケルトンは対象外)。
 // この経路はトンボを足さないので、トンボの切替も出さない。
 // 経路は id の形(4 つ区切り)で決める。`isFilled` だけでは 3 つ区切りの id も通ってしまう。
-const useReportPdf = computed(
-  () => reportEnabled.value && isFilled.value && isValidTemplateId(props.id),
-);
+const reportCandidate = computed(() => isFilled.value && isValidTemplateId(props.id));
+const useReportPdf = computed(() => reportEnabled.value && reportCandidate.value);
+// 候補の id だけ状態の確定を待たせる。候補でない id は状態を使わないので、状態 API が返らなくても
+// 今までの経路で出せる。
+const awaitingReportStatus = computed(() => reportCandidate.value && !reportStatusResolved.value);
 // プレビュー表示用ドキュメント。`previewDoc`(ベース)へトンボ CSS を後段注入する。トグル変更で
 // `PreviewPanel`(`watch(() => props.html, render)`)が再描画し即反映される。
 const displayDoc = computed(() =>
@@ -377,7 +379,7 @@ async function exportPdf() {
         </Button>
       </Tooltip>
       <!-- 読込に失敗した状態では本文が空のまま。押させると空の PDF を出してしまう。 -->
-      <Button variant="outline" size="sm" :disabled="exporting || loadFailed || !reportStatusResolved" @click="exportPdf">
+      <Button variant="outline" size="sm" :disabled="exporting || loadFailed || awaitingReportStatus" @click="exportPdf">
         <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
         <FileDown v-else class="h-4 w-4" /> PDF出力
       </Button>
