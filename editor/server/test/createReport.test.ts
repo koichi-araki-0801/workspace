@@ -152,6 +152,15 @@ describe('generateFilled', () => {
     await expect(generateFilled('bad', '01281')).rejects.toMatchObject({ kind: 'validation' });
   });
 
+  it.each([
+    'a:b_880008_20231117_交付版',
+    '..\\x_880008_20231117_交付版',
+    '../x_880008_20231117_交付版',
+  ])('rejects unsafe id %s with validation before spawning', async (bad) => {
+    await expect(generateFilled(bad, '01281')).rejects.toMatchObject({ kind: 'validation' });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
   it('rejects REPORT_DISABLED when config.report is undefined', async () => {
     const saved = config.report;
     (config as { report: unknown }).report = undefined;
@@ -186,6 +195,52 @@ describe('generateReportPdf', () => {
     expect(fs.existsSync(pdfFile)).toBe(false);
     const args = execFileMock.mock.calls[0][1] as string[];
     expect(args.slice(-2)).toEqual(['--pdf-only', '--fund-only']);
+  });
+
+  it.each(['a:b_880008_20231117_交付版', '..\\x_880008_20231117_交付版'])(
+    'rejects unsafe id %s with validation before spawning',
+    async (bad) => {
+      await expect(generateReportPdf(bad, '<p>x</p>', '01281')).rejects.toMatchObject({
+        kind: 'validation',
+      });
+      expect(execFileMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('serializes two concurrent runs for the same id', async () => {
+    let running = 0;
+    let maxRunning = 0;
+    execFileMock.mockImplementation((...a: unknown[]) => {
+      const cb = a[a.length - 1] as Callback;
+      running += 1;
+      maxRunning = Math.max(maxRunning, running);
+      fs.writeFileSync(pdfFile, '%PDF-1.4');
+      setTimeout(() => {
+        running -= 1;
+        cb(null, '', '');
+      }, 20);
+      return { on: vi.fn() };
+    });
+    await Promise.all([
+      generateReportPdf(ID, '<p>a</p>', '01281'),
+      generateReportPdf(ID, '<p>b</p>', '01281'),
+    ]);
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    expect(maxRunning).toBe(1);
+  });
+
+  it('removes input and pdf when the run fails after writing a pdf', async () => {
+    execFileMock.mockImplementation((...a: unknown[]) => {
+      const cb = a[a.length - 1] as Callback;
+      fs.writeFileSync(pdfFile, 'partial');
+      setImmediate(() => cb(new Error('exit 1'), '', ''));
+      return { on: vi.fn() };
+    });
+    await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
+      code: REPORT_RUN_FAILED,
+    });
+    expect(fs.existsSync(inputFile)).toBe(false);
+    expect(fs.existsSync(pdfFile)).toBe(false);
   });
 
   it('removes the input even when the run fails', async () => {

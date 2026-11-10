@@ -41,10 +41,10 @@ def _write_atomic(path: str, data: bytes) -> None:
 
 def _abbreviation(templates: str, fund: str, edition: str) -> str | None:
     suffix = f"_{fund}_{edition}.html"
-    for found in sorted(glob.glob(os.path.join(templates, f"*{suffix}"))):
-        name = os.path.basename(found)
-        return name[: -len(suffix)]
-    return None
+    found = next(iter(sorted(glob.glob(os.path.join(templates, f"*{suffix}")))), None)
+    if found is None:
+        return None
+    return os.path.basename(found)[: -len(suffix)]
 
 
 def main(argv: list[str]) -> int:

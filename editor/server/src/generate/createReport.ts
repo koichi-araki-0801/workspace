@@ -8,6 +8,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   assertTemplateAttributeToken,
+  assertTemplateId,
   type FilledTemplateAttributes,
   parseTemplateFileName,
   REPORT_DISABLED,
@@ -94,7 +95,7 @@ function requireReport(): ScriptSpec {
 
 /** id(`.html` なし)を値入り HTML の属性へ解く。 */
 function parseId(id: string): FilledTemplateAttributes {
-  const attrs = parseTemplateFileName(`${id}.html`);
+  const attrs = parseTemplateFileName(`${assertTemplateId(id)}.html`);
   if (!attrs) {
     throw validation(`不正なテンプレート id です: ${id}`);
   }
@@ -157,7 +158,7 @@ export async function generateFilled(
   });
 }
 
-/** 取り合わないよう、ファイルを消す(無くてもよい)。 */
+/** ファイルを消す。無くてもエラーにしない(後始末で、消す対象が未作成のことがあるため)。 */
 async function removeQuietly(file: string): Promise<void> {
   await fs.rm(file, { force: true });
 }
