@@ -101,6 +101,12 @@ const MAX_NESTED_HTML_DEPTH = 2;
  */
 const NESTED_UNPARSABLE_REF = '<iframe srcdoc="(解析不能)">';
 
+/** `<style>` の中身にあれば foreign content で読みが変わる字面(タグの `<` と文字参照)。 */
+const STYLE_MARKUP_RE = /<|&[#A-Za-z]/;
+
+/** `STYLE_MARKUP_RE` に当たった `<style>` を報告するときの説明文字列。 */
+const STYLE_MARKUP_REF = '<style>(タグか文字参照を含む)';
+
 /** HTML 1 枚分の外部参照を `out` へ積む(`srcdoc` の入れ子文書は再帰で降りる)。 */
 function collectHtmlRefs(html: string, out: string[], depth: number): void {
   const scan = scanTags(html);
@@ -127,7 +133,15 @@ function collectFromTags(
 ): void {
   for (const tag of tags) {
     if (tag.name === 'style' && tag.rawText !== undefined) {
-      out.push(...findExternalRefsInCss(tag.rawText));
+      // 走査器は文脈を見ずに `<style>` を raw text として切り出すが、`<svg>` `<math>` の中では
+      // foreign content になり、中身はマークアップとして読まれ文字参照も解かれる(`<svg><style><img
+      // src=https://…>` は実要素の画像、`u&#114;l(…)` は `url(…)`)。CSS としての検査では見えないので、
+      // タグの `<` か文字参照(`&` + `#` か英字)があれば、それ自体を 1 件と数えて拒む。
+      if (STYLE_MARKUP_RE.test(tag.rawText)) {
+        out.push(STYLE_MARKUP_REF);
+      } else {
+        out.push(...findExternalRefsInCss(tag.rawText));
+      }
     } else if (tag.rawText !== undefined && tag.name !== 'script') {
       // `title` / `textarea` / `noscript` の中身。走査器はこれらを常に raw text として
       // 読み飛ばすが、**HTML 名前空間の外ではそうではない** — `<svg><title>` は foreign

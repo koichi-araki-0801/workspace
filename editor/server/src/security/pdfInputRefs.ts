@@ -200,6 +200,38 @@ function collectTagRefs(tag: TagSpan, out: string[]): void {
   }
 }
 
+/**
+ * `<style>` の中身にあってはならない字面。走査器は文脈を見ずに `<style>` を raw text として切り出すが、
+ * `<svg>` `<math>` の中では foreign content になり、中身はマークアップとして読まれ文字参照も解かれる
+ * (`<svg><style><img src=…>` は実要素の画像になる)。PDF の入力では、どちらの読み方でも同じになるよう
+ * タグの `<` と文字参照(`&` + `#` か英字)を CSS に置かせない。
+ */
+const STYLE_MARKUP_RE = /<|&[#A-Za-z]/;
+
+/**
+ * `style` 以外の属性の値にある `url()` を検める。SVG の表示属性(`fill` `stroke` `mask` `clip-path`
+ * `filter` `marker-*` `cursor` …)は値を CSS として読み、`url(…)` で別の文書を取りに行く。名前の表は
+ * 必ず漏れるので、タグ・属性名を問わず値を CSS の走査器に掛け、見つかった `url()` と画像の文字列を
+ * 判定する(`url(#id)` は文書内なので通る)。決まった形以外の文字参照があれば、解き方が言い切れないので拒む。
+ */
+function collectAttrCssRefs(tag: TagSpan, name: string, value: string, out: string[]): void {
+  const css = decodeSerializerEntities(value);
+  if (css === undefined) {
+    out.push(`<${tag.name} ${name}="${value}">`);
+    return;
+  }
+  for (const span of collectCssUrlSpans(css)) {
+    if (!isContainedValue(span.value)) {
+      out.push(`<${tag.name} ${name}="url(${span.value})">`);
+    }
+  }
+  for (const str of collectCssStringsInFunctions(css)) {
+    if (STRING_URL_FUNCTIONS.has(str.fn) && !isContainedValue(str.value)) {
+      out.push(`<${tag.name} ${name}="${str.fn}(${str.value})">`);
+    }
+  }
+}
+
 /** HTML 1 枚分の通せない参照を `out` へ積む(raw text の中身は深さの上限まで降りる)。 */
 function collectHtmlRefs(html: string, out: string[], depth: number): void {
   const scan = scanTags(html);
@@ -209,7 +241,11 @@ function collectHtmlRefs(html: string, out: string[], depth: number): void {
   }
   for (const tag of scan.tags) {
     if (tag.rawText !== undefined && tag.name === 'style') {
-      collectCssRefs(tag.rawText, out);
+      if (STYLE_MARKUP_RE.test(tag.rawText)) {
+        out.push('<style>(タグか文字参照を含む)');
+      } else {
+        collectCssRefs(tag.rawText, out);
+      }
     } else if (tag.rawText !== undefined && tag.name !== 'script') {
       if (depth < MAX_NESTED_HTML_DEPTH) {
         collectHtmlRefs(tag.rawText, out, depth + 1);
@@ -225,6 +261,8 @@ function collectHtmlRefs(html: string, out: string[], depth: number): void {
         } else {
           collectCssRefs(css, out);
         }
+      } else {
+        collectAttrCssRefs(tag, a.name, a.value, out);
       }
     }
     if (!tag.isEnd) {

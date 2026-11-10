@@ -84,6 +84,20 @@ describe('assertPdfInputRefsContained', () => {
     '<div style="background:url(../images/a&quest/../../x.png)"></div>',
     '<style>.a{background:url(../images/a&bsol;x.png)}</style>',
     '<meta http-equiv="&#114;efresh" content="0;url=../../x">',
+    // `<svg>` `<math>` の中の `<style>` は foreign content でマークアップとして読まれ、文字参照も解かれる。
+    '<svg><style><img src="../../../appconfig.json"></style></svg>',
+    '<svg><style>p{background:u&#114;l(../../x.png)}</style></svg>',
+    '<svg><style><img srcset="../../../a.png 1x"></style></svg>',
+    '<math><style><img src="../../x.png"></style></math>',
+    '<style>p{background:u&#114;l(../../x.png)}</style>',
+    // SVG の表示属性など、style 以外の属性の url() も CSS として読まれる。
+    '<svg><rect fill="url(../../x.svg#g)"/></svg>',
+    '<svg><rect mask="url(../../x.svg#m)"/></svg>',
+    '<svg><rect clip-path="url(../../x.svg#c)"/></svg>',
+    '<svg><rect filter="URL(../../x.svg#f)"/></svg>',
+    '<svg><path marker-start="u\\72l(../../x.svg#a)"/></svg>',
+    '<svg><rect cursor="url(../../x.cur), auto"/></svg>',
+    '<svg><rect fill="u&#114;l(../../x.svg#g)"/></svg>',
   ])('rejects %s', (html) => {
     rejects(html);
   });
@@ -105,6 +119,9 @@ describe('assertPdfInputRefsContained', () => {
     '<a href="../../x/appconfig.json">link</a>',
     '<img src="">',
     '<p>本文</p>',
+    '<svg><rect fill="url(#g)"/><rect stroke="red"/></svg>',
+    '<svg><style>.a{fill:red}</style></svg>',
+    '<p title="A &amp; B" class="x">本文</p>',
   ])('accepts %s', (html) => {
     expect(() => assertPdfInputRefsContained(html, WHERE)).not.toThrow();
   });

@@ -32,9 +32,10 @@ const searched = ref(false);
 const reportEnabled = ref(false);
 const newBaseDateOpen = ref(false);
 // 値入り HTML の生成は編集者以上(サーバの `requireEditor`)なので、閲覧者には入口を出さない。
+// 利用者の取得が済むまでは出さない(取得中は利用者が空で、閲覧者にも一瞬出てしまう)。取得後に
 // 利用者が居ないのは無認証モード(サーバがロールを見ない)なので、出す側にする。
 const auth = useAuthStore();
-const canFill = computed(() => auth.user === null || isEditor(auth.user));
+const canFill = computed(() => auth.ready && (auth.user === null || isEditor(auth.user)));
 
 onMounted(async () => {
   const status = await repo.getReportStatus();

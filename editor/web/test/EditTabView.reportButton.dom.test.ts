@@ -13,12 +13,15 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} }),
 }));
 
-function mountWith(enabled: boolean | 'error', role?: User['role']) {
+function mountWith(
+  enabled: boolean | 'error',
+  role?: User['role'],
+  auth: { ready: boolean } = { ready: true },
+) {
   const pinia = createPinia();
-  if (role) {
-    // auth ストアは作るときに Repositories を要るので、作る前の状態として利用者を入れる。
-    pinia.state.value.auth = { user: { ...USER, role } };
-  }
+  // auth ストアは作るときに Repositories を要るので、作る前の状態として利用者と準備状態を入れる。
+  // 利用者が居ない(`role` 省略)のは無認証モード。
+  pinia.state.value.auth = { ready: auth.ready, user: role ? { ...USER, role } : null };
   const templates = {
     getReportStatus: vi.fn(async () =>
       enabled === 'error' ? err({ message: 'x' }) : ok({ enabled }),
@@ -68,6 +71,12 @@ describe('EditTabView report button', () => {
 
   it('hides button for viewer even when report enabled', async () => {
     const w = mountWith(true, 'viewer');
+    await flushPromises();
+    expect(w.text()).not.toContain('新しい基準日で開く');
+  });
+
+  it('hides button until the session lookup finishes', async () => {
+    const w = mountWith(true, undefined, { ready: false });
     await flushPromises();
     expect(w.text()).not.toContain('新しい基準日で開く');
   });

@@ -33,7 +33,7 @@ const failure = ref<string | null>(null);
 const failureKind = ref<'list' | 'fill'>('fill');
 // 一覧を取り終えたか。取得中に空の案内を出さないため。
 const listLoaded = ref(false);
-// 選べるテンプレートが 0 件なら、選択欄の代わりに作成タブへの案内を出す。
+// 選べるテンプレートが 0 件なら、選択欄を無効にして残し、その下に作成タブへの案内を出す。
 const noSkeletons = computed(
   () => listLoaded.value && failure.value === null && skeletons.value.length === 0,
 );
