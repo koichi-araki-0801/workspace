@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiPaths, DEFAULT_SAMPLE_OVERLAY_KEYS } from '@editor/shared';
 import { z } from 'zod';
+import type { ScriptSpec } from './generate/scriptRunner.js';
 import { COMMITTED_AREAS } from './git/committedAreas.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,6 +71,8 @@ const appConfigSchema = z
         pendingDir: z.string().optional(),
         reviewsDir: z.string().optional(),
         syncDir: z.string().optional(),
+        pdfInputDir: z.string().optional(),
+        pdfDir: z.string().optional(),
         tmpDir: z.string().optional(),
         logDir: z.string().optional(),
         webDist: z.string().optional(),
@@ -84,6 +87,14 @@ const appConfigSchema = z
         scriptSha256: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
         maxOutputFiles: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    report: z
+      .object({
+        script: z.string().optional(),
+        scriptSha256: z.string().optional(),
+        timeoutMs: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
@@ -316,6 +327,34 @@ export function parseScriptSha256(value: string | undefined, source: string): st
   return v.toLowerCase();
 }
 
+/**
+ * create_report のタイムアウト。env と appconfig のどちらの値も同じ範囲で検査する
+ * (appconfig の値を素通しすると、上限超えが起動時に弾かれない)。
+ */
+function resolveReportTimeoutMs(): number {
+  const fromFile = file.report?.timeoutMs;
+  const fromEnv = process.env.REPORT_TIMEOUT_MS;
+  const name = fromEnv === undefined ? 'appconfig.json の report.timeoutMs' : 'REPORT_TIMEOUT_MS';
+  const raw = fromEnv ?? (fromFile === undefined ? undefined : String(fromFile));
+  return envPositiveNumber(name, raw, 300_000, { integer: true, max: 600_000 });
+}
+
+/** `config.report` を組み立てる。script が無ければ機能ごと無効(`undefined`)。 */
+function resolveReportSpec(): ScriptSpec | undefined {
+  const script = process.env.REPORT_SCRIPT ?? file.report?.script;
+  if (script === undefined || script === '') {
+    return undefined;
+  }
+  return {
+    script: toPath(script),
+    scriptSha256:
+      process.env.REPORT_SCRIPT_SHA256 !== undefined
+        ? parseScriptSha256(process.env.REPORT_SCRIPT_SHA256, '環境変数 REPORT_SCRIPT_SHA256')
+        : parseScriptSha256(file.report?.scriptSha256, 'appconfig.json の report.scriptSha256'),
+    timeoutMs: resolveReportTimeoutMs(),
+  };
+}
+
 const executableBrowser =
   process.env.VIVLIOSTYLE_EXECUTABLE_BROWSER ||
   file.pdf?.executableBrowser ||
@@ -433,6 +472,10 @@ export const config = {
    * .gitignore しない)。ポリシー(同期既定)は DB のパーツカタログ列で、ここには持たない。
    */
   syncDir: resolveDataPath(process.env.SYNC_DIR, file.paths?.syncDir, 'sync'),
+  /** create_report に渡す PDF の入力置き場(git 管理外。`ensureRepo` が `/pdf-input/` を .gitignore する)。 */
+  pdfInputDir: resolveDataPath(process.env.PDF_INPUT_DIR, file.paths?.pdfInputDir, 'pdf-input'),
+  /** create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。 */
+  pdfDir: resolveDataPath(process.env.PDF_DIR, file.paths?.pdfDir, 'pdf'),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
   gitRepoDir: process.env.GIT_REPO_DIR === undefined ? dataRoot : toPath(process.env.GIT_REPO_DIR),
 
@@ -491,6 +534,12 @@ export const config = {
       { integer: true, max: 1000 },
     ),
   },
+
+  /**
+   * create_report(PDF のレポート作成ツール)。スクリプトが env にも appconfig にも無ければ
+   * `undefined` で、機能を出さない。指紋・タイムアウトは `python` と同じ検査。
+   */
+  report: resolveReportSpec(),
 
   /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */
   tmpDir: resolvePath(process.env.TMP_DIR, file.paths?.tmpDir, '.tmp'),

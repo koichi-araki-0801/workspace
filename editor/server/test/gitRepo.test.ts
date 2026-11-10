@@ -164,6 +164,9 @@ d('gitRepo', () => {
     expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8').split(/\r?\n/)).toContain(
       '/images/',
     );
+    const lines = fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8').split(/\r?\n/);
+    expect(lines).toContain('/pdf-input/');
+    expect(lines).toContain('/pdf/');
   });
 
   it('commitAll は images/ を巻き込まない', async () => {

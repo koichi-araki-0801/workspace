@@ -308,6 +308,8 @@ async function ensureGitignore(): Promise<void> {
     '/notes/',
     '/css/fonts/',
     '/images/',
+    '/pdf-input/',
+    '/pdf/',
     '*.tmp-*',
   ];
   const existing = await fs.readFile(file, 'utf8').catch(() => '');

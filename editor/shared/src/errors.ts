@@ -114,3 +114,18 @@ export function toAppError(cause: unknown, fallbackKind: AppErrorKind = 'unexpec
   }
   return { kind: fallbackKind, message: DEFAULT_ERROR_MESSAGE, cause };
 }
+
+/** 生成器・レポート作成の同時実行の待ち行列が満杯のときの `code`(503)。 */
+export const GENERATE_QUEUE_FULL = 'GENERATE_QUEUE_FULL';
+/** 生成器のスクリプトの指紋が設定と一致しない(または読めない)ときの `code`(500)。 */
+export const GENERATOR_FINGERPRINT_MISMATCH = 'GENERATOR_FINGERPRINT_MISMATCH';
+/** create_report が時間内に終わらなかったときの `code`。 */
+export const REPORT_TIMEOUT = 'REPORT_TIMEOUT';
+/** create_report が異常終了したときの `code`。 */
+export const REPORT_RUN_FAILED = 'REPORT_RUN_FAILED';
+/** create_report が終わったのに期待した PDF が無いときの `code`。 */
+export const REPORT_OUTPUT_MISSING = 'REPORT_OUTPUT_MISSING';
+/** 指定の会社コードを create_report が知らないときの `code`。 */
+export const REPORT_COMPANY_UNKNOWN = 'REPORT_COMPANY_UNKNOWN';
+/** create_report の設定が無く、機能が無効なときの `code`。 */
+export const REPORT_DISABLED = 'REPORT_DISABLED';

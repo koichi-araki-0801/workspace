@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { GENERATE_QUEUE_FULL, GENERATOR_FINGERPRINT_MISMATCH } from '@editor/shared';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
@@ -67,7 +68,7 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
     );
     throw generatorError(
       GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
-      'GENERATOR_FINGERPRINT_MISMATCH',
+      GENERATOR_FINGERPRINT_MISMATCH,
       500,
     );
   }
@@ -78,7 +79,7 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
     );
     throw generatorError(
       GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
-      'GENERATOR_FINGERPRINT_MISMATCH',
+      GENERATOR_FINGERPRINT_MISMATCH,
       500,
     );
   }
@@ -91,7 +92,7 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
 const GENERATE_GATE = new BuildAdmissionGate({
   maxConcurrent: config.python.maxConcurrency,
   maxQueue: config.python.maxQueue,
-  queueFullError: () => generatorError(GENERATE_QUEUE_FULL_MESSAGE, 'GENERATE_QUEUE_FULL', 503),
+  queueFullError: () => generatorError(GENERATE_QUEUE_FULL_MESSAGE, GENERATE_QUEUE_FULL, 503),
 });
 
 /** 同時実行の枠を取って `fn` を走らせる。満杯なら `GENERATE_QUEUE_FULL`(503)で断る。 */
