@@ -14,9 +14,12 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push }), useRoute: () => ({ q
 
 const SKELETONS = [{ companyCode: 'XX01', fundCode: '950037', editionType: '交付版' }];
 
-function mountDialog(fillTemplate: (id: string) => Promise<unknown>) {
+function mountDialog(
+  fillTemplate: (id: string) => Promise<unknown>,
+  listReportSkeletons: () => Promise<unknown> = async () => ok(SKELETONS),
+) {
   const templates = {
-    listReportSkeletons: vi.fn(async () => ok(SKELETONS)),
+    listReportSkeletons: vi.fn(listReportSkeletons),
     fillTemplate: vi.fn(fillTemplate),
   };
   const w = mount(NewBaseDateDialog, {
@@ -94,5 +97,75 @@ describe('NewBaseDateDialog', () => {
     release(ok({ created: true }));
     await flushPromises();
     expect(push).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['GENERATE_QUEUE_FULL', '作成処理が混み合っています。しばらくしてから再試行してください'],
+    ['REPORT_COMPANY_UNKNOWN', '委託会社コードが見つかりません'],
+  ])('shows fixed text for %s', async (code, text) => {
+    mountDialog(async () => err({ code, message: 'x' }));
+    await chooseAndSubmit();
+    button('開く')?.click();
+    await flushPromises();
+    expect(document.body.textContent).toContain(text);
+  });
+
+  it('succeeds and navigates on retry', async () => {
+    const fill = vi
+      .fn()
+      .mockResolvedValueOnce(err({ code: 'REPORT_TIMEOUT', message: 'x' }))
+      .mockResolvedValueOnce(ok({ created: true }));
+    mountDialog(fill);
+    await chooseAndSubmit();
+    button('開く')?.click();
+    await flushPromises();
+    button('再試行')?.click();
+    await flushPromises();
+    expect(fill).toHaveBeenCalledTimes(2);
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps open button disabled while date is empty', async () => {
+    mountDialog(async () => ok({ created: true }));
+    await flushPromises();
+    const select = document.body.querySelector('select') as HTMLSelectElement;
+    select.value = '0';
+    select.dispatchEvent(new Event('change'));
+    await flushPromises();
+    expect(button('開く')?.disabled).toBe(true);
+  });
+
+  it('recovers from skeleton list failure via retry', async () => {
+    const list = vi
+      .fn()
+      .mockResolvedValueOnce(err({ message: '一覧の失敗' }))
+      .mockResolvedValueOnce(ok(SKELETONS));
+    mountDialog(async () => ok({ created: true }), list);
+    await flushPromises();
+    expect(document.body.textContent).toContain('一覧の失敗');
+    button('再試行')?.click();
+    await flushPromises();
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).not.toContain('一覧の失敗');
+    expect(document.body.querySelectorAll('option').length).toBe(2);
+  });
+
+  it('cannot be closed while filling', async () => {
+    let release: (v: unknown) => void = () => {};
+    const { w } = mountDialog(
+      () =>
+        new Promise((r) => {
+          release = r;
+        }),
+    );
+    await chooseAndSubmit();
+    button('開く')?.click();
+    await flushPromises();
+    (document.body.querySelector('[aria-label="閉じる"]') as HTMLElement).click();
+    await flushPromises();
+    expect(w.emitted('update:open')).toBeUndefined();
+    release(ok({ created: true }));
+    await flushPromises();
+    expect(w.emitted('update:open')).toEqual([[false]]);
   });
 });

@@ -67,15 +67,16 @@ function openReview(m: TemplateMeta) {
 <template>
   <div class="space-y-4">
     <h2 class="text-lg font-bold">テンプレートを検索</h2>
-    <button
-      v-if="reportEnabled"
-      type="button"
-      :class="buttonVariants({ variant: 'outline', size: 'sm' })"
-      @click="newBaseDateOpen = true"
-    >
-      新しい基準日で開く
-    </button>
-    <NewBaseDateDialog v-if="reportEnabled" v-model:open="newBaseDateOpen" />
+    <template v-if="reportEnabled">
+      <button
+        type="button"
+        :class="buttonVariants({ variant: 'outline', size: 'sm' })"
+        @click="newBaseDateOpen = true"
+      >
+        新しい基準日で開く
+      </button>
+      <NewBaseDateDialog v-model:open="newBaseDateOpen" />
+    </template>
     <SearchFilters dropdown-scope="edit" @search="search" @restore="search" />
     <TemplateTable
       v-if="searched"
