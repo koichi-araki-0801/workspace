@@ -24,8 +24,9 @@ describe('renderReportDocument', () => {
     const doc = await render('<p>本文</p><script>fit()</script>');
     expect(doc.startsWith('<!doctype html>')).toBe(true);
     expect(doc).toContain('fit()');
-    expect(doc).toContain('<head>');
-    expect(doc).toContain('<body>');
+    const parsed = new DOMParser().parseFromString(doc, 'text/html');
+    expect(parsed.head.querySelector('link')).not.toBeNull();
+    expect(parsed.body.textContent).toContain('本文');
     expect(linkCount(doc)).toBe(1);
   });
 
@@ -38,7 +39,10 @@ describe('renderReportDocument', () => {
 
   it('adds no crop marks css', async () => {
     const doc = await render('<p>x</p>');
-    expect(doc).not.toContain(CROP_MARKS_CSS.trim().slice(0, 30));
+    // トンボは `@page { marks: … }` 一本で効く。その規則も `marks` プロパティも出さない。
+    expect(CROP_MARKS_CSS).toContain('marks');
+    expect(doc).not.toContain('@page');
+    expect(doc).not.toContain('marks:');
     expect(doc).not.toContain('<style');
   });
 

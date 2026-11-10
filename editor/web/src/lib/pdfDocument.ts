@@ -211,6 +211,8 @@ export async function renderReportDocument(
   dropUnmatchedCompanyImages(root, companyCode);
   const href = `../css/${cssFile}`;
   // `WHOLE_DOCUMENT` のサニタイズは断片でも `<head>` を作るので、head の有無の分岐は要らない。
+  // PDF 用のサニタイズは `<link>` を残す(`pdfPurifyConfig`)ので、入力に同じ href があれば
+  // 先に除いてから 1 本足す。
   const head = root.ownerDocument.head;
   for (const l of Array.from(head.querySelectorAll('link'))) {
     if (l.getAttribute('href') === href) {
