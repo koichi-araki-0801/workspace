@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   generateReportPdf: vi.fn(),
   listTemplateFiles: vi.fn(),
   readFilledHtml: vi.fn(),
+  filledExists: vi.fn(),
   commitAll: vi.fn(),
   ensureRepo: vi.fn(),
   report: {} as unknown,
@@ -21,6 +22,7 @@ vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/files/templateFiles.js')>()),
   listTemplateFiles: m.listTemplateFiles,
   readFilledHtml: m.readFilledHtml,
+  filledExists: m.filledExists,
 }));
 vi.mock('../src/git/gitRepo.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/git/gitRepo.js')>()),
@@ -58,6 +60,7 @@ describe('reportRepo', () => {
     m.generateFilled.mockResolvedValue({ created: true });
     m.generateReportPdf.mockResolvedValue(Buffer.from('%PDF'));
     m.readFilledHtml.mockResolvedValue('<p>ok</p>');
+    m.filledExists.mockResolvedValue(true);
     m.commitAll.mockResolvedValue('sha');
   });
 
@@ -98,7 +101,9 @@ describe('reportRepo', () => {
   });
 
   it('fill rejects a bad id', async () => {
-    await expect(repoWith([]).fill('../x', 'alice')).rejects.toBeTruthy();
+    await expect(repoWith([]).fill('../x', 'alice')).rejects.toMatchObject({
+      kind: 'validation',
+    });
   });
 
   it('fill commits only when created', async () => {
@@ -129,13 +134,32 @@ describe('reportRepo', () => {
   it('buildPdf rejects html whose scripts differ from filled', async () => {
     m.readFilledHtml.mockResolvedValue('<p>ok</p><script>a()</script>');
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, '<p>ok</p><script>evil()</script>')).rejects.toBeTruthy();
+    await expect(repo.buildPdf(ID, '<p>ok</p><script>evil()</script>')).rejects.toMatchObject({
+      kind: 'forbidden',
+    });
     expect(m.generateReportPdf).not.toHaveBeenCalled();
   });
 
   it('buildPdf rejects external refs', async () => {
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await expect(repo.buildPdf(ID, '<img src="https://evil.example/x.png">')).rejects.toBeTruthy();
+    await expect(repo.buildPdf(ID, '<img src="https://evil.example/x.png">')).rejects.toMatchObject(
+      { kind: 'validation' },
+    );
+    expect(m.generateReportPdf).not.toHaveBeenCalled();
+  });
+
+  it('buildPdf rejects editing markers', async () => {
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await expect(repo.buildPdf(ID, '<!-- jinja-rt:abc --><p>x</p>')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    expect(m.generateReportPdf).not.toHaveBeenCalled();
+  });
+
+  it('buildPdf rejects not_found when filled is missing', async () => {
+    m.filledExists.mockResolvedValue(false);
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await expect(repo.buildPdf(ID, '<p>ok</p>')).rejects.toMatchObject({ kind: 'not_found' });
     expect(m.generateReportPdf).not.toHaveBeenCalled();
   });
 

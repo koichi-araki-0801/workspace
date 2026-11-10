@@ -56,7 +56,7 @@ export const reportRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'report'> }> = 
           failureMessage: 'create_report pdf failed',
         },
       );
-      reply
+      return reply
         .header('Content-Type', 'application/pdf')
         .header('Content-Disposition', 'attachment; filename="report.pdf"')
         .send(pdf);

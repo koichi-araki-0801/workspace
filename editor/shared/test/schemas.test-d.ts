@@ -6,7 +6,7 @@
 // ときに CI(vitest typecheck モード)が即座に落ちるようにする。
 import { describe, expectTypeOf, it } from 'vitest';
 import type { z } from 'zod';
-import type { AppError, AppErrorKind } from '../src/index.js';
+import type { AppError, AppErrorKind, SkeletonAttributes } from '../src/index.js';
 import type * as sch from '../src/schemas.js';
 
 describe('schemas と手書き型の意図的差分', () => {
@@ -22,5 +22,9 @@ describe('schemas と手書き型の意図的差分', () => {
     expectTypeOf<z.infer<typeof sch.PartCatalogItem>['targetEdition']>().toEqualTypeOf<
       string | null | undefined
     >();
+  });
+
+  it('SkeletonAttributes: ドメインの型と zod スキーマの導出型が一致する', () => {
+    expectTypeOf<z.infer<typeof sch.SkeletonAttributes>>().toEqualTypeOf<SkeletonAttributes>();
   });
 });

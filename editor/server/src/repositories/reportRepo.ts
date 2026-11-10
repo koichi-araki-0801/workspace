@@ -16,7 +16,7 @@ import {
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
-import { listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
+import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
 import { generateFilled, generateReportPdf } from '../generate/createReport.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
@@ -95,6 +95,10 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
 
   async function buildPdf(id: string, html: string): Promise<Buffer> {
     const attrs = parseFilledId(id);
+    // 不変性検査の基準は filled/ の実体。無いまま通すと基準が空になり、任意の script が通りうる。
+    if (!(await filledExists(`${id}.html`))) {
+      throw notFound(`値入り HTML がありません: ${id}.html`);
+    }
     assertNoEditingMarkers(html, id);
     assertNoDocumentExternalRefs(html, '', PDF_WHERE);
     // 組版は `<script>` を実行しうるので、確定済みの値入り HTML と同じ実行コードだけを通す。

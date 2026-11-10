@@ -146,7 +146,7 @@ export async function generateFilled(
   const attrs = parseId(id);
   const args = reportArgs(rep1CompanyCode, attrs, 'html');
   const fileName = `${id}.html`;
-  return withFileLock(`report-fill:${id}`, async () => {
+  return withFileLock(`report-fill:${id.toLowerCase()}`, async () => {
     if (await filledExists(fileName)) {
       return { created: false };
     }
@@ -178,7 +178,8 @@ export async function generateReportPdf(
   const args = reportArgs(rep1CompanyCode, attrs, 'pdf');
   const input = path.join(config.pdfInputDir, `${id}.html`);
   const output = path.join(config.pdfDir, `${id}.pdf`);
-  return withFileLock(`report-pdf:${id}`, async () => {
+  // Windows はファイル名の大小を区別しない。大小だけ違う id が同じ入出力を共有するので、鍵は小文字にそろえる。
+  return withFileLock(`report-pdf:${id.toLowerCase()}`, async () => {
     try {
       await removeQuietly(output);
       await fs.mkdir(config.pdfInputDir, { recursive: true });
