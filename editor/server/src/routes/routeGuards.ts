@@ -65,11 +65,11 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   [`DELETE ${api(apiPaths.templateDraft)}`]: 'editor',
   [`POST ${api(apiPaths.generate)}`]: 'editor',
 
-  // report — 状態と一覧は閲覧者にも開き、生成と PDF は編集者以上
+  // report — 状態・一覧・単体 PDF は閲覧者にも開き、値入り HTML の生成は編集者以上
   [`GET ${api(apiPaths.reportStatus)}`]: 'auth',
   [`GET ${api(apiPaths.reportSkeletons)}`]: 'auth',
   [`POST ${api(apiPaths.templateFill)}`]: 'editor',
-  [`POST ${api(apiPaths.templateReportPdf)}`]: 'editor',
+  [`POST ${api(apiPaths.templateReportPdf)}`]: 'auth',
 
   // parts
   [`GET ${api(apiPaths.partClassificationOptions)}`]: 'auth',
@@ -145,6 +145,8 @@ export const VIEWER_ALLOWED_MUTATIONS: Readonly<Record<string, string>> = {
   [`POST ${api(apiPaths.historyPdf)}`]: 'PDF 出力を viewer に許す以上、その記録も許す',
   [`POST ${api(apiPaths.build)}`]: '閲覧業務としての PDF 出力(サーバ状態を残さない)',
   [`POST ${api(apiPaths.buildMerge)}`]: '同上(複数文書の通しページ番号付き PDF)',
+  [`POST ${api(apiPaths.templateReportPdf)}`]:
+    '閲覧業務としての PDF 出力(create_report の単体 PDF。入出力は応答後に消えサーバ状態を残さない)',
   [`POST ${api(apiPaths.fundAssetInspect)}`]:
     '画像が配信されるかの確認(読むだけでサーバ状態を変えない。画像の閲覧と同じ権限)',
 };

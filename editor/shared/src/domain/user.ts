@@ -16,6 +16,14 @@ export function isApprover(user: Pick<User, 'role'> | null | undefined): boolean
   return user?.role === 'approver' || user?.role === 'admin';
 }
 
+/**
+ * テンプレートを書き換えられる(編集者以上の)権限を持つとき true。`editor` `approver` `admin` が
+ * 該当する(サーバ側 `requireEditor` と同じ許可リスト)。編集系の導線の出し分けに使う。
+ */
+export function isEditor(user: Pick<User, 'role'> | null | undefined): boolean {
+  return user?.role === 'editor' || isApprover(user);
+}
+
 /** ユーザー作成時に集める入力フィールド。 */
 export interface NewUserForm {
   username: string;

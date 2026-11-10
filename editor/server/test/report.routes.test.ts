@@ -142,7 +142,7 @@ describe('report routes', () => {
     expect(res.rawPayload.toString()).toBe('%PDF-1.7');
   });
 
-  it('POST report-pdf is 400 for empty html and 403 for viewer', async () => {
+  it('POST report-pdf is 400 for empty html and 200 for viewer', async () => {
     const bad = await app.inject({
       method: 'POST',
       url: `/templates/${ID}/report-pdf`,
@@ -155,7 +155,8 @@ describe('report routes', () => {
       url: `/templates/${ID}/report-pdf`,
       payload: { html: '<p>ok</p>' },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
   });
 
   it('POST fill failure is 502 and audited as report.fill failure', async () => {

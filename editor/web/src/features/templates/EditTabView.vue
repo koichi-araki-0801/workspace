@@ -2,15 +2,16 @@
 // =============================================================================
 // EditTabView.vue — テンプレ検索タブ (検索 → 一覧 → 編集画面へ遷移)
 // =============================================================================
-import { type DropdownQuery, isErr, type TemplateMeta } from '@editor/shared';
+import { type DropdownQuery, isEditor, isErr, type TemplateMeta } from '@editor/shared';
 import { Search } from '@lucide/vue';
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { buttonVariants } from '@/components/ui/Button.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
+import { useAuthStore } from '@/stores/auth';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
 import NewBaseDateDialog from './components/NewBaseDateDialog.vue';
 import SearchFilters from './components/SearchFilters.vue';
@@ -30,6 +31,10 @@ const searched = ref(false);
 // 帳票作成の連携が有効なときだけ「新しい基準日で開く」を出す。状態の取得に失敗したら出さない。
 const reportEnabled = ref(false);
 const newBaseDateOpen = ref(false);
+// 値入り HTML の生成は編集者以上(サーバの `requireEditor`)なので、閲覧者には入口を出さない。
+// 利用者が居ないのは無認証モード(サーバがロールを見ない)なので、出す側にする。
+const auth = useAuthStore();
+const canFill = computed(() => auth.user === null || isEditor(auth.user));
 
 onMounted(async () => {
   const status = await repo.getReportStatus();
@@ -67,7 +72,7 @@ function openReview(m: TemplateMeta) {
 <template>
   <div class="space-y-4">
     <h2 class="text-lg font-bold">テンプレートを検索</h2>
-    <template v-if="reportEnabled">
+    <template v-if="reportEnabled && canFill">
       <button
         type="button"
         :class="buttonVariants({ variant: 'outline', size: 'sm' })"

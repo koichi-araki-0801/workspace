@@ -26,7 +26,7 @@ describe('buildApp 経由の create_report ルート', { timeout: 60_000 }, () =
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('GET status is 401 without a session, 200 for editor; POST fill is 403 for viewer', async () => {
+  it('GET status is 401 without a session, 200 for editor; fill is 403 and report-pdf passes for viewer', async () => {
     vi.resetModules();
     const { buildApp } = await import('../src/app.js');
     app = buildApp({
@@ -72,5 +72,14 @@ describe('buildApp 経由の create_report ルート', { timeout: 60_000 }, () =
       headers: headers(viewerCookie),
     });
     expect(fill.statusCode).toBe(403);
+
+    // 単体 PDF は閲覧者にも開く。ガードを通り、機能が無効な環境なので 404 で返る(403 ではない)。
+    const pdf = await app.inject({
+      method: 'POST',
+      url: '/api/templates/XX01_950037_20240710_交付版/report-pdf',
+      headers: headers(viewerCookie),
+      payload: { html: '<p>x</p>' },
+    });
+    expect(pdf.statusCode).toBe(404);
   });
 });
