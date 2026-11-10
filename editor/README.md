@@ -197,7 +197,6 @@ editor\start.bat lan          # 本番 + REST + LAN 公開（HTTPS）
 | `REPORT_SCRIPT` | なし（機能オフ） | create_report.py のパス。設定すると編集タブに「新しい基準日で開く」が出て、値入り HTML の単体 PDF が create_report の組版になる（Python の実行ファイルと枠は上の生成器と共有）。開発・e2e は偽物 `server/scripts/fake_create_report.py` を指し、本物を設定しない |
 | `REPORT_SCRIPT_SHA256` | なし | create_report.py の SHA256。設定すると起動のたびに照合する（appconfig の `report.scriptSha256`） |
 | `REPORT_TIMEOUT_MS` | 300000（上限 600000） | create_report.py 1 回のタイムアウト（ms。appconfig の `report.timeoutMs`） |
-| `PDF_INPUT_DIR` / `PDF_DIR` | `<DATA_ROOT>/pdf-input` / `<DATA_ROOT>/pdf` | 単体 PDF の入力 HTML と、create_report が書く PDF の置き場（git 管理外。応答後に消す） |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
 認証/DB 系（`start.bat` は `AUTH_REQUIRED=true` と `AUDIT_DB=true` を設定する）:
