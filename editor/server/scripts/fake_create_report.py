@@ -12,6 +12,8 @@
 - --pdf-only: pdf-input/<id>.html があることを確かめ(無ければ exit 3)、`%PDF-1.4` で始まる
   最小の PDF を pdf/<id>.pdf に書く。HTML の中身は読まない。
 - 標準出力には何も出さない。
+- 起動のたびに、dataRoot の親フォルダの `report-calls.log` へ引数を 1 行足す(e2e が「走らなかった」
+  ことを確かめる用。dataRoot の中に置くと git の記録に混ざる)。
 
 テスト用の特別なファンドコード:
 - 999101: exit 1(失敗)。
@@ -39,6 +41,15 @@ def _write_atomic(path: str, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+def _log_call(argv: list[str]) -> None:
+    templates = os.environ.get("TEMPLATES_DIR")
+    if not templates:
+        return
+    data_root = os.path.dirname(os.path.normpath(templates))
+    with open(os.path.join(os.path.dirname(data_root), "report-calls.log"), "a", encoding="utf-8") as f:
+        f.write(" ".join(argv) + "\n")
+
+
 def _abbreviation(templates: str, fund: str, edition: str) -> str | None:
     suffix = f"_{fund}_{edition}.html"
     found = next(iter(sorted(glob.glob(os.path.join(templates, f"*{suffix}")))), None)
@@ -52,6 +63,7 @@ def main(argv: list[str]) -> int:
         print("usage: fake_create_report.py REP1 FUND YYYY-MM-DD EDITION (--html-only|--pdf-only) --fund-only", file=sys.stderr)
         return 64
     _rep1, fund, iso, edition, flag, _ = argv
+    _log_call(argv)
     if fund == FAIL_FUND:
         print("fake create_report: 失敗を模擬します", file=sys.stderr)
         return 1

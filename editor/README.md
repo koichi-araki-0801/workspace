@@ -114,6 +114,9 @@ e2e（Playwright）は project が 2 つある。`chromium` は挙動を検証�
 （編集タブでパーツを挿入するときの値）を seed する。worker 数は 1（ログイン試行の
 集中回避）。
 
+e2e サーバは `REPORT_SCRIPT` を偽物 `server/scripts/fake_create_report.py` に向ける。偽物は起動のたびに
+`<repo>/.tmp/report-calls.log` へ 1 行足し、`create_report.spec.ts` が「スクリプトが走らなかった」ことの確認に使う。
+
 Vite はランチャ `editor/e2e/tools/e2e-vite.ts` 経由で起動し、異常終了時は
 `.tmp/vite-e2e/exit-*.txt` に終了コードと直前の出力が残る。`E2E_VITE_PROCDUMP=<procdump.exe>` を
 設定するとクラッシュダンプも採る（ダンプ採取は procdump、読解は WinDbg。手順は
@@ -191,6 +194,10 @@ editor\start.bat lan          # 本番 + REST + LAN 公開（HTTPS）
 | `GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` | 2 / 8 | 生成の同時実行と待ち行列の上限 |
 | `PY_TIMEOUT_MS` | 300000（5 分。上限 600000） | 生成器 1 回のタイムアウト（ms） |
 | `GENERATE_MAX_OUTPUT_FILES` | 50 | 1 回の作成で取り込む出力ファイルの上限（appconfig の `python.maxOutputFiles`） |
+| `REPORT_SCRIPT` | なし（機能オフ） | create_report.py のパス。設定すると編集タブに「新しい基準日で開く」が出て、値入り HTML の単体 PDF が create_report の組版になる（Python の実行ファイルと枠は上の生成器と共有）。開発・e2e は偽物 `server/scripts/fake_create_report.py` を指し、本物を設定しない |
+| `REPORT_SCRIPT_SHA256` | なし | create_report.py の SHA256。設定すると起動のたびに照合する（appconfig の `report.scriptSha256`） |
+| `REPORT_TIMEOUT_MS` | 300000（上限 600000） | create_report.py 1 回のタイムアウト（ms。appconfig の `report.timeoutMs`） |
+| `PDF_INPUT_DIR` / `PDF_DIR` | `<DATA_ROOT>/pdf-input` / `<DATA_ROOT>/pdf` | 単体 PDF の入力 HTML と、create_report が書く PDF の置き場（git 管理外。応答後に消す） |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
 
 認証/DB 系（`start.bat` は `AUTH_REQUIRED=true` と `AUDIT_DB=true` を設定する）:
