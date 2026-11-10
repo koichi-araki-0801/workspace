@@ -6,18 +6,19 @@
 // 「同梱資産」として通すので、そのままだと `<iframe src="../../x/appconfig.json">` のような参照で
 // サーバ上の任意のファイルを PDF へ写して持ち出せる。
 //
-// そこで入力 HTML の取得系の参照をすべて `pdf-input/` を基準に解き、dataRoot 直下の資産の
-// 置き場(下の `PDF_ASSET_DIRS`)の内側に収まるものだけを通す。
+// そこで入力 HTML の取得系の参照をすべて、dataRoot 直下の資産の置き場(下の `PDF_ASSET_DIRS`)を
+// 指す**単純な相対パス**に限る。create_report がパスを URL として解くかファイルの字面として読むかに
+// 依らず同じ場所になる形だけを通す、という考え方で、解決してから包含を見る方式は採らない
+// (`?` `#` `%` を URL として落としてから判定すると、字面で読む側と指す場所が割れる)。
 //
 //   <dataRoot>/
 //     pdf-input/<id>.html   <- 入力。参照の基準
 //     css/  images/  js/    <- 通す(フォントは css/fonts/)
 //     それ以外              <- 拒む(templates/・filled/・pdf-input/ 自身・dataRoot の外)
 //
-// 解き方は配信と同じ `resolveDocAssetPath`(文書を論理ルートの 1 段下に置いて解く)を使う。
-// `pdf-input/` も dataRoot の 1 段下なので、論理ルート = dataRoot としてそのまま当てはまる。
-// 先頭 `/` のルート相対・ドライブ付き・scheme 付き・`%2e%2e` などの紛らわしい綴りは
-// `resolveDocAssetPath` が解けない(undefined)ので拒む側へ倒れる。
+// 通す形は `../<置き場>/<名前>/…/<名前>` だけ。値の復号は 1 回だけ(HTML 属性は文字参照、CSS は
+// 走査器のエスケープ解決)で、その結果に `?` `#` `%` `\` `:` と制御文字があれば拒む。各名前は
+// `.` `..`・末尾の `.` や空白(Windows が黙って落とす)・`<>"|?*:` を含むものを拒む。
 //
 // 埋め込み文書の要素(`iframe` / `object` / `embed` / `frame`)と `<meta http-equiv=refresh>` は
 // 参照先を問わず拒む。どれも別の文書を読み込ませる口で、帳票に使う理由が無い。
@@ -29,9 +30,7 @@ import {
   findExternalRefsInCss,
   isSelfContainedUrl,
   MAX_REPORTED_REFS,
-  normalizeHtmlUrlValue,
   REPORT_INPUT_REF_OUTSIDE,
-  resolveDocAssetPath,
   splitSrcsetUrls,
   validation,
 } from '@editor/shared';
@@ -67,46 +66,54 @@ const REF_OUTSIDE_MESSAGE =
   'PDF の入力 HTML が、資産の置き場(css/・images/・js/)の外を参照しているため PDF を作れません。' +
   '参照を ../css/ ../images/ ../js/ の下へ直してから出してください。';
 
+/** 復号後の値に現れてはならない文字(URL として読むか字面で読むかで指す場所が割れる文字と制御文字)。 */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: 制御文字を拒むための文字クラス
+const FORBIDDEN_IN_PATH_RE = /[?#%\\:\u0000-\u001f\u007f]/;
+
+/** 1 つの名前(セグメント)に現れてはならない文字(Windows のファイル名に使えない文字)。 */
+const FORBIDDEN_IN_SEGMENT_RE = /[<>"|?*:]/;
+
+/** 名前として通せるか。空・`.`・`..`・末尾の `.` や空白(Windows が黙って落として別名になる)を拒む。 */
+function isPlainSegment(seg: string): boolean {
+  if (seg === '' || /^[. ]+$/.test(seg) || /[. ]$/.test(seg)) {
+    return false;
+  }
+  return !FORBIDDEN_IN_SEGMENT_RE.test(seg);
+}
+
 /**
- * 1 つの URL 値が通せるか。`#…` と空は文書内、`data:` は外部参照の関門と同じ判定に任せる。
- * それ以外は `pdf-input/` から解いた先の先頭が資産の置き場で、その下のファイルを指すこと。
+ * 復号済みの 1 つの値が通せるか。空と `#…`(文書内)は通し、`data:` は外部参照の関門と同じ判定に
+ * 任せる。それ以外は `../<置き場>/<名前>/…` の単純な並びであること(置き場の比較は大小を無視)。
  */
-function isContainedUrl(url: string): boolean {
-  const v = normalizeHtmlUrlValue(url);
+function isContainedValue(v: string): boolean {
   if (v === '' || v.startsWith('#')) {
     return true;
   }
   if (/^data:/i.test(v)) {
     return isSelfContainedUrl(v);
   }
-  const resolved = resolveDocAssetPath(v, 'doc');
-  if (resolved === undefined) {
+  if (FORBIDDEN_IN_PATH_RE.test(v)) {
     return false;
   }
-  const segments = resolved.split('/');
-  return segments.length >= 2 && PDF_ASSET_DIRS.has(segments[0].toLowerCase());
-}
-
-/**
- * CSS の値(エスケープ解決済み)を URL として判定する。`resolveDocAssetPath` は HTML の文字参照を
- * 解くので、CSS の字面の `&` は `&amp;` へ戻して二重に解かない(解くと区切りが増え、字面とは
- * 違う場所を検めることになる)。
- */
-function isContainedCssUrl(value: string): boolean {
-  return isContainedUrl(value.replaceAll('&', '&amp;'));
+  const [up, dir, ...rest] = v.split('/');
+  if (up !== '..' || dir === undefined || !PDF_ASSET_DIRS.has(dir.toLowerCase())) {
+    return false;
+  }
+  return rest.length > 0 && rest.every(isPlainSegment);
 }
 
 /** CSS 1 片の参照のうち、通せないものを `out` へ積む。 */
 function collectCssRefs(css: string, out: string[]): void {
   // `@import` などの at-rule と絶対参照は外部参照の関門でも拒むが、この関数だけで閉じるよう重ねて見る。
   out.push(...findExternalRefsInCss(css));
+  // 値は走査器がエスケープを解いた字面。HTML の文字参照としては解かない(復号は 1 回だけ)。
   for (const span of collectCssUrlSpans(css)) {
-    if (!isContainedCssUrl(span.value)) {
+    if (!isContainedValue(span.value)) {
       out.push(`url(${span.value})`);
     }
   }
   for (const s of collectCssStringsInFunctions(css)) {
-    if (STRING_URL_FUNCTIONS.has(s.fn) && !isContainedCssUrl(s.value)) {
+    if (STRING_URL_FUNCTIONS.has(s.fn) && !isContainedValue(s.value)) {
       out.push(`${s.fn}("${s.value}")`);
     }
   }
@@ -135,9 +142,11 @@ function collectTagRefs(tag: TagSpan, out: string[]): void {
     if (!watched.includes(a.name) || NON_URL_ATTRS.has(a.name)) {
       continue;
     }
-    const urls = SRCSET_ATTRS.has(a.name) ? splitSrcsetUrls(a.value) : [a.value];
+    // 文字参照を 1 回だけ解き、その値を分ける(ブラウザも復号してから srcset を分ける)。
+    const value = decodeHtmlEntities(a.value);
+    const urls = SRCSET_ATTRS.has(a.name) ? splitSrcsetUrls(value) : [value];
     for (const url of urls) {
-      if (!isContainedUrl(url)) {
+      if (!isContainedValue(url)) {
         out.push(`<${tag.name} ${a.name}="${url}">`);
       }
     }

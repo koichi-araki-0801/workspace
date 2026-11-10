@@ -47,6 +47,31 @@ describe('assertPdfInputRefsContained', () => {
     '<style>@import url(../css/a.css);</style>',
     '<meta http-equiv="refresh" content="0;url=../../x/appconfig.json">',
     '<svg><title><img src="../../x.png"></title></svg>',
+    // 復号は 1 回だけ。二重に解くと検査と実際の読みがずれる。
+    '<img src="../images/a&amp;quest;/../../x.png">',
+    '<img src="../images/a&amp;num;/../../x.png">',
+    '<img src="../images/a&amp;#63;/../../x.png">',
+    '<style>.a{background:url(../css/a&quest;/../../x)}</style>',
+    // URL として落とす部分を含む値は、字面で読む側と指す場所が割れる。
+    '<img src="../images/a?/../../x">',
+    '<img src="../images/a#/../../x">',
+    '<img src="../css/x%2e%2e/..">',
+    '<img src="../images/%E5%9B%B3.svg">',
+    '<img src="../images/..\\x">',
+    '<img src="../images/a:b">',
+    '<img src="../images/a&#9;b.svg">',
+    '<img src=" ../images/a.svg">',
+    // Windows が黙って名前を変える綴り。
+    '<img src="../images/a./b">',
+    '<img src="../images/ /x">',
+    '<img src="../images/a /x">',
+    '<img src="../images/.../x">',
+    '<img src="../images/./a.svg">',
+    '<img src="../images//a.svg">',
+    '<img src="../images/a*.svg">',
+    '<img src="../images/a|b.svg">',
+    '<img src="../images">',
+    '<img src="../images/">',
   ])('rejects %s', (html) => {
     rejects(html);
   });
@@ -54,7 +79,10 @@ describe('assertPdfInputRefsContained', () => {
   it.each([
     '<link rel="stylesheet" href="../css/XX01_950037_交付版.css">',
     '<img src="../images/XX01/a.svg">',
-    '<img src="../images/a.png?v=1#x">',
+    '<link rel="stylesheet" href="../css/会社_ファンド_版種.css">',
+    '<img src="../images/xx01/図 1.svg">',
+    '<img src="../IMAGES/XX01/a.svg">',
+    '<img src="../images/a&amp;b.svg">',
     '<script src="../js/x.js"></script>',
     '<img srcset="../images/a.svg 1x, ../images/b.svg 2x">',
     '<style>@font-face{src:url(../css/fonts/a.woff2) format("woff2")}</style>',
