@@ -7,12 +7,15 @@ import type {
   DropdownOptions,
   DropdownQuery,
   DropdownScope,
+  FillResult,
   FundOption,
   GenerateRequest,
   GenerateResult,
   PairSyncStatus,
+  ReportStatus,
   SampleDataResult,
   SaveDraftRequest,
+  SkeletonAttributes,
   Template,
   TemplateDraft,
   TemplateMeta,
@@ -66,4 +69,12 @@ export interface TemplateRepository {
    * ペア対象外の版種でもエラーにせず `pairTemplateId: null` を返す(呼び出し側の分岐を単純に)。
    */
   getSyncStatus(templateId: string): Promise<Result<PairSyncStatus>>;
+  /** create_report 連携が有効か。画面が入口(値入り HTML の作成・PDF)を出すかの判定に使う。 */
+  getReportStatus(): Promise<Result<ReportStatus>>;
+  /** 値入り HTML を作れるテンプレート(`templates/` の 3 区切りのもの)の属性一覧。 */
+  listReportSkeletons(): Promise<Result<SkeletonAttributes[]>>;
+  /** 4 区切りの ID の値入り HTML を create_report で作る。既にあれば `created: false`。 */
+  fillTemplate(id: string): Promise<Result<FillResult>>;
+  /** 組み立て済みの文書 `html` を create_report 経由で PDF にする。失敗は `code` を保つ。 */
+  buildReportPdf(id: string, html: string): Promise<Result<Blob>>;
 }
