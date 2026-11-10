@@ -94,3 +94,11 @@ describe('restTemplateRepo の create_report 連携', () => {
     expect(isErr(res) && res.error.kind).toBe('network');
   });
 });
+
+describe('restTemplateRepo の不明な応答', () => {
+  it('buildReportPdf は構造化されていない 401 を unauthorized にする', async () => {
+    stubFetch(new Response('x', { status: 401 }));
+    const res = await restTemplateRepo.buildReportPdf('XX01_950037_交付版', '<p>x</p>');
+    expect(isErr(res) && res.error.kind).toBe('unauthorized');
+  });
+});

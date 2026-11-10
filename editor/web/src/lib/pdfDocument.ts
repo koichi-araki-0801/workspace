@@ -210,17 +210,16 @@ export async function renderReportDocument(
   const root = sanitizePdfRoot(formatHtml(html));
   dropUnmatchedCompanyImages(root, companyCode);
   const href = `../css/${cssFile}`;
-  const head = root.querySelector('head');
-  if (head) {
-    for (const l of Array.from(head.querySelectorAll('link'))) {
-      if (l.getAttribute('href') === href) {
-        l.remove();
-      }
+  // `WHOLE_DOCUMENT` のサニタイズは断片でも `<head>` を作るので、head の有無の分岐は要らない。
+  const head = root.ownerDocument.head;
+  for (const l of Array.from(head.querySelectorAll('link'))) {
+    if (l.getAttribute('href') === href) {
+      l.remove();
     }
-    const link = root.ownerDocument.createElement('link');
-    link.setAttribute('rel', 'stylesheet');
-    link.setAttribute('href', href);
-    head.appendChild(link);
   }
+  const link = root.ownerDocument.createElement('link');
+  link.setAttribute('rel', 'stylesheet');
+  link.setAttribute('href', href);
+  head.appendChild(link);
   return ok(serializePreviewRoot(root));
 }
