@@ -40,7 +40,7 @@ vi.mock('../src/config.js', async (importOriginal) => {
   };
 });
 
-import { REPORT_COMPANY_UNKNOWN } from '@editor/shared';
+import { REPORT_COMPANY_UNKNOWN, REPORT_INPUT_REF_OUTSIDE } from '@editor/shared';
 import { createReportRepo } from '../src/repositories/reportRepo.js';
 
 const ID = 'XX01_950037_20240710_交付版';
@@ -146,6 +146,32 @@ describe('reportRepo', () => {
       { kind: 'validation' },
     );
     expect(m.generateReportPdf).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '<iframe src="../../../../x/appconfig.json"></iframe>',
+    '<img src="/C:/x/appconfig.json">',
+    '<object data="../.."></object>',
+    '<link rel="stylesheet" href="../../x.css">',
+    '<div style="background:url(../../x.png)"></div>',
+    '<img srcset="../images/a.svg 1x, ../../x.png 2x">',
+  ])('buildPdf rejects refs outside the asset dirs: %s', async (html) => {
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await expect(repo.buildPdf(ID, html)).rejects.toMatchObject({
+      kind: 'validation',
+      code: REPORT_INPUT_REF_OUTSIDE,
+    });
+    expect(m.generateReportPdf).not.toHaveBeenCalled();
+  });
+
+  it('buildPdf accepts refs to css, images and js', async () => {
+    const html =
+      '<link rel="stylesheet" href="../css/XX01_950037_交付版.css">' +
+      '<img src="../images/XX01/a.svg"><script src="../js/x.js"></script>';
+    m.readFilledHtml.mockResolvedValue(html);
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await repo.buildPdf(ID, html);
+    expect(m.generateReportPdf).toHaveBeenCalledTimes(1);
   });
 
   it('buildPdf rejects editing markers', async () => {

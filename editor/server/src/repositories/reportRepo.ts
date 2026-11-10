@@ -21,6 +21,7 @@ import { generateFilled, generateReportPdf } from '../generate/createReport.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
+import { assertPdfInputRefsContained } from '../security/pdfInputRefs.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import { assertNoEditingMarkers } from './editingMarkerGate.js';
 import type { TemplateRepo } from './templateRepo.js';
@@ -101,6 +102,8 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
     }
     assertNoEditingMarkers(html, id);
     assertNoDocumentExternalRefs(html, '', PDF_WHERE);
+    // create_report は相対参照をパスのとおりにファイルとして読むので、資産の置き場の外を拒む。
+    assertPdfInputRefsContained(html, PDF_WHERE);
     // 組版は `<script>` を実行しうるので、確定済みの値入り HTML と同じ実行コードだけを通す。
     assertTemplateScriptsUnchanged(await readFilledHtml(`${id}.html`), html, {
       templateId: id,

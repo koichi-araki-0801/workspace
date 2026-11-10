@@ -129,3 +129,9 @@ export const REPORT_OUTPUT_MISSING = 'REPORT_OUTPUT_MISSING';
 export const REPORT_COMPANY_UNKNOWN = 'REPORT_COMPANY_UNKNOWN';
 /** create_report の設定が無く、機能が無効なときの `code`。 */
 export const REPORT_DISABLED = 'REPORT_DISABLED';
+/**
+ * 単体 PDF の入力 HTML が dataRoot の `css/`・`images/`・`js/` の外を参照しているときの 400 の
+ * `code`。create_report は `pdf-input/` に置いた HTML の相対参照をそのままファイルとして読むので、
+ * 外へ出る参照はサーバ上の任意のファイルを PDF へ写せる。
+ */
+export const REPORT_INPUT_REF_OUTSIDE = 'REPORT_INPUT_REF_OUTSIDE';

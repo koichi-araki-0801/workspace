@@ -117,6 +117,7 @@ export default defineConfig({
         'editor/server/src/routes/*.ts',
         'editor/server/src/middleware/auth.ts',
         'editor/server/src/security/externalRefs.ts',
+        'editor/server/src/security/pdfInputRefs.ts',
         // 隔離の完結で新設。配信ルートへ写す許可リストと egress 遮断の実体で、
         // どちらも「サニタイズを外した代わりの守り」なので閾値の対象へ入れる。
         'editor/server/src/vivliostyle/docAssets.ts',
