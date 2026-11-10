@@ -4,13 +4,15 @@
 // =============================================================================
 import { type DropdownQuery, isErr, type TemplateMeta } from '@editor/shared';
 import { Search } from '@lucide/vue';
-import { ref } from 'vue';
+import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
+import { buttonVariants } from '@/components/ui/Button.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
 import { usePendingReviewsStore } from '@/stores/pendingReviews';
+import NewBaseDateDialog from './components/NewBaseDateDialog.vue';
 import SearchFilters from './components/SearchFilters.vue';
 import TemplateTable from './components/TemplateTable.vue';
 import { editorRoute, opensAsCreate } from './editorRoute';
@@ -25,6 +27,14 @@ const latestSearch = useLatest();
 const rows = ref<TemplateMeta[]>([]);
 const versionCounts = ref<Record<string, number>>({});
 const searched = ref(false);
+// 帳票作成の連携が有効なときだけ「新しい基準日で開く」を出す。状態の取得に失敗したら出さない。
+const reportEnabled = ref(false);
+const newBaseDateOpen = ref(false);
+
+onMounted(async () => {
+  const status = await repo.getReportStatus();
+  reportEnabled.value = !isErr(status) && status.value.enabled;
+});
 
 async function search(q: DropdownQuery) {
   const isLatest = latestSearch.begin();
@@ -57,6 +67,15 @@ function openReview(m: TemplateMeta) {
 <template>
   <div class="space-y-4">
     <h2 class="text-lg font-bold">テンプレートを検索</h2>
+    <button
+      v-if="reportEnabled"
+      type="button"
+      :class="buttonVariants({ variant: 'outline', size: 'sm' })"
+      @click="newBaseDateOpen = true"
+    >
+      新しい基準日で開く
+    </button>
+    <NewBaseDateDialog v-if="reportEnabled" v-model:open="newBaseDateOpen" />
     <SearchFilters dropdown-scope="edit" @search="search" @restore="search" />
     <TemplateTable
       v-if="searched"
