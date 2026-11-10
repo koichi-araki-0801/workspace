@@ -127,6 +127,7 @@ export default defineConfig({
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
+        'editor/server/src/generate/scriptRunner.ts',
         'editor/server/src/generate/generatorCheck.ts',
         'editor/server/src/generate/baseDate.ts',
         'editor/server/src/generate/generatorLog.ts',

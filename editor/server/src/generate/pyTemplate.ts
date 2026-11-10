@@ -308,14 +308,8 @@ async function runGenerator(args: string[]): Promise<void> {
     await runPythonScript(generatorSpec(), args);
   } catch (err) {
     if (err instanceof ScriptRunError) {
-      throw new Error(
-        `Python生成器の実行に失敗: ${err.message}${
-          err.stderr
-            ? `
-${err.stderr}`
-            : ''
-        }`,
-      );
+      const tail = err.stderr ? `\n${err.stderr}` : '';
+      throw new Error(`Python生成器の実行に失敗: ${err.message}${tail}`);
     }
     throw err;
   }

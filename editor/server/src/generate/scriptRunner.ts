@@ -1,7 +1,7 @@
 // =============================================================================
 // scriptRunner.ts — Python スクリプトの起動部品(指紋の照合・子プロセス起動・同時実行の枠)
 // =============================================================================
-// 作成タブのテンプレート生成器(`pyTemplate.ts`)と、他の Python スクリプトの呼び出しが共用する。
+// 作成タブのテンプレート生成器(`pyTemplate.ts`)が使う、スクリプトを安全に起動するための部品。
 // 子プロセスへ渡す環境変数は許可リストで絞る。`process.env` を丸ごと渡すと、HTTPS のパスフレーズや
 // DB 接続の追加文字列を共有上のコードが読める。秘密値だけを削る拒否リストにしないのは、
 // 秘密値が増えたときに黙って漏れるため。同時実行の枠は全スクリプトで 1 つを共有する。
@@ -40,7 +40,7 @@ export const GENERATE_QUEUE_FULL_MESSAGE =
  * `message` を応答に使い、数値の `statusCode` を状態コードに使う。Error のインスタンスに
  * するのは、`auditedRethrow` が監査ログへ `message` を残すため。
  */
-export function generatorError(message: string, code: string, statusCode: number): Error {
+function generatorError(message: string, code: string, statusCode: number): Error {
   return Object.assign(new Error(message), { kind: 'unexpected' as const, code, statusCode });
 }
 
@@ -63,7 +63,7 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
   } catch (err) {
     logger.error(
       { err, script },
-      '[generate] 生成器のスクリプトを読めず指紋を照合できません — 生成を拒否しました',
+      `[generate] ${path.basename(script)} を読めず指紋を照合できません — 生成を拒否しました`,
     );
     throw generatorError(
       GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
@@ -74,7 +74,7 @@ export async function assertScriptFingerprint(spec: ScriptSpec): Promise<void> {
   if (actual !== expected) {
     logger.error(
       { script, expected, actual },
-      '[generate] 生成器の指紋が設定と一致しません — 生成を拒否しました',
+      `[generate] ${path.basename(script)} の指紋が設定と一致しません — 生成を拒否しました`,
     );
     throw generatorError(
       GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
