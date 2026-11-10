@@ -38,6 +38,13 @@ const STDERR_TAIL_CHARS = 2000;
 
 const BASE_DATE_RE = /^(\d{4})(\d{2})(\d{2})$/;
 
+/**
+ * 単体 PDF の起動に付けるフラグ。スクリプトはこれがあるときだけ `pdf-input/` を読み `pdf/` に書く。
+ * 付けない `--pdf-only` は editor を通さない単独の実行のために空けておく(`pdf-input/` と `pdf/` は
+ * editor が消すので、単独の実行が読み書きすると入力が無いか出力が消える)。
+ */
+const FROM_EDITOR_FLAG = '--from-editor';
+
 /** 利用者へそのまま出せる文言と状態コードを持つ Error(`scriptRunner.ts` の `generatorError` と同じ形)。 */
 function reportError(
   message: string,
@@ -88,8 +95,9 @@ export function reportArgs(
     argToken('ファンドコード', attrs.fundCode),
     toIsoBaseDate(attrs.baseDate),
     argToken('版種', attrs.editionType),
-    mode === 'html' ? '--html-only' : '--pdf-only',
-    '--fund-only',
+    ...(mode === 'html'
+      ? ['--html-only', '--fund-only']
+      : ['--pdf-only', '--fund-only', FROM_EDITOR_FLAG]),
   ];
 }
 

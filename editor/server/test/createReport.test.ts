@@ -95,8 +95,16 @@ describe('reportArgs', () => {
       '--fund-only',
     ]);
   });
-  it('builds pdf-only args and rejects unsafe tokens', () => {
-    expect(reportArgs('01281', ATTRS, 'pdf')[4]).toBe('--pdf-only');
+  it('builds pdf-only args with --from-editor and rejects unsafe tokens', () => {
+    expect(reportArgs('01281', ATTRS, 'pdf')).toEqual([
+      '01281',
+      '880008',
+      '2023-11-17',
+      '交付版',
+      '--pdf-only',
+      '--fund-only',
+      '--from-editor',
+    ]);
     expect(() => reportArgs('../x', ATTRS, 'html')).toThrow();
   });
   it.each([
@@ -239,7 +247,7 @@ describe('generateReportPdf', () => {
     expect(fs.existsSync(inputFile)).toBe(false);
     expect(fs.existsSync(pdfFile)).toBe(false);
     const args = execFileMock.mock.calls[0][1] as string[];
-    expect(args.slice(-2)).toEqual(['--pdf-only', '--fund-only']);
+    expect(args.slice(-3)).toEqual(['--pdf-only', '--fund-only', '--from-editor']);
   });
 
   it.each(['a:b_880008_20231117_交付版', '..\\x_880008_20231117_交付版'])(

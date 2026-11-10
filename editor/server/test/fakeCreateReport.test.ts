@@ -32,6 +32,7 @@ function run(
   root: string,
   fund: string,
   flag: '--html-only' | '--pdf-only',
+  extra: string[] = flag === '--pdf-only' ? ['--from-editor'] : [],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const env: Record<string, string> = {
     PYTHONUTF8: '1',
@@ -47,7 +48,7 @@ function run(
   return new Promise((resolve) => {
     execFile(
       BIN,
-      [...BIN_ARGS, SCRIPT, '01281', fund, '2023-11-17', '交付版', flag, '--fund-only'],
+      [...BIN_ARGS, SCRIPT, '01281', fund, '2023-11-17', '交付版', flag, '--fund-only', ...extra],
       { encoding: 'utf8', timeout: 20_000, env },
       (err, stdout, stderr) => {
         const code = err ? Number((err as { code?: unknown }).code ?? 1) : 0;
@@ -81,6 +82,16 @@ describe('fake_create_report.py', () => {
     expect(r.code).toBe(0);
     const pdf = fs.readFileSync(path.join(root, 'pdf', `XX01_${FUND}_20231117_交付版.pdf`));
     expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
+  }, 30_000);
+
+  it('fake rejects --pdf-only without --from-editor and --html-only with it', async () => {
+    const root = dataRoot('flags');
+    fs.mkdirSync(path.join(root, 'pdf-input'));
+    fs.writeFileSync(path.join(root, 'pdf-input', `XX01_${FUND}_20231117_交付版.html`), '<p>x</p>');
+    expect((await run(root, FUND, '--pdf-only', [])).code).toBe(64);
+    expect(fs.existsSync(path.join(root, 'pdf'))).toBe(false);
+    expect((await run(root, FUND, '--html-only', ['--from-editor'])).code).toBe(64);
+    expect(fs.existsSync(path.join(root, 'filled'))).toBe(false);
   }, 30_000);
 
   it('fake exits 0 without output for 999103', async () => {

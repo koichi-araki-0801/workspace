@@ -2,14 +2,16 @@
 """テスト・e2e 用の偽の create_report.py。本番は REPORT_SCRIPT で本物を指す。
 
 呼び出し元は editor/server/src/generate/createReport.ts。本物と同じ約束で動く。
-- 引数: <委託会社コード> <ファンド> <基準日 yyyy-mm-dd> <版種> (--html-only | --pdf-only) --fund-only
-  位置引数 4 つとフラグ 2 つ。委託会社コードは受け取るだけで使わない。
+- 引数: <委託会社コード> <ファンド> <基準日 yyyy-mm-dd> <版種> (--html-only --fund-only | --pdf-only --fund-only --from-editor)
+  委託会社コードは受け取るだけで使わない。--from-editor の無い --pdf-only は本物では editor を通さない
+  単独の実行(pdf-input/ と pdf/ に触らない)だが、editor が付け忘れたら気づけるよう、このフェイクは
+  使い方の誤り(exit 64)として拒む。
 - dataRoot は環境変数 TEMPLATES_DIR の親フォルダとする。本物は dataRoot を自分の設定で持ち、
   editor からは渡されない。親を取るのはこのフェイクだけの都合。
 - 会社略称は dataRoot の templates/ にある `*_<ファンド>_<版種>.html` から取る。無ければ exit 2。
 - --html-only: templates/ のスケルトンの本文を、
   filled/<略称>_<ファンド>_<yyyymmdd>_<版種>.html へ写す(一時ファイル経由で名前を変える)。
-- --pdf-only: pdf-input/<id>.html があることを確かめ(無ければ exit 3)、`%PDF-1.4` で始まる
+- --pdf-only --from-editor: pdf-input/<id>.html があることを確かめ(無ければ exit 3)、`%PDF-1.4` で始まる
   最小の PDF を pdf/<id>.pdf に書く。HTML の中身は読まない。
 - 標準出力には何も出さない。
 - 起動のたびに、dataRoot の親フォルダの `report-calls.log` へ引数を 1 行足す(e2e が「走らなかった」
@@ -58,11 +60,19 @@ def _abbreviation(templates: str, fund: str, edition: str) -> str | None:
     return os.path.basename(found)[: -len(suffix)]
 
 
+_USAGE = (
+    "usage: fake_create_report.py REP1 FUND YYYY-MM-DD EDITION"
+    " (--html-only --fund-only | --pdf-only --fund-only --from-editor)"
+)
+_FLAG_SETS = (["--html-only", "--fund-only"], ["--pdf-only", "--fund-only", "--from-editor"])
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 6 or argv[4] not in ("--html-only", "--pdf-only") or argv[5] != "--fund-only":
-        print("usage: fake_create_report.py REP1 FUND YYYY-MM-DD EDITION (--html-only|--pdf-only) --fund-only", file=sys.stderr)
+    if len(argv) < 4 or argv[4:] not in _FLAG_SETS:
+        print(_USAGE, file=sys.stderr)
         return 64
-    _rep1, fund, iso, edition, flag, _ = argv
+    _rep1, fund, iso, edition = argv[:4]
+    flag = argv[4]
     _log_call(argv)
     if fund == FAIL_FUND:
         print("fake create_report: 失敗を模擬します", file=sys.stderr)
