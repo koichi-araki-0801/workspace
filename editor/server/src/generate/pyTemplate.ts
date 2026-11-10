@@ -14,7 +14,6 @@
 // 長さを控えて今回の追記分だけを読む。editor は標準出力を使わず、ログに載った名前を 1 つずつ
 // 検査し(この呼び出しで書かれた通常のファイルか・会社が合うか・空でないか)、通ったものだけを
 // 読む。ログに載っていないファイルや前回の生成物を、今回の出力と取り違えないため。
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,9 +26,17 @@ import {
   type SkeletonAttributes,
 } from '@editor/shared';
 import { config } from '../config.js';
-import { logger } from '../logger.js';
-import { BuildAdmissionGate } from '../vivliostyle/buildAdmission.js';
 import { generatorLogPath, logSizeBefore, parseOutputNames, readRunLog } from './generatorLog.js';
+import {
+  assertScriptFingerprint,
+  GENERATE_QUEUE_FULL_MESSAGE,
+  GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
+  generatorEnv,
+  runPythonScript,
+  ScriptRunError,
+  type ScriptSpec,
+  withGeneratorSlot,
+} from './scriptRunner.js';
 
 /** 生成器が 1 ファンドにつき書く版の順(作成画面のファンドの結果はこの順で返す)。 */
 export const GENERATED_EDITIONS = CREATABLE_EDITIONS;
@@ -59,105 +66,7 @@ export interface GeneratedFile {
   path: string;
 }
 
-/**
- * 指紋が合わないときに利用者へ出す文言(生成器の差し替えは管理者の対応事項)。
- * テストから直接検証するために公開する。
- * @public
- */
-export const GENERATOR_FINGERPRINT_MISMATCH_MESSAGE =
-  'テンプレート生成器の指紋が設定と一致しないため、生成を中止しました。管理者に連絡してください';
-
-/**
- * 利用者へそのまま出せる文言と状態コードを持つ Error。`errorHandler` は `kind` を持つ値の
- * `message` を応答に使い、数値の `statusCode` を状態コードに使う。Error のインスタンスに
- * するのは、`auditedRethrow` が監査ログへ `message` を残すため。
- */
-function generatorError(message: string, code: string, statusCode: number): Error {
-  return Object.assign(new Error(message), { kind: 'unexpected' as const, code, statusCode });
-}
-
-/**
- * 生成器のスクリプトの指紋を照合する(設定が無ければ何もしない)。生成のたびに読むのは、
- * 照合から起動までの間に共有上のスクリプトを差し替えられる幅を狭めるため。読めないときも
- * 拒否する — 照合できない生成器を起動すると、指紋を設定した意味が消える。
- */
-async function assertGeneratorFingerprint(): Promise<void> {
-  const expected = config.python.scriptSha256;
-  if (expected === undefined) {
-    return;
-  }
-  const script = config.python.script;
-  let actual: string;
-  try {
-    actual = createHash('sha256')
-      .update(await readFile(script))
-      .digest('hex');
-  } catch (err) {
-    logger.error(
-      { err, script },
-      '[generate] 生成器のスクリプトを読めず指紋を照合できません — 生成を拒否しました',
-    );
-    throw generatorError(
-      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
-      'GENERATOR_FINGERPRINT_MISMATCH',
-      500,
-    );
-  }
-  if (actual !== expected) {
-    logger.error(
-      { script, expected, actual },
-      '[generate] 生成器の指紋が設定と一致しません — 生成を拒否しました',
-    );
-    throw generatorError(
-      GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
-      'GENERATOR_FINGERPRINT_MISMATCH',
-      500,
-    );
-  }
-}
-
-/**
- * 生成の待ち行列が満杯のときに利用者へ出す文言(PDF ビルドの満杯時と同じ形)。
- * テストから直接検証するために公開する。
- */
-export const GENERATE_QUEUE_FULL_MESSAGE =
-  'テンプレート生成の順番待ちが混み合っています。しばらく待ってから再実行してください';
-
-/**
- * 生成の受付制御。上限が無いと、同時に押された数だけ Python が立ち上がる。満杯なら待たせずに
- * 503 で断る — 待たせると、待つ間ずっと HTTP 接続とリクエストを握り続ける。
- */
-const GENERATE_GATE = new BuildAdmissionGate({
-  maxConcurrent: config.python.maxConcurrency,
-  maxQueue: config.python.maxQueue,
-  queueFullError: () => generatorError(GENERATE_QUEUE_FULL_MESSAGE, 'GENERATE_QUEUE_FULL', 503),
-});
-
-/**
- * 親から引き継ぐ環境変数。Windows で Python(既定の PATH 上の python。py ランチャを指定した場合は
- * それも)が動く最小限(`SYSTEMROOT` が無いと Python の乱数・ソケットの初期化が失敗する)。
- */
-const INHERITED_ENV_KEYS = ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP', 'PATHEXT', 'COMSPEC'] as const;
-
-/**
- * 生成器(と起動時の版確認)の子プロセスへ渡す環境変数を組む。`TEMPLATES_DIR` はコピー元
- * (`sourceFundCode`)のテンプレートの読み先で、サーバの本当の置き場(`config.templatesDir`)を必ず渡す。
- * 書き先は環境変数でなく、スクリプトの位置から決まる `output/` なので渡さない。
- */
-export function generatorEnv(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {};
-  for (const key of INHERITED_ENV_KEYS) {
-    const value = process.env[key];
-    if (value !== undefined) {
-      env[key] = value;
-    }
-  }
-  // Python ツールに UTF-8 出力を強制する(Windows の既定は cp932)。
-  env.PYTHONUTF8 = '1';
-  env.PYTHONIOENCODING = 'utf-8';
-  env.TEMPLATES_DIR = config.templatesDir;
-  return env;
-}
+export { GENERATE_QUEUE_FULL_MESSAGE, GENERATOR_FINGERPRINT_MISMATCH_MESSAGE, generatorEnv };
 
 /** 生成器の書き先。スクリプトの 1 つ上の階層の `output/`(生成器の約束で固定)。 */
 export function generatorOutputDir(): string {
@@ -317,8 +226,8 @@ export function generateTemplates(
   const dir = generatorOutputDir();
   const log = generatorLogPath(config.python.script, rep1, fund, baseDate);
   // 指紋の照合は枠を取った後・起動の直前に行う(待ち行列にいる間の差し替えも拾う)。
-  return GENERATE_GATE.run(async () => {
-    await assertGeneratorFingerprint();
+  return withGeneratorSlot(async () => {
+    await assertScriptFingerprint(generatorSpec());
     // 書かれたかの比較の基準は、起動の直前に取る(待ち行列の間に別の生成が書いた分を混ぜない)。
     const before = await snapshotOutputs(dir);
     const sizeBefore = await logSizeBefore(log);
@@ -385,29 +294,29 @@ export async function removeGeneratedFiles(files: readonly GeneratedFile[]): Pro
   }
 }
 
-function runGenerator(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = execFile(
-      config.python.bin,
-      [...config.python.args, config.python.script, ...args],
-      {
-        cwd: path.dirname(config.python.script),
-        timeout: config.python.timeoutMs,
-        maxBuffer: 16 * 1024 * 1024,
-        encoding: 'utf8',
-        env: generatorEnv(),
-      },
-      // 標準出力は使わない(出力は output/ のファイルと実行ログ)。失敗時の stderr だけを残す。
-      (err, _stdout, stderr) => {
-        if (err) {
-          reject(
-            new Error(`Python生成器の実行に失敗: ${err.message}${stderr ? `\n${stderr}` : ''}`),
-          );
-          return;
-        }
-        resolve();
-      },
-    );
-    child.on('error', reject);
-  });
+/** 作成タブの生成器の起動指定(設定から組む)。 */
+function generatorSpec(): ScriptSpec {
+  return {
+    script: config.python.script,
+    scriptSha256: config.python.scriptSha256,
+    timeoutMs: config.python.timeoutMs,
+  };
+}
+
+async function runGenerator(args: string[]): Promise<void> {
+  try {
+    await runPythonScript(generatorSpec(), args);
+  } catch (err) {
+    if (err instanceof ScriptRunError) {
+      throw new Error(
+        `Python生成器の実行に失敗: ${err.message}${
+          err.stderr
+            ? `
+${err.stderr}`
+            : ''
+        }`,
+      );
+    }
+    throw err;
+  }
 }
