@@ -30,7 +30,6 @@ import { generatorLogPath, logSizeBefore, parseOutputNames, readRunLog } from '.
 import {
   assertScriptFingerprint,
   GENERATE_QUEUE_FULL_MESSAGE,
-  GENERATOR_FINGERPRINT_MISMATCH_MESSAGE,
   generatorEnv,
   runPythonScript,
   ScriptRunError,
@@ -66,7 +65,7 @@ export interface GeneratedFile {
   path: string;
 }
 
-export { GENERATE_QUEUE_FULL_MESSAGE, GENERATOR_FINGERPRINT_MISMATCH_MESSAGE, generatorEnv };
+export { GENERATE_QUEUE_FULL_MESSAGE, generatorEnv };
 
 /** 生成器の書き先。スクリプトの 1 つ上の階層の `output/`(生成器の約束で固定)。 */
 export function generatorOutputDir(): string {

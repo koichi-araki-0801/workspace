@@ -239,7 +239,10 @@ describe('生成器の指紋', () => {
     try {
       const mod = await import('../src/generate/pyTemplate.js');
       const { logger } = await import('../src/logger.js');
-      return { ...mod, logger };
+      const { GENERATOR_FINGERPRINT_MISMATCH_MESSAGE } = await import(
+        '../src/generate/scriptRunner.js'
+      );
+      return { ...mod, logger, GENERATOR_FINGERPRINT_MISMATCH_MESSAGE };
     } finally {
       if (saved === undefined) {
         delete process.env.PY_GENERATE_SCRIPT_SHA256;
