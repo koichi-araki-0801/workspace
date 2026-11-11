@@ -20,6 +20,7 @@ import {
   REVIEW_BASE_CHANGED,
   REVIEW_NOT_REVIEWABLE,
   REVIEW_PART_DECISION_TRANSITION,
+  REVIEW_REGENERATED,
   REVIEW_RENDER_ERROR,
 } from '@editor/shared';
 import { ref } from 'vue';
@@ -97,6 +98,7 @@ export function useReviewDiff(reqId: () => string) {
     REVIEW_PART_DECISION_TRANSITION,
     REVIEW_BASE_CHANGED,
     REVIEW_NOT_REVIEWABLE,
+    REVIEW_REGENERATED,
   ];
   /** 判定・最終確定の文言に並ぶパーツのキーを、右欄の番号とパーツ名へ読み替える。 */
   const describe = (message: string) => describePartKeys(message, changes.value);

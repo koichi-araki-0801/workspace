@@ -1181,7 +1181,8 @@ describe('ReviewDetail の承認後の正式 PDF の通知', () => {
     await w.find('[data-finalize]').trigger('click');
     await flushPromises();
     expect(buildDiff).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(toast)).toHaveBeenCalledWith('申請後に再作成されました。', 'error');
+    expect(vi.mocked(toast).mock.calls).toEqual([['申請後に再作成されました。', 'error']]);
+    expect(vi.mocked(toastError)).not.toHaveBeenCalled();
   });
 
   it('画面を離れたら問い合わせを止める', async () => {

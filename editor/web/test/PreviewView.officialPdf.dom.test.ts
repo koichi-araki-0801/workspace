@@ -10,7 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REPOS_KEY } from '@/api/repositories';
 import PreviewView from '@/features/preview/PreviewView.vue';
 
-const h = vi.hoisted(() => ({ loadForPreview: vi.fn(), auth: { isApprover: false } }));
+const h = vi.hoisted(() => ({
+  loadForPreview: vi.fn(),
+  auth: { ready: true, user: { role: 'editor' } as object | null, isApprover: false },
+}));
 vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({}) }));
 vi.mock('@/components/ui/toast', () => ({ toastError: vi.fn(), toastSuccess: vi.fn() }));
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => h.auth }));
@@ -99,6 +102,8 @@ const rebuildButton = (w: Awaited<ReturnType<typeof mountView>>['w']) =>
 beforeEach(() => {
   setActivePinia(createPinia());
   h.loadForPreview.mockReset();
+  h.auth.ready = true;
+  h.auth.user = { role: 'editor' };
   h.auth.isApprover = false;
 });
 afterEach(() => {
@@ -145,6 +150,19 @@ describe('PreviewView の正式 PDF の状態', () => {
     h.auth.isApprover = true;
     const approver = await mountView(FILLED_ID, true, st('done'));
     expect(rebuildButton(approver.w)).toBeDefined();
+  });
+
+  it('無認証モード(取得済みで利用者なし)では作り直しボタンが出る', async () => {
+    h.auth.user = null;
+    const { w } = await mountView(FILLED_ID, true, st('done'));
+    expect(rebuildButton(w)).toBeDefined();
+  });
+
+  it('利用者の取得前は作り直しボタンを出さない', async () => {
+    h.auth.ready = false;
+    h.auth.user = null;
+    const { w } = await mountView(FILLED_ID, true, st('done'));
+    expect(rebuildButton(w)).toBeUndefined();
   });
 
   it('押すと rebuildOfficialPdf を呼び、状態が待ちになる', async () => {

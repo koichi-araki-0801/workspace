@@ -7,6 +7,8 @@ import { ref } from 'vue';
 import { pollOfficialPdf, useOfficialPdfStatus } from '@/lib/useOfficialPdfStatus';
 
 const repo = vi.hoisted(() => ({ officialPdfStatus: vi.fn(), rebuildOfficialPdf: vi.fn() }));
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock('@/components/ui/toast', () => ({ toastError }));
 vi.mock('@/api/repositories', () => ({ useTemplateRepo: () => repo }));
 
 const st = (state: OfficialPdfStatus['state']): OfficialPdfStatus => ({
@@ -113,8 +115,10 @@ describe('useOfficialPdfStatus', () => {
 
   it('rebuild が失敗したら状態を変えない', async () => {
     repo.rebuildOfficialPdf.mockResolvedValue(err({ message: 'x' }));
+    toastError.mockClear();
     const h = useOfficialPdfStatus(ref('X'));
     await h.rebuild();
+    expect(toastError).toHaveBeenCalledWith('x');
     expect(h.status.value).toBeNull();
     expect(repo.officialPdfStatus).not.toHaveBeenCalled();
   });

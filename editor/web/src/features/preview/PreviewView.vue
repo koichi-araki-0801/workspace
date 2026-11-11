@@ -87,9 +87,23 @@ const awaitingReportStatus = computed(() => reportCandidate.value && !reportStat
 const auth = useAuthStore();
 const officialPdf = useOfficialPdfStatus(toRef(props, 'id'));
 const showOfficialPdf = computed(() => useReportPdf.value);
-watch(showOfficialPdf, (on) => {
-  if (on) { officialPdf.start(); } else { officialPdf.stop(); }
-});
+// 利用者の取得後に利用者が居ないのは無認証モード(サーバがロールを見ない)なので、出す側にする。
+const canRebuildOfficialPdf = computed(
+  () => auth.ready && (auth.user === null || auth.isApprover),
+);
+// 同じルートで id だけ変わる遷移ではコンポーネントが作り直されないため、id の変化でも張り直す。
+watch(
+  [showOfficialPdf, () => props.id],
+  ([on]) => {
+    officialPdf.status.value = null;
+    if (on) {
+      officialPdf.start();
+    } else {
+      officialPdf.stop();
+    }
+  },
+  { immediate: true },
+);
 const officialPdfText = computed(() => {
   const st = officialPdf.status.value;
   if (!st) { return ''; }
@@ -462,7 +476,7 @@ async function exportPdf() {
     >
       <span>正式 PDF: {{ officialPdfText }}</span>
       <Button
-        v-if="auth.isApprover"
+        v-if="canRebuildOfficialPdf"
         variant="outline"
         size="sm"
         :disabled="officialPdfBusy"

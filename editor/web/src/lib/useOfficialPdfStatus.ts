@@ -7,6 +7,7 @@
 import { isOk, type OfficialPdfStatus, type Result } from '@editor/shared';
 import { getCurrentScope, onScopeDispose, type Ref, ref } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
+import { toastError } from '@/components/ui/toast';
 
 const DEFAULT_INTERVAL_MS = 3000;
 
@@ -87,6 +88,7 @@ export function useOfficialPdfStatus(
   async function rebuild(): Promise<void> {
     const res = await repo.rebuildOfficialPdf(id.value);
     if (!isOk(res)) {
+      toastError(res.error.message);
       return;
     }
     status.value = res.value;
