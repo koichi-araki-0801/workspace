@@ -170,6 +170,11 @@ export class ScriptRunError extends Error {
   }
 }
 
+/** 起動の共通条件。cwd はスクリプトのあるフォルダ、環境変数は許可リストで絞ったもの。 */
+function baseExecOptions(spec: ScriptSpec) {
+  return { cwd: path.dirname(spec.script), timeout: spec.timeoutMs, env: generatorEnv() };
+}
+
 /**
  * `config.python.bin` でスクリプトを起動し、終了まで待つ。cwd はスクリプトのあるフォルダ。
  * 標準出力は使わない(出力はファイルと実行ログ)。失敗時の stderr だけを `ScriptRunError` に残す。
@@ -180,11 +185,9 @@ export function runPythonScript(spec: ScriptSpec, args: readonly string[]): Prom
       config.python.bin,
       [...config.python.args, spec.script, ...args],
       {
-        cwd: path.dirname(spec.script),
-        timeout: spec.timeoutMs,
+        ...baseExecOptions(spec),
         maxBuffer: 16 * 1024 * 1024,
         encoding: 'utf8',
-        env: generatorEnv(),
       },
       (err, _stdout, stderr) => {
         if (err) {
@@ -216,11 +219,9 @@ export function runPythonScriptIo(
       config.python.bin,
       [...config.python.args, spec.script, ...args],
       {
-        cwd: path.dirname(spec.script),
-        timeout: spec.timeoutMs,
+        ...baseExecOptions(spec),
         maxBuffer: SCRIPT_STDOUT_MAX_BYTES,
         encoding: 'buffer',
-        env: generatorEnv(),
       },
       (err, stdout, stderr) => {
         if (err) {
