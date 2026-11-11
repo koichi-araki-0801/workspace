@@ -66,7 +66,7 @@ describe('officialPdfJobs', () => {
 
   it('records failure message', async () => {
     const build = vi.fn(async () => {
-      throw Object.assign(new Error('x'), { code: 'REPORT_RUN_FAILED' });
+      throw Object.assign(new Error('x'), { kind: 'unexpected', code: 'REPORT_RUN_FAILED' });
     });
     const { jobs } = setup(build);
     jobs.request('A');
@@ -76,13 +76,24 @@ describe('officialPdfJobs', () => {
     expect(st.error).toBe('x');
   });
 
-  it('records non-Error throws as text', async () => {
+  it('hides the raw message of an unclassified error', async () => {
     const { jobs } = setup(async () => {
-      throw 'boom';
+      throw new Error('secret detail');
     });
     jobs.request('A');
     await jobs.settled();
-    expect((await jobs.status('A')).error).toBe('boom');
+    const { error } = await jobs.status('A');
+    expect(error).toBeTruthy();
+    expect(error).not.toContain('secret');
+  });
+
+  it('hides a non-Error throw too', async () => {
+    const { jobs } = setup(async () => {
+      throw 'secret text';
+    });
+    jobs.request('A');
+    await jobs.settled();
+    expect((await jobs.status('A')).error).not.toContain('secret');
   });
 
   it('derives status from files when nothing is recorded', async () => {

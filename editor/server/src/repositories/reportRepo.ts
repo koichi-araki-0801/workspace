@@ -65,6 +65,7 @@ async function mtimeOrNull(file: string): Promise<Date | null> {
 const companyKey = (code: string): string => code.trimEnd().toLowerCase();
 
 const PDF_WHERE = 'report-pdf';
+const OFFICIAL_PDF_WHERE = 'official-pdf';
 
 /** 単体 PDF の人ごとの上限を超えたときの Error(`errorHandler` が 503 と code をそのまま返す)。 */
 function reportBusyUserError(): Error {
@@ -167,6 +168,10 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
   const jobs = createOfficialPdfJobs({
     build: async (id) => {
       const attrs = parseFilledId(id);
+      // create_report が読むのは filled/ の実体。単体 PDF と同じ検査をそのファイルにかける。
+      const html = await readFilledHtml(`${id}.html`);
+      assertNoDocumentExternalRefs(html, '', OFFICIAL_PDF_WHERE);
+      assertPdfInputRefsContained(html, OFFICIAL_PDF_WHERE);
       await buildOfficialPdf(id, await resolveRep1Code(templates, attrs.companyCode));
     },
     pdfMtime: (id) => mtimeOrNull(path.join(config.pdfDir, `${id}.pdf`)),

@@ -2,7 +2,25 @@
 // reportRepo.test.ts — create_report 連携の集約(会社コード引き・排他の外の検査・git コミット)
 // =============================================================================
 // generate / files / git は境界で差し替え、検査と呼び出しの順序だけを確かめる。
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// 偽の create_report.py を実プロセスで通すテスト用の置き場。`config.ts` は import 時に env を
+// 読むので、importより前(hoisted)で設定する。
+const fakeRoot = vi.hoisted(() => {
+  const r = `${process.env.TEMP ?? process.env.TMPDIR ?? '/tmp'}/editor-reportrepo-fake-${process.pid}`;
+  process.env.DATA_ROOT = r;
+  process.env.TEMPLATES_DIR = `${r}/templates`;
+  process.env.FILLED_DIR = `${r}/filled`;
+  process.env.LOG_DIR = `${r}/logs`;
+  process.env.PYTHON_BIN = process.platform === 'win32' ? 'py' : 'python3';
+  process.env.PYTHONUTF8 = '1';
+  process.env.REPORT_SCRIPT = `${import.meta.dirname}/../scripts/fake_create_report.py`;
+  delete process.env.REPORT_SCRIPT_SHA256;
+  return r;
+});
 
 const m = vi.hoisted(() => ({
   generateFilled: vi.fn(),
@@ -19,7 +37,7 @@ vi.mock('../src/generate/createReport.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/generate/createReport.js')>()),
   generateFilled: m.generateFilled,
   generateReportPdf: m.generateReportPdf,
-  buildOfficialPdf: m.buildOfficialPdf,
+  buildOfficialPdf: (...a: [string, string]) => m.buildOfficialPdf(...a),
 }));
 vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/files/templateFiles.js')>()),
@@ -50,6 +68,7 @@ import {
   REPORT_DISABLED,
   REPORT_INPUT_REF_OUTSIDE,
 } from '@editor/shared';
+import { config as realConfig } from '../src/config.js';
 import { createReportRepo } from '../src/repositories/reportRepo.js';
 
 const ID = 'XX01_950037_20240710_交付版';
@@ -291,4 +310,38 @@ describe('reportRepo', () => {
     m.report = undefined;
     await expect(repo.officialPdfStatus(ID)).rejects.toMatchObject({ code: REPORT_DISABLED });
   });
+
+  it('a filled with an external ref fails the job without starting create_report', async () => {
+    m.readFilledHtml.mockResolvedValue('<img src="https://evil.example/x.png">');
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await repo.requestOfficialPdf(ID);
+    await repo.settleOfficialPdfs();
+    expect(await repo.officialPdfStatus(ID)).toMatchObject({ state: 'failed' });
+    expect(m.buildOfficialPdf).not.toHaveBeenCalled();
+  });
+
+  it('requestOfficialPdf writes pdf/<id>.pdf through the fake create_report.py', async () => {
+    const real = await vi.importActual<typeof import('../src/generate/createReport.js')>(
+      '../src/generate/createReport.js',
+    );
+    m.buildOfficialPdf.mockImplementation(real.buildOfficialPdf);
+    // `config` はモック経由だと `report` が差し替わるので、本物の設定から取る。
+    const actual = await vi.importActual<typeof import('../src/config.js')>('../src/config.js');
+    m.report = actual.config.report;
+    // 偽のスクリプトは会社略称を templates/ のスケルトンから引く。
+    fs.mkdirSync(`${fakeRoot}/templates`, { recursive: true });
+    fs.writeFileSync(`${fakeRoot}/templates/${SKELETON}`, '<p>t</p>');
+    fs.mkdirSync(realConfig.filledDir, { recursive: true });
+    fs.writeFileSync(path.join(realConfig.filledDir, `${ID}.html`), '<p>filled</p>');
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await repo.requestOfficialPdf(ID);
+    await repo.settleOfficialPdfs();
+    const st = await repo.officialPdfStatus(ID);
+    expect(st.error).toBeNull();
+    expect(st.state).toBe('done');
+    const pdf = fs.readFileSync(path.join(realConfig.pdfDir, `${ID}.pdf`), 'latin1');
+    expect(pdf.startsWith('%PDF-')).toBe(true);
+  }, 60_000);
 });
+
+afterAll(() => fs.rmSync(fakeRoot, { recursive: true, force: true }));

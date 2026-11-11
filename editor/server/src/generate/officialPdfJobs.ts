@@ -4,7 +4,7 @@
 // 組版中に来た要求は「もう 1 回」の印だけを立てる(何回来ても 1 回)。組版が終わったあとに
 // 1 回だけ回し直すので、要求の時点より新しい filled が必ず PDF に反映される。
 // 枠(`withGeneratorSlot`)は `build` の中で取る。ここでは足さない。
-import type { OfficialPdfStatus } from '@editor/shared';
+import { type OfficialPdfStatus, toAppError } from '@editor/shared';
 import { logger } from '../logger.js';
 
 export interface OfficialPdfJobs {
@@ -40,7 +40,8 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
           await deps.build(id);
           records.set(key, { state: 'done', updatedAt: now().toISOString(), error: null });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          // 画面に出すのは利用者向けの文言だけ。DB エラーなどの生の文言は logger にだけ残す。
+          const message = toAppError(err).message;
           logger.error({ id, err }, '[report] 正式 PDF の組版に失敗しました');
           records.set(key, { state: 'failed', updatedAt: now().toISOString(), error: message });
         }
