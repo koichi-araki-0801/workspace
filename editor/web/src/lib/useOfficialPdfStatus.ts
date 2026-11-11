@@ -12,10 +12,15 @@ import { toastError } from '@/components/ui/toast';
 const DEFAULT_INTERVAL_MS = 3000;
 
 /**
- * 承認後の通知のために問い合わせ中の正式 PDF の id。画面(コンポーネント)をまたいで共有し、
- * 同じ id の承認が続いても通知を重ねて出さないために使う。
+ * 承認後の通知のために問い合わせ中の正式 PDF の鍵(小文字。サーバの鍵に合わせる)。画面
+ * (コンポーネント)をまたいで共有し、同じ id の承認が続いても通知を重ねて出さないために使う。
  */
-export const watchingOfficialPdfIds = new Set<string>();
+const watchingIds = new Set<string>();
+
+/** テスト用。問い合わせ中の記録を空にする。 */
+export function resetWatchingOfficialPdfs(): void {
+  watchingIds.clear();
+}
 
 /** まだ組版が終わっていない(問い合わせを続ける)状態か。 */
 export function isOfficialPdfPending(status: OfficialPdfStatus): boolean {
@@ -24,15 +29,26 @@ export function isOfficialPdfPending(status: OfficialPdfStatus): boolean {
 
 /**
  * `fetchStatus` を問い合わせ、結果を `onUpdate` へ渡す。`queued` / `building` の間だけ
- * `intervalMs` で繰り返す。戻り値は止める関数。
+ * `intervalMs` で繰り返す。戻り値は止める関数。問い合わせが終わるとき(終わった状態・失敗・
+ * 例外・止められた)に、一度だけ `onEnd` を呼ぶ。
  */
 export function pollOfficialPdf(
   fetchStatus: () => Promise<Result<OfficialPdfStatus>>,
   onUpdate: (status: OfficialPdfStatus) => void,
   intervalMs = DEFAULT_INTERVAL_MS,
+  onEnd?: () => void,
 ): () => void {
   let stopped = false;
+  let ended = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const end = (): void => {
+    if (ended) {
+      return;
+    }
+    ended = true;
+    onEnd?.();
+  };
 
   const tick = async (): Promise<void> => {
     timer = null;
@@ -40,14 +56,21 @@ export function pollOfficialPdf(
     try {
       res = await fetchStatus();
     } catch {
+      end();
       return;
     }
     if (stopped || !isOk(res)) {
+      end();
       return;
     }
-    onUpdate(res.value);
-    if (isOfficialPdfPending(res.value)) {
-      timer = setTimeout(() => void tick(), intervalMs);
+    try {
+      onUpdate(res.value);
+    } finally {
+      if (isOfficialPdfPending(res.value)) {
+        timer = setTimeout(() => void tick(), intervalMs);
+      } else {
+        end();
+      }
     }
   };
 
@@ -58,7 +81,26 @@ export function pollOfficialPdf(
       clearTimeout(timer);
     }
     timer = null;
+    end();
   };
+}
+
+/**
+ * 同じ id の問い合わせが走っていれば新しく張らず(`null`)、無ければ `pollOfficialPdf` で張る。
+ * 記録はどの終わり方でも問い合わせが終わる 1 か所で消えるので、呼び出し側は消さなくてよい。
+ */
+export function pollOfficialPdfOnce(
+  id: string,
+  fetchStatus: () => Promise<Result<OfficialPdfStatus>>,
+  onUpdate: (status: OfficialPdfStatus) => void,
+  intervalMs = DEFAULT_INTERVAL_MS,
+): (() => void) | null {
+  const key = id.toLowerCase();
+  if (watchingIds.has(key)) {
+    return null;
+  }
+  watchingIds.add(key);
+  return pollOfficialPdf(fetchStatus, onUpdate, intervalMs, () => watchingIds.delete(key));
 }
 
 export function useOfficialPdfStatus(

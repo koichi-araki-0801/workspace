@@ -4,7 +4,12 @@
 import { err, type OfficialPdfStatus, ok } from '@editor/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ref } from 'vue';
-import { pollOfficialPdf, useOfficialPdfStatus } from '@/lib/useOfficialPdfStatus';
+import {
+  pollOfficialPdf,
+  pollOfficialPdfOnce,
+  resetWatchingOfficialPdfs,
+  useOfficialPdfStatus,
+} from '@/lib/useOfficialPdfStatus';
 
 const repo = vi.hoisted(() => ({ officialPdfStatus: vi.fn(), rebuildOfficialPdf: vi.fn() }));
 const toastError = vi.hoisted(() => vi.fn());
@@ -22,9 +27,30 @@ beforeEach(() => {
   vi.useFakeTimers();
   repo.officialPdfStatus.mockReset();
   repo.rebuildOfficialPdf.mockReset();
+  resetWatchingOfficialPdfs();
 });
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('pollOfficialPdfOnce', () => {
+  it('問い合わせ中は id の大文字小文字が違っても新しく張らない', async () => {
+    const f = vi.fn().mockResolvedValue(ok(st('building')));
+    expect(pollOfficialPdfOnce('Ab', f, vi.fn(), 1000)).not.toBeNull();
+    expect(pollOfficialPdfOnce('aB', f, vi.fn(), 1000)).toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['終わった状態', () => Promise.resolve(ok(st('done')))],
+    ['失敗の結果', () => Promise.resolve(err(new Error('x') as never))],
+    ['例外', () => Promise.reject(new Error('x'))],
+  ])('%s で終わっても、次の同じ id を受け付ける', async (_name, fetch) => {
+    pollOfficialPdfOnce('a', vi.fn(fetch), vi.fn(), 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pollOfficialPdfOnce('a', vi.fn(fetch), vi.fn(), 1000)).not.toBeNull();
+  });
 });
 
 describe('pollOfficialPdf', () => {

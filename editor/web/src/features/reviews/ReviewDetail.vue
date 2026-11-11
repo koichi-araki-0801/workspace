@@ -37,11 +37,7 @@ import { useTemplatePreviewService } from '@/features/preview/services/templateP
 import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { pairSyncResultText } from '@/lib/pairSyncText';
-import {
-  isOfficialPdfPending,
-  pollOfficialPdf,
-  watchingOfficialPdfIds,
-} from '@/lib/useOfficialPdfStatus';
+import { pollOfficialPdfOnce } from '@/lib/useOfficialPdfStatus';
 import { useAuthStore } from '@/stores/auth';
 import ReviewDecisionBar from './ReviewDecisionBar.vue';
 import ReviewDecisionList from './ReviewDecisionList.vue';
@@ -340,16 +336,10 @@ async function onDecideFailed(code: string | undefined, message?: string): Promi
  */
 function watchOfficialPdfs(list: OfficialPdfStatus[] | null | undefined): void {
   for (const item of list ?? []) {
-    if (watchingOfficialPdfIds.has(item.id)) { continue; }
-    watchingOfficialPdfIds.add(item.id);
-    pollOfficialPdf(
-      async () => {
-        const res = await templateRepo.officialPdfStatus(item.id);
-        if (!isOk(res)) { watchingOfficialPdfIds.delete(item.id); }
-        return res;
-      },
+    pollOfficialPdfOnce(
+      item.id,
+      () => templateRepo.officialPdfStatus(item.id),
       (st) => {
-        if (!isOfficialPdfPending(st)) { watchingOfficialPdfIds.delete(item.id); }
         if (st.state === 'done') {
           toastSuccess(`正式 PDF を作りました: ${st.id}`);
         } else if (st.state === 'failed') {

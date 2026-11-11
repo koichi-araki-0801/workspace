@@ -26,6 +26,7 @@ import { toast, toastError, toastSuccess } from '@/components/ui/toast';
 import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
 import ReviewDetail from '@/features/reviews/ReviewDetail.vue';
 import type { ReviewChangeRow } from '@/features/reviews/services/reviewDiffService';
+import { resetWatchingOfficialPdfs } from '@/lib/useOfficialPdfStatus';
 
 // ── 1. 差し替え ──
 
@@ -234,6 +235,7 @@ beforeEach(() => {
   repo.approveReview.mockReset();
   repo.rejectReview.mockReset();
   tplRepo.officialPdfStatus.mockReset();
+  resetWatchingOfficialPdfs();
   repo.updatePartDecisions.mockImplementation(
     async (_id: string, input: { decisions: { partKey: string; status: string }[] }) =>
       ok(input.decisions.map((d) => decision(d.partKey, d.status as ReviewPartDecision['status']))),
