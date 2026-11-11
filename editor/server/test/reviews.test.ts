@@ -2048,4 +2048,124 @@ d('review workflow (reviewRepo)', () => {
       });
     });
   });
+
+  describe('承認で正式 PDF を積む', () => {
+    const status = (id: string) => ({ id, state: 'queued' as const, updatedAt: null, error: null });
+    const syncOf = (applied: string[], cssApplied: string[]) => ({
+      pairTemplateId: 'XX01_PAIR_20250101_全体版',
+      applied,
+      skipped: [],
+      valueWarnings: [],
+      css: { applied: cssApplied, skipped: [], conflicts: [] },
+    });
+    /** 承認用のリポジトリ。申請と判定は共有の `reviews`(同じ dataRoot)で済ませる。 */
+    const approveWith = async (officialPdf: unknown, sync: unknown = null) => {
+      const { createReviewRepo } = await import('../src/repositories/reviewRepo.js');
+      const { createDeps } = await import('../src/deps.js');
+      const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
+      const deps = createDeps(createOfflineSproc(), createSessionStub());
+      return createReviewRepo({
+        noteMaster: deps.noteMaster,
+        pairSync: { syncPairAfterConfirm: async () => sync } as never,
+        sampleOf: (templateId) => sampleOf(templateId),
+        ...(officialPdf ? { officialPdf: officialPdf as never } : {}),
+      });
+    };
+    const fakePdf = (fail = false) => {
+      const queued: string[] = [];
+      return {
+        queued,
+        requestOfficialPdf: async (id: string) => {
+          if (fail) {
+            throw new Error('boom');
+          }
+          queued.push(id);
+        },
+        officialPdfStatus: async (id: string) => status(id),
+      };
+    };
+
+    it('編集経路の承認で承認した id だけを積み、状態を返す', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810001_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const pdf = fakePdf();
+      const repo = await approveWith(pdf);
+      const res = await repo.approveReview(meta.id, {}, approver);
+      expect(pdf.queued).toEqual([id]);
+      expect(res.officialPdf).toEqual([status(id)]);
+    });
+
+    it('ペアへパーツが写ったらペアも積む', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810002_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const pdf = fakePdf();
+      const repo = await approveWith(pdf, syncOf(['p#1'], []));
+      const res = await repo.approveReview(meta.id, {}, approver);
+      expect(pdf.queued).toEqual([id, 'XX01_PAIR_20250101_全体版']);
+      expect(res.officialPdf?.length).toBe(2);
+    });
+
+    it('CSS だけ写ったときもペアを積む', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810003_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const pdf = fakePdf();
+      const repo = await approveWith(pdf, syncOf([], ['.a']));
+      await repo.approveReview(meta.id, {}, approver);
+      expect(pdf.queued).toEqual([id, 'XX01_PAIR_20250101_全体版']);
+    });
+
+    it('何も写らなければペアは積まない', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810004_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const pdf = fakePdf();
+      const repo = await approveWith(pdf, syncOf([], []));
+      await repo.approveReview(meta.id, {}, approver);
+      expect(pdf.queued).toEqual([id]);
+    });
+
+    it('作成経路では積まず officialPdf は null', { timeout: 60_000 }, async () => {
+      const meta = await submitApprovedCreate('XX01_810005_交付版', '<p>a</p>');
+      const pdf = fakePdf();
+      const repo = await approveWith(pdf);
+      const res = await repo.approveReview(meta.id, {}, approver);
+      expect(pdf.queued).toEqual([]);
+      expect(res.officialPdf).toBeNull();
+    });
+
+    it('積むのが失敗しても承認は成功し、その版は返さない', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810006_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const repo = await approveWith(fakePdf(true));
+      const res = await repo.approveReview(meta.id, {}, approver);
+      expect(res.meta.id).toBe(id);
+      expect(res.officialPdf).toEqual([]);
+    });
+
+    it('連携が無効(REPORT_DISABLED)なら null', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810007_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const disabled = {
+        requestOfficialPdf: async () => {
+          throw Object.assign(new Error('off'), { code: 'REPORT_DISABLED' });
+        },
+        officialPdfStatus: async (i: string) => status(i),
+      };
+      const repo = await approveWith(disabled);
+      expect((await repo.approveReview(meta.id, {}, approver)).officialPdf).toBeNull();
+    });
+
+    it('officialPdf を渡さなければ null', { timeout: 60_000 }, async () => {
+      const id = 'XX01_810008_20250101_交付版';
+      const meta = await submit(id, '<p>a</p>');
+      await decideAll(meta.id);
+      const repo = await approveWith(null);
+      expect((await repo.approveReview(meta.id, {}, approver)).officialPdf).toBeNull();
+    });
+  });
 });

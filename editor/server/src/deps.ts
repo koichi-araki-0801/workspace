@@ -33,6 +33,7 @@ export function createDeps(sproc: SprocClient, sessionStore: SessionStore): Deps
   const noteMaster = createNoteMasterService({ noteMasters: createNoteMasterRepo(sproc), parts });
   const pairSync = createPairSyncService(parts, { read: readTemplateValues });
   const templates = createTemplateRepo(sproc);
+  const report = createReportRepo(templates);
   return {
     auth: createAuthRepo({ sproc, sessionStore }),
     users: createUserRepo(sproc),
@@ -43,9 +44,10 @@ export function createDeps(sproc: SprocClient, sessionStore: SessionStore): Deps
       noteMaster,
       pairSync,
       sampleOf: async (templateId) => (await templates.getSampleData(templateId)).sample,
+      officialPdf: report,
     }),
     pairSync,
     noteMaster,
-    report: createReportRepo(templates),
+    report,
   };
 }

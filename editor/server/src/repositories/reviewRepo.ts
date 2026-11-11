@@ -28,10 +28,13 @@ import {
   isApprover,
   MAX_REVIEW_PART_SCAN_CHARS,
   notFound,
+  type OfficialPdfStatus,
+  type PairSyncSummary,
   parseAnyTemplateFileName,
   parseSkeletonFileName,
   parseTemplateFileName,
   partKeysText,
+  REPORT_DISABLED,
   REVIEW_ALREADY_DECIDED,
   REVIEW_BASE_CHANGED,
   REVIEW_BASE_CHANGED_MESSAGE,
@@ -81,6 +84,7 @@ import {
   type ConfirmedTarget,
 } from './confirmedWrite.js';
 import { assertNoEditingMarkers } from './editingMarkerGate.js';
+import type { ReportRepo } from './reportRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
 export interface ReviewActor {
@@ -546,15 +550,47 @@ export interface ReviewRepo {
   ): Promise<ReviewRequestMeta>;
 }
 
+/** 承認した id と、パーツか CSS が写ったペアの id(正式 PDF を組み直す対象)。 */
+function pairIdsToRebuild(id: string, sync: PairSyncSummary | null): string[] {
+  const copied = sync !== null && (sync.applied.length > 0 || (sync.css?.applied.length ?? 0) > 0);
+  return copied ? [id, sync.pairTemplateId] : [id];
+}
+
+/**
+ * 正式 PDF を積み、積んだ版の状態を返す。承認は成立済みなので失敗では止めない(ログだけ残し、
+ * その版は返さない)。連携が無効(`REPORT_DISABLED`)なら積めないので null。
+ */
+async function queueOfficialPdfs(
+  pdf: Pick<ReportRepo, 'requestOfficialPdf' | 'officialPdfStatus'>,
+  ids: string[],
+): Promise<OfficialPdfStatus[] | null> {
+  const queued: OfficialPdfStatus[] = [];
+  for (const id of ids) {
+    try {
+      await pdf.requestOfficialPdf(id);
+      queued.push(await pdf.officialPdfStatus(id));
+    } catch (err) {
+      if ((err as { code?: string }).code === REPORT_DISABLED) {
+        return null;
+      }
+      logger.warn({ err, id }, '承認後の正式 PDF の受付に失敗した');
+    }
+  }
+  return queued;
+}
+
 export function createReviewRepo({
   noteMaster,
   pairSync,
   sampleOf,
+  officialPdf,
 }: {
   noteMaster: NoteMasterService;
   pairSync: PairSyncService;
   /** 作成経路の承認画面の本文を描く sample(`deps.ts` が `templates.getSampleData` を渡す)。 */
   sampleOf: SampleOf;
+  /** 承認後に正式 PDF を積む口(`deps.ts` が `report` を渡す)。無ければ積まない。 */
+  officialPdf?: Pick<ReportRepo, 'requestOfficialPdf' | 'officialPdfStatus'>;
 }): ReviewRepo {
   return {
     /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
@@ -914,7 +950,11 @@ export function createReviewRepo({
           actor.username,
           target,
         );
-        return { meta, staleWarning, sync, noteMaster: noteMasterResult };
+        const pdf =
+          review.origin === 'edit' && officialPdf
+            ? await queueOfficialPdfs(officialPdf, pairIdsToRebuild(review.templateId, sync))
+            : null;
+        return { meta, staleWarning, sync, noteMaster: noteMasterResult, officialPdf: pdf };
       });
     },
 
