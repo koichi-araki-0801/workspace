@@ -121,6 +121,47 @@ describe('officialPdfJobs', () => {
     expect(build).toHaveBeenCalledTimes(2);
   });
 
+  it('runs again for a request arriving right after a build resolves', async () => {
+    const ds = [deferred(), deferred()];
+    const build = vi.fn(() => ds[build.mock.calls.length - 1].promise);
+    const { jobs } = setup(build);
+    jobs.request('A');
+    await vi.waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+    ds[0].resolve();
+    queueMicrotask(() => jobs.request('A'));
+    await vi.waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+    ds[1].resolve();
+    await jobs.settled();
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts a new build when requested after done', async () => {
+    const build = vi.fn(async () => {});
+    const { jobs } = setup(build);
+    jobs.request('A');
+    await jobs.settled();
+    jobs.request('A');
+    await jobs.settled();
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the id even if recording itself throws', async () => {
+    const build = vi.fn(async () => {});
+    const jobs = createOfficialPdfJobs({
+      build,
+      pdfMtime: async () => null,
+      filledMtime: async () => null,
+      now: () => {
+        throw new Error('clock');
+      },
+    });
+    jobs.request('A');
+    await jobs.settled();
+    jobs.request('A');
+    await jobs.settled();
+    expect(build).toHaveBeenCalledTimes(2);
+  });
+
   it('uses the real clock by default', async () => {
     const jobs = createOfficialPdfJobs({
       build: async () => {},

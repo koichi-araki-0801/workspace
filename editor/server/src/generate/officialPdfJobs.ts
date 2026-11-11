@@ -32,18 +32,24 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
   async function runLoop(key: string, id: string): Promise<void> {
     // queued を一度は観測できるよう、同期の呼び出し元から切り離して始める
     await Promise.resolve();
-    do {
-      again.delete(key);
-      records.set(key, { state: 'building', updatedAt: null, error: null });
-      try {
-        await deps.build(id);
-        records.set(key, { state: 'done', updatedAt: now().toISOString(), error: null });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.error({ id, err }, '[report] 正式 PDF の組版に失敗しました');
-        records.set(key, { state: 'failed', updatedAt: now().toISOString(), error: message });
-      }
-    } while (again.has(key));
+    try {
+      do {
+        again.delete(key);
+        records.set(key, { state: 'building', updatedAt: null, error: null });
+        try {
+          await deps.build(id);
+          records.set(key, { state: 'done', updatedAt: now().toISOString(), error: null });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error({ id, err }, '[report] 正式 PDF の組版に失敗しました');
+          records.set(key, { state: 'failed', updatedAt: now().toISOString(), error: message });
+        }
+      } while (again.has(key));
+    } finally {
+      // 「もう 1 回」の印の確認と running からの解放を同じ同期区間で行う。間が空くと、
+      // その隙に来た request が印だけ立てて、誰にも回されないまま取りこぼされる
+      running.delete(key);
+    }
   }
 
   async function fromFiles(id: string): Promise<JobRecord> {
@@ -64,8 +70,8 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
         return;
       }
       records.set(key, { state: 'queued', updatedAt: null, error: null });
-      const job = runLoop(key, id).finally(() => {
-        running.delete(key);
+      const job = runLoop(key, id).catch((err) => {
+        logger.error({ id, err }, '[report] 正式 PDF のジョブが異常終了しました');
       });
       running.set(key, job);
     },
