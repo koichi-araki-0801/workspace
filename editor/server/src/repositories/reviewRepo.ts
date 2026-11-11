@@ -570,7 +570,7 @@ async function queueOfficialPdfs(
       await pdf.requestOfficialPdf(id);
       queued.push(await pdf.officialPdfStatus(id));
     } catch (err) {
-      if ((err as { code?: string }).code === REPORT_DISABLED) {
+      if (isAppError(err) && err.code === REPORT_DISABLED) {
         return null;
       }
       logger.warn({ err, id }, '承認後の正式 PDF の受付に失敗した');

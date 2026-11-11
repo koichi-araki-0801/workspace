@@ -2152,7 +2152,7 @@ d('review workflow (reviewRepo)', () => {
       await decideAll(meta.id);
       const disabled = {
         requestOfficialPdf: async () => {
-          throw Object.assign(new Error('off'), { code: 'REPORT_DISABLED' });
+          throw Object.assign(new Error('off'), { kind: 'not_found', code: 'REPORT_DISABLED' });
         },
         officialPdfStatus: async (i: string) => status(i),
       };
