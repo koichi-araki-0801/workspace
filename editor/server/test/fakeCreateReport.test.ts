@@ -144,10 +144,10 @@ describe('fake_create_report.py', () => {
     expect(r.code).toBe(5);
   }, 30_000);
 
-  it('rejects an invalid flag combination with 64', async () => {
+  it('rejects an invalid flag combination with 2', async () => {
     const root = dataRoot('badflags');
     const r = await run(root, FUND, '--html-only', { flags: ['--html-only', '--pdf-only'] });
-    expect(r.code).toBe(64);
+    expect(r.code).toBe(2);
     expect(fs.existsSync(path.join(root, 'filled'))).toBe(false);
   }, 30_000);
 

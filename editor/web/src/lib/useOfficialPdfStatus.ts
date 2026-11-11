@@ -11,6 +11,12 @@ import { toastError } from '@/components/ui/toast';
 
 const DEFAULT_INTERVAL_MS = 3000;
 
+/**
+ * 承認後の通知のために問い合わせ中の正式 PDF の id。画面(コンポーネント)をまたいで共有し、
+ * 同じ id の承認が続いても通知を重ねて出さないために使う。
+ */
+export const watchingOfficialPdfIds = new Set<string>();
+
 /** まだ組版が終わっていない(問い合わせを続ける)状態か。 */
 export function isOfficialPdfPending(status: OfficialPdfStatus): boolean {
   return status.state === 'queued' || status.state === 'building';

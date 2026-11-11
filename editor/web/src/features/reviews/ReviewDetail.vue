@@ -37,7 +37,11 @@ import { useTemplatePreviewService } from '@/features/preview/services/templateP
 import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { pairSyncResultText } from '@/lib/pairSyncText';
-import { pollOfficialPdf } from '@/lib/useOfficialPdfStatus';
+import {
+  isOfficialPdfPending,
+  pollOfficialPdf,
+  watchingOfficialPdfIds,
+} from '@/lib/useOfficialPdfStatus';
 import { useAuthStore } from '@/stores/auth';
 import ReviewDecisionBar from './ReviewDecisionBar.vue';
 import ReviewDecisionList from './ReviewDecisionList.vue';
@@ -331,13 +335,21 @@ async function onDecideFailed(code: string | undefined, message?: string): Promi
 
 /**
  * 承認で積んだ正式 PDF が終わるまで問い合わせ、終わったものから通知する。承認で申請が承認待ちの
- * 一覧から外れ、このカードが消えても通知は要るので、画面を離れても止めない(終わった状態で自分で止まる)。
+ * 一覧から外れ、このカードが消えても通知は要るので、画面を離れても止めない(終わった状態か
+ * 問い合わせの失敗で自分で止まる)。同じ id を問い合わせ中なら新しく張らず、既存の問い合わせに任せる。
  */
 function watchOfficialPdfs(list: OfficialPdfStatus[] | null | undefined): void {
   for (const item of list ?? []) {
+    if (watchingOfficialPdfIds.has(item.id)) { continue; }
+    watchingOfficialPdfIds.add(item.id);
     pollOfficialPdf(
-      () => templateRepo.officialPdfStatus(item.id),
+      async () => {
+        const res = await templateRepo.officialPdfStatus(item.id);
+        if (!isOk(res)) { watchingOfficialPdfIds.delete(item.id); }
+        return res;
+      },
       (st) => {
+        if (!isOfficialPdfPending(st)) { watchingOfficialPdfIds.delete(item.id); }
         if (st.state === 'done') {
           toastSuccess(`正式 PDF を作りました: ${st.id}`);
         } else if (st.state === 'failed') {

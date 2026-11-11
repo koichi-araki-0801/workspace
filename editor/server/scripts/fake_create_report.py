@@ -3,7 +3,7 @@
 
 呼び出し元は editor/server/src/generate/createReport.ts。本物と同じ約束で動く。
 - 引数: <委託会社コード> <ファンド> <基準日 yyyy-mm-dd> <版種> <フラグ...>
-  委託会社コードは受け取るだけで使わない。フラグは次の 4 つの形だけ。ほかは exit 64。
+  委託会社コードは受け取るだけで使わない。フラグは次の 4 つの形だけ。ほかは exit 2。
   --from-editor は「入出力と git の記録を editor が受け持つ」の意味。
 - dataRoot は環境変数 TEMPLATES_DIR の親フォルダとする。本物は dataRoot を自分の設定で持ち、
   editor からは渡されない。親を取るのはこのフェイクだけの都合。
@@ -43,7 +43,7 @@ SLEEP_FUND = "999102"
 NO_OUTPUT_FUND = "999103"
 NOT_PDF_FUND = "999104"
 SLEEP_SECONDS = 30
-EXIT_USAGE = 64
+EXIT_USAGE = 2
 EXIT_NO_INPUT = 3
 EXIT_UNRECORDED_CHANGE = 4
 EXIT_COMMIT_FAILED = 5

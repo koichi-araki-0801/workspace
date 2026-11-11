@@ -1185,6 +1185,26 @@ describe('ReviewDetail の承認後の正式 PDF の通知', () => {
     expect(vi.mocked(toastError)).not.toHaveBeenCalled();
   });
 
+  it('同じ id の問い合わせ中は新しく張らず、通知は 1 回だけ出す', async () => {
+    vi.mocked(toastSuccess).mockClear();
+    vi.useFakeTimers();
+    try {
+      tplRepo.officialPdfStatus.mockResolvedValue(st('building', 'A'));
+      const queued = [{ id: 'A', state: 'queued', updatedAt: null, error: null }] as const;
+      const w = await approveWith({ officialPdf: [...queued] });
+      w.unmount();
+      await approveWith({ officialPdf: [...queued] });
+      tplRepo.officialPdfStatus.mockResolvedValue(st('done', 'A'));
+      await vi.advanceTimersByTimeAsync(10000);
+      const built = vi
+        .mocked(toastSuccess)
+        .mock.calls.filter(([m]) => String(m).startsWith('正式 PDF を作りました'));
+      expect(built).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('画面を離れても終わるまで問い合わせて通知する', async () => {
     vi.useFakeTimers();
     try {
