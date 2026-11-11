@@ -1185,17 +1185,17 @@ describe('ReviewDetail の承認後の正式 PDF の通知', () => {
     expect(vi.mocked(toastError)).not.toHaveBeenCalled();
   });
 
-  it('画面を離れたら問い合わせを止める', async () => {
+  it('画面を離れても終わるまで問い合わせて通知する', async () => {
     vi.useFakeTimers();
     try {
-      tplRepo.officialPdfStatus.mockResolvedValue(st('building'));
+      tplRepo.officialPdfStatus.mockResolvedValueOnce(st('building', 'A'));
+      tplRepo.officialPdfStatus.mockResolvedValue(st('done', 'A'));
       const w = await approveWith({
         officialPdf: [{ id: 'A', state: 'queued', updatedAt: null, error: null }],
       });
-      const n = tplRepo.officialPdfStatus.mock.calls.length;
       w.unmount();
       await vi.advanceTimersByTimeAsync(10000);
-      expect(tplRepo.officialPdfStatus.mock.calls.length).toBe(n);
+      expect(vi.mocked(toastSuccess)).toHaveBeenCalledWith('正式 PDF を作りました: A');
     } finally {
       vi.useRealTimers();
     }

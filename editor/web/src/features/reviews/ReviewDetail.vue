@@ -27,7 +27,7 @@ import {
   toReviewMeta,
 } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
 
 import Button from '@/components/ui/Button.vue';
@@ -71,11 +71,6 @@ defineSlots<{ comments?: (props: CommentSlotProps) => unknown }>();
 
 const auth = useAuthStore();
 const templateRepo = useTemplateRepo();
-// 承認で積んだ正式 PDF の問い合わせ。画面を離れたら止める。
-const officialPdfStops: (() => void)[] = [];
-onBeforeUnmount(() => {
-  for (const stop of officialPdfStops.splice(0)) { stop(); }
-});
 const preview = useTemplatePreviewService();
 const {
   review,
@@ -334,10 +329,13 @@ async function onDecideFailed(code: string | undefined, message?: string): Promi
   if (reloaded && r && r.status !== 'pending') { emit('decided', toReviewMeta(r)); }
 }
 
-/** 承認で積んだ正式 PDF が終わるまで問い合わせ、終わったものから通知する。 */
+/**
+ * 承認で積んだ正式 PDF が終わるまで問い合わせ、終わったものから通知する。承認で申請が承認待ちの
+ * 一覧から外れ、このカードが消えても通知は要るので、画面を離れても止めない(終わった状態で自分で止まる)。
+ */
 function watchOfficialPdfs(list: OfficialPdfStatus[] | null | undefined): void {
   for (const item of list ?? []) {
-    const stop = pollOfficialPdf(
+    pollOfficialPdf(
       () => templateRepo.officialPdfStatus(item.id),
       (st) => {
         if (st.state === 'done') {
@@ -351,7 +349,6 @@ function watchOfficialPdfs(list: OfficialPdfStatus[] | null | undefined): void {
         }
       },
     );
-    officialPdfStops.push(stop);
   }
 }
 
