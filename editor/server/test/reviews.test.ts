@@ -2272,6 +2272,9 @@ d('review workflow (reviewRepo)', () => {
     });
 
     it('records a null baseCommit for a create-origin review', async () => {
+      // HEAD がある状態でも作成経路は記録しない(前のテストのコミットに頼らない)。
+      await seedCommitted('XX01_820012_20250101_交付版');
+      expect(head()).toMatch(/^[0-9a-f]{40}$/);
       const meta = await submit('XX01_820012_交付版', '<p>{{ fund.name }}</p>', 'create');
       expect(meta.status).toBe('pending');
       expect(meta.baseCommit).toBeNull();
