@@ -16,7 +16,7 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
 }
 
 function setup(build: (id: string) => Promise<void>) {
-  const pdf: { value: Date | null } = { value: null };
+  const pdf: { value: Date | null } = { value: T0 };
   const filled: { value: Date | null } = { value: null };
   const jobs = createOfficialPdfJobs({
     build,
@@ -41,7 +41,7 @@ describe('officialPdfJobs', () => {
     expect(await jobs.status('A')).toEqual({
       id: 'A',
       state: 'done',
-      updatedAt: T1.toISOString(),
+      updatedAt: T0.toISOString(),
       error: null,
     });
   });
@@ -98,6 +98,7 @@ describe('officialPdfJobs', () => {
 
   it('derives status from files when nothing is recorded', async () => {
     const { jobs, pdf, filled } = setup(async () => {});
+    pdf.value = null;
     filled.value = T0;
     expect(await jobs.status('A')).toEqual({
       id: 'A',
@@ -175,12 +176,42 @@ describe('officialPdfJobs', () => {
 
   it('uses the real clock by default', async () => {
     const jobs = createOfficialPdfJobs({
-      build: async () => {},
+      build: async () => {
+        throw new Error('x');
+      },
       pdfMtime: async () => null,
       filledMtime: async () => null,
     });
     jobs.request('A');
     await jobs.settled();
+    const st = await jobs.status('A');
+    expect(st.state).toBe('failed');
+    expect(Math.abs(Date.parse(st.updatedAt ?? '') - Date.now())).toBeLessThan(60_000);
+  });
+
+  it('re-derives done from the files so a rewritten filled shows stale', async () => {
+    const { jobs, pdf, filled } = setup(async () => undefined);
+    pdf.value = T0;
+    filled.value = T0;
+    jobs.request('A');
+    await jobs.settled();
+    expect((await jobs.status('A')).state).toBe('done');
+    filled.value = T1;
+    expect((await jobs.status('A')).state).toBe('stale');
+  });
+
+  it('shows done after a failure once a newer pdf appears', async () => {
+    const build = vi.fn(async () => {
+      throw new Error('x');
+    });
+    const { jobs, pdf, filled } = setup(build);
+    jobs.request('A');
+    await jobs.settled();
+    expect((await jobs.status('A')).state).toBe('failed');
+    pdf.value = T0;
+    filled.value = T0;
+    expect((await jobs.status('A')).state).toBe('failed');
+    pdf.value = new Date(T1.getTime() + 1000);
     expect((await jobs.status('A')).state).toBe('done');
   });
 });

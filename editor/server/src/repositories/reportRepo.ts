@@ -3,8 +3,6 @@
 // =============================================================================
 // ルートはここだけを呼ぶ。会社コードの引き、入口の検査、生成後の git コミットをまとめる。
 // 実際のスクリプト起動は `generate/createReport.ts` が担う。
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import {
   assertTemplateId,
   type FillResult,
@@ -21,6 +19,7 @@ import {
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
+import { filledFileMtime, officialPdfMtime, removeOfficialPdf } from '../files/officialPdfFiles.js';
 import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
 import {
   assertReportEnabled,
@@ -47,18 +46,6 @@ export interface ReportRepo {
   officialPdfStatus(id: string): Promise<OfficialPdfStatus>;
   /** 走っている・待っている正式 PDF の組版がすべて終わるまで待つ(テスト用)。 */
   settleOfficialPdfs(): Promise<void>;
-}
-
-/** ファイルの更新時刻。無ければ null、それ以外の stat の失敗は投げる。 */
-async function mtimeOrNull(file: string): Promise<Date | null> {
-  try {
-    return (await fs.stat(file)).mtime;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
-    throw err;
-  }
 }
 
 /** 略称の比較キー。Rep1 の略称は固定長で末尾に空白が付きうる。 */
@@ -168,14 +155,16 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
   const jobs = createOfficialPdfJobs({
     build: async (id) => {
       const attrs = parseFilledId(id);
+      // 以降の検査で落ちたとき、前の内容の PDF が「失敗」の裏に残らないよう先に消す。
+      await removeOfficialPdf(id);
       // create_report が読むのは filled/ の実体。単体 PDF と同じ検査をそのファイルにかける。
       const html = await readFilledHtml(`${id}.html`);
       assertNoDocumentExternalRefs(html, '', OFFICIAL_PDF_WHERE);
       assertPdfInputRefsContained(html, OFFICIAL_PDF_WHERE);
       await buildOfficialPdf(id, await resolveRep1Code(templates, attrs.companyCode));
     },
-    pdfMtime: (id) => mtimeOrNull(path.join(config.pdfDir, `${id}.pdf`)),
-    filledMtime: (id) => mtimeOrNull(path.join(config.filledDir, `${id}.html`)),
+    pdfMtime: officialPdfMtime,
+    filledMtime: filledFileMtime,
   });
 
   /** 連携が有効で、値入り HTML があることを確かめる。 */

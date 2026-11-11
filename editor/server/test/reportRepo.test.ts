@@ -29,6 +29,9 @@ const m = vi.hoisted(() => ({
   listTemplateFiles: vi.fn(),
   readFilledHtml: vi.fn(),
   filledExists: vi.fn(),
+  officialPdfMtime: vi.fn(),
+  filledFileMtime: vi.fn(),
+  removeOfficialPdf: vi.fn(),
   commitAll: vi.fn(),
   ensureRepo: vi.fn(),
   report: {} as unknown,
@@ -44,6 +47,11 @@ vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   listTemplateFiles: m.listTemplateFiles,
   readFilledHtml: m.readFilledHtml,
   filledExists: m.filledExists,
+}));
+vi.mock('../src/files/officialPdfFiles.js', () => ({
+  officialPdfMtime: m.officialPdfMtime,
+  filledFileMtime: m.filledFileMtime,
+  removeOfficialPdf: m.removeOfficialPdf,
 }));
 vi.mock('../src/git/gitRepo.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/git/gitRepo.js')>()),
@@ -90,6 +98,9 @@ describe('reportRepo', () => {
     m.buildOfficialPdf.mockResolvedValue(undefined);
     m.readFilledHtml.mockResolvedValue('<p>ok</p>');
     m.filledExists.mockResolvedValue(true);
+    m.officialPdfMtime.mockResolvedValue(new Date('2026-11-11T01:00:00Z'));
+    m.filledFileMtime.mockResolvedValue(new Date('2026-11-11T00:00:00Z'));
+    m.removeOfficialPdf.mockResolvedValue(undefined);
     m.commitAll.mockResolvedValue('sha');
   });
 
@@ -320,11 +331,26 @@ describe('reportRepo', () => {
     expect(m.buildOfficialPdf).not.toHaveBeenCalled();
   });
 
+  it('removes the old pdf before the input check so a failed job leaves none', async () => {
+    m.readFilledHtml.mockResolvedValue('<img src="https://evil.example/x.png">');
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await repo.requestOfficialPdf(ID);
+    await repo.settleOfficialPdfs();
+    expect(m.removeOfficialPdf).toHaveBeenCalledWith(ID);
+    expect(m.buildOfficialPdf).not.toHaveBeenCalled();
+  });
+
   it('requestOfficialPdf writes pdf/<id>.pdf through the fake create_report.py', async () => {
     const real = await vi.importActual<typeof import('../src/generate/createReport.js')>(
       '../src/generate/createReport.js',
     );
     m.buildOfficialPdf.mockImplementation(real.buildOfficialPdf);
+    const files = await vi.importActual<typeof import('../src/files/officialPdfFiles.js')>(
+      '../src/files/officialPdfFiles.js',
+    );
+    m.officialPdfMtime.mockImplementation(files.officialPdfMtime);
+    m.filledFileMtime.mockImplementation(files.filledFileMtime);
+    m.removeOfficialPdf.mockImplementation(files.removeOfficialPdf);
     // `config` はモック経由だと `report` が差し替わるので、本物の設定から取る。
     const actual = await vi.importActual<typeof import('../src/config.js')>('../src/config.js');
     m.report = actual.config.report;

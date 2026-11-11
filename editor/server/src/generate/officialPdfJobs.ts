@@ -10,7 +10,7 @@ import { logger } from '../logger.js';
 export interface OfficialPdfJobs {
   request(id: string): void;
   status(id: string): Promise<OfficialPdfStatus>;
-  /** 走っている・待っている組版がすべて終わるまで待つ(テストと終了時用)。 */
+  /** 走っている・待っている組版がすべて終わるまで待つ(テスト用)。 */
   settled(): Promise<void>;
 }
 
@@ -63,6 +63,24 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
     return { state, updatedAt: pdf.toISOString(), error: null };
   }
 
+  // 組版中(queued / building)はメモリの記録が正。それ以外はファイルの日時から出し直す。
+  // 単独の create_report が filled や PDF を書き換えても、古い done / failed を見せ続けない。
+  async function resolveRecord(id: string): Promise<JobRecord> {
+    const rec = records.get(id.toLowerCase());
+    if (rec && (rec.state === 'queued' || rec.state === 'building')) {
+      return rec;
+    }
+    const derived = await fromFiles(id);
+    if (rec?.state !== 'failed') {
+      return derived;
+    }
+    // 失敗のあとに単独の PDF 組版で PDF が書き直されたとき(失敗時点より新しいとき)だけ
+    // 失敗の記録を捨てる。組版の失敗は出力を消すので、新しい PDF は別経路で作られている。
+    const failedAt = rec.updatedAt === null ? 0 : Date.parse(rec.updatedAt);
+    const pdfAt = derived.updatedAt === null ? 0 : Date.parse(derived.updatedAt);
+    return pdfAt > failedAt ? derived : rec;
+  }
+
   return {
     request(id) {
       const key = id.toLowerCase();
@@ -77,8 +95,7 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
       running.set(key, job);
     },
     async status(id) {
-      const rec = records.get(id.toLowerCase()) ?? (await fromFiles(id));
-      return { id, ...rec };
+      return { id, ...(await resolveRecord(id)) };
     },
     async settled() {
       while (running.size > 0) {
