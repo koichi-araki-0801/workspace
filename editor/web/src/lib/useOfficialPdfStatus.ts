@@ -23,7 +23,7 @@ export function resetWatchingOfficialPdfs(): void {
 }
 
 /** まだ組版が終わっていない(問い合わせを続ける)状態か。 */
-export function isOfficialPdfPending(status: OfficialPdfStatus): boolean {
+function isOfficialPdfPending(status: OfficialPdfStatus): boolean {
   return status.state === 'queued' || status.state === 'building';
 }
 
