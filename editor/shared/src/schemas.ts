@@ -593,6 +593,15 @@ export const ReviewRequestMeta = z
     reviewedAt: z.string().nullable(),
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
+    baseCommit: z
+      .string()
+      .nullable()
+      .optional()
+      .meta({
+        description:
+          '申請時点の HEAD のコミット(編集経路)。承認時に、これより後の単独の create_report のコミットを' +
+          '探す。この項目より前の申請・作成経路・取れなかったときは欠落か null',
+      }),
     changedSummary: ReviewChangedSummary.nullable().optional(),
     partDecisions: z.array(ReviewPartDecision).optional().meta({
       description:
@@ -834,6 +843,14 @@ export const ApproveReviewResult = z
       description:
         '承認で積んだ正式 PDF の状態(承認した id と、パーツ・CSS を写したペア)。編集経路でない・連携無効なら null/欠落',
     }),
+    overwrittenAfterApprove: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '承認の直後に、承認した値入り HTML が別の書き手(単独の create_report)に書き換えられたか' +
+          '(HEAD と作業ツリーの両方が承認した内容と違う)。承認は成立済み。編集経路でなければ欠落',
+      }),
   })
   .meta({ id: 'ApproveReviewResult' });
 

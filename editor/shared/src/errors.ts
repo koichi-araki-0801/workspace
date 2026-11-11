@@ -42,6 +42,11 @@ export const REVIEW_BASE_CHANGED = 'REVIEW_BASE_CHANGED';
  */
 export const REVIEW_NOT_REVIEWABLE = 'REVIEW_NOT_REVIEWABLE';
 /**
+ * 申請の後で単独の create_report が同じ値入り HTML を作り直してコミットしたため、最終確定を受け付けない
+ * 409 の `code`。申請は元の版を編集した HTML 全体なので、承認すると作り直した値が消える。
+ */
+export const REVIEW_REGENERATED = 'REVIEW_REGENERATED';
+/**
  * 同じ人の PDF 出力(ビルド・結合・プロジェクト・プレビューの展開)が「実行中 1・待ち 1」を
  * 超えたときの 503 の `code`。共有の枠(全員で数台)を 1 人で埋めさせないため
  * (`server/src/vivliostyle/buildUserQuota.ts`)。web の PDF 出力の画面は code を見て文言を出す。

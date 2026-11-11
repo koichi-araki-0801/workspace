@@ -332,6 +332,45 @@ d('gitRepo', () => {
     expect(await git.showFile(oldHash, relNew)).toBe('');
   });
 
+  it('headCommit は HEAD の hash を返し、リポジトリが無い・コミットが無いと null', async () => {
+    expect(await git.headCommit()).toBe(
+      execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim(),
+    );
+    const { config } = await import('../src/config.js');
+    const original = config.gitRepoDir;
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-git-empty-'));
+    try {
+      config.gitRepoDir = empty;
+      expect(await git.headCommit()).toBeNull();
+      execFileSync('git', ['init', '-q'], { cwd: empty });
+      expect(await git.headCommit()).toBeNull();
+    } finally {
+      config.gitRepoDir = original;
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it('authorEmailsSince は base より後でそのパスに触れたコミットのメールを新しい順で返す', async () => {
+    const rel = 'templates/XX01_999999_20250121_交付版.html';
+    const other = 'templates/XX01_999999_20250122_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>0</p>', 'utf8');
+    const base = await git.commitAll('基準', { name: 'tester' });
+    fs.writeFileSync(path.join(tmp, rel), '<p>1</p>', 'utf8');
+    await git.commitAll('1 件目', { name: 'first' });
+    fs.writeFileSync(path.join(tmp, other), '<p>別</p>', 'utf8');
+    await git.commitAll('別のファイル', { name: 'unrelated' });
+    fs.writeFileSync(path.join(tmp, rel), '<p>2</p>', 'utf8');
+    await git.commitAll('2 件目', { name: 'second' });
+
+    expect(await git.authorEmailsSince(base, rel)).toEqual([
+      'second@editor.local',
+      'first@editor.local',
+    ]);
+    expect(await git.authorEmailsSince(await git.commitAll('なし', { name: 'x' }), rel)).toEqual(
+      [],
+    );
+  });
+
   it('showFile still resolves a valid hash:path after the option guard', async () => {
     const rel = 'templates/XX01_999999_20250103_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>guard 正常系</p>', 'utf8');
@@ -384,6 +423,17 @@ describe('gitRepo argument guards', () => {
       kind: 'validation',
     });
     await expect(git.logAllWithFiles('')).rejects.toMatchObject({ kind: 'validation' });
+  });
+
+  it('authorEmailsSince は不正な base とパスを 400 にする', async () => {
+    for (const base of ['--all', 'HEAD~1', 'main', `${hash}..HEAD`, '']) {
+      await expect(git.authorEmailsSince(base, 'filled/a.html')).rejects.toMatchObject({
+        kind: 'validation',
+      });
+    }
+    await expect(git.authorEmailsSince(hash, ':(exclude)filled')).rejects.toMatchObject({
+      kind: 'validation',
+    });
   });
 
   it('keeps normal repo-relative paths (including Japanese names) valid', async () => {

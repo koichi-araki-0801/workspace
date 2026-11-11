@@ -905,6 +905,125 @@
         }
       }
     },
+    "/report/official-pdf/{id}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "正式 PDF の組版状態",
+        "operationId": "getOfficialPdfStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "組版状態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfficialPdfStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "正式 PDF の組版を依頼(作り直し)",
+        "operationId": "rebuildOfficialPdf",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "受け付けた。組版は非同期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "$ref": "#/components/schemas/OfficialPdfStatus"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "精査者(承認者)権限が必要 (kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/templates/{id}/fill": {
       "post": {
         "tags": [
@@ -985,7 +1104,7 @@
             }
           },
           "502": {
-            "description": "create_report が異常終了した (kind=unexpected, code=REPORT_RUN_FAILED)",
+            "description": "create_report が異常終了した (code=REPORT_RUN_FAILED)、または標準出力が PDF でない (code=REPORT_OUTPUT_NOT_PDF) (kind=unexpected)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1108,7 +1227,7 @@
             }
           },
           "502": {
-            "description": "create_report が異常終了した (kind=unexpected, code=REPORT_RUN_FAILED)",
+            "description": "create_report が異常終了した (code=REPORT_RUN_FAILED)、または標準出力が PDF でない (code=REPORT_OUTPUT_NOT_PDF) (kind=unexpected)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4618,6 +4737,44 @@
         ],
         "additionalProperties": false
       },
+      "OfficialPdfStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "building",
+              "done",
+              "failed",
+              "missing",
+              "stale"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "updatedAt",
+          "error"
+        ],
+        "additionalProperties": false
+      },
       "FillResult": {
         "type": "object",
         "properties": {
@@ -4991,6 +5148,13 @@
               "null"
             ]
           },
+          "baseCommit": {
+            "description": "申請時点の HEAD のコミット(編集経路)。承認時に、これより後の単独の create_report のコミットを探す。この項目より前の申請・作成経路・取れなかったときは欠落か null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "changedSummary": {
             "anyOf": [
               {
@@ -5284,6 +5448,13 @@
               "null"
             ]
           },
+          "baseCommit": {
+            "description": "申請時点の HEAD のコミット(編集経路)。承認時に、これより後の単独の create_report のコミットを探す。この項目より前の申請・作成経路・取れなかったときは欠落か null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "changedSummary": {
             "anyOf": [
               {
@@ -5378,6 +5549,24 @@
                 "type": "null"
               }
             ]
+          },
+          "officialPdf": {
+            "description": "承認で積んだ正式 PDF の状態(承認した id と、パーツ・CSS を写したペア)。編集経路でない・連携無効なら null/欠落",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OfficialPdfStatus"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overwrittenAfterApprove": {
+            "description": "承認の直後に、承認した値入り HTML が別の書き手(単独の create_report)に書き換えられたか(HEAD と作業ツリーの両方が承認した内容と違う)。承認は成立済み。編集経路でなければ欠落",
+            "type": "boolean"
           }
         },
         "required": [

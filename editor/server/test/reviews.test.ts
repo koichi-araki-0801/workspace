@@ -11,6 +11,23 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { filledDoc } from './helpers/filledDoc.js';
 import { createSessionStub } from './helpers/sessionStub.js';
 
+// 承認の書き込み(`applyConfirmedWrite`)の直後に割り込む口。承認の書き込みとコミットのあとで
+// 単独の create_report が書き換えた場合と、承認のコミットだけが失敗した場合を作る。既定は何もしない。
+const confirmedWriteHook = vi.hoisted(() => ({
+  after: null as null | (() => void),
+}));
+vi.mock('../src/repositories/confirmedWrite.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../src/repositories/confirmedWrite.js')>();
+  return {
+    ...orig,
+    applyConfirmedWrite: async (op: Parameters<typeof orig.applyConfirmedWrite>[0]) => {
+      const meta = await orig.applyConfirmedWrite(op);
+      confirmedWriteHook.after?.();
+      return meta;
+    },
+  };
+});
+
 // config を import する前に一時ディレクトリへ向ける。
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-review-'));
 process.env.DATA_ROOT = tmp;
@@ -2166,6 +2183,199 @@ d('review workflow (reviewRepo)', () => {
       await decideAll(meta.id);
       const repo = await approveWith(null);
       expect((await repo.approveReview(meta.id, {}, approver)).officialPdf).toBeNull();
+    });
+  });
+
+  describe('申請後の単独の再作成と、承認直後の上書き', () => {
+    const REGENERATED_MESSAGE = '申請後に再作成されました。';
+    const rel = (id: string) => `filled/${id}.html`;
+    const gitOut = (args: string[]) =>
+      execFileSync('git', args, { cwd: tmp, encoding: 'utf8' }).trim();
+    const head = () => gitOut(['rev-parse', 'HEAD']);
+    const metaJsonPath = (reqId: string) => path.join(tmp, 'reviews', reqId, 'meta.json');
+    /** 値入り HTML を置いて editor の形でコミットし、申請の基準(HEAD)に載せる。 */
+    const seedCommitted = async (id: string) => {
+      seedFilled(id);
+      const git = await import('../src/git/gitRepo.js');
+      await git.ensureRepo();
+      await git.commitAll(`種: ${id}`, { name: 'system' });
+    };
+    /** `filled/<id>.html` だけを、指定のメールの作者でコミットする(単独の create_report の形)。 */
+    const commitAs = (id: string, html: string, email: string) => {
+      fs.writeFileSync(filledFile(id), html, 'utf8');
+      const env = {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'op',
+        GIT_AUTHOR_EMAIL: email,
+        GIT_COMMITTER_NAME: 'op',
+        GIT_COMMITTER_EMAIL: email,
+      };
+      const opts = { cwd: tmp, env, stdio: 'ignore' as const };
+      execFileSync('git', ['add', '--', rel(id)], opts);
+      execFileSync(
+        'git',
+        [
+          '-c',
+          `core.hooksPath=${path.join(tmp, '.no-hooks')}`,
+          '-c',
+          'commit.gpgSign=false',
+          '-c',
+          `user.email=${email}`,
+          'commit',
+          '--no-verify',
+          '--only',
+          '-m',
+          `create_report（単独）で ${id} を生成`,
+          '--',
+          rel(id),
+        ],
+        opts,
+      );
+    };
+    const standaloneCommit = (id: string, html: string) =>
+      commitAs(id, html, 'op@create_report.local');
+
+    it('records baseCommit on submit', async () => {
+      const id = 'XX01_820001_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await submit(id, '<p>申請</p>');
+      expect(meta.baseCommit).toBe(head());
+      expect(JSON.parse(fs.readFileSync(metaJsonPath(meta.id), 'utf8')).baseCommit).toBe(head());
+    });
+
+    it('blocks approve when a standalone commit follows the review', async () => {
+      const id = 'XX01_820002_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await submit(id, '<p>申請の版</p>');
+      await decideAll(meta.id);
+      const standalone = filledDoc('<p>単独で再作成</p>');
+      standaloneCommit(id, standalone);
+      const headBefore = head();
+      const metaBefore = fs.readFileSync(metaJsonPath(meta.id), 'utf8');
+
+      await expect(reviews.approveReview(meta.id, {}, approver)).rejects.toMatchObject({
+        kind: 'conflict',
+        code: 'REVIEW_REGENERATED',
+        message: REGENERATED_MESSAGE,
+      });
+      // ファイル・申請・git のどれも変えない。
+      expect(fs.readFileSync(filledFile(id), 'utf8')).toBe(standalone);
+      expect(head()).toBe(headBefore);
+      expect(gitOut(['status', '--porcelain', '--', rel(id)])).toBe('');
+      expect(fs.readFileSync(metaJsonPath(meta.id), 'utf8')).toBe(metaBefore);
+      expect((await reviews.getReview(meta.id, approver)).status).toBe('pending');
+    });
+
+    it('does not block when the later commit is an editor approval', {
+      timeout: 60_000,
+    }, async () => {
+      const id = 'XX01_820003_20250101_交付版';
+      await seedCommitted(id);
+      const first = await submit(id, '<p>先行</p>');
+      const second = await submit(id, '<p>後発</p>');
+      await approveAll(first.id, {}, approver);
+      const res = await approveAll(second.id, {}, approver);
+      expect(res.staleWarning).toBe(true);
+      expect(fs.readFileSync(filledFile(id), 'utf8')).toContain('後発');
+    });
+
+    it('does not block when the author domain only contains the mark', {
+      timeout: 60_000,
+    }, async () => {
+      const id = 'XX01_820004_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await submit(id, '<p>申請</p>');
+      commitAs(id, filledDoc('<p>手で直した</p>'), 'op@create_report.local.example.com');
+      const res = await approveAll(meta.id, {}, approver);
+      expect(res.staleWarning).toBe(true);
+    });
+
+    it('does not block a review without baseCommit', { timeout: 60_000 }, async () => {
+      const id = 'XX01_820005_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await submit(id, '<p>旧い申請</p>');
+      // この変更より前の申請は baseCommit を持たない。
+      const { baseCommit: _drop, ...old } = JSON.parse(
+        fs.readFileSync(metaJsonPath(meta.id), 'utf8'),
+      );
+      fs.writeFileSync(metaJsonPath(meta.id), JSON.stringify(old, null, 2), 'utf8');
+      standaloneCommit(id, filledDoc('<p>単独で再作成</p>'));
+      const res = await approveAll(meta.id, {}, approver);
+      expect(res.staleWarning).toBe(true);
+      expect(fs.readFileSync(filledFile(id), 'utf8')).toContain('旧い申請');
+    });
+
+    it('does not block when baseCommit is no longer in the history', {
+      timeout: 60_000,
+    }, async () => {
+      const id = 'XX01_820006_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await submit(id, '<p>申請</p>');
+      const stored = JSON.parse(fs.readFileSync(metaJsonPath(meta.id), 'utf8'));
+      fs.writeFileSync(
+        metaJsonPath(meta.id),
+        JSON.stringify({ ...stored, baseCommit: 'f'.repeat(40) }, null, 2),
+        'utf8',
+      );
+      standaloneCommit(id, filledDoc('<p>単独で再作成</p>'));
+      const res = await approveAll(meta.id, {}, approver);
+      expect(res.meta.id).toBe(id);
+    });
+
+    it('flags overwrite after approve but not a failed commit', { timeout: 60_000 }, async () => {
+      // 普通の承認は立たない。
+      const plainId = 'XX01_820007_20250101_交付版';
+      await seedCommitted(plainId);
+      const plain = await submit(plainId, '<p>普通の承認</p>');
+      expect((await approveAll(plain.id, {}, approver)).overwrittenAfterApprove).toBe(false);
+
+      // 承認のコミットのあとで単独の実行が書き換えてコミットした = 作業ツリーも HEAD も違う。
+      const id = 'XX01_820008_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await submit(id, '<p>承認した版</p>');
+      confirmedWriteHook.after = () => standaloneCommit(id, filledDoc('<p>直後に再作成</p>'));
+      try {
+        const res = await approveAll(meta.id, {}, approver);
+        expect(res.overwrittenAfterApprove).toBe(true);
+        // 承認は成立済みのまま。
+        expect((await reviews.getReview(meta.id, approver)).status).toBe('approved');
+      } finally {
+        confirmedWriteHook.after = null;
+      }
+
+      // 承認のコミットだけが失敗した = 作業ツリーは承認した版、HEAD は前の版。
+      const failedId = 'XX01_820009_20250101_交付版';
+      await seedCommitted(failedId);
+      const failed = await submit(failedId, '<p>コミット失敗</p>');
+      confirmedWriteHook.after = () => {
+        execFileSync('git', ['reset', '--soft', 'HEAD~1'], { cwd: tmp, stdio: 'ignore' });
+      };
+      try {
+        const res = await approveAll(failed.id, {}, approver);
+        expect(gitOut(['show', `HEAD:${rel(failedId)}`])).not.toContain('コミット失敗');
+        expect(res.overwrittenAfterApprove).toBe(false);
+      } finally {
+        confirmedWriteHook.after = null;
+      }
+    });
+
+    it('does not flag a CRLF confirmed write (compares LF-normalized)', {
+      timeout: 60_000,
+    }, async () => {
+      const id = 'XX01_820010_20250101_交付版';
+      await seedCommitted(id);
+      const meta = await reviews.submitReview(
+        {
+          templateId: id,
+          html: '<html><head></head><body>\r\n<p>改行 CRLF</p>\r\n</body></html>',
+          css: '.x{}',
+          origin: 'edit',
+        },
+        submitter,
+      );
+      const res = await approveAll(meta.id, {}, approver);
+      expect(fs.readFileSync(filledFile(id), 'utf8')).toContain('\r\n');
+      expect(res.overwrittenAfterApprove).toBe(false);
     });
   });
 });

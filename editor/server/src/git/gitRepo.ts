@@ -592,6 +592,49 @@ export async function showFile(hash: string, relPath: string): Promise<string> {
   }
 }
 
+/**
+ * HEAD のコミットの hash。リポジトリが無い・まだコミットが無いときは null。それ以外の失敗
+ * (タイムアウト・共有違反)は例外にする — 「コミットが無い」と区別できないまま null へ倒すと、
+ * 呼び出し側が記録の欠落と取り違えるため。`rev-parse --verify -q` は HEAD が無いときだけ
+ * 何も出さずに終了コード 1 で終わる。
+ */
+export async function headCommit(): Promise<string | null> {
+  if (!(await isRepo())) {
+    return null;
+  }
+  try {
+    return (await git(['rev-parse', '--verify', '-q', 'HEAD'])).trim();
+  } catch (e) {
+    if ((e as { code?: unknown }).code === 1) {
+      return null;
+    }
+    throw e;
+  }
+}
+
+/**
+ * `base` より後(`base..HEAD`)で `relPath` に触れたコミットの author email を新しい順で返す。
+ * 承認の前に「申請の後で単独の create_report がコミットしたか」を見るのに使う。件数は絞らない —
+ * 絞ると古い側の印を見落とし、止めるべき承認を通してしまう(1 件 1 行で出力は小さい)。
+ */
+export async function authorEmailsSince(base: string, relPath: string): Promise<string[]> {
+  const range = `${checkRevision(base)}..HEAD`;
+  const spec = checkRelPath(relPath);
+  const out = await git([
+    'log',
+    ...NO_EXTERNAL_DIFF,
+    '--format=%ae',
+    '--end-of-options',
+    range,
+    '--',
+    spec,
+  ]);
+  return out
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+}
+
 /** あるコミットの author date(ISO)。 */
 export async function commitDate(hash: string): Promise<string> {
   const out = await git([
