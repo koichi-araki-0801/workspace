@@ -1138,6 +1138,16 @@ export const GenerateResult = z
 /** create_report 連携が有効か(`config.report` の有無)。画面が入口の出し分けに使う。 */
 export const ReportStatus = z.object({ enabled: z.boolean() }).meta({ id: 'ReportStatus' });
 
+/** 正式 PDF の組版状態。記録が無いときは PDF と filled の更新時刻から導く。 */
+export const OfficialPdfStatus = z
+  .object({
+    id: z.string(),
+    state: z.enum(['queued', 'building', 'done', 'failed', 'missing', 'stale']),
+    updatedAt: z.string().nullable(),
+    error: z.string().nullable(),
+  })
+  .meta({ id: 'OfficialPdfStatus' });
+
 /** `templates/` に置かれたテンプレート 1 件の属性(会社略称・ファンドコード・版種)。 */
 export const SkeletonAttributes = z
   .object({ companyCode: z.string(), fundCode: z.string(), editionType: z.string() })

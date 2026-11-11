@@ -130,6 +130,7 @@ export default defineConfig({
         'editor/server/src/generate/pyTemplate.ts',
         'editor/server/src/generate/scriptRunner.ts',
         'editor/server/src/generate/createReport.ts',
+        'editor/server/src/generate/officialPdfJobs.ts',
         'editor/server/src/repositories/reportRepo.ts',
         'editor/server/src/routes/report.routes.ts',
         'editor/server/src/generate/generatorCheck.ts',
