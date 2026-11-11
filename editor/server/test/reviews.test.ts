@@ -16,6 +16,20 @@ import { createSessionStub } from './helpers/sessionStub.js';
 const confirmedWriteHook = vi.hoisted(() => ({
   after: null as null | (() => void),
 }));
+// 申請時点の HEAD を取れない(git のタイムアウト・共有違反)場合を作る口。既定は素通し。
+const headCommitHook = vi.hoisted(() => ({ fail: false }));
+vi.mock('../src/git/gitRepo.js', async (importOriginal) => {
+  const orig = await importOriginal<typeof import('../src/git/gitRepo.js')>();
+  return {
+    ...orig,
+    headCommit: async () => {
+      if (headCommitHook.fail) {
+        throw new Error('git rev-parse がタイムアウトした(テストの意図的失敗)');
+      }
+      return orig.headCommit();
+    },
+  };
+});
 vi.mock('../src/repositories/confirmedWrite.js', async (importOriginal) => {
   const orig = await importOriginal<typeof import('../src/repositories/confirmedWrite.js')>();
   return {
@@ -2241,6 +2255,27 @@ d('review workflow (reviewRepo)', () => {
       const meta = await submit(id, '<p>申請</p>');
       expect(meta.baseCommit).toBe(head());
       expect(JSON.parse(fs.readFileSync(metaJsonPath(meta.id), 'utf8')).baseCommit).toBe(head());
+    });
+
+    it('records a null baseCommit when HEAD cannot be read (submit still succeeds)', async () => {
+      const id = 'XX01_820011_20250101_交付版';
+      await seedCommitted(id);
+      headCommitHook.fail = true;
+      try {
+        const meta = await submit(id, '<p>HEAD を取れない申請</p>');
+        expect(meta.status).toBe('pending');
+        expect(meta.baseCommit).toBeNull();
+        expect(JSON.parse(fs.readFileSync(metaJsonPath(meta.id), 'utf8')).baseCommit).toBeNull();
+      } finally {
+        headCommitHook.fail = false;
+      }
+    });
+
+    it('records a null baseCommit for a create-origin review', async () => {
+      const meta = await submit('XX01_820012_交付版', '<p>{{ fund.name }}</p>', 'create');
+      expect(meta.status).toBe('pending');
+      expect(meta.baseCommit).toBeNull();
+      expect(JSON.parse(fs.readFileSync(metaJsonPath(meta.id), 'utf8')).baseCommit).toBeNull();
     });
 
     it('blocks approve when a standalone commit follows the review', async () => {
