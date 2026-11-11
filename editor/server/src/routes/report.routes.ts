@@ -3,13 +3,19 @@
 // =============================================================================
 // 状態・一覧・単体 PDF は閲覧者にも開き、値入り HTML の生成は編集者以上。処理は `deps.report` に任せる。
 // 単体 PDF は `/api/build` と同じ閲覧業務としての出力で、入出力は応答後に消えサーバに状態を残さない。
-import { apiPaths, type FillResult, type ReportSkeletons, type ReportStatus } from '@editor/shared';
+import {
+  apiPaths,
+  type FillResult,
+  type OfficialPdfStatus,
+  type ReportSkeletons,
+  type ReportStatus,
+} from '@editor/shared';
 import { ReportPdfRequest } from '@editor/shared/schemas';
 import type { FastifyPluginAsync } from 'fastify';
 import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { auditedRethrow } from '../logger.js';
-import { requireAuth, requireEditor } from '../middleware/auth.js';
+import { requireApprover, requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { actorOf } from './routeHelpers.js';
 
@@ -27,6 +33,34 @@ export const reportRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'report'> }> = 
     apiPaths.reportSkeletons,
     { preHandler: [requireAuth] },
     async (): Promise<ReportSkeletons> => ({ skeletons: await report.listSkeletons() }),
+  );
+
+  app.get<{ Params: { id: string } }>(
+    apiPaths.reportOfficialPdf,
+    { preHandler: [requireAuth] },
+    async (request): Promise<OfficialPdfStatus> => report.officialPdfStatus(request.params.id),
+  );
+
+  app.post<{ Params: { id: string } }>(
+    apiPaths.reportOfficialPdf,
+    { preHandler: [requireAuth, requireApprover] },
+    async (request, reply): Promise<{ status: OfficialPdfStatus }> => {
+      const { id } = request.params;
+      const status = await auditedRethrow(
+        request,
+        'report.official-pdf.rebuild',
+        async () => {
+          await report.requestOfficialPdf(id);
+          return report.officialPdfStatus(id);
+        },
+        {
+          success: () => ({ resource: { templateId: id } }),
+          failure: () => ({ resource: { templateId: id } }),
+          failureMessage: 'official pdf rebuild request failed',
+        },
+      );
+      return reply.code(202).send({ status });
+    },
   );
 
   app.post<{ Params: { id: string } }>(

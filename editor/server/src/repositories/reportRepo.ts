@@ -3,10 +3,13 @@
 // =============================================================================
 // ルートはここだけを呼ぶ。会社コードの引き、入口の検査、生成後の git コミットをまとめる。
 // 実際のスクリプト起動は `generate/createReport.ts` が担う。
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import {
   assertTemplateId,
   type FillResult,
   notFound,
+  type OfficialPdfStatus,
   parseSkeletonFileName,
   parseTemplateFileName,
   REPORT_BUSY_USER,
@@ -21,9 +24,11 @@ import { config } from '../config.js';
 import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
 import {
   assertReportEnabled,
+  buildOfficialPdf,
   generateFilled,
   generateReportPdf,
 } from '../generate/createReport.js';
+import { createOfficialPdfJobs } from '../generate/officialPdfJobs.js';
 import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
@@ -38,6 +43,22 @@ export interface ReportRepo {
   listSkeletons(): Promise<SkeletonAttributes[]>;
   fill(id: string, actor: string): Promise<FillResult>;
   buildPdf(id: string, html: string, actor: string): Promise<Buffer>;
+  requestOfficialPdf(id: string): Promise<void>;
+  officialPdfStatus(id: string): Promise<OfficialPdfStatus>;
+  /** 走っている・待っている正式 PDF の組版がすべて終わるまで待つ(テスト用)。 */
+  settleOfficialPdfs(): Promise<void>;
+}
+
+/** ファイルの更新時刻。無ければ null、それ以外の stat の失敗は投げる。 */
+async function mtimeOrNull(file: string): Promise<Date | null> {
+  try {
+    return (await fs.stat(file)).mtime;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
 }
 
 /** 略称の比較キー。Rep1 の略称は固定長で末尾に空白が付きうる。 */
@@ -142,10 +163,42 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
     });
   }
 
+  // 正式 PDF の組版。rep1 は組版の直前に引くので、DB 不通は要求ではなくジョブの失敗になる。
+  const jobs = createOfficialPdfJobs({
+    build: async (id) => {
+      const attrs = parseFilledId(id);
+      await buildOfficialPdf(id, await resolveRep1Code(templates, attrs.companyCode));
+    },
+    pdfMtime: (id) => mtimeOrNull(path.join(config.pdfDir, `${id}.pdf`)),
+    filledMtime: (id) => mtimeOrNull(path.join(config.filledDir, `${id}.html`)),
+  });
+
+  /** 連携が有効で、値入り HTML があることを確かめる。 */
+  async function assertOfficialPdfTarget(id: string): Promise<void> {
+    parseFilledId(id);
+    assertReportEnabled();
+    if (!(await filledExists(`${id}.html`))) {
+      throw notFound(`値入り HTML がありません: ${id}.html`);
+    }
+  }
+
+  async function requestOfficialPdf(id: string): Promise<void> {
+    await assertOfficialPdfTarget(id);
+    jobs.request(id);
+  }
+
+  async function officialPdfStatus(id: string): Promise<OfficialPdfStatus> {
+    await assertOfficialPdfTarget(id);
+    return jobs.status(id);
+  }
+
   return {
     status: () => ({ enabled: config.report !== undefined }),
     listSkeletons,
     fill,
     buildPdf,
+    requestOfficialPdf,
+    officialPdfStatus,
+    settleOfficialPdfs: () => jobs.settled(),
   };
 }

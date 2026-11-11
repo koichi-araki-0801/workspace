@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   generateFilled: vi.fn(),
   generateReportPdf: vi.fn(),
+  buildOfficialPdf: vi.fn(),
   listTemplateFiles: vi.fn(),
   readFilledHtml: vi.fn(),
   filledExists: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../src/generate/createReport.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/generate/createReport.js')>()),
   generateFilled: m.generateFilled,
   generateReportPdf: m.generateReportPdf,
+  buildOfficialPdf: m.buildOfficialPdf,
 }));
 vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/files/templateFiles.js')>()),
@@ -66,6 +68,7 @@ describe('reportRepo', () => {
     m.listTemplateFiles.mockResolvedValue([SKELETON]);
     m.generateFilled.mockResolvedValue({ created: true });
     m.generateReportPdf.mockResolvedValue(Buffer.from('%PDF'));
+    m.buildOfficialPdf.mockResolvedValue(undefined);
     m.readFilledHtml.mockResolvedValue('<p>ok</p>');
     m.filledExists.mockResolvedValue(true);
     m.commitAll.mockResolvedValue('sha');
@@ -262,5 +265,30 @@ describe('reportRepo', () => {
     releases[0]();
     await Promise.all([second, other]);
     expect(m.generateReportPdf).toHaveBeenCalledTimes(3);
+  });
+
+  it('requestOfficialPdf builds with the rep1 code and ends done', async () => {
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    await repo.requestOfficialPdf(ID);
+    await repo.settleOfficialPdfs();
+    expect(m.buildOfficialPdf).toHaveBeenCalledWith(ID, 'R-XX01');
+    expect(await repo.officialPdfStatus(ID)).toMatchObject({ id: ID, state: 'done' });
+  });
+
+  it('a company lookup failure becomes a failed job, not a rejected request', async () => {
+    const repo = repoWith([]);
+    await repo.requestOfficialPdf(ID);
+    await repo.settleOfficialPdfs();
+    expect(await repo.officialPdfStatus(ID)).toMatchObject({ state: 'failed' });
+    expect(m.buildOfficialPdf).not.toHaveBeenCalled();
+  });
+
+  it('official pdf rejects REPORT_DISABLED and a missing filled', async () => {
+    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+    m.filledExists.mockResolvedValue(false);
+    await expect(repo.requestOfficialPdf(ID)).rejects.toMatchObject({ kind: 'not_found' });
+    await expect(repo.officialPdfStatus(ID)).rejects.toMatchObject({ kind: 'not_found' });
+    m.report = undefined;
+    await expect(repo.officialPdfStatus(ID)).rejects.toMatchObject({ code: REPORT_DISABLED });
   });
 });

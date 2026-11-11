@@ -22,6 +22,7 @@ const filledDir = path.join(root, 'data', 'filled');
 const m = vi.hoisted(() => ({
   generateFilled: vi.fn(),
   generateReportPdf: vi.fn(),
+  buildOfficialPdf: vi.fn(),
   report: undefined as unknown,
   role: 'editor',
 }));
@@ -29,6 +30,7 @@ vi.mock('../src/generate/createReport.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/generate/createReport.js')>()),
   generateFilled: m.generateFilled,
   generateReportPdf: m.generateReportPdf,
+  buildOfficialPdf: m.buildOfficialPdf,
 }));
 vi.mock('../src/git/gitRepo.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/git/gitRepo.js')>()),
@@ -108,6 +110,7 @@ describe('report routes', () => {
     m.role = 'editor';
     m.report = {};
     m.generateFilled.mockReset().mockResolvedValue({ created: true });
+    m.buildOfficialPdf.mockReset().mockResolvedValue(undefined);
     m.generateReportPdf.mockReset().mockResolvedValue(Buffer.from('%PDF-1.7'));
     fs.rmSync(templatesDir, { recursive: true, force: true });
     fs.mkdirSync(templatesDir, { recursive: true });
@@ -248,6 +251,42 @@ describe('report routes', () => {
     expect((await app.inject({ method: 'GET', url: '/report/status' })).json()).toEqual({
       enabled: true,
     });
+  });
+
+  it('GET official-pdf returns the status', async () => {
+    m.role = 'viewer';
+    const res = await app.inject({ method: 'GET', url: `/report/official-pdf/${ID}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ id: ID, state: 'missing' });
+  });
+
+  it('POST official-pdf is 403 for editor and 202 for approver', async () => {
+    const denied = await app.inject({ method: 'POST', url: `/report/official-pdf/${ID}` });
+    expect(denied.statusCode).toBe(403);
+    m.role = 'approver';
+    const res = await app.inject({ method: 'POST', url: `/report/official-pdf/${ID}` });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({ status: { id: ID } });
+  });
+
+  it('official-pdf is 404 REPORT_DISABLED when disabled and 404 without filled', async () => {
+    m.report = undefined;
+    const off = await app.inject({ method: 'GET', url: `/report/official-pdf/${ID}` });
+    expect(off.statusCode).toBe(404);
+    expect(off.json()).toMatchObject({ code: 'REPORT_DISABLED' });
+    m.report = {};
+    fs.rmSync(path.join(filledDir, `${ID}.html`));
+    const res = await app.inject({ method: 'GET', url: `/report/official-pdf/${ID}` });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('POST official-pdf is audited as report.official-pdf.rebuild', async () => {
+    m.role = 'approver';
+    const spy = vi.spyOn(logger, 'info');
+    await app.inject({ method: 'POST', url: `/report/official-pdf/${ID}` });
+    expect(auditRecords(spy, 'report.official-pdf.rebuild')).toEqual([
+      expect.objectContaining({ outcome: 'success', resource: { templateId: ID } }),
+    ]);
   });
 
   it('GET skeletons lists templates/ entries only', async () => {

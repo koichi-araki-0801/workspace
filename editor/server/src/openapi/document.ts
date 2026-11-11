@@ -465,6 +465,31 @@ export function buildOpenApiDocument() {
           responses: { '200': json('テンプレートの属性一覧', s.ReportSkeletons), ...ERR_401 },
         },
       },
+      [toOpenApiPath(apiPaths.reportOfficialPdf)]: {
+        get: {
+          tags: ['templates'],
+          summary: '正式 PDF の組版状態',
+          operationId: 'getOfficialPdfStatus',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '200': json('組版状態', s.OfficialPdfStatus),
+            ...ERR_401,
+            '404': err('値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)'),
+          },
+        },
+        post: {
+          tags: ['templates'],
+          summary: '正式 PDF の組版を依頼(作り直し)',
+          operationId: 'rebuildOfficialPdf',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '202': json('受け付けた。組版は非同期', z.object({ status: s.OfficialPdfStatus })),
+            ...ERR_401,
+            '403': err('精査者(承認者)権限が必要 (kind=forbidden)'),
+            '404': err('値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)'),
+          },
+        },
+      },
       [toOpenApiPath(apiPaths.templateFill)]: {
         post: {
           tags: ['templates'],

@@ -68,6 +68,8 @@ export const ROUTE_POLICY: Readonly<Record<string, GuardLevel>> = {
   // report — 状態・一覧・単体 PDF は閲覧者にも開き、値入り HTML の生成は編集者以上
   [`GET ${api(apiPaths.reportStatus)}`]: 'auth',
   [`GET ${api(apiPaths.reportSkeletons)}`]: 'auth',
+  [`GET ${api(apiPaths.reportOfficialPdf)}`]: 'auth',
+  [`POST ${api(apiPaths.reportOfficialPdf)}`]: 'approver',
   [`POST ${api(apiPaths.templateFill)}`]: 'editor',
   [`POST ${api(apiPaths.templateReportPdf)}`]: 'auth',
 
