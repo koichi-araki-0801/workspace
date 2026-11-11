@@ -10,7 +10,7 @@ import {
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // `config.ts` は import 時に env を読むので、置き場を一時ディレクトリへ逸らす。
-const { execFileMock, root } = vi.hoisted(() => {
+const { execFileMock, runIoMock, root } = vi.hoisted(() => {
   const tmpRoot = process.env.TEMP ?? process.env.TMPDIR ?? '/tmp';
   const r = `${tmpRoot}/editor-createreport-test`;
   process.env.LOG_DIR = `${r}/logs`;
@@ -21,9 +21,14 @@ const { execFileMock, root } = vi.hoisted(() => {
   process.env.REPORT_SCRIPT = `${r}/report/create_report.py`;
   delete process.env.REPORT_SCRIPT_SHA256;
   delete process.env.REPORT_TIMEOUT_MS;
-  return { execFileMock: vi.fn(), root: r };
+  return { execFileMock: vi.fn(), runIoMock: vi.fn(), root: r };
 });
 vi.mock('node:child_process', () => ({ execFile: execFileMock }));
+// 標準入出力の起動(`runPythonScriptIo`)は境界で差し替える。execFile と stdin の扱いは scriptRunner の側のテストが持つ。
+vi.mock('../src/generate/scriptRunner.js', async (importActual) => ({
+  ...(await importActual<typeof import('../src/generate/scriptRunner.js')>()),
+  runPythonScriptIo: runIoMock,
+}));
 
 import { config } from '../src/config.js';
 import {
@@ -33,6 +38,7 @@ import {
   reportArgs,
   toIsoBaseDate,
 } from '../src/generate/createReport.js';
+import { ScriptRunError } from '../src/generate/scriptRunner.js';
 
 const ID = '01281_880008_20231117_交付版';
 const ATTRS = {
@@ -67,6 +73,7 @@ const pdfFile = path.join(root, 'pdf', `${ID}.pdf`);
 
 beforeEach(() => {
   execFileMock.mockReset();
+  runIoMock.mockReset();
   fs.rmSync(root, { recursive: true, force: true });
   fs.mkdirSync(path.join(root, 'filled'), { recursive: true });
 });
@@ -235,27 +242,19 @@ describe('generateFilled', () => {
 });
 
 describe('generateReportPdf', () => {
-  /** execFile の callback へ stdout をバッファで返す(標準入出力の起動用)。 */
-  function mockStdout(stdout: Buffer): void {
-    execFileMock.mockImplementation((...a: unknown[]) => {
-      const cb = a[a.length - 1] as (e: Error | null, o: Buffer, s: Buffer) => void;
-      setImmediate(() => cb(null, stdout, Buffer.alloc(0)));
-      return { on: vi.fn(), stdin: { on: vi.fn(), end: vi.fn() } };
-    });
-  }
-
   it('returns the pdf from stdout and writes nothing to dataRoot', async () => {
-    mockStdout(Buffer.from('%PDF-1.4 body'));
+    runIoMock.mockResolvedValue(Buffer.from('%PDF-1.4 body'));
     const buf = await generateReportPdf(ID, '<p>x</p>', '01281');
     expect(buf.toString()).toBe('%PDF-1.4 body');
     expect(fs.existsSync(path.join(root, 'pdf'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'pdf-input'))).toBe(false);
-    const args = execFileMock.mock.calls[0][1] as string[];
+    const [, args, input] = runIoMock.mock.calls[0] as [unknown, string[], string];
     expect(args.slice(-3)).toEqual(['--pdf-only', '--fund-only', '--from-editor']);
+    expect(input).toBe('<p>x</p>');
   });
 
   it('rejects stdout that is not a pdf', async () => {
-    mockStdout(Buffer.from('not a pdf'));
+    runIoMock.mockResolvedValue(Buffer.from('not a pdf'));
     await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
       code: REPORT_OUTPUT_NOT_PDF,
       statusCode: 502,
@@ -263,10 +262,13 @@ describe('generateReportPdf', () => {
     });
   });
 
-  it('maps a failed run to REPORT_RUN_FAILED', async () => {
-    mockFail(new Error('exit 1'));
+  it.each([
+    ['failure', REPORT_RUN_FAILED, false],
+    ['timeout', REPORT_TIMEOUT, true],
+  ])('maps a %s to its code', async (_label, code, timedOut) => {
+    runIoMock.mockRejectedValue(new ScriptRunError('x', timedOut, 'secret'));
     await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
-      code: REPORT_RUN_FAILED,
+      code,
     });
   });
 
@@ -276,7 +278,7 @@ describe('generateReportPdf', () => {
       await expect(generateReportPdf(bad, '<p>x</p>', '01281')).rejects.toMatchObject({
         kind: 'validation',
       });
-      expect(execFileMock).not.toHaveBeenCalled();
+      expect(runIoMock).not.toHaveBeenCalled();
     },
   );
 });
