@@ -123,7 +123,13 @@ describe('PreviewView の正式 PDF の状態', () => {
     expect(w.get('[data-testid="official-pdf-status"]').text()).toContain(label);
   });
 
+  it('状態が無く作り直しもできない利用者には帯ごと出さない', async () => {
+    const { w } = await mountView(FILLED_ID, true, null);
+    expect(w.find('[data-testid="official-pdf-status"]').exists()).toBe(false);
+  });
+
   it('状態の取得に失敗したあいだは「正式 PDF:」の行を出さない', async () => {
+    h.auth.isApprover = true;
     const { w } = await mountView(FILLED_ID, true, null);
     expect(w.get('[data-testid="official-pdf-status"]').text()).not.toContain('正式 PDF:');
   });

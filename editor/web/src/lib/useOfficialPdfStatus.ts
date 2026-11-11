@@ -65,8 +65,9 @@ export function pollOfficialPdf(
     }
     try {
       onUpdate(res.value);
-    } catch {
+    } catch (e) {
       // 通知側の不具合で問い合わせの流れ(次の予約・終了の通知)を止めない
+      console.error('[officialPdf] 状態の通知で例外が出ました:', e);
     }
     if (stopped) {
       end();

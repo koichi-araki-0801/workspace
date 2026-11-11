@@ -74,11 +74,9 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
     if (rec?.state !== 'failed') {
       return derived;
     }
-    // 失敗のあとに単独の PDF 組版で PDF が書き直されたとき(失敗時点より新しいとき)だけ
-    // 失敗の記録を捨てる。組版の失敗は出力を消すので、新しい PDF は別経路で作られている。
-    const failedAt = rec.updatedAt === null ? 0 : Date.parse(rec.updatedAt);
-    const pdfAt = derived.updatedAt === null ? 0 : Date.parse(derived.updatedAt);
-    return pdfAt > failedAt ? derived : rec;
+    // 失敗した組版は PDF を消すので、いま PDF があるなら失敗のあとに単独の組版などで作られた。
+    // 時刻の比較はサーバとファイルサーバの時計のずれに弱いので、有無だけで決める。
+    return derived.state === 'missing' ? rec : derived;
   }
 
   return {

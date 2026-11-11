@@ -306,6 +306,7 @@ describe('reportRepo', () => {
   });
 
   it('a company lookup failure becomes a failed job, not a rejected request', async () => {
+    m.officialPdfMtime.mockResolvedValue(null);
     const repo = repoWith([]);
     await repo.requestOfficialPdf(ID);
     await repo.settleOfficialPdfs();
@@ -324,6 +325,7 @@ describe('reportRepo', () => {
 
   it('a filled with an external ref fails the job without starting create_report', async () => {
     m.readFilledHtml.mockResolvedValue('<img src="https://evil.example/x.png">');
+    m.officialPdfMtime.mockResolvedValue(null);
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
     await repo.requestOfficialPdf(ID);
     await repo.settleOfficialPdfs();

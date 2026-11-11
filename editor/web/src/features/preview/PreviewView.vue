@@ -470,7 +470,7 @@ async function exportPdf() {
     </div>
 
     <div
-      v-if="showOfficialPdf"
+      v-if="showOfficialPdf && (officialPdf.status.value || canRebuildOfficialPdf)"
       class="flex items-center gap-3 border-b bg-muted/30 px-4 py-1.5 text-[12.5px]"
       data-testid="official-pdf-status"
     >

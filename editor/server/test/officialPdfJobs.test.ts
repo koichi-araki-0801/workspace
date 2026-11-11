@@ -68,7 +68,8 @@ describe('officialPdfJobs', () => {
     const build = vi.fn(async () => {
       throw Object.assign(new Error('x'), { kind: 'unexpected', code: 'REPORT_RUN_FAILED' });
     });
-    const { jobs } = setup(build);
+    const { jobs, pdf } = setup(build);
+    pdf.value = null;
     jobs.request('A');
     await jobs.settled();
     const st = await jobs.status('A');
@@ -77,9 +78,10 @@ describe('officialPdfJobs', () => {
   });
 
   it('hides the raw message of an unclassified error', async () => {
-    const { jobs } = setup(async () => {
+    const { jobs, pdf } = setup(async () => {
       throw new Error('secret detail');
     });
+    pdf.value = null;
     jobs.request('A');
     await jobs.settled();
     const { error } = await jobs.status('A');
@@ -88,9 +90,10 @@ describe('officialPdfJobs', () => {
   });
 
   it('hides a non-Error throw too', async () => {
-    const { jobs } = setup(async () => {
+    const { jobs, pdf } = setup(async () => {
       throw 'secret text';
     });
+    pdf.value = null;
     jobs.request('A');
     await jobs.settled();
     expect((await jobs.status('A')).error).not.toContain('secret');
@@ -200,18 +203,19 @@ describe('officialPdfJobs', () => {
     expect((await jobs.status('A')).state).toBe('stale');
   });
 
-  it('shows done after a failure once a newer pdf appears', async () => {
+  it('shows done after a failure once a pdf exists regardless of clock skew', async () => {
     const build = vi.fn(async () => {
       throw new Error('x');
     });
     const { jobs, pdf, filled } = setup(build);
+    pdf.value = null;
     jobs.request('A');
     await jobs.settled();
     expect((await jobs.status('A')).state).toBe('failed');
-    pdf.value = T0;
     filled.value = T0;
     expect((await jobs.status('A')).state).toBe('failed');
-    pdf.value = new Date(T1.getTime() + 1000);
+    // PDF の時刻が失敗の時刻より古く見えても(時計のずれ)、PDF があれば失敗を捨てる
+    pdf.value = new Date(T1.getTime() - 3600_000);
     expect((await jobs.status('A')).state).toBe('done');
   });
 });
