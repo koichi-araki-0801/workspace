@@ -108,6 +108,39 @@ describe('pollOfficialPdf', () => {
   });
 });
 
+describe('pollOfficialPdf の通知の中', () => {
+  it('通知の中で止めたら、次の問い合わせを予約しない', async () => {
+    const f = vi.fn().mockResolvedValue(ok(st('building')));
+    const onEnd = vi.fn();
+    const stopRef: { stop: () => void } = { stop: () => {} };
+    stopRef.stop = pollOfficialPdf(f, () => stopRef.stop(), 1000, onEnd);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it('通知が例外を投げても未処理の拒否にせず、問い合わせを続ける', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(ok(st('building')))
+      .mockResolvedValueOnce(ok(st('done')));
+    const onUpdate = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('boom');
+      })
+      .mockImplementation(() => {});
+    const onEnd = vi.fn();
+    pollOfficialPdf(f, onUpdate, 1000, onEnd);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(onUpdate).toHaveBeenCalledTimes(2);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('useOfficialPdfStatus', () => {
   it('start で状態を取り、stop で止める', async () => {
     repo.officialPdfStatus.mockResolvedValue(ok(st('building')));

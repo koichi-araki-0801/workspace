@@ -65,12 +65,17 @@ export function pollOfficialPdf(
     }
     try {
       onUpdate(res.value);
-    } finally {
-      if (isOfficialPdfPending(res.value)) {
-        timer = setTimeout(() => void tick(), intervalMs);
-      } else {
-        end();
-      }
+    } catch {
+      // 通知側の不具合で問い合わせの流れ(次の予約・終了の通知)を止めない
+    }
+    if (stopped) {
+      end();
+      return;
+    }
+    if (isOfficialPdfPending(res.value)) {
+      timer = setTimeout(() => void tick(), intervalMs);
+    } else {
+      end();
     }
   };
 

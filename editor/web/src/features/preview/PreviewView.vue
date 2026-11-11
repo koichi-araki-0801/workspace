@@ -474,7 +474,7 @@ async function exportPdf() {
       class="flex items-center gap-3 border-b bg-muted/30 px-4 py-1.5 text-[12.5px]"
       data-testid="official-pdf-status"
     >
-      <span>正式 PDF: {{ officialPdfText }}</span>
+      <span v-if="officialPdf.status.value">正式 PDF: {{ officialPdfText }}</span>
       <Button
         v-if="canRebuildOfficialPdf"
         variant="outline"

@@ -3,7 +3,7 @@
 // =============================================================================
 // 行は create_report が有効な値入り HTML のときだけ出す。ボタンは承認権限のときだけ出し、
 // 押すと rebuildOfficialPdf を呼んで状態が「待ち」になる。
-import { type OfficialPdfStatus, ok, type Template } from '@editor/shared';
+import { err, type OfficialPdfStatus, ok, type Template } from '@editor/shared';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -59,7 +59,7 @@ function tplOf(id: string): Template {
   };
 }
 
-async function mountView(id: string, enabled: boolean, status: OfficialPdfStatus) {
+async function mountView(id: string, enabled: boolean, status: OfficialPdfStatus | null) {
   h.loadForPreview.mockResolvedValue(
     ok({
       template: tplOf(id),
@@ -75,7 +75,9 @@ async function mountView(id: string, enabled: boolean, status: OfficialPdfStatus
   );
   const templates = {
     getReportStatus: vi.fn(async () => ok({ enabled })),
-    officialPdfStatus: vi.fn(async () => ok(status)),
+    officialPdfStatus: vi.fn(async () =>
+      status ? ok(status) : err({ kind: 'unexpected', message: 'x' } as never),
+    ),
     rebuildOfficialPdf: vi.fn(async () => ok(st('queued'))),
   };
   const w = mount(PreviewView, {
@@ -119,6 +121,11 @@ describe('PreviewView の正式 PDF の状態', () => {
   ] as const)('%s は「%s」と出す', async (state, label) => {
     const { w } = await mountView(FILLED_ID, true, st(state));
     expect(w.get('[data-testid="official-pdf-status"]').text()).toContain(label);
+  });
+
+  it('状態の取得に失敗したあいだは「正式 PDF:」の行を出さない', async () => {
+    const { w } = await mountView(FILLED_ID, true, null);
+    expect(w.get('[data-testid="official-pdf-status"]').text()).not.toContain('正式 PDF:');
   });
 
   it('done は日時つき、failed は理由つきで出す', async () => {
