@@ -101,4 +101,22 @@ describe('restTemplateRepo の不明な応答', () => {
     const res = await restTemplateRepo.buildReportPdf('XX01_950037_交付版', '<p>x</p>');
     expect(isErr(res) && res.error.kind).toBe('unauthorized');
   });
+
+  it('officialPdfStatus は GET、rebuildOfficialPdf は POST で status を返す', async () => {
+    const status = {
+      id: 'XX01_950037_20240710_交付版',
+      state: 'queued',
+      updatedAt: null,
+      error: null,
+    };
+    const f = stubFetch(jsonRes(status));
+    const got = await restTemplateRepo.officialPdfStatus(status.id);
+    expect(isOk(got) && got.value.state).toBe('queued');
+    expect(String(f.mock.calls[0]?.[0])).toContain('/api/report/official-pdf/');
+
+    const f2 = stubFetch(jsonRes({ status }, 202));
+    const res = await restTemplateRepo.rebuildOfficialPdf(status.id);
+    expect(isOk(res) && res.value.id).toBe(status.id);
+    expect((f2.mock.calls[0]?.[1] as RequestInit | undefined)?.method).toBe('POST');
+  });
 });

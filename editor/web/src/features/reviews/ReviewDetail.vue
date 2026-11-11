@@ -17,7 +17,9 @@
 import {
   type ApproveReviewResult,
   isOk,
+  type OfficialPdfStatus,
   REVIEW_ALREADY_DECIDED,
+  REVIEW_REGENERATED,
   type ReviewRequest,
   type ReviewRequestMeta,
   reviewFinalizationIssues,
@@ -25,7 +27,8 @@ import {
   toReviewMeta,
 } from '@editor/shared';
 import { Loader2 } from '@lucide/vue';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useTemplateRepo } from '@/api/repositories';
 
 import Button from '@/components/ui/Button.vue';
 import { confirm } from '@/components/ui/confirm';
@@ -34,6 +37,7 @@ import { useTemplatePreviewService } from '@/features/preview/services/templateP
 import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { pairSyncResultText } from '@/lib/pairSyncText';
+import { pollOfficialPdf } from '@/lib/useOfficialPdfStatus';
 import { useAuthStore } from '@/stores/auth';
 import ReviewDecisionBar from './ReviewDecisionBar.vue';
 import ReviewDecisionList from './ReviewDecisionList.vue';
@@ -66,6 +70,12 @@ interface CommentSlotProps {
 defineSlots<{ comments?: (props: CommentSlotProps) => unknown }>();
 
 const auth = useAuthStore();
+const templateRepo = useTemplateRepo();
+// 承認で積んだ正式 PDF の問い合わせ。画面を離れたら止める。
+const officialPdfStops: (() => void)[] = [];
+onBeforeUnmount(() => {
+  for (const stop of officialPdfStops.splice(0)) { stop(); }
+});
 const preview = useTemplatePreviewService();
 const {
   review,
@@ -303,7 +313,12 @@ const canFinalize = computed(
  * 今の検査を通らない(`REVIEW_NOT_REVIEWABLE`)ときは、判定し直しても通らないので申請し直しを
  * 求める文言を出す(読み直しても画面は変わらない)。ほかの失敗は `useAsyncResult` がサーバの文言を出す。
  */
-async function onDecideFailed(code: string | undefined): Promise<void> {
+async function onDecideFailed(code: string | undefined, message?: string): Promise<void> {
+  if (code === REVIEW_REGENERATED) {
+    await load();
+    toast(message ?? '申請後に再作成されました。', 'error');
+    return;
+  }
   const resubmit = reviewResubmitMessage(code);
   if (resubmit !== null) {
     toast(resubmit, 'error');
@@ -317,6 +332,27 @@ async function onDecideFailed(code: string | undefined): Promise<void> {
   );
   const r = review.value;
   if (reloaded && r && r.status !== 'pending') { emit('decided', toReviewMeta(r)); }
+}
+
+/** 承認で積んだ正式 PDF が終わるまで問い合わせ、終わったものから通知する。 */
+function watchOfficialPdfs(list: OfficialPdfStatus[] | null | undefined): void {
+  for (const item of list ?? []) {
+    const stop = pollOfficialPdf(
+      () => templateRepo.officialPdfStatus(item.id),
+      (st) => {
+        if (st.state === 'done') {
+          toastSuccess(`正式 PDF を作りました: ${st.id}`);
+        } else if (st.state === 'failed') {
+          toast(
+            `正式 PDF を作れませんでした: ${st.id}（${st.error ?? '理由不明'}）。プレビュー画面から作り直せます`,
+            'error',
+            8000,
+          );
+        }
+      },
+    );
+    officialPdfStops.push(stop);
+  }
 }
 
 async function finalize(): Promise<void> {
@@ -338,7 +374,7 @@ async function finalize(): Promise<void> {
   // 申請全体の承認メモは送らない(承認の理由は書かせない。パーツの却下理由だけを残す)。
   const res = await approveReview(undefined);
   if (!isOk(res)) {
-    await onDecideFailed(res.error.code);
+    await onDecideFailed(res.error.code, res.error.message);
     return;
   }
   // 申請後に現行版が変更されていた場合は上書き注意を促す(承認自体はブロックしない)。
@@ -352,6 +388,10 @@ async function finalize(): Promise<void> {
     toastSuccess('承認しました（本番テンプレートへ反映しました）');
   }
 
+  if (res.value.overwrittenAfterApprove) {
+    toast('承認の直後に create_report で書き換えられました。履歴を確かめてください', 'default', 8000);
+  }
+  watchOfficialPdfs(res.value.officialPdf);
   notifySyncResult(res.value.sync);
   notifyNoteMasterResult(res.value.noteMaster);
 

@@ -14,6 +14,7 @@ import {
   type GenerateRequest,
   type GenerateResult,
   isOk,
+  type OfficialPdfStatus,
   ok,
   type PairSyncStatus,
   type ReportSkeletons,
@@ -172,4 +173,16 @@ export const restTemplateRepo: TemplateRepository = {
 
   buildReportPdf: (id: string, html: string) =>
     attemptRest(() => apiFetchBlob(buildPath(apiPaths.templateReportPdf, { id }), { html })),
+
+  officialPdfStatus: (id: string) =>
+    attemptRest(() => apiFetch<OfficialPdfStatus>(buildPath(apiPaths.reportOfficialPdf, { id }))),
+
+  rebuildOfficialPdf: (id: string) =>
+    attemptRest(async (): Promise<OfficialPdfStatus> => {
+      const res = await apiFetch<{ status: OfficialPdfStatus }>(
+        buildPath(apiPaths.reportOfficialPdf, { id }),
+        { method: 'POST' },
+      );
+      return res.status;
+    }),
 };

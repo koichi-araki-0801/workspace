@@ -192,6 +192,7 @@ export default defineConfig({
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/globalErrors.ts',
         'editor/web/src/lib/useAsyncResult.ts',
+        'editor/web/src/lib/useOfficialPdfStatus.ts',
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
         // 編集経路 / 作成経路の出し分け。`created` query を出す唯一の場所で、退行は

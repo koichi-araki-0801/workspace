@@ -11,6 +11,7 @@ import type {
   FundOption,
   GenerateRequest,
   GenerateResult,
+  OfficialPdfStatus,
   PairSyncStatus,
   ReportStatus,
   SampleDataResult,
@@ -77,4 +78,8 @@ export interface TemplateRepository {
   fillTemplate(id: string): Promise<Result<FillResult>>;
   /** 組み立て済みの文書 `html` を create_report 経由で PDF にする。失敗は `code` を保つ。 */
   buildReportPdf(id: string, html: string): Promise<Result<Blob>>;
+  /** 値入り HTML の正式 PDF の組版状態。 */
+  officialPdfStatus(id: string): Promise<Result<OfficialPdfStatus>>;
+  /** 正式 PDF の作り直しを積む(承認権限)。積んだ直後の状態を返す。 */
+  rebuildOfficialPdf(id: string): Promise<Result<OfficialPdfStatus>>;
 }

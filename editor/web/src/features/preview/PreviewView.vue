@@ -7,7 +7,7 @@
 // `state` イベントで受け取って表示する。
 import { isErr, isOk, isValidTemplateId, type Result, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
 import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, toRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useFundAssetRepo, useReviewRepo, useTemplateRepo } from '@/api/repositories';
 import AttributeBar from '@/components/AttributeBar.vue';
@@ -29,10 +29,13 @@ import {
   svgRejectedImages,
 } from '@/lib/assetWarnings';
 import { withCropMarks } from '@/lib/cropMarks';
+import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
 import { renderReportDocument } from '@/lib/pdfDocument';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useOfficialPdfStatus } from '@/lib/useOfficialPdfStatus';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
+import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
 import {
@@ -79,6 +82,31 @@ const useReportPdf = computed(() => reportEnabled.value && reportCandidate.value
 // 候補の id だけ状態の確定を待たせる。候補でない id は状態を使わないので、状態 API が返らなくても
 // 今までの経路で出せる。
 const awaitingReportStatus = computed(() => reportCandidate.value && !reportStatusResolved.value);
+
+// 正式 PDF の組版状態の行。連携が有効な値入り HTML のときだけ出す。作り直しは承認権限のみ。
+const auth = useAuthStore();
+const officialPdf = useOfficialPdfStatus(toRef(props, 'id'));
+const showOfficialPdf = computed(() => useReportPdf.value);
+watch(showOfficialPdf, (on) => {
+  if (on) { officialPdf.start(); } else { officialPdf.stop(); }
+});
+const officialPdfText = computed(() => {
+  const st = officialPdf.status.value;
+  if (!st) { return ''; }
+  const labels = {
+    done: st.updatedAt ? `できた（${formatDateTimeShort(st.updatedAt)}）` : 'できた',
+    stale: '古い',
+    missing: '無い',
+    building: '組版中',
+    queued: '待ち',
+    failed: `失敗（${st.error ?? '理由不明'}）`,
+  } as const;
+  return labels[st.state];
+});
+const officialPdfBusy = computed(() => {
+  const state = officialPdf.status.value?.state;
+  return state === 'queued' || state === 'building';
+});
 // プレビュー表示用ドキュメント。`previewDoc`(ベース)へトンボ CSS を後段注入する。トグル変更で
 // `PreviewPanel`(`watch(() => props.html, render)`)が再描画し即反映される。
 const displayDoc = computed(() =>
@@ -425,6 +453,23 @@ async function exportPdf() {
       <ul class="space-y-0.5">
         <li v-for="m in assetWarnings" :key="m">{{ m }}</li>
       </ul>
+    </div>
+
+    <div
+      v-if="showOfficialPdf"
+      class="flex items-center gap-3 border-b bg-muted/30 px-4 py-1.5 text-[12.5px]"
+      data-testid="official-pdf-status"
+    >
+      <span>正式 PDF: {{ officialPdfText }}</span>
+      <Button
+        v-if="auth.isApprover"
+        variant="outline"
+        size="sm"
+        :disabled="officialPdfBusy"
+        @click="officialPdf.rebuild()"
+      >
+        正式 PDF を作り直す
+      </Button>
     </div>
 
     <!-- PDF 出力が長引く場合の補足(ボタンのスピナーだけでは固まったように見えるため)。 -->
