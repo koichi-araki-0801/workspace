@@ -11,7 +11,7 @@ import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { E2E_REPORT_CALL_LOG, E2E_REST_DATA_ROOT } from '../server/scripts/e2e-rest-paths';
 import { expect, test } from './fixtures';
-import { login } from './helpers';
+import { finalizeReview, login, openReviewDetail, submitOnce } from './helpers';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -108,4 +108,44 @@ test('downloads report pdf from preview', async ({ page }) => {
   const file = await download.path();
   expect(fs.readFileSync(file).subarray(0, 8).toString('latin1')).toBe('%PDF-1.4');
   expect(callCount()).toBe(1);
+});
+
+const pdfDir = path.join(E2E_REST_DATA_ROOT, 'pdf');
+
+test('approval builds the official pdf', async ({ page }) => {
+  // 申請(submitOnce)は負荷下で 30 秒近くかかる。承認の結果通知まで待つので余裕を持たせる。
+  test.setTimeout(180_000);
+  const id = 'XX01_950037_20240710_交付版';
+  seedSkeleton('950037', '交付版');
+  await login(page, 'admin');
+  await submitOnce(page, id);
+
+  await login(page, 'approver');
+  await openReviewDetail(page, id);
+  const item = page.locator('[data-review-item]').first();
+  await expect(item.locator('[data-decision-progress]')).toContainText('判定 0 / 0', {
+    timeout: 60_000,
+  });
+  await finalizeReview(page, item);
+
+  // 承認で正式 PDF を積み、組み終わったら結果を通知する。
+  await expect(page.getByRole('status').filter({ hasText: '正式 PDF を作りました' })).toBeVisible({
+    timeout: 60_000,
+  });
+  const pdf = path.join(pdfDir, `${id}.pdf`);
+  expect(fs.readFileSync(pdf).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+});
+
+test('approver rebuilds the official pdf', async ({ page }) => {
+  seedSkeleton('910024', '全体版');
+  await login(page, 'approver');
+  const id = 'XX01_910024_20251117_全体版';
+  await page.goto(`/preview/${encodeURIComponent(id)}`, { waitUntil: 'commit' });
+
+  const status = page.getByTestId('official-pdf-status');
+  const rebuild = status.getByRole('button', { name: '正式 PDF を作り直す' });
+  await expect(rebuild).toBeEnabled({ timeout: 60_000 });
+  await rebuild.click();
+  await expect(status).toContainText('できた', { timeout: 60_000 });
+  expect(fs.existsSync(path.join(pdfDir, `${id}.pdf`))).toBe(true);
 });
