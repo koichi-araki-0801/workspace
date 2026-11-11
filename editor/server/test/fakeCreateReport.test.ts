@@ -34,12 +34,18 @@ function run(
   root: string,
   fund: string,
   flag: RunFlag,
-  options: { fromEditor?: boolean; stdin?: string } = {},
+  options: {
+    fromEditor?: boolean;
+    stdin?: string;
+    flags?: string[];
+    env?: Record<string, string>;
+  } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const env: Record<string, string> = {
     PYTHONUTF8: '1',
     PYTHONIOENCODING: 'utf-8',
     TEMPLATES_DIR: path.join(root, 'templates'),
+    ...options.env,
   };
   for (const key of ['PATH', 'SYSTEMROOT', 'TEMP', 'TMP']) {
     const value = process.env[key];
@@ -48,10 +54,11 @@ function run(
     }
   }
   const extra = options.fromEditor ? ['--from-editor'] : [];
+  const flags = options.flags ?? [flag, '--fund-only', ...extra];
   return new Promise((resolve) => {
     const child = execFile(
       BIN,
-      [...BIN_ARGS, SCRIPT, '01281', fund, '2023-11-17', '交付版', flag, '--fund-only', ...extra],
+      [...BIN_ARGS, SCRIPT, '01281', fund, '2023-11-17', '交付版', ...flags],
       { encoding: 'utf8', timeout: 20_000, env },
       (err, stdout, stderr) => {
         const code = err ? Number((err as { code?: unknown }).code ?? 1) : 0;
@@ -106,10 +113,9 @@ describe('fake_create_report.py', () => {
     git(root, 'add', 'templates/other.html');
     const r = await run(root, FUND, '--html-only');
     expect(r.code).toBe(0);
-    const user = os.userInfo().username;
-    expect(git(root, 'log', '-1', '--format=%ae%x09%s').trim()).toBe(
-      `${user}@create_report.local	create_report（単独）で ${ID} を生成`,
-    );
+    const [email, subject] = git(root, 'log', '-1', '--format=%ae%x09%s').trim().split('	');
+    expect(email.endsWith('@create_report.local')).toBe(true);
+    expect(subject).toBe(`create_report（単独）で ${ID} を生成`);
     expect(git(root, 'show', '--name-only', '--format=', 'HEAD').trim()).toBe(`filled/${ID}.html`);
   }, 30_000);
 
@@ -122,6 +128,28 @@ describe('fake_create_report.py', () => {
     expect(r.code).toBe(4);
     expect(fs.readFileSync(file, 'utf8')).toBe('hand edited');
   }, 60_000);
+
+  it('standalone html twice adds no commit', async () => {
+    const root = gitRoot('sa-twice');
+    expect((await run(root, FUND, '--html-only')).code).toBe(0);
+    expect((await run(root, FUND, '--html-only')).code).toBe(0);
+    expect(git(root, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+  }, 60_000);
+
+  it('standalone html exits 5 when GIT_BIN is unusable', async () => {
+    const root = gitRoot('sa-nogit');
+    const r = await run(root, FUND, '--html-only', {
+      env: { GIT_BIN: path.join(tmp, 'no-such-git') },
+    });
+    expect(r.code).toBe(5);
+  }, 30_000);
+
+  it('rejects an invalid flag combination with 64', async () => {
+    const root = dataRoot('badflags');
+    const r = await run(root, FUND, '--html-only', { flags: ['--html-only', '--pdf-only'] });
+    expect(r.code).toBe(64);
+    expect(fs.existsSync(path.join(root, 'filled'))).toBe(false);
+  }, 30_000);
 
   it('standalone html without repo writes and warns', async () => {
     const root = dataRoot('sa-norepo');

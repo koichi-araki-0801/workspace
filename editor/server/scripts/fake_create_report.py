@@ -109,7 +109,12 @@ def _git(args: list[str], cwd: str, hooks_dir: str, user: str) -> subprocess.Com
         "-c", "core.quotepath=false",
         *args,
     ]
-    return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8")
+    try:
+        return subprocess.run(
+            cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8"
+        )
+    except OSError as e:
+        return subprocess.CompletedProcess(cmd, 127, "", str(e))
 
 
 def _record_standalone(data_root: str, report_id: str, body: bytes) -> int:
@@ -141,6 +146,8 @@ def _record_standalone(data_root: str, report_id: str, body: bytes) -> int:
             added = _git(["add", "--", rel], data_root, hooks_dir, user)
             if added.returncode != 0:
                 last = added.stderr
+                if "index.lock" not in last:
+                    break
                 continue
             # 内容が HEAD と同じなら記録するものが無い(成功)
             same = _git(["diff", "--cached", "--quiet", "--", rel], data_root, hooks_dir, user)
@@ -153,6 +160,8 @@ def _record_standalone(data_root: str, report_id: str, body: bytes) -> int:
             if done.returncode == 0:
                 return 0
             last = done.stderr or done.stdout
+            if "index.lock" not in last:
+                break
         print(f"git のコミットに失敗しました: {last.strip()}", file=sys.stderr)
         return EXIT_COMMIT_FAILED
 
