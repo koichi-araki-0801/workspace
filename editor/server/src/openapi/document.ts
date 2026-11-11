@@ -50,7 +50,10 @@ const ERR_REPORT = {
     'サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは ' +
       'code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH',
   ),
-  '502': err('create_report が異常終了した (kind=unexpected, code=REPORT_RUN_FAILED)'),
+  '502': err(
+    'create_report が異常終了した (code=REPORT_RUN_FAILED)、または標準出力が PDF でない ' +
+      '(code=REPORT_OUTPUT_NOT_PDF) (kind=unexpected)',
+  ),
   '503': err(
     '生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。' +
       'report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも ' +

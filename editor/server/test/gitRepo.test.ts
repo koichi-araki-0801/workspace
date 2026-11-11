@@ -165,7 +165,7 @@ d('gitRepo', () => {
       '/images/',
     );
     const lines = fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8').split(/\r?\n/);
-    expect(lines).toContain('/pdf-input/');
+    expect(lines).not.toContain('/pdf-input/');
     expect(lines).toContain('/pdf/');
   });
 

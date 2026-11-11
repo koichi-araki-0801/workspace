@@ -487,12 +487,10 @@ export const config = {
    */
   syncDir: resolveDataPath(process.env.SYNC_DIR, file.paths?.syncDir, 'sync'),
   /**
-   * create_report に渡す PDF の入力置き場(git 管理外。`ensureRepo` が `/pdf-input/` を .gitignore する)。
-   * 上書きの設定は持たない。create_report は自分の dataRoot 直下の `pdf-input/` を読むので、
-   * 場所を変えると必ず「出力が無い」になり、確定領域へ向けてしまう危険だけが残る。
+   * create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。
+   * 上書きの設定は持たない。
+   * create_report は自分の dataRoot 直下の `pdf/` に書くので、場所を変えると必ず「出力が無い」になる。
    */
-  pdfInputDir: path.join(dataRoot, 'pdf-input'),
-  /** create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。固定の理由は上と同じ。 */
   pdfDir: path.join(dataRoot, 'pdf'),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
   gitRepoDir: process.env.GIT_REPO_DIR === undefined ? dataRoot : toPath(process.env.GIT_REPO_DIR),

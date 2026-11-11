@@ -1,7 +1,8 @@
 // =============================================================================
 // createReport.ts — create_report.py の呼び出し(値入り HTML の生成と単体 PDF の組版)
 // =============================================================================
-// 編集タブの「新しい基準日で開く」(`filled/` の生成)と、単体 PDF(`pdf-input/` → `pdf/`)が使う。
+// 編集タブの「新しい基準日で開く」(`filled/` の生成)、単体 PDF(標準入力で HTML を渡し、標準出力で
+// PDF を受ける。dataRoot には何も書かない)、公式 PDF(`filled/` から `pdf/` を作る)が使う。
 // スクリプトは dataRoot を自分の設定で持つので、editor は引数だけを渡し、出力は決まったパスから読む。
 // 起動は `scriptRunner.ts` の部品を共有する(指紋の照合・環境変数の許可リスト・同時実行の枠)。
 import fs from 'node:fs/promises';
@@ -13,35 +14,41 @@ import {
   parseTemplateFileName,
   REPORT_DISABLED,
   REPORT_OUTPUT_MISSING,
+  REPORT_OUTPUT_NOT_PDF,
   REPORT_RUN_FAILED,
   REPORT_TIMEOUT,
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
-import { atomicWrite } from '../files/atomic.js';
 import { withFileLock } from '../files/fileLock.js';
 import { filledExists } from '../files/templateFiles.js';
 import { logger } from '../logger.js';
 import {
   assertScriptFingerprint,
   runPythonScript,
+  runPythonScriptIo,
   ScriptRunError,
   type ScriptSpec,
   withGeneratorSlot,
 } from './scriptRunner.js';
 
-/** create_report に作らせるもの。`html` は値入り HTML、`pdf` は単体 PDF。 */
-export type ReportMode = 'html' | 'pdf';
+/**
+ * create_report に作らせるもの。`html` は値入り HTML、`pdf` は単体 PDF(標準入出力)、
+ * `official-pdf` は `filled/` から `pdf/` へ作る公式 PDF(editor を通さない単独の形)。
+ */
+export type ReportMode = 'html' | 'pdf' | 'official-pdf';
 
 /** 失敗時に応答へ出さず、ログへ残す stderr の末尾の長さ。 */
 const STDERR_TAIL_CHARS = 2000;
 
 const BASE_DATE_RE = /^(\d{4})(\d{2})(\d{2})$/;
 
+/** PDF の先頭の印。標準出力がこれで始まらなければ `--from-editor` 非対応の create_report とみなす。 */
+const PDF_MAGIC = '%PDF-';
+
 /**
- * 単体 PDF の起動に付けるフラグ。スクリプトはこれがあるときだけ `pdf-input/` を読み `pdf/` に書く。
- * 付けない `--pdf-only` は editor を通さない単独の実行のために空けておく(`pdf-input/` と `pdf/` は
- * editor が消すので、単独の実行が読み書きすると入力が無いか出力が消える)。
+ * editor からの起動に付けるフラグ。付けると HTML は標準入力から受け、PDF は標準出力へ出し、
+ * dataRoot への書き込みと git のコミットをしない。付けない形は editor を通さない単独の実行。
  */
 const FROM_EDITOR_FLAG = '--from-editor';
 
@@ -84,6 +91,12 @@ function argToken(label: string, value: string): string {
   return token;
 }
 
+const MODE_FLAGS: Record<ReportMode, string[]> = {
+  html: ['--html-only', '--fund-only', FROM_EDITOR_FLAG],
+  pdf: ['--pdf-only', '--fund-only', FROM_EDITOR_FLAG],
+  'official-pdf': ['--pdf-only', '--fund-only'],
+};
+
 /** create_report.py の引数を組む。各値は `argToken` で検査する。 */
 export function reportArgs(
   rep1CompanyCode: string,
@@ -95,9 +108,7 @@ export function reportArgs(
     argToken('ファンドコード', attrs.fundCode),
     toIsoBaseDate(attrs.baseDate),
     argToken('版種', attrs.editionType),
-    ...(mode === 'html'
-      ? ['--html-only', '--fund-only']
-      : ['--pdf-only', '--fund-only', FROM_EDITOR_FLAG]),
+    ...MODE_FLAGS[mode],
   ];
 }
 
@@ -136,10 +147,20 @@ async function runReport(
   args: string[],
   onScriptFailure: () => Promise<void> = async () => undefined,
 ): Promise<void> {
-  await withGeneratorSlot(async () => {
+  await runGuarded(spec, args, () => runPythonScript(spec, args), onScriptFailure);
+}
+
+/** `runReport` の失敗の写し方を、戻り値のある起動(標準入出力)でも共有する。 */
+async function runGuarded<T>(
+  spec: ScriptSpec,
+  args: string[],
+  run: () => Promise<T>,
+  onScriptFailure: () => Promise<void> = async () => undefined,
+): Promise<T> {
+  return withGeneratorSlot(async () => {
     await assertScriptFingerprint(spec);
     try {
-      await runPythonScript(spec, args);
+      return await run();
     } catch (err) {
       if (!(err instanceof ScriptRunError)) {
         throw err;
@@ -199,9 +220,8 @@ async function removeQuietly(file: string): Promise<void> {
 }
 
 /**
- * 編集後の HTML を `pdf-input/<id>.html` に置いて組版し、`pdf/<id>.pdf` を読んで返す。
- * 古い PDF を先に消すのは、スクリプトが何も書かずに終わったとき前回の PDF を返さないため。
- * 入力と出力は応答後に消す(未承認の内容を dataRoot に残さない)。
+ * 編集後の HTML を標準入力で渡し、標準出力の PDF を返す。dataRoot には何も書かないので、
+ * 共有するファイルが無く、同じ id の実行を直列にする必要も無い(同時実行の枠だけが効く)。
  */
 export async function generateReportPdf(
   id: string,
@@ -209,45 +229,36 @@ export async function generateReportPdf(
   rep1CompanyCode: string,
 ): Promise<Buffer> {
   const spec = requireReport();
-  const attrs = parseId(id);
-  const args = reportArgs(rep1CompanyCode, attrs, 'pdf');
-  const input = path.join(config.pdfInputDir, `${id}.html`);
-  const output = path.join(config.pdfDir, `${id}.pdf`);
-  // Windows はファイル名の大小を区別しない。大小だけ違う id が同じ入出力を共有するので、鍵は小文字にそろえる。
-  return withFileLock(`report-pdf:${id.toLowerCase()}`, async () => {
-    try {
-      await removeQuietly(output);
-      await fs.mkdir(config.pdfInputDir, { recursive: true });
-      await atomicWrite(input, html);
-      await runReport(spec, args);
-      try {
-        return await fs.readFile(output);
-      } catch {
-        throw outputMissing(`pdf/${id}.pdf`);
-      }
-    } finally {
-      await removeQuietly(input);
-      await removeQuietly(output);
-    }
-  });
-}
-
-/** フォルダの中身を消す(フォルダ自体は残す)。無ければ何もしない。 */
-async function emptyDir(dir: string): Promise<void> {
-  let names: string[];
-  try {
-    names = await fs.readdir(dir);
-  } catch {
-    return;
+  const args = reportArgs(rep1CompanyCode, parseId(id), 'pdf');
+  const out = await runGuarded(spec, args, () => runPythonScriptIo(spec, args, html));
+  if (out.subarray(0, PDF_MAGIC.length).toString('latin1') !== PDF_MAGIC) {
+    throw reportError(
+      'create_report の出力が PDF ではありません。' +
+        'create_report.py が --from-editor に対応しているか確かめてください',
+      REPORT_OUTPUT_NOT_PDF,
+      502,
+    );
   }
-  await Promise.all(names.map((n) => fs.rm(path.join(dir, n), { recursive: true, force: true })));
+  return out;
 }
 
 /**
- * 起動時に `pdf-input/` と `pdf/` の中身を消す。通常は応答後に消しているが、組版中に
- * プロセスが落ちると未承認の内容が dataRoot に残るため。どちらも作業フォルダで、
- * 起動直後に使用中のファイルは無い。
+ * 公式 PDF を `filled/<id>.html` から作り、`pdf/<id>.pdf` に置く。古い PDF を先に消すのは、
+ * スクリプトが何も書かずに終わったとき前回の PDF を成功と取り違えないため。
+ * 同じ id の組版は排他にする(`pdf/<id>.pdf` を共有するため)。
  */
-export async function clearReportWorkDirs(): Promise<void> {
-  await Promise.all([emptyDir(config.pdfInputDir), emptyDir(config.pdfDir)]);
+export async function buildOfficialPdf(id: string, rep1CompanyCode: string): Promise<void> {
+  const spec = requireReport();
+  const args = reportArgs(rep1CompanyCode, parseId(id), 'official-pdf');
+  const output = path.join(config.pdfDir, `${id}.pdf`);
+  // Windows はファイル名の大小を区別しないので、鍵は小文字にそろえる。
+  await withFileLock(`report-official:${id.toLowerCase()}`, async () => {
+    await removeQuietly(output);
+    await runReport(spec, args, () => removeQuietly(output));
+    try {
+      await fs.access(output);
+    } catch {
+      throw outputMissing(`pdf/${id}.pdf`);
+    }
+  });
 }

@@ -60,14 +60,12 @@ function listSources(dir = SRC, base = SRC): string[] {
 describe('書込プリミティブの import 許可リスト', () => {
   it('atomicWrite を import してよいのは許可リストのファイルだけ', () => {
     // 増えても減っても落ちる。新しいファイルがディスクへ直接書き始めたことに気付くための
-    // 検査であって、「危険な書き込みを列挙する」検査ではない。`generate/createReport.ts` が書くのは
-    // 承認の対象外の `pdf-input/`(組版の入力。応答後に消す)だけで、`filled/` には触らない。
+    // 検査であって、「危険な書き込みを列挙する」検査ではない。
     const allowed = [
       'files/idPairStore.ts',
       'files/notesFile.ts',
       'files/reviewFiles.ts',
       'files/syncFiles.ts',
-      'generate/createReport.ts',
       'repositories/confirmedWrite.ts',
     ];
     const actual = listSources().filter((rel) =>

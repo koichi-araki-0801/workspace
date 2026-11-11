@@ -1,8 +1,8 @@
 // =============================================================================
 // pdfInputRefs.ts — 単体 PDF の入力 HTML の参照を dataRoot の資産の置き場に限る
 // =============================================================================
-// create_report は `<dataRoot>/pdf-input/<id>.html` に置いた HTML を組版し、相対参照を
-// **パスのとおりに**ファイルとして読む。外部参照の関門(`externalRefs.ts`)は相対参照を
+// create_report は標準入力で受けた HTML を `<dataRoot>/filled/<id>.html` にあるものとして組版し、
+// 相対参照を**パスのとおりに**ファイルとして読む。外部参照の関門(`externalRefs.ts`)は相対参照を
 // 「同梱資産」として通すので、そのままだと `<iframe src="../../x/appconfig.json">` のような参照で
 // サーバ上の任意のファイルを PDF へ写して持ち出せる。
 //
@@ -12,9 +12,9 @@
 // (`?` `#` `%` を URL として落としてから判定すると、字面で読む側と指す場所が割れる)。
 //
 //   <dataRoot>/
-//     pdf-input/<id>.html   <- 入力。参照の基準
+//     filled/<id>.html      <- 入力が置かれる場所の見立て。参照の基準
 //     css/  images/  js/    <- 通す(フォントは css/fonts/)
-//     それ以外              <- 拒む(templates/・filled/・pdf-input/ 自身・dataRoot の外)
+//     それ以外              <- 拒む(templates/・filled/ 自身・dataRoot の外)
 //
 // 通す形は `../<置き場>/<名前>/…/<名前>` だけ。文字参照は解かない: 走査器が渡す属性値は
 // 引用符を外しただけの原文で、こちらの復号器と組版器の HTML パーサの復号(名前付き実体の表・
@@ -272,7 +272,7 @@ function collectHtmlRefs(html: string, out: string[], depth: number): void {
 }
 
 /**
- * 単体 PDF の入力 HTML が、`pdf-input/` から見て資産の置き場の内側だけを参照することを強制する。
+ * 単体 PDF の入力 HTML が、`filled/` から見て資産の置き場の内側だけを参照することを強制する。
  * 1 件でも外を指せば 400(`REPORT_INPUT_REF_OUTSIDE`)。応答には参照の頭だけと総数を載せる。
  */
 export function assertPdfInputRefsContained(html: string, where: string): void {

@@ -10,7 +10,6 @@ import fs from 'node:fs';
 import { buildApp } from './app.js';
 import { config } from './config.js';
 import type { SprocClient } from './db/sproc.js';
-import { clearReportWorkDirs } from './generate/createReport.js';
 import { checkGeneratorAtStartup } from './generate/generatorCheck.js';
 import { logger } from './logger.js';
 import { buildWorkerPool } from './vivliostyle/buildWorkerServer.js';
@@ -105,10 +104,6 @@ export async function startServer(options: StartServerOptions = {}): Promise<voi
   // 結果は警告ログだけで起動は止めない — 生成を使わない運用まで止まるため。
   checkGeneratorAtStartup().catch(() => {});
   await invalidateSessionsOnBoot(app);
-  // 単体 PDF の作業フォルダに前回の異常終了の残りがあれば消す。失敗しても起動は止めない。
-  await clearReportWorkDirs().catch((err: unknown) => {
-    logger.warn({ err }, '[server] pdf-input/ と pdf/ の後始末に失敗しました');
-  });
 
   // listen。host は既定 127.0.0.1(同一マシン限定)で、社内 LAN へ公開するときだけ
   // `HOST=0.0.0.0`(start.bat lan が設定)で全 IF にバインドする。preview サーバは loopback の

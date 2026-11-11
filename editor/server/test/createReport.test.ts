@@ -3,6 +3,7 @@ import path from 'node:path';
 import {
   REPORT_DISABLED,
   REPORT_OUTPUT_MISSING,
+  REPORT_OUTPUT_NOT_PDF,
   REPORT_RUN_FAILED,
   REPORT_TIMEOUT,
 } from '@editor/shared';
@@ -26,7 +27,7 @@ vi.mock('node:child_process', () => ({ execFile: execFileMock }));
 
 import { config } from '../src/config.js';
 import {
-  clearReportWorkDirs,
+  buildOfficialPdf,
   generateFilled,
   generateReportPdf,
   reportArgs,
@@ -63,14 +64,11 @@ function mockFail(err: Error & { killed?: boolean }, stderr = ''): void {
 
 const filledFile = path.join(root, 'filled', `${ID}.html`);
 const pdfFile = path.join(root, 'pdf', `${ID}.pdf`);
-const inputFile = path.join(root, 'pdf-input', `${ID}.html`);
 
 beforeEach(() => {
   execFileMock.mockReset();
   fs.rmSync(root, { recursive: true, force: true });
-  for (const d of ['filled', 'pdf', 'pdf-input']) {
-    fs.mkdirSync(path.join(root, d), { recursive: true });
-  }
+  fs.mkdirSync(path.join(root, 'filled'), { recursive: true });
 });
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -92,6 +90,13 @@ describe('reportArgs', () => {
       '2023-11-17',
       '交付版',
       '--html-only',
+      '--fund-only',
+      '--from-editor',
+    ]);
+  });
+  it('builds official-pdf args without --from-editor', () => {
+    expect(reportArgs('01281', ATTRS, 'official-pdf').slice(4)).toEqual([
+      '--pdf-only',
       '--fund-only',
     ]);
   });
@@ -129,13 +134,14 @@ describe('generateFilled', () => {
     expect(r.map((x) => x.created)).toEqual([true, false]);
     expect(execFileMock).toHaveBeenCalledTimes(1);
     const args = execFileMock.mock.calls[0][1] as string[];
-    expect(args.slice(-6)).toEqual([
+    expect(args.slice(-7)).toEqual([
       '01281',
       '880008',
       '2023-11-17',
       '交付版',
       '--html-only',
       '--fund-only',
+      '--from-editor',
     ]);
   });
 
@@ -229,25 +235,39 @@ describe('generateFilled', () => {
 });
 
 describe('generateReportPdf', () => {
-  it('deletes stale pdf before running', async () => {
-    fs.writeFileSync(pdfFile, 'old');
-    mockRun();
+  /** execFile の callback へ stdout をバッファで返す(標準入出力の起動用)。 */
+  function mockStdout(stdout: Buffer): void {
+    execFileMock.mockImplementation((...a: unknown[]) => {
+      const cb = a[a.length - 1] as (e: Error | null, o: Buffer, s: Buffer) => void;
+      setImmediate(() => cb(null, stdout, Buffer.alloc(0)));
+      return { on: vi.fn(), stdin: { on: vi.fn(), end: vi.fn() } };
+    });
+  }
+
+  it('returns the pdf from stdout and writes nothing to dataRoot', async () => {
+    mockStdout(Buffer.from('%PDF-1.4 body'));
+    const buf = await generateReportPdf(ID, '<p>x</p>', '01281');
+    expect(buf.toString()).toBe('%PDF-1.4 body');
+    expect(fs.existsSync(path.join(root, 'pdf'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'pdf-input'))).toBe(false);
+    const args = execFileMock.mock.calls[0][1] as string[];
+    expect(args.slice(-3)).toEqual(['--pdf-only', '--fund-only', '--from-editor']);
+  });
+
+  it('rejects stdout that is not a pdf', async () => {
+    mockStdout(Buffer.from('not a pdf'));
     await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
-      code: REPORT_OUTPUT_MISSING,
+      code: REPORT_OUTPUT_NOT_PDF,
+      statusCode: 502,
+      message: expect.stringContaining('--from-editor'),
     });
   });
 
-  it('returns the pdf and removes pdf-input and pdf files after success', async () => {
-    mockRun(() => {
-      expect(fs.readFileSync(inputFile, 'utf8')).toBe('<p>x</p>');
-      fs.writeFileSync(pdfFile, '%PDF-1.4');
+  it('maps a failed run to REPORT_RUN_FAILED', async () => {
+    mockFail(new Error('exit 1'));
+    await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
+      code: REPORT_RUN_FAILED,
     });
-    const buf = await generateReportPdf(ID, '<p>x</p>', '01281');
-    expect(buf.toString()).toBe('%PDF-1.4');
-    expect(fs.existsSync(inputFile)).toBe(false);
-    expect(fs.existsSync(pdfFile)).toBe(false);
-    const args = execFileMock.mock.calls[0][1] as string[];
-    expect(args.slice(-3)).toEqual(['--pdf-only', '--fund-only', '--from-editor']);
   });
 
   it.each(['a:b_880008_20231117_交付版', '..\\x_880008_20231117_交付版'])(
@@ -259,90 +279,27 @@ describe('generateReportPdf', () => {
       expect(execFileMock).not.toHaveBeenCalled();
     },
   );
-
-  it('serializes two concurrent runs for the same id', async () => {
-    let running = 0;
-    let maxRunning = 0;
-    execFileMock.mockImplementation((...a: unknown[]) => {
-      const cb = a[a.length - 1] as Callback;
-      running += 1;
-      maxRunning = Math.max(maxRunning, running);
-      fs.writeFileSync(pdfFile, '%PDF-1.4');
-      setTimeout(() => {
-        running -= 1;
-        cb(null, '', '');
-      }, 20);
-      return { on: vi.fn() };
-    });
-    await Promise.all([
-      generateReportPdf(ID, '<p>a</p>', '01281'),
-      generateReportPdf(ID, '<p>b</p>', '01281'),
-    ]);
-    expect(execFileMock).toHaveBeenCalledTimes(2);
-    expect(maxRunning).toBe(1);
-  });
-
-  it('serializes runs for ids that differ only in case', async () => {
-    let running = 0;
-    let maxRunning = 0;
-    execFileMock.mockImplementation((...a: unknown[]) => {
-      const cb = a[a.length - 1] as Callback;
-      running += 1;
-      maxRunning = Math.max(maxRunning, running);
-      for (const name of ['AB01_880008_20231117_交付版.pdf', 'ab01_880008_20231117_交付版.pdf']) {
-        fs.writeFileSync(path.join(root, 'pdf', name), '%PDF-1.4');
-      }
-      setTimeout(() => {
-        running -= 1;
-        cb(null, '', '');
-      }, 20);
-      return { on: vi.fn() };
-    });
-    await Promise.all([
-      generateReportPdf('AB01_880008_20231117_交付版', '<p>a</p>', 'R'),
-      generateReportPdf('ab01_880008_20231117_交付版', '<p>b</p>', 'R'),
-    ]);
-    expect(maxRunning).toBe(1);
-  });
-
-  it('removes input and pdf when the run fails after writing a pdf', async () => {
-    execFileMock.mockImplementation((...a: unknown[]) => {
-      const cb = a[a.length - 1] as Callback;
-      fs.writeFileSync(pdfFile, 'partial');
-      setImmediate(() => cb(new Error('exit 1'), '', ''));
-      return { on: vi.fn() };
-    });
-    await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
-      code: REPORT_RUN_FAILED,
-    });
-    expect(fs.existsSync(inputFile)).toBe(false);
-    expect(fs.existsSync(pdfFile)).toBe(false);
-  });
-
-  it('removes the input even when the run fails', async () => {
-    mockFail(new Error('exit 1'));
-    await expect(generateReportPdf(ID, '<p>x</p>', '01281')).rejects.toMatchObject({
-      code: REPORT_RUN_FAILED,
-    });
-    expect(fs.existsSync(inputFile)).toBe(false);
-  });
 });
 
-describe('clearReportWorkDirs', () => {
-  it('empties pdf-input/ and pdf/ left by an abnormal exit', async () => {
-    fs.writeFileSync(inputFile, '<p>left</p>');
-    fs.writeFileSync(pdfFile, '%PDF');
-    fs.mkdirSync(path.join(root, 'pdf', 'sub'));
-    await clearReportWorkDirs();
-    expect(fs.readdirSync(path.join(root, 'pdf-input'))).toEqual([]);
-    expect(fs.readdirSync(path.join(root, 'pdf'))).toEqual([]);
+describe('buildOfficialPdf', () => {
+  it('removes the old pdf before building, then builds a new one', async () => {
+    fs.mkdirSync(path.dirname(pdfFile), { recursive: true });
+    fs.writeFileSync(pdfFile, 'old');
+    mockRun();
+    await expect(buildOfficialPdf(ID, '01281')).rejects.toMatchObject({
+      code: REPORT_OUTPUT_MISSING,
+    });
+    expect(fs.existsSync(pdfFile)).toBe(false);
+
+    mockRun(() => fs.writeFileSync(pdfFile, '%PDF-1.4'));
+    await expect(buildOfficialPdf(ID, '01281')).resolves.toBeUndefined();
+    expect(fs.readFileSync(pdfFile, 'utf8')).toBe('%PDF-1.4');
+    const args = execFileMock.mock.calls[1][1] as string[];
+    expect(args.slice(-2)).toEqual(['--pdf-only', '--fund-only']);
   });
 
-  it('keeps filled/ untouched and tolerates missing folders', async () => {
-    fs.writeFileSync(filledFile, 'x');
-    fs.rmSync(path.join(root, 'pdf-input'), { recursive: true });
-    fs.rmSync(path.join(root, 'pdf'), { recursive: true });
-    await expect(clearReportWorkDirs()).resolves.toBeUndefined();
-    expect(fs.readFileSync(filledFile, 'utf8')).toBe('x');
+  it('maps a failed run to REPORT_RUN_FAILED', async () => {
+    mockFail(new Error('exit 3'));
+    await expect(buildOfficialPdf(ID, '01281')).rejects.toMatchObject({ code: REPORT_RUN_FAILED });
   });
 });

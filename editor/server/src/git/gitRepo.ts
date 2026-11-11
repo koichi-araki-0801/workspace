@@ -308,7 +308,6 @@ async function ensureGitignore(): Promise<void> {
     '/notes/',
     '/css/fonts/',
     '/images/',
-    '/pdf-input/',
     '/pdf/',
     '*.tmp-*',
   ];
