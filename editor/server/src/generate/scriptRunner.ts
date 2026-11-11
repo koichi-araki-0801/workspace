@@ -197,3 +197,42 @@ export function runPythonScript(spec: ScriptSpec, args: readonly string[]): Prom
     child.on('error', reject);
   });
 }
+
+/** 標準出力を受け取る起動(`runPythonScriptIo`)の標準出力の上限。超えたら失敗にする。 */
+export const SCRIPT_STDOUT_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * `runPythonScript` と同じ条件(cwd・環境変数・時間切れ)で起動し、標準入力へ `input` を渡して
+ * 標準出力をバイト列のまま返す。出力が PDF などのバイナリでも壊れないよう文字列に直さない。
+ * 標準出力が上限を超えたときも `ScriptRunError`(`timedOut: false`)で失敗する。
+ */
+export function runPythonScriptIo(
+  spec: ScriptSpec,
+  args: readonly string[],
+  input: string,
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      config.python.bin,
+      [...config.python.args, spec.script, ...args],
+      {
+        cwd: path.dirname(spec.script),
+        timeout: spec.timeoutMs,
+        maxBuffer: SCRIPT_STDOUT_MAX_BYTES,
+        encoding: 'buffer',
+        env: generatorEnv(),
+      },
+      (err, stdout, stderr) => {
+        if (err) {
+          reject(new ScriptRunError(err.message, err.killed === true, stderr.toString('utf8')));
+          return;
+        }
+        resolve(stdout);
+      },
+    );
+    child.on('error', reject);
+    // 子が入力を読まずに終わると EPIPE が出る。失敗は終了コードと stderr で報告するので握る。
+    child.stdin?.on('error', () => undefined);
+    child.stdin?.end(input, 'utf8');
+  });
+}
