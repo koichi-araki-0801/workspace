@@ -3,7 +3,7 @@
 // =============================================================================
 // 実プロセスで起動する(Windows は py -3.13、それ以外は python3。`fakeGenerator.test.ts` と同じ)。
 // e2e と LocalDB での検証の「値入り HTML の生成」「単体 PDF」がこれを通る。
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,11 +28,13 @@ function dataRoot(name: string, fund = FUND): string {
   return root;
 }
 
+type RunFlag = '--html-only' | '--pdf-only';
+
 function run(
   root: string,
   fund: string,
-  flag: '--html-only' | '--pdf-only',
-  extra: string[] = flag === '--pdf-only' ? ['--from-editor'] : [],
+  flag: RunFlag,
+  options: { fromEditor?: boolean; stdin?: string } = {},
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   const env: Record<string, string> = {
     PYTHONUTF8: '1',
@@ -45,8 +47,9 @@ function run(
       env[key] = value;
     }
   }
+  const extra = options.fromEditor ? ['--from-editor'] : [];
   return new Promise((resolve) => {
-    execFile(
+    const child = execFile(
       BIN,
       [...BIN_ARGS, SCRIPT, '01281', fund, '2023-11-17', '交付版', flag, '--fund-only', ...extra],
       { encoding: 'utf8', timeout: 20_000, env },
@@ -55,13 +58,38 @@ function run(
         resolve({ code, stdout, stderr });
       },
     );
+    child.stdin?.end(options.stdin ?? '');
   });
 }
+
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 't',
+  GIT_AUTHOR_EMAIL: 't@example.com',
+  GIT_COMMITTER_NAME: 't',
+  GIT_COMMITTER_EMAIL: 't@example.com',
+};
+
+function git(root: string, ...args: string[]): string {
+  return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
+    cwd: root,
+    env: GIT_ENV,
+    encoding: 'utf8',
+  });
+}
+
+function gitRoot(name: string): string {
+  const root = dataRoot(name);
+  git(root, 'init', '-q');
+  return root;
+}
+
+const ID = `XX01_${FUND}_20231117_交付版`;
 
 describe('fake_create_report.py', () => {
   it('fake writes filled html with yyyymmdd name', async () => {
     const root = dataRoot('html');
-    const r = await run(root, FUND, '--html-only');
+    const r = await run(root, FUND, '--html-only', { fromEditor: true });
     expect(r.code).toBe(0);
     expect(r.stdout).toBe('');
     expect(fs.readdirSync(path.join(root, 'filled'))).toEqual([
@@ -72,26 +100,69 @@ describe('fake_create_report.py', () => {
     ).toBe(SKELETON);
   }, 30_000);
 
-  it('fake writes pdf from pdf-input', async () => {
-    const root = dataRoot('pdf');
-    const missing = await run(root, FUND, '--pdf-only');
-    expect(missing.code).toBe(3);
-    fs.mkdirSync(path.join(root, 'pdf-input'));
-    fs.writeFileSync(path.join(root, 'pdf-input', `XX01_${FUND}_20231117_交付版.html`), '<p>x</p>');
-    const r = await run(root, FUND, '--pdf-only');
+  it('standalone html commits only the filled file', async () => {
+    const root = gitRoot('sa-commit');
+    fs.writeFileSync(path.join(root, 'templates', 'other.html'), 'o');
+    git(root, 'add', 'templates/other.html');
+    const r = await run(root, FUND, '--html-only');
     expect(r.code).toBe(0);
-    const pdf = fs.readFileSync(path.join(root, 'pdf', `XX01_${FUND}_20231117_交付版.pdf`));
+    const user = os.userInfo().username;
+    expect(git(root, 'log', '-1', '--format=%ae%x09%s').trim()).toBe(
+      `${user}@create_report.local	create_report（単独）で ${ID} を生成`,
+    );
+    expect(git(root, 'show', '--name-only', '--format=', 'HEAD').trim()).toBe(`filled/${ID}.html`);
+  }, 30_000);
+
+  it('standalone html stops on uncommitted change', async () => {
+    const root = gitRoot('sa-dirty');
+    expect((await run(root, FUND, '--html-only')).code).toBe(0);
+    const file = path.join(root, 'filled', `${ID}.html`);
+    fs.writeFileSync(file, 'hand edited');
+    const r = await run(root, FUND, '--html-only');
+    expect(r.code).toBe(4);
+    expect(fs.readFileSync(file, 'utf8')).toBe('hand edited');
+  }, 60_000);
+
+  it('standalone html without repo writes and warns', async () => {
+    const root = dataRoot('sa-norepo');
+    const r = await run(root, FUND, '--html-only');
+    expect(r.code).toBe(0);
+    expect(fs.existsSync(path.join(root, 'filled', `${ID}.html`))).toBe(true);
+    expect(r.stderr).not.toBe('');
+  }, 30_000);
+
+  it('editor html does not touch git', async () => {
+    const root = gitRoot('ed-html');
+    const r = await run(root, FUND, '--html-only', { fromEditor: true });
+    expect(r.code).toBe(0);
+    expect(() => git(root, 'rev-parse', '--verify', '-q', 'HEAD')).toThrow();
+  }, 30_000);
+
+  it('standalone pdf reads filled and writes pdf', async () => {
+    const root = dataRoot('sa-pdf');
+    expect((await run(root, FUND, '--pdf-only')).code).toBe(3);
+    fs.mkdirSync(path.join(root, 'filled'));
+    fs.writeFileSync(path.join(root, 'filled', `${ID}.html`), '<p>x</p>');
+    expect((await run(root, FUND, '--pdf-only')).code).toBe(0);
+    const pdf = fs.readFileSync(path.join(root, 'pdf', `${ID}.pdf`));
     expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
   }, 30_000);
 
-  it('fake rejects --pdf-only without --from-editor and --html-only with it', async () => {
-    const root = dataRoot('flags');
-    fs.mkdirSync(path.join(root, 'pdf-input'));
-    fs.writeFileSync(path.join(root, 'pdf-input', `XX01_${FUND}_20231117_交付版.html`), '<p>x</p>');
-    expect((await run(root, FUND, '--pdf-only', [])).code).toBe(64);
+  it('editor pdf uses stdin and stdout only', async () => {
+    const root = dataRoot('ed-pdf');
+    const r = await run(root, FUND, '--pdf-only', { fromEditor: true, stdin: '<p>x</p>' });
+    expect(r.code).toBe(0);
+    expect(r.stdout.startsWith('%PDF-1.4')).toBe(true);
     expect(fs.existsSync(path.join(root, 'pdf'))).toBe(false);
-    expect((await run(root, FUND, '--html-only', ['--from-editor'])).code).toBe(64);
     expect(fs.existsSync(path.join(root, 'filled'))).toBe(false);
+    expect((await run(root, FUND, '--pdf-only', { fromEditor: true })).code).toBe(3);
+  }, 30_000);
+
+  it('999104 writes non-pdf to stdout', async () => {
+    const root = dataRoot('nonpdf', '999104');
+    const r = await run(root, '999104', '--pdf-only', { fromEditor: true, stdin: '<p>x</p>' });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe('not a pdf');
   }, 30_000);
 
   it('fake exits 0 without output for 999103', async () => {
