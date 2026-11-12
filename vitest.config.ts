@@ -309,7 +309,8 @@ export default defineConfig({
         // 後着の古い応答の破棄。退行は「絞り込みを変えた直後に選択が消える」形で出る。
         'editor/web/src/features/compare/CompareSideSelector.vue',
         'editor/web/src/features/templates/components/CreateFundSelect.vue',
-        'editor/web/src/features/templates/components/NewBaseDateDialog.vue',
+        // 0 件の検索からの「作成して開く」。退行は「古い条件の帳票を作って開く」形で出る。
+        'editor/web/src/features/templates/EditTabView.vue',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/cssGeneratedText.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',
@@ -343,6 +344,7 @@ export default defineConfig({
         'editor/web/src/components/ui/Input.vue',
         'editor/web/src/components/ui/Select.vue',
         'editor/web/src/components/ui/BaseDateInput.vue',
+        'editor/web/src/lib/baseDate.ts',
         'editor/web/src/components/ui/StepperInput.vue',
         'editor/web/src/components/ui/BackButton.vue',
         // pie-chart (layout.ts / label_placement.ts / svg_export/* は verify_* が担当し対象外)
