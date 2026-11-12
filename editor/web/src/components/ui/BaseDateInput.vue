@@ -181,7 +181,8 @@ function onInput(): void {
 
 <template>
   <div class="relative w-full">
-    <!-- biome-ignore lint/a11y/useKeyWithClickEvents: キー操作は内側の input が受ける。 -->
+    <!-- biome-ignore lint/a11y/useKeyWithClickEvents: キー操作は内側の input が受ける -->
+    <!-- biome-ignore lint/a11y/noStaticElementInteractions: キー操作は内側の input が受ける -->
     <div
       :class="
         cn(
