@@ -16,9 +16,42 @@ export interface OfficialPdfJobs {
 
 export interface OfficialPdfJobsDeps {
   build(id: string): Promise<void>;
-  pdfMtime(id: string): Promise<Date | null>;
-  filledMtime(id: string): Promise<Date | null>;
+  /** `pdf/<id>.pdf` を最後に変えたコミット。記録が無ければ null。 */
+  pdfCommit(id: string): Promise<CommitRef | null>;
+  /** `filled/<id>.html` を最後に変えたコミット。記録が無ければ null。 */
+  filledCommit(id: string): Promise<CommitRef | null>;
+  isAncestorOrSame(ancestor: string, descendant: string): Promise<boolean>;
   now?: () => Date;
+}
+
+export interface CommitRef {
+  hash: string;
+  date: string;
+}
+
+export interface GitDerivedState {
+  state: 'missing' | 'done' | 'stale';
+  updatedAt: string | null;
+  pdfHash: string | null;
+}
+
+/**
+ * git の記録から PDF の状態を出す。ファイルの更新時刻は共有ドライブ上でサーバごとの
+ * 時計のずれに振り回されるので使わず、コミットの祖先関係で新旧を決める。
+ * 未追跡の PDF は記録が無いので `missing` と数える。
+ */
+export async function stateFromGit(
+  deps: Pick<OfficialPdfJobsDeps, 'pdfCommit' | 'filledCommit' | 'isAncestorOrSame'>,
+  id: string,
+): Promise<GitDerivedState> {
+  const pdf = await deps.pdfCommit(id);
+  if (pdf === null) {
+    return { state: 'missing', updatedAt: null, pdfHash: null };
+  }
+  const filled = await deps.filledCommit(id);
+  // filled が pdf と同じかその祖先なら PDF は最新。そうでなければ filled の方が新しい。
+  const fresh = filled === null || (await deps.isAncestorOrSame(filled.hash, pdf.hash));
+  return { state: fresh ? 'done' : 'stale', updatedAt: pdf.date, pdfHash: pdf.hash };
 }
 
 type JobRecord = Omit<OfficialPdfStatus, 'id'>;
@@ -28,6 +61,8 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
   const records = new Map<string, JobRecord>();
   const running = new Map<string, Promise<void>>();
   const again = new Set<string>();
+  // 失敗を記録した時点の PDF のコミット。いまの hash と同じなら、失敗のあとに PDF は変わっていない。
+  const failedPdfHash = new Map<string, string | null>();
 
   async function runLoop(key: string, id: string): Promise<void> {
     // queued を一度は観測できるよう、同期の呼び出し元から切り離して始める
@@ -43,6 +78,13 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
           // 画面に出すのは利用者向けの文言だけ。DB エラーなどの生の文言は logger にだけ残す。
           const message = toAppError(err).message;
           logger.error({ id, err }, '[report] 正式 PDF の組版に失敗しました');
+          failedPdfHash.set(
+            key,
+            await deps.pdfCommit(id).then(
+              (c) => c?.hash ?? null,
+              () => null,
+            ),
+          );
           records.set(key, { state: 'failed', updatedAt: now().toISOString(), error: message });
         }
       } while (again.has(key));
@@ -53,30 +95,22 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
     }
   }
 
-  async function fromFiles(id: string): Promise<JobRecord> {
-    const pdf = await deps.pdfMtime(id);
-    if (pdf === null) {
-      return { state: 'missing', updatedAt: null, error: null };
-    }
-    const filled = await deps.filledMtime(id);
-    const state = filled === null || pdf.getTime() >= filled.getTime() ? 'done' : 'stale';
-    return { state, updatedAt: pdf.toISOString(), error: null };
-  }
-
-  // 組版中(queued / building)はメモリの記録が正。それ以外はファイルの日時から出し直す。
-  // 単独の create_report が filled や PDF を書き換えても、古い done / failed を見せ続けない。
+  // 組版中(queued / building)はメモリの記録が正。それ以外は git の記録から出し直す。
+  // 単独の create_report が filled や PDF をコミットしても、古い done / failed を見せ続けない。
   async function resolveRecord(id: string): Promise<JobRecord> {
-    const rec = records.get(id.toLowerCase());
+    const key = id.toLowerCase();
+    const rec = records.get(key);
     if (rec && (rec.state === 'queued' || rec.state === 'building')) {
       return rec;
     }
-    const derived = await fromFiles(id);
+    const git = await stateFromGit(deps, id);
+    const derived: JobRecord = { state: git.state, updatedAt: git.updatedAt, error: null };
     if (rec?.state !== 'failed') {
       return derived;
     }
-    // 失敗した組版は PDF を消すので、いま PDF があるなら失敗のあとに単独の組版などで作られた。
-    // 時刻の比較はサーバとファイルサーバの時計のずれに弱いので、有無だけで決める。
-    return derived.state === 'missing' ? rec : derived;
+    // PDF のコミットが失敗時から変わっていなければ失敗のまま。変わったなら、失敗のあとに
+    // 単独の組版などで作られたので、git から出した状態を見せる。
+    return git.pdfHash === failedPdfHash.get(key) ? rec : derived;
   }
 
   return {

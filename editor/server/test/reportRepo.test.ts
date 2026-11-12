@@ -29,8 +29,8 @@ const m = vi.hoisted(() => ({
   listTemplateFiles: vi.fn(),
   readFilledHtml: vi.fn(),
   filledExists: vi.fn(),
-  officialPdfMtime: vi.fn(),
-  filledFileMtime: vi.fn(),
+  lastCommitFor: vi.fn(),
+  isAncestorOrSame: vi.fn(),
   removeOfficialPdf: vi.fn(),
   commitAll: vi.fn(),
   ensureRepo: vi.fn(),
@@ -49,14 +49,14 @@ vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   filledExists: m.filledExists,
 }));
 vi.mock('../src/files/officialPdfFiles.js', () => ({
-  officialPdfMtime: m.officialPdfMtime,
-  filledFileMtime: m.filledFileMtime,
   removeOfficialPdf: m.removeOfficialPdf,
 }));
 vi.mock('../src/git/gitRepo.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/git/gitRepo.js')>()),
   ensureRepo: m.ensureRepo,
   commitAll: m.commitAll,
+  lastCommitFor: m.lastCommitFor,
+  isAncestorOrSame: m.isAncestorOrSame,
   withGitLock: <T>(fn: () => Promise<T>) => fn(),
 }));
 vi.mock('../src/config.js', async (importOriginal) => {
@@ -98,8 +98,8 @@ describe('reportRepo', () => {
     m.buildOfficialPdf.mockResolvedValue(undefined);
     m.readFilledHtml.mockResolvedValue('<p>ok</p>');
     m.filledExists.mockResolvedValue(true);
-    m.officialPdfMtime.mockResolvedValue(new Date('2026-11-11T01:00:00Z'));
-    m.filledFileMtime.mockResolvedValue(new Date('2026-11-11T00:00:00Z'));
+    m.lastCommitFor.mockResolvedValue({ hash: 'c0', date: '2026-11-11T01:00:00.000Z' });
+    m.isAncestorOrSame.mockResolvedValue(true);
     m.removeOfficialPdf.mockResolvedValue(undefined);
     m.commitAll.mockResolvedValue('sha');
   });
@@ -306,7 +306,7 @@ describe('reportRepo', () => {
   });
 
   it('a company lookup failure becomes a failed job, not a rejected request', async () => {
-    m.officialPdfMtime.mockResolvedValue(null);
+    m.lastCommitFor.mockResolvedValue(null);
     const repo = repoWith([]);
     await repo.requestOfficialPdf(ID);
     await repo.settleOfficialPdfs();
@@ -325,7 +325,7 @@ describe('reportRepo', () => {
 
   it('a filled with an external ref fails the job without starting create_report', async () => {
     m.readFilledHtml.mockResolvedValue('<img src="https://evil.example/x.png">');
-    m.officialPdfMtime.mockResolvedValue(null);
+    m.lastCommitFor.mockResolvedValue(null);
     const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
     await repo.requestOfficialPdf(ID);
     await repo.settleOfficialPdfs();
@@ -350,8 +350,12 @@ describe('reportRepo', () => {
     const files = await vi.importActual<typeof import('../src/files/officialPdfFiles.js')>(
       '../src/files/officialPdfFiles.js',
     );
-    m.officialPdfMtime.mockImplementation(files.officialPdfMtime);
-    m.filledFileMtime.mockImplementation(files.filledFileMtime);
+    // 偽の create_report は git に記録しないので、PDF の有無をコミットの有無の代わりにする
+    m.lastCommitFor.mockImplementation(async (rel: string) =>
+      rel.startsWith('pdf/') && fs.existsSync(path.join(realConfig.pdfDir, rel.slice(4)))
+        ? { hash: 'c0', date: '2026-11-11T01:00:00.000Z' }
+        : null,
+    );
     m.removeOfficialPdf.mockImplementation(files.removeOfficialPdf);
     // `config` はモック経由だと `report` が差し替わるので、本物の設定から取る。
     const actual = await vi.importActual<typeof import('../src/config.js')>('../src/config.js');

@@ -4,8 +4,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createOfficialPdfJobs } from '../src/generate/officialPdfJobs.js';
 
-const T0 = new Date('2026-11-11T00:00:00.000Z');
 const T1 = new Date('2026-11-11T01:00:00.000Z');
+const D0 = '2026-11-11T00:00:00.000Z';
+
+interface Ref {
+  hash: string;
+  date: string;
+}
+const C0: Ref = { hash: 'c0', date: D0 };
+const C1: Ref = { hash: 'c1', date: '2026-11-11T02:00:00.000Z' };
 
 function deferred(): { promise: Promise<void>; resolve(): void } {
   let resolve!: () => void;
@@ -15,16 +22,19 @@ function deferred(): { promise: Promise<void>; resolve(): void } {
   return { promise, resolve };
 }
 
+// git の偽物。filled の方が新しいかどうかは、祖先関係の答えとして与える
 function setup(build: (id: string) => Promise<void>) {
-  const pdf: { value: Date | null } = { value: T0 };
-  const filled: { value: Date | null } = { value: null };
+  const pdf: { value: Ref | null } = { value: C0 };
+  const filled: { value: Ref | null } = { value: null };
+  const filledIsNewer = { value: false };
   const jobs = createOfficialPdfJobs({
     build,
-    pdfMtime: async () => pdf.value,
-    filledMtime: async () => filled.value,
+    pdfCommit: async () => pdf.value,
+    filledCommit: async () => filled.value,
+    isAncestorOrSame: async (a, b) => a === b || !filledIsNewer.value,
     now: () => T1,
   });
-  return { jobs, pdf, filled };
+  return { jobs, pdf, filled, filledIsNewer };
 }
 
 describe('officialPdfJobs', () => {
@@ -41,7 +51,7 @@ describe('officialPdfJobs', () => {
     expect(await jobs.status('A')).toEqual({
       id: 'A',
       state: 'done',
-      updatedAt: T0.toISOString(),
+      updatedAt: D0,
       error: null,
     });
   });
@@ -99,24 +109,21 @@ describe('officialPdfJobs', () => {
     expect((await jobs.status('A')).error).not.toContain('secret');
   });
 
-  it('derives status from files when nothing is recorded', async () => {
-    const { jobs, pdf, filled } = setup(async () => {});
+  it('derives status from git records when nothing is recorded', async () => {
+    const { jobs, pdf, filled, filledIsNewer } = setup(async () => {});
     pdf.value = null;
-    filled.value = T0;
+    filled.value = C0;
     expect(await jobs.status('A')).toEqual({
       id: 'A',
       state: 'missing',
       updatedAt: null,
       error: null,
     });
-    pdf.value = T1;
-    expect(await jobs.status('A')).toMatchObject({ state: 'done', updatedAt: T1.toISOString() });
-    const older = new Date(T0.getTime() - 1000);
-    pdf.value = older;
-    expect(await jobs.status('A')).toMatchObject({
-      state: 'stale',
-      updatedAt: older.toISOString(),
-    });
+    pdf.value = C0;
+    expect(await jobs.status('A')).toMatchObject({ state: 'done', updatedAt: D0 });
+    filled.value = C1;
+    filledIsNewer.value = true;
+    expect(await jobs.status('A')).toMatchObject({ state: 'stale', updatedAt: D0 });
     filled.value = null;
     expect((await jobs.status('A')).state).toBe('done');
   });
@@ -164,8 +171,9 @@ describe('officialPdfJobs', () => {
     const build = vi.fn(async () => {});
     const jobs = createOfficialPdfJobs({
       build,
-      pdfMtime: async () => null,
-      filledMtime: async () => null,
+      pdfCommit: async () => null,
+      filledCommit: async () => null,
+      isAncestorOrSame: async () => true,
       now: () => {
         throw new Error('clock');
       },
@@ -182,8 +190,9 @@ describe('officialPdfJobs', () => {
       build: async () => {
         throw new Error('x');
       },
-      pdfMtime: async () => null,
-      filledMtime: async () => null,
+      pdfCommit: async () => null,
+      filledCommit: async () => null,
+      isAncestorOrSame: async () => true,
     });
     jobs.request('A');
     await jobs.settled();
@@ -192,18 +201,19 @@ describe('officialPdfJobs', () => {
     expect(Math.abs(Date.parse(st.updatedAt ?? '') - Date.now())).toBeLessThan(60_000);
   });
 
-  it('re-derives done from the files so a rewritten filled shows stale', async () => {
-    const { jobs, pdf, filled } = setup(async () => undefined);
-    pdf.value = T0;
-    filled.value = T0;
+  it('re-derives done from git so a newer filled commit shows stale', async () => {
+    const { jobs, pdf, filled, filledIsNewer } = setup(async () => undefined);
+    pdf.value = C0;
+    filled.value = C0;
     jobs.request('A');
     await jobs.settled();
     expect((await jobs.status('A')).state).toBe('done');
-    filled.value = T1;
+    filled.value = C1;
+    filledIsNewer.value = true;
     expect((await jobs.status('A')).state).toBe('stale');
   });
 
-  it('shows done after a failure once a pdf exists regardless of clock skew', async () => {
+  it('keeps failed while the pdf commit is unchanged, re-derives once it differs', async () => {
     const build = vi.fn(async () => {
       throw new Error('x');
     });
@@ -212,10 +222,21 @@ describe('officialPdfJobs', () => {
     jobs.request('A');
     await jobs.settled();
     expect((await jobs.status('A')).state).toBe('failed');
-    filled.value = T0;
+    filled.value = C0;
     expect((await jobs.status('A')).state).toBe('failed');
-    // PDF の時刻が失敗の時刻より古く見えても(時計のずれ)、PDF があれば失敗を捨てる
-    pdf.value = new Date(T1.getTime() - 3600_000);
+    pdf.value = C1;
+    expect(await jobs.status('A')).toMatchObject({ state: 'done', updatedAt: C1.date });
+  });
+
+  it('keeps failed when an old pdf commit stays the same across the failure', async () => {
+    const { jobs, pdf } = setup(async () => {
+      throw new Error('x');
+    });
+    pdf.value = C0;
+    jobs.request('A');
+    await jobs.settled();
+    expect((await jobs.status('A')).state).toBe('failed');
+    pdf.value = C1;
     expect((await jobs.status('A')).state).toBe('done');
   });
 });

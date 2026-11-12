@@ -19,7 +19,7 @@ import {
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
-import { filledFileMtime, officialPdfMtime, removeOfficialPdf } from '../files/officialPdfFiles.js';
+import { removeOfficialPdf } from '../files/officialPdfFiles.js';
 import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
 import {
   assertReportEnabled,
@@ -28,7 +28,13 @@ import {
   generateReportPdf,
 } from '../generate/createReport.js';
 import { createOfficialPdfJobs } from '../generate/officialPdfJobs.js';
-import { commitAll, ensureRepo, withGitLock } from '../git/gitRepo.js';
+import {
+  commitAll,
+  ensureRepo,
+  isAncestorOrSame,
+  lastCommitFor,
+  withGitLock,
+} from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { assertNoDocumentExternalRefs } from '../security/externalRefs.js';
 import { assertPdfInputRefsContained } from '../security/pdfInputRefs.js';
@@ -163,8 +169,9 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
       assertPdfInputRefsContained(html, OFFICIAL_PDF_WHERE);
       await buildOfficialPdf(id, await resolveRep1Code(templates, attrs.companyCode));
     },
-    pdfMtime: officialPdfMtime,
-    filledMtime: filledFileMtime,
+    pdfCommit: (id) => lastCommitFor(`pdf/${id}.pdf`),
+    filledCommit: (id) => lastCommitFor(`filled/${id}.html`),
+    isAncestorOrSame,
   });
 
   /** 連携が有効で、値入り HTML があることを確かめる。 */
