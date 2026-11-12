@@ -395,6 +395,35 @@ describe('reportRepo', () => {
       expect(gitOut('log', '--format=%H', '--', pdfRel(ID))).toBe(before);
     }, 60_000);
 
+    it('ends done when a changed filled rebuilds into the same pdf bytes', async () => {
+      const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+      await repo.requestOfficialPdf(ID);
+      await repo.settleOfficialPdfs();
+      const pdfBefore = gitOut('log', '--format=%H', '--', pdfRel(ID));
+      // 承認の代わりに、変えた filled を editor の作者でコミットする。
+      fs.writeFileSync(`${fakeRoot}/filled/${ID}.html`, '<p>filled v2</p>');
+      gitOut('add', '--', `filled/${ID}.html`);
+      gitOut(
+        '-c',
+        'user.name=approver',
+        '-c',
+        'user.email=approver@editor.local',
+        'commit',
+        '--no-verify',
+        '-q',
+        '-m',
+        'approve',
+      );
+      expect((await repo.officialPdfStatus(ID)).state).toBe('stale');
+      // 偽物の PDF は固定のバイトなので、組み直してもコミットは増えない。
+      await repo.requestOfficialPdf(ID);
+      await repo.settleOfficialPdfs();
+      const st = await repo.officialPdfStatus(ID);
+      expect(st.error).toBeNull();
+      expect(st.state).toBe('done');
+      expect(gitOut('log', '--format=%H', '--', pdfRel(ID))).toBe(pdfBefore);
+    }, 60_000);
+
     it('fails REPORT_OUTPUT_MISSING when the pdf is written but not committed', async () => {
       await buildAndStatus(ID);
       // PDF を書くだけで記録しないスクリプトの代わり。記録済みの PDF と作業ツリーが食い違う。

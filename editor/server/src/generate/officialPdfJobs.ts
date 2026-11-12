@@ -29,10 +29,12 @@ interface CommitRef {
   date: string;
 }
 
-export interface GitDerivedState {
+interface GitDerivedState {
   state: 'missing' | 'done' | 'stale';
   updatedAt: string | null;
   pdfHash: string | null;
+  /** `pdf` の記録があるときだけ引く。無ければ null。 */
+  filledHash: string | null;
 }
 
 /**
@@ -40,18 +42,23 @@ export interface GitDerivedState {
  * 時計のずれに振り回されるので使わず、コミットの祖先関係で新旧を決める。
  * 未追跡の PDF は記録が無いので `missing` と数える。
  */
-export async function stateFromGit(
+async function stateFromGit(
   deps: Pick<OfficialPdfJobsDeps, 'pdfCommit' | 'filledCommit' | 'isAncestorOrSame'>,
   id: string,
 ): Promise<GitDerivedState> {
   const pdf = await deps.pdfCommit(id);
   if (pdf === null) {
-    return { state: 'missing', updatedAt: null, pdfHash: null };
+    return { state: 'missing', updatedAt: null, pdfHash: null, filledHash: null };
   }
   const filled = await deps.filledCommit(id);
   // filled が pdf と同じかその祖先なら PDF は最新。そうでなければ filled の方が新しい。
   const fresh = filled === null || (await deps.isAncestorOrSame(filled.hash, pdf.hash));
-  return { state: fresh ? 'done' : 'stale', updatedAt: pdf.date, pdfHash: pdf.hash };
+  return {
+    state: fresh ? 'done' : 'stale',
+    updatedAt: pdf.date,
+    pdfHash: pdf.hash,
+    filledHash: filled?.hash ?? null,
+  };
 }
 
 type JobRecord = Omit<OfficialPdfStatus, 'id'>;
@@ -63,6 +70,37 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
   const again = new Set<string>();
   // 失敗を記録した時点の PDF のコミット。いまの hash と同じなら、失敗のあとに PDF は変わっていない。
   const failedPdfHash = new Map<string, string | null>();
+  // 組版が成功した時点の PDF と filled のコミット。filled が変わっても PDF が同じバイトになれば
+  // スクリプトはコミットを省くので、git の祖先関係だけでは `stale` に見える。両方が成功時のまま
+  // なら、その組版が今の filled から作ったと分かるので `done` を保つ。メモリにしか無いので、
+  // サーバを再起動するとこの id は git から出し直して `stale` になる(組み直せば戻る)。
+  const doneHashes = new Map<string, { pdf: string | null; filled: string | null }>();
+
+  /** git から最後のコミットの hash を読む。読めなければ undefined(覚えない側へ倒す)。 */
+  async function readHash(
+    read: (id: string) => Promise<CommitRef | null>,
+    id: string,
+  ): Promise<string | null | undefined> {
+    try {
+      return (await read(id))?.hash ?? null;
+    } catch (gitErr) {
+      logger.warn({ id, err: gitErr }, '[report] 正式 PDF の成功時の記録を git から読めません');
+      return undefined;
+    }
+  }
+
+  /**
+   * 成功時のコミットを覚える。filled は組版の前に読んだものを使う: 組版中に承認が filled を
+   * コミットしても、その新しい filled から組んだ `done` と取り違えないため。
+   */
+  async function rememberDone(key: string, id: string, filled: string | null | undefined) {
+    const pdf = await readHash(deps.pdfCommit, id);
+    if (pdf === undefined || filled === undefined) {
+      doneHashes.delete(key);
+      return;
+    }
+    doneHashes.set(key, { pdf, filled });
+  }
 
   async function runLoop(key: string, id: string): Promise<void> {
     // queued を一度は観測できるよう、同期の呼び出し元から切り離して始める
@@ -72,7 +110,9 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
         again.delete(key);
         records.set(key, { state: 'building', updatedAt: null, error: null });
         try {
+          const filledBefore = await readHash(deps.filledCommit, id);
           await deps.build(id);
+          await rememberDone(key, id, filledBefore);
           records.set(key, { state: 'done', updatedAt: now().toISOString(), error: null });
         } catch (err) {
           // 画面に出すのは利用者向けの文言だけ。DB エラーなどの生の文言は logger にだけ残す。
@@ -100,6 +140,7 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
 
   // 組版中(queued / building)はメモリの記録が正。それ以外は git の記録から出し直す。
   // 単独の create_report が filled や PDF をコミットしても、古い done / failed を見せ続けない。
+  // 例外は成功・失敗の時点から記録が変わっていない場合で、そのときはメモリの判断を残す。
   async function resolveRecord(id: string): Promise<JobRecord> {
     const key = id.toLowerCase();
     const rec = records.get(key);
@@ -108,6 +149,12 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
     }
     const git = await stateFromGit(deps, id);
     const derived: JobRecord = { state: git.state, updatedAt: git.updatedAt, error: null };
+    if (rec?.state === 'done') {
+      const at = doneHashes.get(key);
+      const unchanged = at?.pdf === git.pdfHash && at?.filled === git.filledHash;
+      // 日時は git の記録に合わせる(状態だけを成功時の判断で上書きする)。
+      return at !== undefined && unchanged ? { ...derived, state: 'done' } : derived;
+    }
     if (rec?.state !== 'failed') {
       return derived;
     }

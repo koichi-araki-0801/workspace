@@ -27,7 +27,7 @@ import {
   generateReportPdf,
   officialPdfNotRecorded,
 } from '../generate/createReport.js';
-import { createOfficialPdfJobs, stateFromGit } from '../generate/officialPdfJobs.js';
+import { createOfficialPdfJobs } from '../generate/officialPdfJobs.js';
 import {
   commitAll,
   ensureRepo,
@@ -179,13 +179,12 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
       // PDF を書くだけで記録できず、成功しても必ず「記録されていない」になる。
       await ensureRepo();
       await buildOfficialPdf(id, rep1);
-      // 記録と作業ツリーが一致し、記録が filled より新しいときだけ成功とする。同じ内容で組み
-      // 直してスクリプトがコミットを省いた場合も、前回の記録のままで `done` になる。
-      // 承認はこの組版のロックを取らないので、PDF の記録から判定までの間に filled がコミット
-      // されると `stale` を見て失敗しうる。その承認は続けて `requestOfficialPdf` を呼ぶので、
-      // ジョブが組み直して(組版中なら畳んで 1 回)最後は `done` に戻る。
+      // PDF に記録があり、作業ツリーが記録と一致すれば成功とする。filled が新しくても PDF が
+      // 同じバイトならスクリプトはコミットを省くので、祖先関係(`stale`)では失敗にしない。
+      // 今の filled から組んだことはジョブが成功時のコミットを覚えて状態に反映する
+      // (`officialPdfJobs.ts` の `doneHashes`)。
       const recorded =
-        (await isPathClean(`pdf/${id}.pdf`)) && (await stateFromGit(gitDeps, id)).state === 'done';
+        (await gitDeps.pdfCommit(id)) !== null && (await isPathClean(`pdf/${id}.pdf`));
       if (!recorded) {
         throw officialPdfNotRecorded(id);
       }

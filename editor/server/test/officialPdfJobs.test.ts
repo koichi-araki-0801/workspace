@@ -80,11 +80,11 @@ describe('officialPdfJobs', () => {
     const state = setup(async () => {
       calls += 1;
       if (calls === 1) {
-        // 組版の最中に承認が filled をコミットし、正式 PDF を要求する。判定は stale を見て落ちる
+        // 組版の最中に承認が filled をコミットし、正式 PDF を要求する(この組版は古い filled から作る)
         state.filled.value = C1;
         state.filledIsNewer.value = true;
         state.jobs.request('A');
-        throw new Error('not recorded');
+        return;
       }
       // 畳まれた組み直しが新しい filled から PDF を作って記録する
       state.pdf.value = C2;
@@ -94,6 +94,36 @@ describe('officialPdfJobs', () => {
     await state.jobs.settled();
     expect(calls).toBe(2);
     expect(await state.jobs.status('A')).toMatchObject({ state: 'done', error: null });
+  });
+
+  it('keeps done when filled is newer but the build recorded no new pdf commit', async () => {
+    const state = setup(async () => undefined);
+    // 承認で filled が新しくなったが、組み直した PDF は同じバイトでスクリプトはコミットを省いた
+    state.filled.value = C1;
+    state.filledIsNewer.value = true;
+    expect((await state.jobs.status('A')).state).toBe('stale');
+    state.jobs.request('A');
+    await state.jobs.settled();
+    expect(await state.jobs.status('A')).toEqual({
+      id: 'A',
+      state: 'done',
+      updatedAt: D0,
+      error: null,
+    });
+    // その後に filled がまた変われば、git から出し直す
+    state.filled.value = { hash: 'c3', date: '2026-11-11T04:00:00.000Z' };
+    expect((await state.jobs.status('A')).state).toBe('stale');
+  });
+
+  it('does not keep done when filled was committed during the build', async () => {
+    const state = setup(async () => {
+      // 組版の最中に承認が filled をコミットした(この組版は古い filled から作った)
+      state.filled.value = C1;
+      state.filledIsNewer.value = true;
+    });
+    state.jobs.request('A');
+    await state.jobs.settled();
+    expect((await state.jobs.status('A')).state).toBe('stale');
   });
 
   it('records failure message', async () => {
