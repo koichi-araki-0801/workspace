@@ -2,16 +2,18 @@
 // =============================================================================
 // SearchFilters.vue — 委託会社→ファンド→基準日→版種のカスケード絞り込みバー
 // =============================================================================
-import type { DropdownOptions, DropdownQuery, DropdownScope } from '@editor/shared';
+import { type DropdownOptions, type DropdownQuery, type DropdownScope, isOk } from '@editor/shared';
 import { Loader2, RotateCcw, Search } from '@lucide/vue';
-import { computed, onMounted, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useTemplateRepo } from '@/api/repositories';
+import BaseDateInput from '@/components/ui/BaseDateInput.vue';
 import Button from '@/components/ui/Button.vue';
 import Combobox from '@/components/ui/Combobox.vue';
 import FilterBar from '@/components/ui/FilterBar.vue';
 import FormField from '@/components/ui/FormField.vue';
 import Label from '@/components/ui/Label.vue';
 import Select from '@/components/ui/Select.vue';
+import { findBaseDateCandidate } from '@/lib/baseDate';
 import { useCascadingSelect } from '@/lib/useCascadingSelect';
 import { useRep1Names } from '@/lib/useRep1Names';
 import { useUrlQuerySync } from '@/lib/useUrlQuerySync';
@@ -35,12 +37,19 @@ const props = withDefaults(
     /** URL クエリ同期の名前空間。同一ルートに複数置く比較 A/B で衝突回避に渡す
      *  (例 'a'/'b')。未指定なら無接頭辞 (単一インスタンスの編集/作成タブ)。 */
     queryKey?: string;
+    /** 候補に無い基準日を確定したときの扱い。`allow` は版種の段へ進め、`reject` は案内を出して
+     *  版種の段と検索を止める(候補に無い日付のまま検索すると空の一覧に進むため)。 */
+    newBaseDate?: 'allow' | 'reject';
+    /** `reject` で候補に無い基準日を確定したときの案内。 */
+    unknownDateText?: string;
   }>(),
   {
     searchLabel: '検索',
     bare: false,
     stackActions: false,
     queryKey: undefined,
+    newBaseDate: 'reject',
+    unknownDateText: 'この基準日の承認済みテンプレートはありません',
   },
 );
 
@@ -62,21 +71,58 @@ const EMPTY: DropdownOptions = {
   editionTypes: [],
 };
 
-const { query, options, loading, onLevelChange, reset } = useCascadingSelect<
+// 候補を 1 度も取れていない間は options が空なので、基準日が候補にあるかを判定しない
+// (取得の失敗でも、候補に無い日付だと誤って案内しない)。
+const loaded = ref(false);
+
+const { query, options, loading, onLevelChange, reset, refresh } = useCascadingSelect<
   DropdownQuery,
   DropdownOptions
 >({
   levels: FIELDS,
   emptyOptions: EMPTY,
-  fetchOptions: (q) => repo.getDropdownOptions(q, props.dropdownScope),
+  fetchOptions: async (q) => {
+    const res = await repo.getDropdownOptions(q, props.dropdownScope);
+    if (isOk(res)) {
+      loaded.value = true;
+    }
+    return res;
+  },
   onChange: (q) => emit('update', q),
+  immediate: false,
 });
 
-// URL クエリ同期。hydrate は setup 同期で効くので, 上の onMounted(refresh) は復元済み
-// query で options を取る。復元できたときだけ親へ `restore` を通知し一覧を再取得させる。
+const NO_EDITION_TEXT = '作成済みのテンプレートがありません。先に作成タブで作成してください';
+
+// 確定済みの基準日が候補に無い(= 新しい基準日)か。
+const unknownDate = computed(
+  () =>
+    loaded.value &&
+    !!query.baseDate &&
+    findBaseDateCandidate(query.baseDate, options.value.baseDates) === undefined,
+);
+const blocked = computed(() => unknownDate.value && props.newBaseDate === 'reject');
+
+// 基準日の段の下に出す案内。版種の候補 0 件は取り直しの途中だと古い候補を見てしまうので待つ。
+const baseDateNotice = computed(() => {
+  if (blocked.value) {
+    return props.unknownDateText;
+  }
+  if (unknownDate.value && !loading.value && options.value.editionTypes.length === 0) {
+    return NO_EDITION_TEXT;
+  }
+  return '';
+});
+
+// URL クエリ同期。hydrate は setup 同期で効くので, 下の refresh は復元済み query で options を
+// 取る。`restore` は候補を取り終えてから出す。先に出すと、URL に残った候補に無い基準日のまま
+// 親が検索してしまう。
 const { hydrated } = useUrlQuerySync(query, { keys: FIELDS, prefix: props.queryKey });
-onMounted(() => {
-  if (hydrated) { emit('restore', { ...query }); }
+onMounted(async () => {
+  await refresh();
+  if (hydrated && !blocked.value) {
+    emit('restore', { ...query });
+  }
 });
 
 const { resolveCompanies, resolveFunds, companyLabel, fundName } = useRep1Names();
@@ -107,8 +153,8 @@ const optionsByField: Record<Field, () => Option[]> = {
   editionType: () => options.value.editionTypes,
 };
 
-// コード系フィールドは入力で前方一致フィルタする `Combobox` にする。基準日/版種は
-// 候補が少なく入力の旨味が薄いので `Select` のまま。
+// コード系フィールドは入力で前方一致フィルタする `Combobox` にする。版種は候補が少なく
+// 入力の旨味が薄いので `Select` のまま。基準日は候補に無い日付も打ち込める `BaseDateInput`。
 const COMBO_FIELDS: Field[] = ['companyCode', 'fundCode'];
 
 // カスケード非活性: 左隣のフィールドが未選択なら、この段はまだ選べない。
@@ -116,12 +162,15 @@ function fieldDisabled(f: Field): boolean {
   const idx = FIELDS.indexOf(f);
   if (idx === 0) { return false; // 先頭 (委託会社) は常に活性
 }
+  if (f === 'editionType' && blocked.value) {
+    return true;
+  }
   return !query[FIELDS[idx - 1]];
 }
 
 // 検索ボタンの活性。条件が空のまま押しても結果も案内も出ないので、押せないことを
 // 見た目で示す (判定は `searchGuard.ts`)。
-const canSearch = computed(() => canSubmitSearch(query, FIELDS));
+const canSearch = computed(() => !blocked.value && canSubmitSearch(query, FIELDS));
 </script>
 
 <template>
@@ -130,8 +179,8 @@ const canSearch = computed(() => canSubmitSearch(query, FIELDS));
       <Label>
         {{ labels[f] }}
       </Label>
-      <!-- コード系は入力で前方一致フィルタする `Combobox`、それ以外は `Select`。
-           props/イベントは両者同一なので、カスケードの配線(onLevelChange)は不変。 -->
+      <!-- コード系は `Combobox`、基準日は `BaseDateInput`、版種は `Select`。
+           props/イベントは三者同一なので、カスケードの配線(onLevelChange)は不変。 -->
       <Combobox
         v-if="COMBO_FIELDS.includes(f)"
         v-model="query[f]"
@@ -140,6 +189,18 @@ const canSearch = computed(() => canSubmitSearch(query, FIELDS));
         :disabled="loading || fieldDisabled(f)"
         @update:model-value="onLevelChange(f)"
       />
+      <template v-else-if="f === 'baseDate'">
+        <BaseDateInput
+          v-model="query[f]"
+          :options="optionsByField[f]()"
+          :placeholder="`${labels[f]}を入力/選択`"
+          :disabled="loading || fieldDisabled(f)"
+          @update:model-value="onLevelChange(f)"
+        />
+        <p v-if="baseDateNotice" role="status" class="text-xs text-muted-foreground">
+          {{ baseDateNotice }}
+        </p>
+      </template>
       <Select
         v-else
         v-model="query[f]"
