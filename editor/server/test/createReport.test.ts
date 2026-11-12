@@ -293,7 +293,7 @@ describe('buildOfficialPdf', () => {
     expect(fs.readFileSync(pdfFile, 'utf8')).toBe('old');
 
     // 出力の有無は見ない(記録されたかは reportRepo が git で判定する)。
-    mockRun(() => expect(fs.readFileSync(pdfFile, 'utf8')).toBe('old'));
+    mockRun();
     await expect(buildOfficialPdf(ID, '01281')).resolves.toBeUndefined();
     expect(fs.readFileSync(pdfFile, 'utf8')).toBe('old');
     const args = execFileMock.mock.calls[1][1] as string[];

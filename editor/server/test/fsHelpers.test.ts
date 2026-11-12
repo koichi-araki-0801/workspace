@@ -4,8 +4,8 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileExists, mtimeOrNull, readOrMissing, statMtime } from '../src/files/fsHelpers.js';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fileExists, readOrMissing, statMtime } from '../src/files/fsHelpers.js';
 
 let dir: string;
 beforeEach(async () => {
@@ -21,18 +21,6 @@ describe('fsHelpers', () => {
     await fs.writeFile(p, 'x');
     expect(await statMtime(p)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(await statMtime(path.join(dir, 'none'))).toBeNull();
-  });
-
-  it('mtimeOrNull: あれば Date、ENOENT は null、それ以外は投げる', async () => {
-    const p = path.join(dir, 'a.txt');
-    await fs.writeFile(p, 'x');
-    expect(await mtimeOrNull(p)).toBeInstanceOf(Date);
-    expect(await mtimeOrNull(path.join(dir, 'none'))).toBeNull();
-    const spy = vi
-      .spyOn(fs, 'stat')
-      .mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EACCES' }));
-    await expect(mtimeOrNull(p)).rejects.toMatchObject({ code: 'EACCES' });
-    spy.mockRestore();
   });
 
   it('fileExists: あれば true、無ければ false', async () => {

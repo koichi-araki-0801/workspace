@@ -24,7 +24,7 @@ export interface OfficialPdfJobsDeps {
   now?: () => Date;
 }
 
-export interface CommitRef {
+interface CommitRef {
   hash: string;
   date: string;
 }

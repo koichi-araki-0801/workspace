@@ -41,15 +41,3 @@ export function readOrMissing<T extends string | null>(
     throw e;
   });
 }
-
-/** 最終更新時刻(Date)。ENOENT のときだけ null、それ以外の stat の失敗は例外にする。 */
-export async function mtimeOrNull(p: string): Promise<Date | null> {
-  try {
-    return (await fs.stat(p)).mtime;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
-    throw err;
-  }
-}

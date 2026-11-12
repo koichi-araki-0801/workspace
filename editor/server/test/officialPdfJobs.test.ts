@@ -74,6 +74,28 @@ describe('officialPdfJobs', () => {
     expect((await jobs.status('A')).state).toBe('done');
   });
 
+  it('ends done when an approval commits filled during a build', async () => {
+    const C2: Ref = { hash: 'c2', date: '2026-11-11T03:00:00.000Z' };
+    let calls = 0;
+    const state = setup(async () => {
+      calls += 1;
+      if (calls === 1) {
+        // 組版の最中に承認が filled をコミットし、正式 PDF を要求する。判定は stale を見て落ちる
+        state.filled.value = C1;
+        state.filledIsNewer.value = true;
+        state.jobs.request('A');
+        throw new Error('not recorded');
+      }
+      // 畳まれた組み直しが新しい filled から PDF を作って記録する
+      state.pdf.value = C2;
+      state.filledIsNewer.value = false;
+    });
+    state.jobs.request('A');
+    await state.jobs.settled();
+    expect(calls).toBe(2);
+    expect(await state.jobs.status('A')).toMatchObject({ state: 'done', error: null });
+  });
+
   it('records failure message', async () => {
     const build = vi.fn(async () => {
       throw Object.assign(new Error('x'), { kind: 'unexpected', code: 'REPORT_RUN_FAILED' });

@@ -181,6 +181,9 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
       await buildOfficialPdf(id, rep1);
       // 記録と作業ツリーが一致し、記録が filled より新しいときだけ成功とする。同じ内容で組み
       // 直してスクリプトがコミットを省いた場合も、前回の記録のままで `done` になる。
+      // 承認はこの組版のロックを取らないので、PDF の記録から判定までの間に filled がコミット
+      // されると `stale` を見て失敗しうる。その承認は続けて `requestOfficialPdf` を呼ぶので、
+      // ジョブが組み直して(組版中なら畳んで 1 回)最後は `done` に戻る。
       const recorded =
         (await isPathClean(`pdf/${id}.pdf`)) && (await stateFromGit(gitDeps, id)).state === 'done';
       if (!recorded) {
