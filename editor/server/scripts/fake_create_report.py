@@ -16,8 +16,11 @@
   書くだけ。有れば filled/<id>.html に記録されていない変更がある場合は書かずに exit 4。無ければ名前を
   変えて、そのファイル 1 つだけを `<名前>@create_report.local` の作者でコミットする。
   コミットの失敗は exit 5(HTML は書いたまま)。git の場所は環境変数 GIT_BIN(無ければ git)。
-- --pdf-only --fund-only(単独): filled/<id>.html が無ければ exit 3。あれば `%PDF-1.4` で始まる
-  最小の PDF を pdf/<id>.pdf に一時ファイル経由で書く。
+- --pdf-only --fund-only(単独): filled/<id>.html が無ければ exit 3。あれば記録されていない変更の
+  検査(filled だけ。exit 4 なら何も書かない)の後、filled を同じ内容で書き戻し、`%PDF-1.4` で始まる
+  最小の PDF を pdf/<id>.pdf に書く(どちらも一時ファイル経由)。.git が無ければ警告して書くだけ。
+  有れば pdf/<id>.pdf の `text` 属性が unset でなければ exit 5(コミットしない)。2 つを同じ
+  作者・1 コミットで記録する(同一内容なら何もしない)。
 - --pdf-only --fund-only --from-editor: 標準入力の HTML を読み(空なら exit 3)、最小の PDF を
   標準出力へ書く。dataRoot には何も書かない。
 
@@ -117,44 +120,57 @@ def _git(args: list[str], cwd: str, hooks_dir: str, user: str) -> subprocess.Com
         return subprocess.CompletedProcess(cmd, 127, "", str(e))
 
 
-def _record_standalone(data_root: str, report_id: str, body: bytes) -> int:
-    rel = f"filled/{report_id}.html"
-    target = os.path.join(data_root, "filled", f"{report_id}.html")
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    tmp = f"{target}.tmp-{os.getpid()}"
-    with open(tmp, "wb") as f:
-        f.write(body)
+def _record_standalone(
+    data_root: str, report_id: str, files: list[tuple[str, bytes]], binary_rels: list[str]
+) -> int:
+    """files(相対パスと中身の並び)を順に書き、1 コミットにする。
+
+    記録されていない変更の検査は files[0] だけに掛ける(後ろは生成物で、未追跡でも止めない)。
+    binary_rels は `text` 属性が unset であること(改行変換されないこと)を確かめるパス。
+    """
+    rels = [rel for rel, _ in files]
+
+    def write_all() -> None:
+        for rel, body in files:
+            _write_atomic(os.path.join(data_root, *rel.split("/")), body)
 
     if not os.path.exists(os.path.join(data_root, ".git")):
         print("警告: dataRoot に .git が無いため、git に記録しません", file=sys.stderr)
-        os.replace(tmp, target)
+        write_all()
         return 0
 
     user = getpass.getuser()
     with tempfile.TemporaryDirectory() as hooks_dir:
-        status = _git(["status", "--porcelain", "--", rel], data_root, hooks_dir, user)
+        status = _git(["status", "--porcelain", "--", rels[0]], data_root, hooks_dir, user)
         if status.returncode != 0 or status.stdout.strip():
-            os.remove(tmp)
             print("editor の承認の途中か、記録されていない変更があります", file=sys.stderr)
             return EXIT_UNRECORDED_CHANGE if status.returncode == 0 else EXIT_COMMIT_FAILED
-        os.replace(tmp, target)
+        write_all()
+        for rel in binary_rels:
+            attr = _git(["check-attr", "text", "--", rel], data_root, hooks_dir, user)
+            if attr.returncode != 0 or not attr.stdout.strip().endswith(": text: unset"):
+                print(
+                    f"{rel} が binary 扱いではありません(.gitattributes の *.pdf binary が必要)",
+                    file=sys.stderr,
+                )
+                return EXIT_COMMIT_FAILED
         message = f"create_report（単独）で {report_id} を生成"
         last = ""
         for attempt in range(LOCK_RETRIES):
             if attempt:
                 time.sleep(LOCK_WAIT_SECONDS)
-            added = _git(["add", "--", rel], data_root, hooks_dir, user)
+            added = _git(["add", "--", *rels], data_root, hooks_dir, user)
             if added.returncode != 0:
                 last = added.stderr
                 if "index.lock" not in last:
                     break
                 continue
             # 内容が HEAD と同じなら記録するものが無い(成功)
-            same = _git(["diff", "--cached", "--quiet", "--", rel], data_root, hooks_dir, user)
+            same = _git(["diff", "--cached", "--quiet", "--", *rels], data_root, hooks_dir, user)
             if same.returncode == 0:
                 return 0
             done = _git(
-                ["commit", "--no-verify", "--only", "-m", message, "--", rel],
+                ["commit", "--no-verify", "--only", "-m", message, "--", *rels],
                 data_root, hooks_dir, user,
             )
             if done.returncode == 0:
@@ -210,13 +226,21 @@ def main(argv: list[str]) -> int:
         if from_editor:
             _write_atomic(os.path.join(data_root, "filled", f"{report_id}.html"), body)
             return 0
-        return _record_standalone(data_root, report_id, body)
+        return _record_standalone(data_root, report_id, [(f"filled/{report_id}.html", body)], [])
 
-    if not os.path.isfile(os.path.join(data_root, "filled", f"{report_id}.html")):
+    filled = os.path.join(data_root, "filled", f"{report_id}.html")
+    if not os.path.isfile(filled):
         print(f"filled/{report_id}.html がありません", file=sys.stderr)
         return EXIT_NO_INPUT
-    _write_atomic(os.path.join(data_root, "pdf", f"{report_id}.pdf"), MIN_PDF)
-    return 0
+    with open(filled, "rb") as f:
+        filled_body = f.read()
+    # filled を同じ内容で書き戻してから pdf を書く。本物と同じく 2 つを 1 コミットにする
+    return _record_standalone(
+        data_root,
+        report_id,
+        [(f"filled/{report_id}.html", filled_body), (f"pdf/{report_id}.pdf", MIN_PDF)],
+        [f"pdf/{report_id}.pdf"],
+    )
 
 
 if __name__ == "__main__":

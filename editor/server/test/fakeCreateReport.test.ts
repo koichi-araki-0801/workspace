@@ -176,6 +176,54 @@ describe('fake_create_report.py', () => {
     expect(pdf.subarray(0, 8).toString()).toBe('%PDF-1.4');
   }, 30_000);
 
+  /** .gitattributes と filled の初回コミットを持つ dataRoot。 */
+  function pdfRepo(name: string, attributes = '* text eol=lf\n*.pdf binary\n'): string {
+    const root = gitRoot(name);
+    fs.mkdirSync(path.join(root, 'filled'));
+    fs.writeFileSync(path.join(root, '.gitattributes'), attributes);
+    fs.writeFileSync(path.join(root, 'filled', `${ID}.html`), '<p>x</p>');
+    git(root, 'add', '.gitattributes', 'filled');
+    git(root, 'commit', '-q', '-m', 'init');
+    return root;
+  }
+
+  it('standalone pdf commits filled and pdf together', async () => {
+    const root = pdfRepo('sa-pdf-commit');
+    const r = await run(root, FUND, '--pdf-only');
+    expect(r.code).toBe(0);
+    const files = git(root, 'log', '-1', '--name-only', '--format=').trim().split('\n').sort();
+    // filled は同じ内容の書き戻しなので差分が出ず、コミットに載るのは pdf だけ
+    expect(files).toEqual([`pdf/${ID}.pdf`]);
+    expect(git(root, 'log', '-1', '--format=%ae').trim().endsWith('@create_report.local')).toBe(
+      true,
+    );
+    expect(git(root, 'rev-list', '--count', 'HEAD').trim()).toBe('2');
+    expect((await run(root, FUND, '--pdf-only')).code).toBe(0);
+    expect(git(root, 'rev-list', '--count', 'HEAD').trim()).toBe('2');
+  }, 60_000);
+
+  it('standalone pdf exits 5 when pdf is not binary', async () => {
+    const root = pdfRepo('sa-pdf-text', '* text eol=lf\n');
+    const r = await run(root, FUND, '--pdf-only');
+    expect(r.code).toBe(5);
+    expect(r.stderr).not.toBe('');
+    expect(git(root, 'rev-list', '--count', 'HEAD').trim()).toBe('1');
+  }, 60_000);
+
+  it('standalone pdf ignores untracked pdf but stops on filled change', async () => {
+    const root = pdfRepo('sa-pdf-dirty');
+    fs.mkdirSync(path.join(root, 'pdf'));
+    fs.writeFileSync(path.join(root, 'pdf', 'other.pdf'), 'x');
+    expect((await run(root, FUND, '--pdf-only')).code).toBe(0);
+    const file = path.join(root, 'filled', `${ID}.html`);
+    fs.writeFileSync(file, 'hand edited');
+    fs.rmSync(path.join(root, 'pdf', `${ID}.pdf`));
+    const r = await run(root, FUND, '--pdf-only');
+    expect(r.code).toBe(4);
+    expect(fs.readFileSync(file, 'utf8')).toBe('hand edited');
+    expect(fs.existsSync(path.join(root, 'pdf', `${ID}.pdf`))).toBe(false);
+  }, 60_000);
+
   it('editor pdf uses stdin and stdout only', async () => {
     const root = dataRoot('ed-pdf');
     const r = await run(root, FUND, '--pdf-only', { fromEditor: true, stdin: '<p>x</p>' });
