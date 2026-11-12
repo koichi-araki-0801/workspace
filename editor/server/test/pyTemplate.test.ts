@@ -81,7 +81,9 @@ function produce(
   for (const [name, html] of Object.entries(files)) {
     const tmp = path.join(outDir, `${name}.tmp`);
     fs.writeFileSync(tmp, html, 'utf8');
-    fs.renameSync(tmp, path.join(outDir, name));
+    const output = path.join(outDir, name);
+    fs.rmSync(output, { force: true });
+    fs.renameSync(tmp, output);
   }
   const log = generatorLogPath(call.script, call.pos[0], call.pos[1], call.pos[2]);
   fs.mkdirSync(path.dirname(log), { recursive: true });

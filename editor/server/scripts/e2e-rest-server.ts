@@ -23,6 +23,17 @@ import { seedDataRoot } from './e2e-rest-seed.js';
 async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
+  // 端末の運用用 appconfig と生成器設定を E2E へ流入させない。
+  process.env.APP_CONFIG = path.join(repoRoot, 'editor', 'appconfig.example.json');
+  process.env.PY_GENERATE_SCRIPT = path.join(
+    repoRoot,
+    'editor',
+    'server',
+    'scripts',
+    'fake_generate_template.py',
+  );
+  delete process.env.PY_GENERATE_SCRIPT_SHA256;
+
   // loopback かつ非 production なので `assertSafeExposure` は素通しし、`cookieSecure` は
   // 既定の false になる(平文 HTTP でセッション cookie が落ちない)。`AUDIT_DB=true` は
   // 監査ログの sproc 経路をフェイク越しに実際へ通すため。

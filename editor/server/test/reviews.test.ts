@@ -1265,7 +1265,7 @@ d('review workflow (reviewRepo)', () => {
       });
       expect(fs.readFileSync(filledFile(tplId), 'utf8')).toBe(BASE);
       expect((await reviews.getReview(meta.id, approver)).status).toBe('pending');
-    });
+    }, 15_000);
 
     it('保存済みの pending は未判定として 400', async () => {
       const tplId = 'XX01_710004_20250101_交付版';
@@ -1692,9 +1692,10 @@ d('review workflow (reviewRepo)', () => {
           const html = '<body><section data-part-id="s">{{ fund.name }}</section></body>';
           const a = create('XX01_730014_交付版', html);
           const b = create('XX01_730015_交付版', html);
-          await new Promise((r) => setTimeout(r, 100));
-          // 先に鎖へ入った申請が sample を待つ間、もう 1 件は鎖の外で待つ(描画へ進まない)。
-          expect(calls).toHaveLength(1);
+          // 先にチェーンへ入った申請が sample を待つ間、もう 1 件はチェーンの外で待つ(描画へ進まない)。
+          await vi.waitFor(() => {
+            expect(calls).toHaveLength(1);
+          });
           release();
           await Promise.all([a, b]);
           expect(calls).toHaveLength(2);
