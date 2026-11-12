@@ -1,0 +1,37 @@
+// =============================================================================
+// baseDate.ts — 基準日の入力を yyyymmdd に読む
+// =============================================================================
+// 利用者は `2026/9/30` `2026-09-30` `20260930` などで基準日を打つ。候補の表記も
+// `yyyymmdd` と `yyyy-mm-dd` が混在するため、比較は数字だけにそろえて行う。
+
+export type BaseDateParse =
+  | { ok: true; value: string }
+  | { ok: false; reason: 'format' | 'invalid' };
+
+const DELIMITED = /^(\d{4})([/-])(\d{1,2})\2(\d{1,2})$/;
+const COMPACT = /^(\d{4})(\d{2})(\d{2})$/;
+
+// Date.UTC で組み立てて年月日が戻るかを見る。ローカル TZ の影響を受けないため。
+function exists(y: number, m: number, d: number): boolean {
+  const t = new Date(Date.UTC(y, m - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+}
+
+/** 区切りあり(`/` か `-` で揃っている)は月日 1〜2 桁、区切りなしは 8 桁ちょうどだけ受ける。 */
+export function parseBaseDateInput(raw: string): BaseDateParse {
+  const s = raw.trim();
+  const m = DELIMITED.exec(s) ?? COMPACT.exec(s);
+  if (!m) {
+    return { ok: false, reason: 'format' };
+  }
+  const [y, mo, d] = m.length === 5 ? [m[1], m[3], m[4]] : [m[1], m[2], m[3]];
+  if (!exists(Number(y), Number(mo), Number(d))) {
+    return { ok: false, reason: 'invalid' };
+  }
+  return { ok: true, value: `${y}${mo.padStart(2, '0')}${d.padStart(2, '0')}` };
+}
+
+/** `value`(yyyymmdd)と数字だけにした候補が一致する最初の候補を、元の表記のまま返す。 */
+export function findBaseDateCandidate(value: string, candidates: string[]): string | undefined {
+  return candidates.find((c) => c.replace(/\D/g, '') === value);
+}
