@@ -68,7 +68,7 @@ pnpm test        # ルート集約の vitest（projects で全 workspace を一�
 pnpm test:coverage  # カバレッジ付き（include 列挙＝テスト済みのみ・ファイル単位で全指標 85% 閾値）
 pnpm typecheck   # 全 workspace の型チェック（shared 先行ビルド込み）
 pnpm knip        # 未使用 export / 依存の検出（knip.json）
-pnpm ci          # CI 集約（下記の全段）
+pnpm run ci      # CI 集約（下記の全段）
 ```
 
 型チェックは workspace の tsconfig が拾う範囲だけでは足りない。e2e（`editor/e2e/**`）と
@@ -76,7 +76,7 @@ pnpm ci          # CI 集約（下記の全段）
 検査する（`pnpm typecheck` / `typecheck:editor` に組み込み済み）。`@types/node` を
 `editor/server` から借りている理由は同ファイルのコメントにある。
 
-`pnpm ci` の内訳は `check:comments → check:claude-hooks → check:ci → test:scripts →
+`pnpm run ci` の内訳は `check:comments → check:claude-hooks → check:ci → test:scripts →
 typecheck → test:coverage → test:docs → pie-chart:batch → pie-chart:batch:diff → build →
 test:e2e`（pdf-to-svg / graph-editor の pytest 段は 2026-08 の python-tools リポジトリへの
 分離に伴い除去済み）。

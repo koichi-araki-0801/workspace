@@ -37,7 +37,7 @@ Windows は `editor/start.bat`（ダブルクリック=本番 / `dev` / `lan` �
 | 整形だけ | `pnpm format` |
 | Lint だけ（修正なし） | `pnpm lint` |
 | 本番ビルド | `pnpm build` |
-| CI 集約（push 前に再現） | `pnpm ci` |
+| CI 集約（push 前に再現） | `pnpm run ci` |
 
 > **基本は `pnpm check` を覚えれば OK。** エディタ（VS Code）なら保存するたびに自動で整形・import 整理が走るので、普段は手で実行する必要すらありません。
 
@@ -46,7 +46,7 @@ Windows は `editor/start.bat`（ダブルクリック=本番 / `dev` / `lan` �
 - **Biome**（Lint + Formatter を1つに統合・対象は `editor/**`）。設定は `biome.json`。ESLint / Prettier は使いません（混在させないでください）。
 - **VS Code 推奨**：初回起動時に推奨拡張（Biome / Vue(Volar) / Tailwind）のインストールを促されます。`.vscode/settings.json` で「保存時に自動整形・自動修正」が有効です。
 - **コミット時**：`husky` + `lint-staged` が、ステージした `editor/**` に自動で `biome check --write` をかけます。スタイル崩れはコミット時に勝手に直ります。
-- **CI**：オフライン運用のため pre-push で `pnpm ci`（`check:comments → check:ci → typecheck → test:coverage → build → test:e2e`）をローカル集約実行します。GitHub Actions は保険として残置。
+- **CI**：オフライン運用のため pre-push で `pnpm run ci`（`check:comments → check:ci → typecheck → test:coverage → build → test:e2e`）をローカル集約実行します。GitHub Actions は保険として残置。
 
 ## 4. ディレクトリ地図（どこに何を置くか）
 
@@ -130,4 +130,4 @@ data/                  ← テンプレ(.html)・CSS（サーバが参照。整�
 - **保存しても整形されない** → 推奨拡張「Biome」が入っているか確認（左下に Biome が出ます）。`.vscode/extensions.json` から入れ直せます。
 - **コミットできない（フックで止まる）** → `lint-staged` が直せない Lint エラーが残っています。`pnpm check` を実行してエラー内容を読み、手で修正してから再コミット。
 - **`pnpm dev` が動かない** → `nvm use` で Node 24 になっているか、`pnpm install` 済みかを確認。
-- **CI が落ちた** → ローカルで `pnpm ci` を流すと、push 前フックと同じ内容を再現できます。
+- **CI が落ちた** → ローカルで `pnpm run ci` を流すと、push 前フックと同じ内容を再現できます。
