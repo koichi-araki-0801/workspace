@@ -19,17 +19,11 @@ afterEach(() => {
 });
 
 describe('restTemplateRepo の create_report 連携', () => {
-  it('getReportStatus と listReportSkeletons は GET で値を返す', async () => {
+  it('getReportStatus は GET で値を返す', async () => {
     const f = stubFetch(jsonRes({ enabled: true }));
     const st = await restTemplateRepo.getReportStatus();
     expect(isOk(st) && st.value.enabled).toBe(true);
     expect(String(f.mock.calls[0]?.[0])).toContain('/api/report/status');
-
-    const sk = { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' };
-    const f2 = stubFetch(jsonRes({ skeletons: [sk] }));
-    const list = await restTemplateRepo.listReportSkeletons();
-    expect(isOk(list) && list.value).toEqual([sk]);
-    expect(String(f2.mock.calls[0]?.[0])).toContain('/api/report/skeletons');
   });
 
   it('fillTemplate は POST /api/templates/:id/fill を呼ぶ', async () => {

@@ -288,11 +288,4 @@ describe('report routes', () => {
       expect.objectContaining({ outcome: 'success', resource: { templateId: ID } }),
     ]);
   });
-
-  it('GET skeletons lists templates/ entries only', async () => {
-    const res = await app.inject({ method: 'GET', url: '/report/skeletons' });
-    expect(res.json()).toEqual({
-      skeletons: [{ companyCode: 'XX01', fundCode: '950037', editionType: '交付版' }],
-    });
-  });
 });

@@ -15,17 +15,11 @@ import {
   REPORT_BUSY_USER_MESSAGE,
   REPORT_COMPANY_UNKNOWN,
   type ReportStatus,
-  type SkeletonAttributes,
   skeletonFileName,
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
-import {
-  filledExists,
-  listSkeletons as listSkeletonFiles,
-  listTemplateFiles,
-  readFilledHtml,
-} from '../files/templateFiles.js';
+import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
 import {
   assertReportEnabled,
   buildOfficialPdf,
@@ -54,7 +48,6 @@ import type { TemplateRepo } from './templateRepo.js';
 
 export interface ReportRepo {
   status(): ReportStatus;
-  listSkeletons(): Promise<SkeletonAttributes[]>;
   fill(id: string, actor: string): Promise<FillResult>;
   buildPdf(id: string, html: string, actor: string): Promise<Buffer>;
   requestOfficialPdf(id: string): Promise<void>;
@@ -252,7 +245,6 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
 
   return {
     status: () => ({ enabled: config.report !== undefined }),
-    listSkeletons: () => listSkeletonFiles(),
     fill,
     buildPdf,
     requestOfficialPdf,

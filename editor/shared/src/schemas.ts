@@ -1174,11 +1174,6 @@ export const SkeletonAttributes = z
   .object({ companyCode: z.string(), fundCode: z.string(), editionType: z.string() })
   .meta({ id: 'SkeletonAttributes' });
 
-/** 値入り HTML を作れるテンプレートの一覧(`templates/` の 3 区切りのファイル)。 */
-export const ReportSkeletons = z
-  .object({ skeletons: z.array(SkeletonAttributes) })
-  .meta({ id: 'ReportSkeletons' });
-
 /** 値入り HTML の生成結果。既にあって何もしなかったときは `created: false`。 */
 export const FillResult = z.object({ created: z.boolean() }).meta({ id: 'FillResult' });
 

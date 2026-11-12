@@ -874,37 +874,6 @@
         }
       }
     },
-    "/report/skeletons": {
-      "get": {
-        "tags": [
-          "templates"
-        ],
-        "summary": "値入り HTML を作れるテンプレート(templates/)の一覧",
-        "operationId": "getReportSkeletons",
-        "responses": {
-          "200": {
-            "description": "テンプレートの属性一覧",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ReportSkeletons"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "未認証 (kind=unauthorized)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/report/official-pdf/{id}": {
       "get": {
         "tags": [
@@ -4699,41 +4668,6 @@
         },
         "required": [
           "enabled"
-        ],
-        "additionalProperties": false
-      },
-      "ReportSkeletons": {
-        "type": "object",
-        "properties": {
-          "skeletons": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SkeletonAttributes"
-            }
-          }
-        },
-        "required": [
-          "skeletons"
-        ],
-        "additionalProperties": false
-      },
-      "SkeletonAttributes": {
-        "type": "object",
-        "properties": {
-          "companyCode": {
-            "type": "string"
-          },
-          "fundCode": {
-            "type": "string"
-          },
-          "editionType": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "companyCode",
-          "fundCode",
-          "editionType"
         ],
         "additionalProperties": false
       },

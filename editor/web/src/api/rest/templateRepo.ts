@@ -17,11 +17,9 @@ import {
   type OfficialPdfStatus,
   ok,
   type PairSyncStatus,
-  type ReportSkeletons,
   type ReportStatus,
   type SampleDataResult,
   type SaveDraftRequest,
-  type SkeletonAttributes,
   type Template,
   type TemplateDraft,
   type TemplateMeta,
@@ -159,12 +157,6 @@ export const restTemplateRepo: TemplateRepository = {
     ),
 
   getReportStatus: () => attemptRest(() => apiFetch<ReportStatus>(apiPaths.reportStatus)),
-
-  listReportSkeletons: () =>
-    attemptRest(async (): Promise<SkeletonAttributes[]> => {
-      const res = await apiFetch<ReportSkeletons>(apiPaths.reportSkeletons);
-      return res.skeletons;
-    }),
 
   fillTemplate: (id: string) =>
     attemptRest(() =>

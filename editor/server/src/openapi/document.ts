@@ -457,14 +457,6 @@ export function buildOpenApiDocument() {
           responses: { '200': json('有効かどうか', s.ReportStatus), ...ERR_401 },
         },
       },
-      [toOpenApiPath(apiPaths.reportSkeletons)]: {
-        get: {
-          tags: ['templates'],
-          summary: '値入り HTML を作れるテンプレート(templates/)の一覧',
-          operationId: 'getReportSkeletons',
-          responses: { '200': json('テンプレートの属性一覧', s.ReportSkeletons), ...ERR_401 },
-        },
-      },
       [toOpenApiPath(apiPaths.reportOfficialPdf)]: {
         get: {
           tags: ['templates'],

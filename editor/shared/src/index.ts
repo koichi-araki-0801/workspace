@@ -238,7 +238,6 @@ export type GenerateResult = z.infer<typeof sch.GenerateResult>;
 export type ReportStatus = z.infer<typeof sch.ReportStatus>;
 export type OfficialPdfStatus = z.infer<typeof sch.OfficialPdfStatus>;
 export type SkeletonAttributes = z.infer<typeof sch.SkeletonAttributes>;
-export type ReportSkeletons = z.infer<typeof sch.ReportSkeletons>;
 export type FillResult = z.infer<typeof sch.FillResult>;
 export type ReportPdfRequest = z.infer<typeof sch.ReportPdfRequest>;
 

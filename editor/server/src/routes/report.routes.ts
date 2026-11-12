@@ -1,13 +1,12 @@
 // =============================================================================
-// report.routes.ts — create_report 連携の 6 ルート
+// report.routes.ts — create_report 連携の 5 ルート
 // =============================================================================
-// 状態・一覧・単体 PDF は閲覧者にも開き、値入り HTML の生成は編集者以上。処理は `deps.report` に任せる。
+// 状態・単体 PDF は閲覧者にも開き、値入り HTML の生成は編集者以上。処理は `deps.report` に任せる。
 // 単体 PDF は `/api/build` と同じ閲覧業務としての出力で、入出力は応答後に消えサーバに状態を残さない。
 import {
   apiPaths,
   type FillResult,
   type OfficialPdfStatus,
-  type ReportSkeletons,
   type ReportStatus,
 } from '@editor/shared';
 import { ReportPdfRequest } from '@editor/shared/schemas';
@@ -28,12 +27,6 @@ export const reportRoutes: FastifyPluginAsync<{ deps: Pick<Deps, 'report'> }> = 
   app.get(apiPaths.reportStatus, { preHandler: [requireAuth] }, async (): Promise<ReportStatus> => {
     return report.status();
   });
-
-  app.get(
-    apiPaths.reportSkeletons,
-    { preHandler: [requireAuth] },
-    async (): Promise<ReportSkeletons> => ({ skeletons: await report.listSkeletons() }),
-  );
 
   app.get<{ Params: { id: string } }>(
     apiPaths.reportOfficialPdf,
