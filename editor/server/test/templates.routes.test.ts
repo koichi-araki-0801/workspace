@@ -44,7 +44,9 @@ process.env.LOG_DIR = path.join(root, 'logs');
 
 const as = (username: string) => ({ cookie: username });
 
-async function buildApp(): Promise<FastifyInstance> {
+async function buildApp(
+  overrides?: (deps: import('../src/deps.js').Deps) => Partial<import('../src/deps.js').Deps>,
+): Promise<FastifyInstance> {
   const Fastify = (await import('fastify')).default;
   const { errorHandler } = await import('../src/middleware/errorHandler.js');
   const { createDeps } = await import('../src/deps.js');
@@ -79,7 +81,8 @@ async function buildApp(): Promise<FastifyInstance> {
   }
 
   const store = createSessionStub({ getSessionUser: (sid) => userOf(sid) });
-  const deps = createDeps(await createFakeSproc(), store);
+  const base = createDeps(await createFakeSproc(), store);
+  const deps = overrides ? { ...base, ...overrides(base) } : base;
   const app = Fastify();
   decorateSessionStore(app, store);
   app.setErrorHandler(errorHandler);
@@ -420,5 +423,65 @@ describe('templates.routes', () => {
       valueChecks: [],
       cssConflicts: [],
     });
+  });
+});
+
+describe('templates.routes GET /templates/options の skeletons', () => {
+  const getDropdownOptions = vi.fn(async () => ({
+    companyCodes: [],
+    fundCodes: [],
+    baseDates: [],
+    editionTypes: [],
+  }));
+  const appWith = (enabled: boolean) =>
+    buildApp((base) => ({
+      templates: { ...base.templates, getDropdownOptions },
+      report: { ...base.report, status: () => ({ enabled }) },
+    }));
+  const call = async (app: FastifyInstance, url: string, as_?: string) => {
+    getDropdownOptions.mockClear();
+    const res = await app.inject({
+      method: 'GET',
+      url,
+      ...(as_ === undefined ? {} : { headers: as(as_) }),
+    });
+    expect(res.statusCode).toBe(200);
+    return getDropdownOptions.mock.calls[0]?.[2];
+  };
+
+  it('passes include for editor when report enabled', async () => {
+    const app = await appWith(true);
+    expect(await call(app, '/templates/options', 'editor')).toBe('include');
+    await app.close();
+  });
+
+  it('passes include without auth', async () => {
+    const { config } = await import('../src/config.js');
+    config.requireAuth = false;
+    const app = await appWith(true);
+    try {
+      expect(await call(app, '/templates/options')).toBe('include');
+    } finally {
+      config.requireAuth = true;
+      await app.close();
+    }
+  });
+
+  it('passes exclude for viewer', async () => {
+    const app = await appWith(true);
+    expect(await call(app, '/templates/options', 'viewer')).toBe('exclude');
+    await app.close();
+  });
+
+  it('passes exclude when report disabled', async () => {
+    const app = await appWith(false);
+    expect(await call(app, '/templates/options', 'editor')).toBe('exclude');
+    await app.close();
+  });
+
+  it('passes exclude for published', async () => {
+    const app = await appWith(true);
+    expect(await call(app, '/templates/options?scope=published', 'editor')).toBe('exclude');
+    await app.close();
   });
 });

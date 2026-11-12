@@ -28,6 +28,7 @@ const m = vi.hoisted(() => ({
   generateReportPdf: vi.fn(),
   buildOfficialPdf: vi.fn(),
   listTemplateFiles: vi.fn(),
+  listSkeletons: vi.fn(),
   readFilledHtml: vi.fn(),
   filledExists: vi.fn(),
   lastCommitFor: vi.fn(),
@@ -46,6 +47,7 @@ vi.mock('../src/generate/createReport.js', async (importOriginal) => ({
 vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/files/templateFiles.js')>()),
   listTemplateFiles: m.listTemplateFiles,
+  listSkeletons: m.listSkeletons,
   readFilledHtml: m.readFilledHtml,
   filledExists: m.filledExists,
 }));
@@ -116,11 +118,10 @@ describe('reportRepo', () => {
     expect(repo.status()).toEqual({ enabled: false });
   });
 
-  it('listSkeletons returns only 3-part templates', async () => {
-    m.listTemplateFiles.mockResolvedValue([SKELETON, 'A_B_20240101_交付版.html', 'x.html']);
-    expect(await repoWith([]).listSkeletons()).toEqual([
-      { companyCode: 'XX01', fundCode: '950037', editionType: '交付版' },
-    ]);
+  it('listSkeletons delegates to the files layer', async () => {
+    const attrs = [{ companyCode: 'XX01', fundCode: '950037', editionType: '交付版' }];
+    m.listSkeletons.mockResolvedValue(attrs);
+    expect(await repoWith([]).listSkeletons()).toEqual(attrs);
   });
 
   it('fill resolves rep1 code ignoring trailing spaces and case', async () => {

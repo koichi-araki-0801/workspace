@@ -10,7 +10,6 @@ import {
   type FillResult,
   notFound,
   type OfficialPdfStatus,
-  parseSkeletonFileName,
   parseTemplateFileName,
   REPORT_BUSY_USER,
   REPORT_BUSY_USER_MESSAGE,
@@ -21,7 +20,12 @@ import {
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
-import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
+import {
+  filledExists,
+  listSkeletons as listSkeletonFiles,
+  listTemplateFiles,
+  readFilledHtml,
+} from '../files/templateFiles.js';
 import {
   assertReportEnabled,
   buildOfficialPdf,
@@ -132,14 +136,6 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
   // 単体 PDF の人ごとの上限(実行中 1・待ち 1)。閲覧者にも開いたので、1 人が続けて押して
   // 生成器の共有の枠(全員で数本)を埋めないようにする(`/api/build` の `BUILD_BUSY_USER` と同じ形)。
   const perUser = new PerUserBuildGate(reportBusyUserError);
-
-  async function listSkeletons(): Promise<SkeletonAttributes[]> {
-    const files = await listTemplateFiles();
-    return files.flatMap((f) => {
-      const attrs = parseSkeletonFileName(f);
-      return attrs ? [attrs] : [];
-    });
-  }
 
   async function fill(id: string, actor: string): Promise<FillResult> {
     const attrs = parseFilledId(id);
@@ -256,7 +252,7 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
 
   return {
     status: () => ({ enabled: config.report !== undefined }),
-    listSkeletons,
+    listSkeletons: () => listSkeletonFiles(),
     fill,
     buildPdf,
     requestOfficialPdf,

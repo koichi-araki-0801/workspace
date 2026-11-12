@@ -20,6 +20,7 @@ import {
   parseAnyTemplateFileName,
   parseTemplateFileName,
   type SampleDataResult,
+  type SkeletonAttributes,
   skeletonFileName,
   type Template,
   type TemplateDraft,
@@ -38,6 +39,7 @@ import {
   filledExists,
   findTemplateId,
   listFilledFiles,
+  listSkeletons,
   listTemplateFiles,
   readFilledHtml,
   readTemplateCss,
@@ -81,10 +83,34 @@ function uniqCi(values: string[]): string[] {
   return [...seen.values()].sort((a, b) => a.localeCompare(b));
 }
 
-/** 各候補は自分より上位の選択だけで絞る(sproc `候補` と同じ規則)。 */
-function optionsFromMetas(metas: TemplateMeta[], q: DropdownQuery): DropdownOptions {
-  const at = (depth: number, key: (typeof ATTR_KEYS)[number]) =>
-    uniqCi(metas.filter((m) => matchesUpTo(m, q, depth)).flatMap((m) => m.attributes[key] ?? []));
+/** スケルトン(基準日を持たない)が dropdown query の先頭 `depth` 個に一致するか。基準日は見ない。 */
+function skeletonMatchesUpTo(s: SkeletonAttributes, q: DropdownQuery, depth: number): boolean {
+  return ATTR_KEYS.slice(0, depth).every((k) => {
+    const want = q[k];
+    return k === 'baseDate' || !want || sameCi(s[k], want);
+  });
+}
+
+/**
+ * 各候補は自分より上位の選択だけで絞る(sproc `候補` と同じ規則)。
+ * スケルトンは会社・ファンド・版種の段にだけ足す。基準日は値入り HTML の有無を表すので足さず、
+ * 先に並べるのは `uniqCi` が最初の表記を残すため(templates/ の綴りを正とする)。
+ */
+function optionsFromMetas(
+  metas: TemplateMeta[],
+  q: DropdownQuery,
+  skeletons: SkeletonAttributes[] = [],
+): DropdownOptions {
+  const at = (depth: number, key: (typeof ATTR_KEYS)[number]) => {
+    const fromSkeletons =
+      key === 'baseDate'
+        ? []
+        : skeletons.filter((s) => skeletonMatchesUpTo(s, q, depth)).map((s) => s[key]);
+    const fromMetas = metas
+      .filter((m) => matchesUpTo(m, q, depth))
+      .flatMap((m) => m.attributes[key] ?? []);
+    return uniqCi([...fromSkeletons, ...fromMetas]);
+  };
   return {
     companyCodes: at(0, 'companyCode'),
     fundCodes: at(1, 'fundCode'),
@@ -124,8 +150,15 @@ async function scanEditableMetas(includePending: boolean): Promise<TemplateMeta[
   return [...confirmed, ...pending];
 }
 
+/** 編集タブの候補へ `templates/` のスケルトン(値入り HTML がまだ無い組)を足すか。 */
+export type SkeletonCandidates = 'include' | 'exclude';
+
 export interface TemplateRepo {
-  getDropdownOptions(q: DropdownQuery, scope: DropdownScope): Promise<DropdownOptions>;
+  getDropdownOptions(
+    q: DropdownQuery,
+    scope: DropdownScope,
+    skeletons?: SkeletonCandidates,
+  ): Promise<DropdownOptions>;
   listTemplates(q: DropdownQuery): Promise<TemplateMeta[]>;
   getTemplate(id: string): Promise<Template>;
   saveDraft(templateId: string, html: string, css: string): Promise<void>;
@@ -270,9 +303,12 @@ export function createTemplateRepo(sproc: SprocClient): TemplateRepo {
     /**
      * 候補の出所は画面ごとに違う。編集タブ(edit)は一覧と同じ filled/ + pending/、比較・結合
      * (published)は承認済みの filled/ だけ。作成タブの候補は Rep1(`listCompanies` / `listFunds`)。
+     * `skeletons: 'include'` は edit のときだけ効き、templates/ の会社・ファンド・版種を足す。
      */
-    async getDropdownOptions(q, scope) {
-      return optionsFromMetas(await scanEditableMetas(scope === 'edit'), q);
+    async getDropdownOptions(q, scope, skeletons = 'exclude') {
+      const isEdit = scope === 'edit';
+      const extra = isEdit && skeletons === 'include' ? await listSkeletons() : [];
+      return optionsFromMetas(await scanEditableMetas(isEdit), q, extra);
     },
 
     /**

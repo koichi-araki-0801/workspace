@@ -12,6 +12,7 @@ import {
   DROPDOWN_SCOPES,
   type DropdownQuery,
   type DropdownScope,
+  isEditor,
   validation,
 } from '@editor/shared';
 import { CreatableQuery, FundsQuery, SaveDraftRequest } from '@editor/shared/schemas';
@@ -20,6 +21,7 @@ import type { z } from 'zod';
 import type { Deps } from '../deps.js';
 import { requireAuth, requireEditor } from '../middleware/auth.js';
 import { validate, validateQuery } from '../middleware/validate.js';
+import type { SkeletonCandidates } from '../repositories/templateRepo.js';
 import { pickQuery } from './routeHelpers.js';
 
 function toQuery(q: Record<string, unknown>): DropdownQuery {
@@ -41,12 +43,18 @@ type IdParams = { Params: { id: string } };
 type QueryRec = { Querystring: Record<string, unknown> };
 
 export const templatesRoutes: FastifyPluginAsync<{
-  deps: Pick<Deps, 'templates' | 'pairSync'>;
+  deps: Pick<Deps, 'templates' | 'pairSync' | 'report'>;
 }> = async (app, opts) => {
-  const { templates, pairSync } = opts.deps;
+  const { templates, pairSync, report } = opts.deps;
 
+  // 編集タブは、生成できる人(編集者以上。無認証モードも含む)にだけ、まだ値入り HTML が無い
+  // 会社・ファンド・版種(templates/ のスケルトン)も候補に出す。生成が使えない環境では出さない。
   app.get<QueryRec>(apiPaths.templatesOptions, { preHandler: requireAuth }, async (request) => {
-    return templates.getDropdownOptions(toQuery(request.query), toScope(request.query.scope));
+    const scope = toScope(request.query.scope);
+    const canGenerate = request.user === undefined || isEditor(request.user);
+    const skeletons: SkeletonCandidates =
+      scope === 'edit' && report.status().enabled && canGenerate ? 'include' : 'exclude';
+    return templates.getDropdownOptions(toQuery(request.query), scope, skeletons);
   });
 
   app.get(apiPaths.templatesCompanies, { preHandler: requireAuth }, async () =>

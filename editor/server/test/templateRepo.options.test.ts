@@ -87,3 +87,68 @@ describe('templateRepo.getDropdownOptions の scope', () => {
     expect(ids).toEqual(['xxam_910024_2024-05-17_交付版', 'XXAM_950037_2024-05-17_全体版']);
   });
 });
+
+describe('templateRepo.getDropdownOptions の skeletons(templates/ 由来の候補)', () => {
+  let repo: Repo;
+
+  beforeAll(async () => {
+    for (const d of ['templates', 'filled', 'pending']) {
+      fs.mkdirSync(path.join(tmp, d), { recursive: true });
+    }
+    // 前の describe の afterAll が一時フォルダを消すので、必要な filled/ をここで置き直す。
+    put('filled', 'xxam_910024_2024-05-17_交付版');
+    put('filled', 'XX01_950155_20240710_交付版');
+    put('templates', 'XXAM_910024_交付版');
+    put('templates', 'XX03_920001_全体版');
+    put('templates', 'xx01_950155_全体版');
+    const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
+    const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
+    repo = createTemplateRepo(createOfflineSproc());
+  });
+
+  it('include adds skeleton company and fund', async () => {
+    const o = await repo.getDropdownOptions({}, 'edit', 'include');
+    expect(o.companyCodes.map((c) => c.toLowerCase())).toContain('xx03');
+    const f = await repo.getDropdownOptions({ companyCode: 'XX03' }, 'edit', 'include');
+    expect(f.fundCodes).toEqual(['920001']);
+  });
+
+  it('baseDates come from metas only', async () => {
+    const o = await repo.getDropdownOptions(
+      { companyCode: 'XX03', fundCode: '920001' },
+      'edit',
+      'include',
+    );
+    expect(o.baseDates).toEqual([]);
+  });
+
+  it('edition includes skeleton even with baseDate', async () => {
+    const base = { companyCode: 'XX01', fundCode: '950155' };
+    const old = await repo.getDropdownOptions({ ...base, baseDate: '20240710' }, 'edit', 'include');
+    expect(old.editionTypes).toEqual(['交付版', '全体版']);
+    const fresh = await repo.getDropdownOptions(
+      { ...base, baseDate: '20261110' },
+      'edit',
+      'include',
+    );
+    expect(fresh.editionTypes).toEqual(['全体版']);
+  });
+
+  it('prefers skeleton spelling', async () => {
+    const o = await repo.getDropdownOptions({}, 'edit', 'include');
+    expect(o.companyCodes).toContain('XXAM');
+    expect(o.companyCodes).not.toContain('xxam');
+  });
+
+  it('exclude is unchanged', async () => {
+    const none = await repo.getDropdownOptions({}, 'edit');
+    const ex = await repo.getDropdownOptions({}, 'edit', 'exclude');
+    expect(ex).toEqual(none);
+    expect(none.companyCodes.map((c) => c.toLowerCase())).not.toContain('xx03');
+  });
+
+  it('published ignores include', async () => {
+    const o = await repo.getDropdownOptions({}, 'published', 'include');
+    expect(o.companyCodes.map((c) => c.toLowerCase())).not.toContain('xx03');
+  });
+});
