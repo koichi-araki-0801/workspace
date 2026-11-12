@@ -1,5 +1,5 @@
 // =============================================================================
-// create_report.spec.ts — create_report.py 連携(新しい基準日で開く・単体 PDF)の回帰網
+// create_report.spec.ts — create_report.py 連携(検索欄からの作成・単体 PDF)の回帰網
 // =============================================================================
 // e2e サーバは `REPORT_SCRIPT` を偽物 `server/scripts/fake_create_report.py` に向ける(本物は
 // 遮断端末にしか無く、本物の dataRoot を書き換えうる)。偽物は起動のたびに
@@ -36,21 +36,33 @@ function callCount(): number {
   return fs.readFileSync(E2E_REPORT_CALL_LOG, 'utf-8').split('\n').filter(Boolean).length;
 }
 
-/** 編集タブで「新しい基準日で開く」を開き、テンプレートと基準日を選ぶ。 */
-async function pickSkeleton(page: Page, fund: string, edition: string, isoDate: string) {
+/**
+ * 編集タブの検索欄で 委託会社 XX01・ファンド・基準日・版種 を選んで「検索」を押す。基準日は
+ * 利用者と同じく打ち込んで Enter で確定する(候補に無い日付も確定できる)。
+ */
+async function pickCascade(page: Page, fund: string, edition: string, dateText: string) {
   await login(page);
   await page.goto('/edit', { waitUntil: 'commit' });
-  await page.getByRole('button', { name: '新しい基準日で開く' }).click();
-  const dialog = page.getByRole('dialog');
-  await dialog.locator('select').selectOption({ label: `XX01 ${fund} ${edition}` });
-  await dialog.locator('input[type=date]').fill(isoDate);
-  return dialog;
+  await page.getByText('ファンドコード').first().waitFor();
+  // 委託会社の候補は「略称（Rep1 の委託会社コード）」、ファンドは「コード 名称」。
+  await page.getByPlaceholder('委託会社を入力/選択').click();
+  await page.getByRole('option', { name: /^XX01（/ }).click();
+  await page.getByPlaceholder('ファンドコードを入力/選択').click();
+  await page.getByRole('option', { name: new RegExp(`^${fund}`) }).click();
+  const date = page.getByPlaceholder('基準日を入力/選択');
+  await date.fill(dateText);
+  await date.press('Enter');
+  // Select トリガの accessible name は空なので、表示中の placeholder で絞る。
+  await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
+  await page.getByRole('option', { name: edition, exact: true }).click();
+  await page.getByRole('button', { name: '検索' }).click();
 }
 
 test('opens new base date via create_report and lands on editor', async ({ page }) => {
   seedSkeleton('910024', '交付版');
-  const dialog = await pickSkeleton(page, '910024', '交付版', '2026-11-10');
-  await dialog.getByRole('button', { name: '開く' }).click();
+  await pickCascade(page, '910024', '交付版', '2026/11/10');
+  await expect(page.getByText('この基準日の帳票はまだありません')).toBeVisible();
+  await page.getByRole('button', { name: '作成して開く' }).click();
 
   const id = 'XX01_910024_20261110_交付版';
   await expect(page).toHaveURL(/\/edit\//, { timeout: 30_000 });
@@ -66,12 +78,15 @@ test('opens new base date via create_report and lands on editor', async ({ page 
 });
 
 test('opens existing filled without running script', async ({ page }) => {
-  // 既存の値入り HTML(fixtures の XX01_910024_20251117_全体版)と同じ基準日を指す。
+  // 既存の値入り HTML(fixtures の XX01_910024_20251117_全体版)と同じ条件で検索する。
   seedSkeleton('910024', '全体版');
   const id = 'XX01_910024_20251117_全体版';
   const before = fs.readFileSync(path.join(filledDir, `${id}.html`), 'utf-8');
-  const dialog = await pickSkeleton(page, '910024', '全体版', '2025-11-17');
-  await dialog.getByRole('button', { name: '開く' }).click();
+  await pickCascade(page, '910024', '全体版', '2025/11/17');
+  const rows = page.locator('tbody tr');
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '作成して開く' })).toHaveCount(0);
+  await rows.first().getByRole('button', { name: '編集' }).click();
 
   await expect(page).toHaveURL(/\/edit\//, { timeout: 30_000 });
   expect(decodeURIComponent(new URL(page.url()).pathname)).toBe(`/edit/${id}`);
@@ -80,15 +95,57 @@ test('opens existing filled without running script', async ({ page }) => {
   expect(fs.readFileSync(path.join(filledDir, `${id}.html`), 'utf-8')).toBe(before);
 });
 
+test('creates missing edition on existing date', async ({ page }) => {
+  // 全体版だけがある基準日に交付版を作る。fixtures の基準日は両版そろっていることが多いので、
+  // 片方の版だけの値入り HTML をこのテストで置き、終わったら置いた物と作った物を消す。
+  const existing = path.join(filledDir, 'XX01_950003_20260105_全体版.html');
+  const id = 'XX01_950003_20260105_交付版';
+  const created = path.join(filledDir, `${id}.html`);
+  const skeleton = path.join(templatesDir, 'XX01_950003_交付版.html');
+  fs.writeFileSync(existing, SKELETON_BODY);
+  seedSkeleton('950003', '交付版');
+  try {
+    await pickCascade(page, '950003', '交付版', '2026/01/05');
+    await page.getByRole('button', { name: '作成して開く' }).click();
+
+    await expect(page).toHaveURL(/\/edit\//, { timeout: 30_000 });
+    expect(decodeURIComponent(new URL(page.url()).pathname)).toBe(`/edit/${id}`);
+    expect(fs.readFileSync(created, 'utf-8')).toBe(SKELETON_BODY);
+    expect(callCount()).toBe(1);
+  } finally {
+    for (const f of [existing, created, skeleton]) {
+      fs.rmSync(f, { force: true });
+    }
+  }
+});
+
 test('shows retry on failure fund 999101', async ({ page }) => {
   seedSkeleton('999101', '交付版');
-  const dialog = await pickSkeleton(page, '999101', '交付版', '2026-11-10');
-  await dialog.getByRole('button', { name: '開く' }).click();
+  await pickCascade(page, '999101', '交付版', '2026/11/10');
+  await page.getByRole('button', { name: '作成して開く' }).click();
 
-  await expect(dialog.getByRole('alert')).toBeVisible({ timeout: 30_000 });
-  await expect(dialog.getByRole('button', { name: '再試行' })).toBeEnabled();
+  await expect(page.getByRole('alert')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('button', { name: '再試行' })).toBeEnabled();
   expect(new URL(page.url()).pathname).toBe('/edit');
   expect(fs.existsSync(path.join(filledDir, 'XX01_999101_20261110_交付版.html'))).toBe(false);
+});
+
+test('published rejects unknown date', async ({ page }) => {
+  // 結合タブ(scope published)は候補に無い基準日を確定しても版種と検索へ進ませない。
+  await login(page);
+  await page.goto('/merge', { waitUntil: 'commit' });
+  await page.getByText('ファンドコード').first().waitFor();
+  await page.getByPlaceholder('委託会社を入力/選択').click();
+  await page.getByRole('option', { name: /^XX01（/ }).click();
+  await page.getByPlaceholder('ファンドコードを入力/選択').click();
+  await page.getByRole('option', { name: /^950155/ }).click();
+  const date = page.getByPlaceholder('基準日を入力/選択');
+  await date.fill('2099/01/01');
+  await date.press('Enter');
+
+  await expect(page.getByText('この基準日の承認済みテンプレートはありません')).toBeVisible();
+  await expect(page.getByRole('combobox').filter({ hasText: '版種を選択' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '検索' })).toBeDisabled();
 });
 
 test('downloads report pdf from preview', async ({ page }) => {
