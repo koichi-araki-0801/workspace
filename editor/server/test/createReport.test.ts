@@ -305,7 +305,7 @@ describe('buildOfficialPdf', () => {
       code: REPORT_OUTPUT_MISSING,
       statusCode: 500,
       message:
-        `create_report.py は正常終了しましたが pdf/${ID}.pdf が git に記録されていません。` +
+        `create_report.py は正常終了しましたが pdf/${ID}.pdf を書き直して git に記録していません。` +
         'create_report の dataRoot の設定が editor と同じか、' +
         'create_report.py が正式 PDF をコミットする版か確かめてください',
     });

@@ -3,6 +3,8 @@
 // =============================================================================
 // ルートはここだけを呼ぶ。会社コードの引き、入口の検査、生成後の git コミットをまとめる。
 // 実際のスクリプト起動は `generate/createReport.ts` が担う。
+import { lstat } from 'node:fs/promises';
+import path from 'node:path';
 import {
   assertTemplateId,
   type FillResult,
@@ -86,6 +88,35 @@ async function resolveRep1Code(
     });
   }
   return code;
+}
+
+interface FileStamp {
+  mtimeMs: number;
+  ino: number;
+}
+
+/** ファイルの更新時刻とファイル番号。無ければ null(無いこと以外の失敗は区別できないので投げる)。 */
+async function fileStamp(file: string): Promise<FileStamp | null> {
+  try {
+    const s = await lstat(file);
+    return { mtimeMs: s.mtimeMs, ino: s.ino };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * 組版の前後の印から、PDF がこの組版で書き直されたかを決める。前に無ければ、後にあれば書き直し。
+ * 比べるのは同じファイルの前後の印なので、サーバとファイルサーバの時計がずれていても効く。
+ */
+function pdfRewritten(before: FileStamp | null, after: FileStamp | null): boolean {
+  if (after === null) {
+    return false;
+  }
+  return before === null || after.mtimeMs !== before.mtimeMs || after.ino !== before.ino;
 }
 
 /** id を値入り HTML の属性へ解く(検査済みの id だけを通す)。 */
@@ -184,13 +215,19 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
       // データのリポジトリは承認や生成のときに初めて作られる。無いまま走らせるとスクリプトは
       // PDF を書くだけで記録できず、成功しても必ず「記録されていない」になる。
       await ensureRepo();
+      const pdfFile = path.join(config.pdfDir, `${id}.pdf`);
+      const before = await fileStamp(pdfFile);
       await buildOfficialPdf(id, rep1);
-      // PDF に記録があり、作業ツリーが記録と一致すれば成功とする。filled が新しくても PDF が
-      // 同じバイトならスクリプトはコミットを省くので、祖先関係(`stale`)では失敗にしない。
+      // この組版で PDF が書き直され、記録があり、作業ツリーが記録と一致すれば成功とする。
+      // filled が新しくても PDF が同じバイトならスクリプトはコミットを省くので、祖先関係
+      // (`stale`)では失敗にしない。その代わり書き直しを見る: 何も書かずに 0 で終わった
+      // スクリプトを成功にすると、前に記録した PDF を今の filled から組んだと覚えてしまう。
       // 今の filled から組んだことはジョブが成功時のコミットを覚えて状態に反映する
       // (`officialPdfJobs.ts` の `doneHashes`)。
       const recorded =
-        (await gitDeps.pdfCommit(id)) !== null && (await isPathClean(`pdf/${id}.pdf`));
+        pdfRewritten(before, await fileStamp(pdfFile)) &&
+        (await gitDeps.pdfCommit(id)) !== null &&
+        (await isPathClean(`pdf/${id}.pdf`));
       if (!recorded) {
         throw officialPdfNotRecorded(id);
       }

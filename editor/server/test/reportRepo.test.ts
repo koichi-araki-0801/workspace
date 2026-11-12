@@ -94,7 +94,13 @@ describe('reportRepo', () => {
     m.listTemplateFiles.mockResolvedValue([SKELETON]);
     m.generateFilled.mockResolvedValue({ created: true });
     m.generateReportPdf.mockResolvedValue(Buffer.from('%PDF'));
-    m.buildOfficialPdf.mockResolvedValue(undefined);
+    // 成功の判定は PDF が書き直されたことも見るので、スクリプトの代わりに PDF を作り直す。
+    m.buildOfficialPdf.mockImplementation(async (id: string) => {
+      const file = path.join(fakeRoot, 'pdf', `${id}.pdf`);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.rmSync(file, { force: true });
+      fs.writeFileSync(file, '%PDF-1.4 mock');
+    });
     m.readFilledHtml.mockResolvedValue('<p>ok</p>');
     m.filledExists.mockResolvedValue(true);
     m.lastCommitFor.mockResolvedValue({ hash: 'c0', date: '2026-11-11T01:00:00.000Z' });
@@ -422,6 +428,32 @@ describe('reportRepo', () => {
       expect(st.error).toBeNull();
       expect(st.state).toBe('done');
       expect(gitOut('log', '--format=%H', '--', pdfRel(ID))).toBe(pdfBefore);
+    }, 60_000);
+
+    it('fails REPORT_OUTPUT_MISSING when the script exits 0 without rewriting a recorded pdf', async () => {
+      const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+      await repo.requestOfficialPdf(ID);
+      await repo.settleOfficialPdfs();
+      fs.writeFileSync(`${fakeRoot}/filled/${ID}.html`, '<p>filled v2</p>');
+      gitOut('add', '--', `filled/${ID}.html`);
+      gitOut(
+        '-c',
+        'user.name=approver',
+        '-c',
+        'user.email=approver@editor.local',
+        'commit',
+        '--no-verify',
+        '-q',
+        '-m',
+        'approve',
+      );
+      // 何も書かずに 0 で終わるスクリプトの代わり。前の記録は残り、作業ツリーとも一致する。
+      m.buildOfficialPdf.mockImplementation(async () => {});
+      await repo.requestOfficialPdf(ID);
+      await repo.settleOfficialPdfs();
+      const st = await repo.officialPdfStatus(ID);
+      expect(st.state).toBe('failed');
+      expect(st.error).toBe(officialPdfNotRecorded(ID).message);
     }, 60_000);
 
     it('fails REPORT_OUTPUT_MISSING when the pdf is written but not committed', async () => {

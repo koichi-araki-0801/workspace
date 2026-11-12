@@ -243,12 +243,12 @@ export async function generateReportPdf(
 }
 
 /**
- * スクリプトが正常終了したのに `pdf/<id>.pdf` が git に記録されていないときの失敗。
+ * スクリプトが正常終了したのに `pdf/<id>.pdf` を書き直して git に記録していないときの失敗。
  * dataRoot の設定違いか、正式 PDF をコミットしない旧い create_report.py が典型。
  */
 export function officialPdfNotRecorded(id: string): Error {
   return reportError(
-    `create_report.py は正常終了しましたが pdf/${id}.pdf が git に記録されていません。` +
+    `create_report.py は正常終了しましたが pdf/${id}.pdf を書き直して git に記録していません。` +
       'create_report の dataRoot の設定が editor と同じか、' +
       'create_report.py が正式 PDF をコミットする版か確かめてください',
     REPORT_OUTPUT_MISSING,
