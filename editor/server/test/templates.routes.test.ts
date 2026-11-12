@@ -457,13 +457,14 @@ describe('templates.routes GET /templates/options の skeletons', () => {
 
   it('passes include without auth', async () => {
     const { config } = await import('../src/config.js');
-    config.requireAuth = false;
-    const app = await appWith(true);
+    let app: FastifyInstance | undefined;
     try {
+      config.requireAuth = false;
+      app = await appWith(true);
       expect(await call(app, '/templates/options')).toBe('include');
     } finally {
       config.requireAuth = true;
-      await app.close();
+      await app?.close();
     }
   });
 

@@ -101,10 +101,15 @@ describe('templateRepo.getDropdownOptions の skeletons(templates/ 由来の候�
     put('templates', 'XXAM_910024_交付版');
     put('templates', 'XX03_920001_全体版');
     put('templates', 'xx01_950155_全体版');
+    // 規約外(4 つ区切り・形が違う名前)は候補にも listSkeletons にも出ない。
+    put('templates', 'XX09_900001_20240101_交付版');
+    put('templates', 'not-a-skeleton');
     const { createOfflineSproc } = await import('./helpers/offlineSproc.js');
     const { createTemplateRepo } = await import('../src/repositories/templateRepo.js');
     repo = createTemplateRepo(createOfflineSproc());
   });
+
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
   it('include adds skeleton company and fund', async () => {
     const o = await repo.getDropdownOptions({}, 'edit', 'include');
@@ -144,7 +149,16 @@ describe('templateRepo.getDropdownOptions の skeletons(templates/ 由来の候�
     const none = await repo.getDropdownOptions({}, 'edit');
     const ex = await repo.getDropdownOptions({}, 'edit', 'exclude');
     expect(ex).toEqual(none);
-    expect(none.companyCodes.map((c) => c.toLowerCase())).not.toContain('xx03');
+    expect(none.companyCodes.map((c) => c.toLowerCase())).toEqual(['xx01', 'xxam']);
+    expect(none.fundCodes).toEqual(['910024', '950155']);
+  });
+
+  it('listSkeletons keeps only 3-part skeleton names', async () => {
+    const { listSkeletons } = await import('../src/files/templateFiles.js');
+    const got = (await listSkeletons())
+      .map((s) => `${s.companyCode.toLowerCase()}_${s.fundCode}_${s.editionType}`)
+      .sort();
+    expect(got).toEqual(['xx01_950155_全体版', 'xx03_920001_全体版', 'xxam_910024_交付版']);
   });
 
   it('published ignores include', async () => {
