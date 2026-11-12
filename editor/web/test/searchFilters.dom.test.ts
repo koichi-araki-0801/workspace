@@ -173,13 +173,90 @@ describe('SearchFilters の基準日の段', () => {
     expect(w.text()).toContain(REJECT_TEXT);
   });
 
-  it('候補の取得に失敗したときは案内を出さず、従来どおり restore を出す', async () => {
+  it('reject: 候補の取得に失敗したときは案内を出さず、restore も出さない', async () => {
     routeQuery.baseDate = '20240710';
     templates.getDropdownOptions.mockImplementation(async () => err(network('取得に失敗しました')));
     const w = mountFilters();
     await flushPromises();
     expect(w.text()).not.toContain(REJECT_TEXT);
+    expect(w.emitted('restore')).toBeUndefined();
+  });
+
+  it('reject: 候補の取得に失敗しても、基準日の無い復元は restore を出す', async () => {
+    templates.getDropdownOptions.mockImplementation(async () => err(network('取得に失敗しました')));
+    const w = mountFilters();
+    await flushPromises();
     expect(w.emitted('restore')).toHaveLength(1);
+  });
+
+  it('allow: 候補の取得に失敗しても restore を出す', async () => {
+    routeQuery.baseDate = '20261110';
+    templates.getDropdownOptions.mockImplementation(async () => err(network('取得に失敗しました')));
+    const w = mountFilters({ dropdownScope: 'edit', newBaseDate: 'allow' });
+    await flushPromises();
+    expect(w.emitted('restore')).toHaveLength(1);
+  });
+
+  it('reject: 候補に無い日付では update から基準日と版種を外す', async () => {
+    templates.getDropdownOptions.mockImplementation(async () => ok(optionsWith(['全体版'])));
+    const w = mountFilters();
+    await flushPromises();
+    await commitBaseDate(w, '20240710');
+    expect(w.emitted('update')?.at(-1)).toEqual([
+      { companyCode: 'XX01', fundCode: '950037', baseDate: '20240710', editionType: undefined },
+    ]);
+    await commitBaseDate(w, '20261110');
+    const last = w.emitted('update')?.at(-1)?.[0] as Record<string, unknown>;
+    expect(last).toEqual({ companyCode: 'XX01', fundCode: '950037' });
+    expect('baseDate' in last).toBe(false);
+    expect('editionType' in last).toBe(false);
+  });
+
+  it('allow: 候補に無い日付でも update に基準日を載せる', async () => {
+    templates.getDropdownOptions.mockImplementation(async () => ok(optionsWith(['全体版'])));
+    const w = mountFilters({ dropdownScope: 'edit', newBaseDate: 'allow' });
+    await flushPromises();
+    await commitBaseDate(w, '20261110');
+    expect(w.emitted('update')?.at(-1)?.[0]).toMatchObject({ baseDate: '20261110' });
+  });
+
+  it('案内と入力の誤りは基準日の段の外(全幅の行)に出す', async () => {
+    templates.getDropdownOptions.mockImplementation(async () => ok(optionsWith(['全体版'])));
+    const w = mountFilters();
+    await flushPromises();
+    const field = w.findComponent(BaseDateInput).element.parentElement as HTMLElement;
+    await commitBaseDate(w, '2026093');
+    const alert = w.find('[role="alert"]');
+    expect(alert.text()).toBe('日付として読めません（例: 2026/09/30）');
+    expect(field.contains(alert.element)).toBe(false);
+    expect(alert.element.parentElement?.classList.contains('basis-full')).toBe(true);
+    await commitBaseDate(w, '20261110');
+    const status = w.find('[role="status"]');
+    expect(status.text()).toBe(REJECT_TEXT);
+    expect(field.contains(status.element)).toBe(false);
+    expect(status.element.parentElement?.classList.contains('basis-full')).toBe(true);
+  });
+
+  it('古い候補の応答が成功しても、反映前の空の候補で案内を出さない', async () => {
+    routeQuery.baseDate = '20240710';
+    const resolvers: Array<(r: Result<DropdownOptions>) => void> = [];
+    templates.getDropdownOptions.mockImplementation(
+      () =>
+        new Promise<Result<DropdownOptions>>((r) => {
+          resolvers.push(r);
+        }),
+    );
+    const w = mountFilters();
+    await flushPromises();
+    editionSelect(w)?.vm.$emit('update:modelValue', '全体版');
+    await flushPromises();
+    expect(resolvers).toHaveLength(2);
+    resolvers[0](ok(optionsWith(['全体版'])));
+    await flushPromises();
+    expect(w.text()).not.toContain(REJECT_TEXT);
+    resolvers[1](ok(optionsWith(['全体版'])));
+    await flushPromises();
+    expect(w.text()).not.toContain(REJECT_TEXT);
   });
 
   it('restore guard (allow)', async () => {

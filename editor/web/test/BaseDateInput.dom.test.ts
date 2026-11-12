@@ -230,4 +230,15 @@ describe('BaseDateInput', () => {
     await input.trigger('focus');
     expect(w.findAll('[role="option"]')).toHaveLength(0);
   });
+
+  it('hands the message to the parent when errorDisplay is external', async () => {
+    const { w, input } = setup([], undefined, { errorDisplay: 'external' });
+    await input.setValue('2026093');
+    await input.trigger('keydown', { key: 'Enter' });
+    expect(w.find('[role="alert"]').exists()).toBe(false);
+    expect(w.emitted('update:error')?.at(-1)).toEqual(['日付として読めません（例: 2026/09/30）']);
+    await input.setValue('2026/9/30');
+    expect(w.emitted('update:error')?.at(-1)).toEqual(['']);
+    expect(emitted(w)).toEqual([]);
+  });
 });

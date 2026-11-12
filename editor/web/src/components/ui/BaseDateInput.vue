@@ -5,6 +5,8 @@
 // `Select.vue` と同じ props / v-model で差し替えられる。違いは、Excel で調べた日付を打つ・貼る
 // 使い方に合わせ、候補に無い日付も確定できる点。確定は Enter・blur・貼り付け・候補の選択で、
 // 読み方は `parseBaseDateInput` に任せる。読めないときは値を変えず、理由を欄の下に出す。
+// 横に並んだ欄の高さを揃えたい親は `errorDisplay="external"` と `v-model:error` で理由を受け取り、
+// 自分の置きたい場所に出す。
 import { ChevronDown } from '@lucide/vue';
 import { computed, ref, useId, watch } from 'vue';
 import { type BaseDateParse, findBaseDateCandidate, parseBaseDateInput } from '@/lib/baseDate';
@@ -16,8 +18,11 @@ const props = defineProps<{
   placeholder?: string;
   disabled?: boolean;
   class?: string;
+  /** 読めない理由の出し方。`inline` は欄の下、`external` は出さずに `error` で親へ渡すだけ。 */
+  errorDisplay?: 'inline' | 'external';
 }>();
 const model = defineModel<string | undefined>();
+const error = defineModel<string>('error', { default: '' });
 
 const FORMAT_ERROR = '日付として読めません（例: 2026/09/30）';
 const INVALID_ERROR = '実在しない日付です';
@@ -35,7 +40,6 @@ function labelOf(value: string | undefined): string {
 
 const text = ref(labelOf(model.value));
 const open = ref(false);
-const error = ref('');
 const active = ref(-1);
 const input = ref<HTMLInputElement>();
 const listId = useId();
@@ -244,6 +248,8 @@ function onInput(): void {
         {{ o.label }}
       </button>
     </div>
-    <p v-if="error" role="alert" class="mt-1 text-xs text-destructive">{{ error }}</p>
+    <p v-if="error && errorDisplay !== 'external'" role="alert" class="mt-1 text-xs text-destructive">
+      {{ error }}
+    </p>
   </div>
 </template>
