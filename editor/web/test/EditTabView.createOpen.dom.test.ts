@@ -53,14 +53,22 @@ interface MountOpts {
   role?: User['role'];
   rows?: TemplateMeta[];
   fill?: Fill;
+  /** 利用者の取得が済んだか。既定は済み。 */
+  ready?: boolean;
 }
 
 function mountWith(opts: MountOpts = {}) {
-  const { enabled = true, role, rows = [], fill = async () => ok({ created: true }) } = opts;
+  const {
+    enabled = true,
+    role,
+    rows = [],
+    fill = async () => ok({ created: true }),
+    ready = true,
+  } = opts;
   const pinia = createPinia();
   // auth ストアは作るときに Repositories を要るので、作る前の状態として利用者と準備状態を入れる。
   // 利用者が居ない(`role` 省略)のは無認証モード。
-  pinia.state.value.auth = { ready: true, user: role ? { ...USER, role } : null };
+  pinia.state.value.auth = { ready, user: role ? { ...USER, role } : null };
   const templates = {
     getReportStatus: vi.fn(async () =>
       enabled === 'error' ? err({ message: 'x' }) : ok({ enabled }),
@@ -107,6 +115,8 @@ describe('EditTabView create and open', () => {
       [{ enabled: true, role: 'viewer' }, false],
       [{ enabled: false, role: 'editor' }, false],
       [{ enabled: 'error', role: 'editor' }, false],
+      // 利用者の取得中は閲覧者かどうか分からないので出さない。
+      [{ enabled: true, ready: false }, false],
     ];
     for (const [opts, expected] of shown) {
       const { w } = mountWith(opts);
@@ -179,7 +189,7 @@ describe('EditTabView create and open', () => {
 
   it('ignores stale fill result', async () => {
     let release: (v: unknown) => void = () => {};
-    const { w } = mountWith({
+    const { w, templates } = mountWith({
       role: 'editor',
       fill: () =>
         new Promise((r) => {
@@ -188,6 +198,7 @@ describe('EditTabView create and open', () => {
     });
     await searchWith(w);
     await createButton(w)?.trigger('click');
+    expect(templates.fillTemplate).toHaveBeenCalledWith(ID);
     filters(w).vm.$emit('update', { ...FULL, editionType: '全体版' });
     await flushPromises();
 
@@ -220,6 +231,11 @@ describe('EditTabView create and open', () => {
     filters(w).vm.$emit('update', { ...FULL, editionType: '全体版' });
     await flushPromises();
     expect(w.text()).not.toContain(EMPTY_TEXT);
+
+    // 同じ組み立てで条件が変わらなければ空表示が出る(上の否定が空振りでないことの確認)。
+    filters(w).vm.$emit('search', { ...FULL });
+    await flushPromises();
+    expect(w.text()).toContain(EMPTY_TEXT);
   });
 
   it('no auto fill on restore', async () => {
