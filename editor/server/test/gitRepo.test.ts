@@ -214,14 +214,20 @@ d('gitRepo', () => {
     const REQUIRED = '* text eol=lf\n*.pdf binary\n';
 
     it('requires *.pdf binary right after * text eol=lf', async () => {
-      fs.writeFileSync(attrFile, '* text eol=lf\n*.svg -diff\n', 'utf8');
-      await git.ensureRepo();
-      expect(fs.readFileSync(attrFile, 'utf8')).toBe('* text eol=lf\n*.pdf binary\n*.svg -diff\n');
-      const past = new Date('2020-01-01T00:00:00Z');
-      fs.utimesSync(attrFile, past, past);
-      await git.ensureRepo();
-      expect(fs.statSync(attrFile).mtimeMs).toBe(past.getTime());
-      fs.writeFileSync(attrFile, REQUIRED, 'utf8');
+      try {
+        fs.writeFileSync(attrFile, '* text eol=lf\n*.svg -diff\n', 'utf8');
+        await git.ensureRepo();
+        expect(fs.readFileSync(attrFile, 'utf8')).toBe(
+          '* text eol=lf\n*.pdf binary\n*.svg -diff\n',
+        );
+        const past = new Date('2020-01-01T00:00:00Z');
+        fs.utimesSync(attrFile, past, past);
+        await git.ensureRepo();
+        expect(fs.statSync(attrFile).mtimeMs).toBe(past.getTime());
+      } finally {
+        // 後続のテストが既定の内容を前提にするので、途中で落ちても戻す。
+        fs.writeFileSync(attrFile, REQUIRED, 'utf8');
+      }
     });
 
     it('treats pdf as binary', async () => {

@@ -219,6 +219,25 @@ Describe 'init-data-repo.ps1' {
     } finally { Remove-Item -Recurse -Force $root }
   }
 
+  It '履歴の無いリポジトリでも、.gitignore と .gitattributes が既に正しければ書き換えない' {
+    $root = New-Root
+    try {
+      New-HandMadeContent $root
+      $utf8NoBom = New-Object Text.UTF8Encoding $false
+      $ignore = Join-Path $root '.gitignore'
+      $attr = Join-Path $root '.gitattributes'
+      [IO.File]::WriteAllText($ignore, "/drafts/`n/reviews/`n/pending/`n/notes/`n/css/fonts/`n/images/`n*.tmp-*`n", $utf8NoBom)
+      [IO.File]::WriteAllText($attr, "* text eol=lf`n*.pdf binary`n", $utf8NoBom)
+      $past = New-Object DateTime 2020, 1, 1, 0, 0, 0, ([DateTimeKind]::Utc)
+      (Get-Item $ignore).LastWriteTimeUtc = $past
+      (Get-Item $attr).LastWriteTimeUtc = $past
+      git -C $root init -q
+      Invoke-Init @{ DataRoot = $root } | Out-Null
+      (Get-Item $ignore).LastWriteTimeUtc | Should Be $past
+      (Get-Item $attr).LastWriteTimeUtc | Should Be $past
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
   It '履歴があれば git に触らず、足りないフォルダだけを作る' {
     $root = New-Root
     try {

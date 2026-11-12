@@ -301,7 +301,7 @@ export const GITIGNORE_REQUIRED: readonly string[] = [
   '*.tmp-*',
 ];
 
-/** 旧版が必須としていた行。既存の `.gitignore` から落とす(`/pdf/` を無視したままにしない)。 */
+/** 無視してはならない行。既存の `.gitignore` にあれば落とす(`/pdf/` を無視したままにしない)。 */
 export const GITIGNORE_REMOVED: readonly string[] = ['/pdf/'];
 
 /**
@@ -343,8 +343,9 @@ async function ensureGitignore(): Promise<void> {
 const LEGACY_GITATTRIBUTES_LINE = '* text=lf';
 
 /**
- * .gitattributes を `* text eol=lf` から始まる形へ冪等に揃える。初期化済みリポジトリにも
- * 適用する。利用者が足した他の行は残し、旧い無効行だけを落とす。既に正しければ書かない
+ * .gitattributes を `* text eol=lf`、`*.pdf binary` から始まる形へ冪等に揃える。
+ * `* text eol=lf` だけだと git が PDF のバイト列まで改行変換して壊すので、`*.pdf binary` で
+ * 変換の対象から外す。初期化済みリポジトリにも適用する。利用者が足した他の行は残し、旧い無効行だけを落とす。既に正しければ書かない
  * (`ensureRepo` は承認のたび呼ばれるので、共有上の作業ツリーを毎回書き換えない)。
  */
 async function ensureGitattributes(): Promise<void> {

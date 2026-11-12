@@ -176,7 +176,7 @@ if ($hasGit -and (Test-GitHead)) {
   # ファイルへ LF の行を継ぎ足して改行が混ざらないため)。必須行が揃っていれば書かない。
   $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   $required = '/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '/images/', '*.tmp-*'
-  # /pdf/ は正式 PDF を git で記録するため無視しない(旧版が入れた行は落とす)。
+  # /pdf/ は正式 PDF を git で記録するため無視しない(既にある行は落とす)。
   $removed = '/pdf/'
   # `* text eol=lf` は PDF を壊すので、`*.pdf binary` を直後に置く。
   $attrRequired = '* text eol=lf', '*.pdf binary'
