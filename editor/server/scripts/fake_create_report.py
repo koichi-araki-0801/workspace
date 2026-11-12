@@ -23,7 +23,7 @@
   消えるため。通れば filled を同じ内容で書き戻し、`%PDF-1.4` で始まる
   最小の PDF を pdf/<id>.pdf に書く(どちらも一時ファイル経由)。.git が無ければ警告して書くだけ。
   有れば pdf/<id>.pdf の `text` 属性が unset でなければ exit 5(コミットしない)。2 つを同じ
-  作者・1 コミットで記録する(同一内容なら何もしない)。
+  作者・1 コミットで記録する(作業ツリーが HEAD と同じなら何もしない。index では比べない)。
 - --pdf-only --fund-only --from-editor: 標準入力の HTML を読み(空なら exit 3)、最小の PDF を
   標準出力へ書く。dataRoot には何も書かない。
 
@@ -34,6 +34,8 @@
 - FAKE_REPORT_COMMIT_BEFORE_WRITE: --pdf-only 単独で、記録されていない変更の検査の直後に、値を
   filled/<id>.html に書いて approver@editor.local の作者でコミットする(読んでから書くまでの間に
   承認が入った場合の再現用。本物には無い)。
+- FAKE_REPORT_UNSTAGE_AFTER_ADD: 最初の `git add` の直後に、値のパスを `git reset` でステージから外す
+  (editor の承認がコミットの前にステージを外す場合の再現用。本物には無い)。
 
 テスト用の特別なファンドコード:
 - 999101: exit 1(失敗)。
@@ -59,6 +61,7 @@ EXIT_NO_INPUT = 3
 EXIT_UNRECORDED_CHANGE = 4
 EXIT_COMMIT_FAILED = 5
 COMMIT_BEFORE_WRITE_ENV = "FAKE_REPORT_COMMIT_BEFORE_WRITE"
+UNSTAGE_AFTER_ADD_ENV = "FAKE_REPORT_UNSTAGE_AFTER_ADD"
 LOCK_RETRIES = 5
 LOCK_WAIT_SECONDS = 0.3
 
@@ -156,6 +159,27 @@ def _commit_as_approver(data_root: str, rel: str, body: str, hooks_dir: str) -> 
     )
 
 
+def _same_as_head(data_root: str, rels: list[str], hooks_dir: str, user: str) -> bool:
+    """作業ツリーの rels がすべて HEAD の記録と同じか(記録するものが無いか)。
+
+    index は見ない。editor の承認はコミットの前に許可リストの外のステージを外すので、
+    `git diff --cached` で比べると、外された PDF を「同じ」と読んで記録を飛ばしてしまう。
+    `git diff HEAD` は HEAD に無いパスを比べないので、HEAD に無いパス(初回の PDF・HEAD が
+    まだ無い)は先に「違う」とする。
+    """
+    for rel in rels:
+        if not _head_blob(data_root, rel, hooks_dir, user):
+            return False
+    diff = _git(["diff", "--quiet", "HEAD", "--", *rels], data_root, hooks_dir, user)
+    return diff.returncode == 0
+
+
+def _all_in_index(data_root: str, rels: list[str], hooks_dir: str, user: str) -> bool:
+    """rels がすべて index に載っているか(git に知られたパスか)。"""
+    got = _git(["ls-files", "--error-unmatch", "--", *rels], data_root, hooks_dir, user)
+    return got.returncode == 0
+
+
 def _record_standalone(
     data_root: str,
     report_id: str,
@@ -202,6 +226,8 @@ def _record_standalone(
                     file=sys.stderr,
                 )
                 return EXIT_COMMIT_FAILED
+        if _same_as_head(data_root, rels, hooks_dir, user):
+            return 0
         message = f"create_report（単独）で {report_id} を生成"
         last = ""
         for attempt in range(LOCK_RETRIES):
@@ -213,10 +239,9 @@ def _record_standalone(
                 if "index.lock" not in last:
                     break
                 continue
-            # 内容が HEAD と同じなら記録するものが無い(成功)
-            same = _git(["diff", "--cached", "--quiet", "--", *rels], data_root, hooks_dir, user)
-            if same.returncode == 0:
-                return 0
+            unstage = os.environ.get(UNSTAGE_AFTER_ADD_ENV)
+            if unstage and attempt == 0:
+                _git(["reset", "-q", "--", unstage], data_root, hooks_dir, user)
             done = _git(
                 ["commit", "--no-verify", "--only", "-m", message, "--", *rels],
                 data_root, hooks_dir, user,
@@ -224,7 +249,9 @@ def _record_standalone(
             if done.returncode == 0:
                 return 0
             last = done.stderr or done.stdout
-            if "index.lock" not in last:
+            # editor の承認が add の後にステージを外すと、新しいファイルは git に知られていない
+            # パスになり `commit --only` が失敗する。そのときも add からやり直す。
+            if "index.lock" not in last and _all_in_index(data_root, rels, hooks_dir, user):
                 break
         print(f"git のコミットに失敗しました: {last.strip()}", file=sys.stderr)
         return EXIT_COMMIT_FAILED

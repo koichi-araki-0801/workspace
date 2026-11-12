@@ -240,6 +240,18 @@ describe('fake_create_report.py', () => {
     expect(git(root, 'log', '-1', '--format=%ae').trim()).toBe('approver@editor.local');
   }, 60_000);
 
+  // editor の承認はコミットの前に許可リストの外(pdf/)のステージを外す。index で「同じか」を
+  // 比べると外された PDF を同じと読んで記録を飛ばすので、作業ツリーと HEAD で比べる。
+  it('standalone pdf records the pdf even when it is unstaged after add', async () => {
+    const root = pdfRepo('sa-pdf-unstaged');
+    const r = await run(root, FUND, '--pdf-only', {
+      env: { FAKE_REPORT_UNSTAGE_AFTER_ADD: 'pdf' },
+    });
+    expect(r.code).toBe(0);
+    expect(git(root, 'log', '-1', '--name-only', '--format=').trim()).toBe(`pdf/${ID}.pdf`);
+    expect(git(root, 'status', '--porcelain', '--', 'pdf', 'filled').trim()).toBe('');
+  }, 60_000);
+
   it('editor pdf uses stdin and stdout only', async () => {
     const root = dataRoot('ed-pdf');
     const r = await run(root, FUND, '--pdf-only', { fromEditor: true, stdin: '<p>x</p>' });
