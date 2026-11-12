@@ -405,6 +405,56 @@ d('gitRepo', () => {
     );
   });
 
+  it('lastCommitFor は記録の無いパスで null、あれば最新コミットの hash と ISO 日時を返す', async () => {
+    const rel = 'pdf/XX01_999999_20250131_交付版.pdf';
+    expect(await git.lastCommitFor(rel)).toBeNull();
+    fs.mkdirSync(path.join(tmp, 'pdf'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, rel), 'v1', 'utf8');
+    // commitAll の対象は templates/ 等だけで pdf/ を含まないため、create_report 相当を直接コミットする。
+    const commitPdf = (msg: string): string => {
+      const env = {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'create_report',
+        GIT_AUTHOR_EMAIL: 'create_report@create_report.local',
+        GIT_COMMITTER_NAME: 'create_report',
+        GIT_COMMITTER_EMAIL: 'create_report@create_report.local',
+      };
+      execFileSync('git', ['add', '--', rel], { cwd: tmp, env });
+      execFileSync('git', ['commit', '-q', '-m', msg], { cwd: tmp, env });
+      return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: tmp, encoding: 'utf8' }).trim();
+    };
+    commitPdf('pdf 1');
+    fs.writeFileSync(path.join(tmp, rel), 'v2', 'utf8');
+    const second = commitPdf('pdf 2');
+    const last = await git.lastCommitFor(rel);
+    expect(last?.hash).toBe(second);
+    expect(last?.date).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('isAncestorOrSame は同一・祖先で true、逆向きで false', async () => {
+    const rel = 'templates/XX01_999999_20250132_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>1</p>', 'utf8');
+    const older = await git.commitAll('古い', { name: 'tester' });
+    fs.writeFileSync(path.join(tmp, rel), '<p>2</p>', 'utf8');
+    const newer = await git.commitAll('新しい', { name: 'tester' });
+    expect(await git.isAncestorOrSame(older, older)).toBe(true);
+    expect(await git.isAncestorOrSame(older, newer)).toBe(true);
+    expect(await git.isAncestorOrSame(newer, older)).toBe(false);
+    await expect(git.isAncestorOrSame('f'.repeat(40), newer)).rejects.toBeDefined();
+  });
+
+  it('isPathClean は記録済みで true、書き換え後と未追跡で false', async () => {
+    const rel = 'templates/XX01_999999_20250133_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>1</p>', 'utf8');
+    expect(await git.isPathClean(rel)).toBe(false);
+    await git.commitAll('記録', { name: 'tester' });
+    expect(await git.isPathClean(rel)).toBe(true);
+    fs.writeFileSync(path.join(tmp, rel), '<p>2</p>', 'utf8');
+    expect(await git.isPathClean(rel)).toBe(false);
+    await git.commitAll('書き換え記録', { name: 'tester' });
+    expect(await git.isPathClean(rel)).toBe(true);
+  });
+
   it('showFile still resolves a valid hash:path after the option guard', async () => {
     const rel = 'templates/XX01_999999_20250103_交付版.html';
     fs.writeFileSync(path.join(tmp, rel), '<p>guard 正常系</p>', 'utf8');
@@ -466,6 +516,17 @@ describe('gitRepo argument guards', () => {
       });
     }
     await expect(git.authorEmailsSince(hash, ':(exclude)filled')).rejects.toMatchObject({
+      kind: 'validation',
+    });
+  });
+
+  it('lastCommitFor / isAncestorOrSame / isPathClean は不正な引数を 400 にする', async () => {
+    await expect(git.lastCommitFor('../x')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(git.isPathClean('../x')).rejects.toMatchObject({ kind: 'validation' });
+    await expect(git.isAncestorOrSame('--all', hash)).rejects.toMatchObject({
+      kind: 'validation',
+    });
+    await expect(git.isAncestorOrSame(hash, 'HEAD~1')).rejects.toMatchObject({
       kind: 'validation',
     });
   });

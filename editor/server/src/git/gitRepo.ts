@@ -656,6 +656,57 @@ export async function authorEmailsSince(base: string, relPath: string): Promise<
     .filter((l) => l.length > 0);
 }
 
+/**
+ * `relPath` に触れた最新のコミットの hash と author date(ISO)。記録が無い(リポジトリ・HEAD・
+ * そのパスの履歴のいずれかが無い)ときは null。正式 PDF の状態を「git に記録された最後の時点」
+ * から判定するのに使う。`--follow` は付けない: 改名をまたぐと別の成果物の履歴を拾ってしまう。
+ */
+export async function lastCommitFor(
+  relPath: string,
+): Promise<{ hash: string; date: string } | null> {
+  const spec = checkRelPath(relPath);
+  if (!(await isRepo()) || !(await hasHead())) {
+    return null;
+  }
+  const out = (
+    await git(['log', ...NO_EXTERNAL_DIFF, '-n1', '--format=%H%x09%aI', '--', spec])
+  ).trim();
+  if (out.length === 0) {
+    return null;
+  }
+  const [hash, date] = out.split('\t');
+  return { hash, date };
+}
+
+/**
+ * `ancestor` が `descendant` と同一か、その祖先であるか。`merge-base --is-ancestor` は
+ * 結果を終了コードで返す(0 = 祖先、1 = 祖先でない)ので、1 だけを false に倒し、
+ * それ以外の失敗(不明なオブジェクト・タイムアウト等)は「祖先でない」と区別できないため投げる。
+ */
+export async function isAncestorOrSame(ancestor: string, descendant: string): Promise<boolean> {
+  const a = checkRevision(ancestor);
+  const d = checkRevision(descendant);
+  try {
+    await git(['merge-base', '--is-ancestor', '--end-of-options', a, d]);
+    return true;
+  } catch (e) {
+    if ((e as { code?: unknown }).code === 1) {
+      return false;
+    }
+    throw e;
+  }
+}
+
+/**
+ * `relPath` が作業ツリーでも index でも HEAD と同じか。`status --porcelain` が空なら true で、
+ * 未追跡(`??`)は記録が無いので false。
+ */
+export async function isPathClean(relPath: string): Promise<boolean> {
+  const spec = checkRelPath(relPath);
+  const out = await git(['status', '--porcelain', '--', spec]);
+  return out.trim().length === 0;
+}
+
 /** あるコミットの author date(ISO)。 */
 export async function commitDate(hash: string): Promise<string> {
   const out = await git([
