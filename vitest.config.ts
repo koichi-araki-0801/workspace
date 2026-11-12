@@ -342,6 +342,7 @@ export default defineConfig({
         'editor/web/src/components/ui/Button.vue',
         'editor/web/src/components/ui/Input.vue',
         'editor/web/src/components/ui/Select.vue',
+        'editor/web/src/components/ui/BaseDateInput.vue',
         'editor/web/src/components/ui/StepperInput.vue',
         'editor/web/src/components/ui/BackButton.vue',
         // pie-chart (layout.ts / label_placement.ts / svg_export/* は verify_* が担当し対象外)
