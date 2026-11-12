@@ -19,19 +19,20 @@ import {
   validation,
 } from '@editor/shared';
 import { config } from '../config.js';
-import { removeOfficialPdf } from '../files/officialPdfFiles.js';
 import { filledExists, listTemplateFiles, readFilledHtml } from '../files/templateFiles.js';
 import {
   assertReportEnabled,
   buildOfficialPdf,
   generateFilled,
   generateReportPdf,
+  officialPdfNotRecorded,
 } from '../generate/createReport.js';
-import { createOfficialPdfJobs } from '../generate/officialPdfJobs.js';
+import { createOfficialPdfJobs, stateFromGit } from '../generate/officialPdfJobs.js';
 import {
   commitAll,
   ensureRepo,
   isAncestorOrSame,
+  isPathClean,
   lastCommitFor,
   withGitLock,
 } from '../git/gitRepo.js';
@@ -157,21 +158,36 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
     });
   }
 
+  // 正式 PDF の状態を git の記録から出す問い合わせ。状態の表示と組版の成否の判定が共有する。
+  const gitDeps = {
+    pdfCommit: (id: string) => lastCommitFor(`pdf/${id}.pdf`),
+    filledCommit: (id: string) => lastCommitFor(`filled/${id}.html`),
+    isAncestorOrSame,
+  };
+
   // 正式 PDF の組版。rep1 は組版の直前に引くので、DB 不通は要求ではなくジョブの失敗になる。
+  // 古い PDF は消さない。成否はスクリプトの後に git の記録で決め、失敗しても前回の記録が残る。
   const jobs = createOfficialPdfJobs({
     build: async (id) => {
       const attrs = parseFilledId(id);
-      // 以降の検査で落ちたとき、前の内容の PDF が「失敗」の裏に残らないよう先に消す。
-      await removeOfficialPdf(id);
       // create_report が読むのは filled/ の実体。単体 PDF と同じ検査をそのファイルにかける。
       const html = await readFilledHtml(`${id}.html`);
       assertNoDocumentExternalRefs(html, '', OFFICIAL_PDF_WHERE);
       assertPdfInputRefsContained(html, OFFICIAL_PDF_WHERE);
-      await buildOfficialPdf(id, await resolveRep1Code(templates, attrs.companyCode));
+      const rep1 = await resolveRep1Code(templates, attrs.companyCode);
+      // データのリポジトリは承認や生成のときに初めて作られる。無いまま走らせるとスクリプトは
+      // PDF を書くだけで記録できず、成功しても必ず「記録されていない」になる。
+      await ensureRepo();
+      await buildOfficialPdf(id, rep1);
+      // 記録と作業ツリーが一致し、記録が filled より新しいときだけ成功とする。同じ内容で組み
+      // 直してスクリプトがコミットを省いた場合も、前回の記録のままで `done` になる。
+      const recorded =
+        (await isPathClean(`pdf/${id}.pdf`)) && (await stateFromGit(gitDeps, id)).state === 'done';
+      if (!recorded) {
+        throw officialPdfNotRecorded(id);
+      }
     },
-    pdfCommit: (id) => lastCommitFor(`pdf/${id}.pdf`),
-    filledCommit: (id) => lastCommitFor(`filled/${id}.html`),
-    isAncestorOrSame,
+    ...gitDeps,
   });
 
   /** 連携が有効で、値入り HTML があることを確かめる。 */

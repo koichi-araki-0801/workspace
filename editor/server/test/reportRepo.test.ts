@@ -1,7 +1,9 @@
 // =============================================================================
 // reportRepo.test.ts — create_report 連携の集約(会社コード引き・排他の外の検査・git コミット)
 // =============================================================================
-// generate / files / git は境界で差し替え、検査と呼び出しの順序だけを確かめる。
+// generate / files / git は境界で差し替え、検査と呼び出しの順序だけを確かめる。正式 PDF の記録の
+// 判定だけは、一時の dataRoot に実 git と偽の create_report.py を通して確かめる。
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,7 +32,7 @@ const m = vi.hoisted(() => ({
   filledExists: vi.fn(),
   lastCommitFor: vi.fn(),
   isAncestorOrSame: vi.fn(),
-  removeOfficialPdf: vi.fn(),
+  isPathClean: vi.fn(),
   commitAll: vi.fn(),
   ensureRepo: vi.fn(),
   report: {} as unknown,
@@ -47,15 +49,13 @@ vi.mock('../src/files/templateFiles.js', async (importOriginal) => ({
   readFilledHtml: m.readFilledHtml,
   filledExists: m.filledExists,
 }));
-vi.mock('../src/files/officialPdfFiles.js', () => ({
-  removeOfficialPdf: m.removeOfficialPdf,
-}));
 vi.mock('../src/git/gitRepo.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/git/gitRepo.js')>()),
   ensureRepo: m.ensureRepo,
   commitAll: m.commitAll,
   lastCommitFor: m.lastCommitFor,
   isAncestorOrSame: m.isAncestorOrSame,
+  isPathClean: m.isPathClean,
   withGitLock: <T>(fn: () => Promise<T>) => fn(),
 }));
 vi.mock('../src/config.js', async (importOriginal) => {
@@ -75,7 +75,7 @@ import {
   REPORT_DISABLED,
   REPORT_INPUT_REF_OUTSIDE,
 } from '@editor/shared';
-import { config as realConfig } from '../src/config.js';
+import { officialPdfNotRecorded } from '../src/generate/createReport.js';
 import { createReportRepo } from '../src/repositories/reportRepo.js';
 
 const ID = 'XX01_950037_20240710_交付版';
@@ -99,7 +99,7 @@ describe('reportRepo', () => {
     m.filledExists.mockResolvedValue(true);
     m.lastCommitFor.mockResolvedValue({ hash: 'c0', date: '2026-11-11T01:00:00.000Z' });
     m.isAncestorOrSame.mockResolvedValue(true);
-    m.removeOfficialPdf.mockResolvedValue(undefined);
+    m.isPathClean.mockResolvedValue(true);
     m.commitAll.mockResolvedValue('sha');
   });
 
@@ -332,47 +332,86 @@ describe('reportRepo', () => {
     expect(m.buildOfficialPdf).not.toHaveBeenCalled();
   });
 
-  it('removes the old pdf before the input check so a failed job leaves none', async () => {
-    m.readFilledHtml.mockResolvedValue('<img src="https://evil.example/x.png">');
-    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await repo.requestOfficialPdf(ID);
-    await repo.settleOfficialPdfs();
-    expect(m.removeOfficialPdf).toHaveBeenCalledWith(ID);
-    expect(m.buildOfficialPdf).not.toHaveBeenCalled();
-  });
+  describe('official pdf recorded by the fake create_report.py in a real git repo', () => {
+    const NO_OUTPUT_ID = 'XX01_999103_20240710_交付版';
+    const pdfRel = (id: string) => `pdf/${id}.pdf`;
+    const gitOut = (...args: string[]) =>
+      execFileSync('git', ['-C', fakeRoot, ...args], { encoding: 'utf8' }).trim();
 
-  it('requestOfficialPdf writes pdf/<id>.pdf through the fake create_report.py', async () => {
-    const real = await vi.importActual<typeof import('../src/generate/createReport.js')>(
-      '../src/generate/createReport.js',
-    );
-    m.buildOfficialPdf.mockImplementation(real.buildOfficialPdf);
-    const files = await vi.importActual<typeof import('../src/files/officialPdfFiles.js')>(
-      '../src/files/officialPdfFiles.js',
-    );
-    // 偽の create_report は git に記録しないので、PDF の有無をコミットの有無の代わりにする
-    m.lastCommitFor.mockImplementation(async (rel: string) =>
-      rel.startsWith('pdf/') && fs.existsSync(path.join(realConfig.pdfDir, rel.slice(4)))
-        ? { hash: 'c0', date: '2026-11-11T01:00:00.000Z' }
-        : null,
-    );
-    m.removeOfficialPdf.mockImplementation(files.removeOfficialPdf);
-    // `config` はモック経由だと `report` が差し替わるので、本物の設定から取る。
-    const actual = await vi.importActual<typeof import('../src/config.js')>('../src/config.js');
-    m.report = actual.config.report;
-    // 偽のスクリプトは会社略称を templates/ のスケルトンから引く。
-    fs.mkdirSync(`${fakeRoot}/templates`, { recursive: true });
-    fs.writeFileSync(`${fakeRoot}/templates/${SKELETON}`, '<p>t</p>');
-    fs.mkdirSync(realConfig.filledDir, { recursive: true });
-    fs.writeFileSync(path.join(realConfig.filledDir, `${ID}.html`), '<p>filled</p>');
-    const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
-    await repo.requestOfficialPdf(ID);
-    await repo.settleOfficialPdfs();
-    const st = await repo.officialPdfStatus(ID);
-    expect(st.error).toBeNull();
-    expect(st.state).toBe('done');
-    const pdf = fs.readFileSync(path.join(realConfig.pdfDir, `${ID}.pdf`), 'latin1');
-    expect(pdf.startsWith('%PDF-')).toBe(true);
-  }, 60_000);
+    beforeEach(async () => {
+      const git =
+        await vi.importActual<typeof import('../src/git/gitRepo.js')>('../src/git/gitRepo.js');
+      m.ensureRepo.mockImplementation(git.ensureRepo);
+      m.lastCommitFor.mockImplementation(git.lastCommitFor);
+      m.isAncestorOrSame.mockImplementation(git.isAncestorOrSame);
+      m.isPathClean.mockImplementation(git.isPathClean);
+      const real = await vi.importActual<typeof import('../src/generate/createReport.js')>(
+        '../src/generate/createReport.js',
+      );
+      m.buildOfficialPdf.mockImplementation(real.buildOfficialPdf);
+      // `config` はモック経由だと `report` が差し替わるので、本物の設定から取る。
+      const actual = await vi.importActual<typeof import('../src/config.js')>('../src/config.js');
+      m.report = actual.config.report;
+      // リポジトリがまだ無い dataRoot から始める(承認より前に正式 PDF を組む場合と同じ)。
+      fs.rmSync(fakeRoot, { recursive: true, force: true });
+      // 偽のスクリプトは会社略称を templates/ のスケルトンから引く。
+      fs.mkdirSync(`${fakeRoot}/templates`, { recursive: true });
+      fs.mkdirSync(`${fakeRoot}/filled`, { recursive: true });
+      for (const id of [ID, NO_OUTPUT_ID]) {
+        const [company, fund, , edition] = id.split('_');
+        fs.writeFileSync(`${fakeRoot}/templates/${company}_${fund}_${edition}.html`, '<p>t</p>');
+        fs.writeFileSync(`${fakeRoot}/filled/${id}.html`, '<p>filled</p>');
+      }
+    });
+
+    async function buildAndStatus(id: string) {
+      const repo = repoWith([{ companyCode: 'XX01', rep1CompanyCode: 'R-XX01' }]);
+      await repo.requestOfficialPdf(id);
+      await repo.settleOfficialPdfs();
+      return repo.officialPdfStatus(id);
+    }
+
+    it('ends done on a dataRoot with no repo yet, committed by create_report', async () => {
+      expect(fs.existsSync(`${fakeRoot}/.git`)).toBe(false);
+      const st = await buildAndStatus(ID);
+      expect(st.error).toBeNull();
+      expect(st.state).toBe('done');
+      expect(gitOut('log', '-1', '--format=%ae', '--', pdfRel(ID))).toMatch(
+        /@create_report\.local$/,
+      );
+      // PDF のコミットは filled の最後のコミットを含む(filled より新しい PDF として記録された)。
+      const pdfHash = gitOut('log', '-1', '--format=%H', '--', pdfRel(ID));
+      const filledHash = gitOut('log', '-1', '--format=%H', '--', `filled/${ID}.html`);
+      expect(gitOut('merge-base', pdfHash, filledHash)).toBe(filledHash);
+      expect(gitOut('status', '--porcelain')).toBe('');
+    }, 60_000);
+
+    it('stays done when a rebuild has nothing new to record', async () => {
+      await buildAndStatus(ID);
+      const before = gitOut('log', '--format=%H', '--', pdfRel(ID));
+      const st = await buildAndStatus(ID);
+      expect(st.error).toBeNull();
+      expect(st.state).toBe('done');
+      expect(gitOut('log', '--format=%H', '--', pdfRel(ID))).toBe(before);
+    }, 60_000);
+
+    it('fails REPORT_OUTPUT_MISSING when the pdf is written but not committed', async () => {
+      await buildAndStatus(ID);
+      // PDF を書くだけで記録しないスクリプトの代わり。記録済みの PDF と作業ツリーが食い違う。
+      m.buildOfficialPdf.mockImplementation(async (id: string) => {
+        fs.writeFileSync(path.join(fakeRoot, pdfRel(id)), '%PDF-1.4 unrecorded');
+      });
+      const st = await buildAndStatus(ID);
+      expect(st.state).toBe('failed');
+      expect(st.error).toBe(officialPdfNotRecorded(ID).message);
+    }, 60_000);
+
+    it('fails REPORT_OUTPUT_MISSING when the script records nothing', async () => {
+      const st = await buildAndStatus(NO_OUTPUT_ID);
+      expect(st.state).toBe('failed');
+      expect(st.error).toBe(officialPdfNotRecorded(NO_OUTPUT_ID).message);
+    }, 60_000);
+  });
 });
 
 afterAll(() => fs.rmSync(fakeRoot, { recursive: true, force: true }));

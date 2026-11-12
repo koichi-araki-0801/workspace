@@ -487,7 +487,8 @@ export const config = {
    */
   syncDir: resolveDataPath(process.env.SYNC_DIR, file.paths?.syncDir, 'sync'),
   /**
-   * create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。
+   * create_report が書き出す正式 PDF の置き場。create_report.py が `filled/` と同じコミットで
+   * 記録する。
    * 上書きの設定は持たない。
    * create_report は自分の dataRoot 直下の `pdf/` に書くので、場所を変えると必ず「出力が無い」になる。
    */

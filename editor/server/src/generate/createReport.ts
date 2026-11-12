@@ -243,22 +243,29 @@ export async function generateReportPdf(
 }
 
 /**
- * 公式 PDF を `filled/<id>.html` から作り、`pdf/<id>.pdf` に置く。古い PDF を先に消すのは、
- * スクリプトが何も書かずに終わったとき前回の PDF を成功と取り違えないため。
+ * スクリプトが正常終了したのに `pdf/<id>.pdf` が git に記録されていないときの失敗。
+ * dataRoot の設定違いか、正式 PDF をコミットしない旧い create_report.py が典型。
+ */
+export function officialPdfNotRecorded(id: string): Error {
+  return reportError(
+    `create_report.py は正常終了しましたが pdf/${id}.pdf が git に記録されていません。` +
+      'create_report の dataRoot の設定が editor と同じか、' +
+      'create_report.py が正式 PDF をコミットする版か確かめてください',
+    REPORT_OUTPUT_MISSING,
+    500,
+  );
+}
+
+/**
+ * 公式 PDF を `filled/<id>.html` から作らせる(`pdf/<id>.pdf` への書き込みと git への記録は
+ * スクリプトが行う)。古い PDF は消さない: 成否は記録で決める(`reportRepo.ts`)ので、
+ * 失敗しても前回の記録済みの PDF がそのまま残る方が利用者にとって安全。書きかけは
+ * スクリプトが一時ファイル経由で書くので残らない。
  * 同じ id の組版は排他にする(`pdf/<id>.pdf` を共有するため)。
  */
 export async function buildOfficialPdf(id: string, rep1CompanyCode: string): Promise<void> {
   const spec = requireReport();
   const args = reportArgs(rep1CompanyCode, parseId(id), 'official-pdf');
-  const output = path.join(config.pdfDir, `${id}.pdf`);
   // Windows はファイル名の大小を区別しないので、鍵は小文字にそろえる。
-  await withFileLock(`report-official:${id.toLowerCase()}`, async () => {
-    await removeQuietly(output);
-    await runReport(spec, args, () => removeQuietly(output));
-    try {
-      await fs.access(output);
-    } catch {
-      throw outputMissing(`pdf/${id}.pdf`);
-    }
-  });
+  await withFileLock(`report-official:${id.toLowerCase()}`, () => runReport(spec, args));
 }

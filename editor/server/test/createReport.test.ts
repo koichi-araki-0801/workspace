@@ -35,6 +35,7 @@ import {
   buildOfficialPdf,
   generateFilled,
   generateReportPdf,
+  officialPdfNotRecorded,
   reportArgs,
   toIsoBaseDate,
 } from '../src/generate/createReport.js';
@@ -284,20 +285,30 @@ describe('generateReportPdf', () => {
 });
 
 describe('buildOfficialPdf', () => {
-  it('removes the old pdf before building, then builds a new one', async () => {
+  it('keeps the old pdf while building and on failure', async () => {
     fs.mkdirSync(path.dirname(pdfFile), { recursive: true });
     fs.writeFileSync(pdfFile, 'old');
-    mockRun();
-    await expect(buildOfficialPdf(ID, '01281')).rejects.toMatchObject({
-      code: REPORT_OUTPUT_MISSING,
-    });
-    expect(fs.existsSync(pdfFile)).toBe(false);
+    mockFail(new Error('exit 1'));
+    await expect(buildOfficialPdf(ID, '01281')).rejects.toMatchObject({ code: REPORT_RUN_FAILED });
+    expect(fs.readFileSync(pdfFile, 'utf8')).toBe('old');
 
-    mockRun(() => fs.writeFileSync(pdfFile, '%PDF-1.4'));
+    // 出力の有無は見ない(記録されたかは reportRepo が git で判定する)。
+    mockRun(() => expect(fs.readFileSync(pdfFile, 'utf8')).toBe('old'));
     await expect(buildOfficialPdf(ID, '01281')).resolves.toBeUndefined();
-    expect(fs.readFileSync(pdfFile, 'utf8')).toBe('%PDF-1.4');
+    expect(fs.readFileSync(pdfFile, 'utf8')).toBe('old');
     const args = execFileMock.mock.calls[1][1] as string[];
     expect(args.slice(-2)).toEqual(['--pdf-only', '--fund-only']);
+  });
+
+  it('officialPdfNotRecorded names the pdf and the two checks', () => {
+    expect(officialPdfNotRecorded(ID)).toMatchObject({
+      code: REPORT_OUTPUT_MISSING,
+      statusCode: 500,
+      message:
+        `create_report.py は正常終了しましたが pdf/${ID}.pdf が git に記録されていません。` +
+        'create_report の dataRoot の設定が editor と同じか、' +
+        'create_report.py が正式 PDF をコミットする版か確かめてください',
+    });
   });
 
   it('maps a failed run to REPORT_RUN_FAILED', async () => {

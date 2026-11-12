@@ -162,7 +162,6 @@ export default defineConfig({
         'editor/server/src/files/atomic.ts',
         'editor/server/src/files/fileLock.ts',
         'editor/server/src/files/fsHelpers.ts',
-        'editor/server/src/files/officialPdfFiles.ts',
         'editor/server/src/files/idPairStore.ts',
         'editor/server/src/files/confirmedHtml.ts',
         'editor/server/src/util/mapLimit.ts',
