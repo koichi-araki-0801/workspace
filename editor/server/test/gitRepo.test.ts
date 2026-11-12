@@ -166,7 +166,7 @@ d('gitRepo', () => {
     );
     const lines = fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8').split(/\r?\n/);
     expect(lines).not.toContain('/pdf-input/');
-    expect(lines).toContain('/pdf/');
+    expect(lines).not.toContain('/pdf/');
   });
 
   it('commitAll は images/ を巻き込まない', async () => {
@@ -200,9 +200,37 @@ d('gitRepo', () => {
     expect(fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8')).toContain('/drafts/');
   });
 
+  it('drops /pdf/ from an existing .gitignore and keeps other lines', async () => {
+    fs.writeFileSync(path.join(tmp, '.gitignore'), '/pdf/\n/custom/\n', 'utf8');
+    await git.ensureRepo();
+    const lines = fs.readFileSync(path.join(tmp, '.gitignore'), 'utf8').split(/\r?\n/);
+    expect(lines).not.toContain('/pdf/');
+    expect(lines).toContain('/custom/');
+    expect(lines).toContain('/drafts/');
+  });
+
   describe('.gitattributes', () => {
     const attrFile = path.join(tmp, '.gitattributes');
-    const REQUIRED = '* text eol=lf\n';
+    const REQUIRED = '* text eol=lf\n*.pdf binary\n';
+
+    it('requires *.pdf binary right after * text eol=lf', async () => {
+      fs.writeFileSync(attrFile, '* text eol=lf\n*.svg -diff\n', 'utf8');
+      await git.ensureRepo();
+      expect(fs.readFileSync(attrFile, 'utf8')).toBe('* text eol=lf\n*.pdf binary\n*.svg -diff\n');
+      const past = new Date('2020-01-01T00:00:00Z');
+      fs.utimesSync(attrFile, past, past);
+      await git.ensureRepo();
+      expect(fs.statSync(attrFile).mtimeMs).toBe(past.getTime());
+      fs.writeFileSync(attrFile, REQUIRED, 'utf8');
+    });
+
+    it('treats pdf as binary', async () => {
+      await git.ensureRepo();
+      const out = execFileSync('git', ['-C', tmp, 'check-attr', 'text', '--', 'pdf/x.pdf'], {
+        encoding: 'utf8',
+      });
+      expect(out.trim()).toBe('pdf/x.pdf: text: unset');
+    });
 
     it('新規リポジトリは `* text eol=lf`(LF・BOM 無し)を書く', () => {
       const raw = fs.readFileSync(attrFile);

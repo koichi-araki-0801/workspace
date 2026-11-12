@@ -176,15 +176,20 @@ if ($hasGit -and (Test-GitHead)) {
   # ファイルへ LF の行を継ぎ足して改行が混ざらないため)。必須行が揃っていれば書かない。
   $utf8NoBom = New-Object System.Text.UTF8Encoding $false
   $required = '/drafts/', '/reviews/', '/pending/', '/notes/', '/css/fonts/', '/images/', '*.tmp-*'
+  # /pdf/ は正式 PDF を git で記録するため無視しない(旧版が入れた行は落とす)。
+  $removed = '/pdf/'
+  # `* text eol=lf` は PDF を壊すので、`*.pdf binary` を直後に置く。
+  $attrRequired = '* text eol=lf', '*.pdf binary'
   $ignorePath = Join-Path $DataRoot '.gitignore'
   $current = if (Test-Path -LiteralPath $ignorePath) { [IO.File]::ReadAllText($ignorePath) } else { '' }
   # 落とすのは行末の空白だけ(パッチと同じ)。git は行頭の空白を模様の一部と読むので、`  /css/fonts/`
   # を必須行があるとみなすと、無視されないまま必須行も足されない。
   $lines = @($current -split "`r?`n" | ForEach-Object { $_.TrimEnd(' ') })
   $missing = @($required | Where-Object { $lines -cnotcontains $_ })
-  if ($missing.Count -gt 0 -or $current -eq '') {
+  $stale = @($lines | Where-Object { $removed -ccontains $_ })
+  if ($missing.Count -gt 0 -or $stale.Count -gt 0 -or $current -eq '') {
     $merged = New-Object System.Collections.Generic.List[string]
-    foreach ($l in @($lines | Where-Object { $_ -ne '' }) + $missing) {
+    foreach ($l in @($lines | Where-Object { $_ -ne '' -and $removed -cnotcontains $_ }) + $missing) {
       if (-not $merged.Contains($l)) { $merged.Add($l) }
     }
     [IO.File]::WriteAllText($ignorePath, (($merged -join "`n") + "`n"), $utf8NoBom)
@@ -195,8 +200,8 @@ if ($hasGit -and (Test-GitHead)) {
   $attrPath = Join-Path $DataRoot '.gitattributes'
   $attrNow = if (Test-Path -LiteralPath $attrPath) { [IO.File]::ReadAllText($attrPath) } else { '' }
   $attrOthers = @($attrNow -split "`r?`n" | ForEach-Object { $_.Trim() } |
-    Where-Object { $_ -ne '' -and $_ -cne '* text=lf' -and $_ -cne '* text eol=lf' })
-  $attrWanted = $utf8NoBom.GetBytes(((@('* text eol=lf') + $attrOthers) -join "`n") + "`n")
+    Where-Object { $_ -ne '' -and $_ -cne '* text=lf' -and $attrRequired -cnotcontains $_ })
+  $attrWanted = $utf8NoBom.GetBytes((($attrRequired + $attrOthers) -join "`n") + "`n")
   # if 式の値にすると空の配列がパイプラインで展開されて $null になるので、代入で受ける。
   $attrBytes = [byte[]]@()
   if (Test-Path -LiteralPath $attrPath) { $attrBytes = [IO.File]::ReadAllBytes($attrPath) }

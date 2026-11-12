@@ -287,6 +287,30 @@ async function hasHead(): Promise<boolean> {
 }
 
 /**
+ * `.gitignore` の必須行。`/pdf/` は載せない: 正式 PDF は create_report.py が `filled/` の HTML と
+ * 同じコミットで記録する成果物で、無視すると `git add` が拒み、記録も状態判定もできなくなる。
+ * `init-data-repo.ps1` の `$required` と同じ並びに保つ(gitRepoInitScriptSync.test.ts が検査する)。
+ */
+export const GITIGNORE_REQUIRED: readonly string[] = [
+  '/drafts/',
+  '/reviews/',
+  '/pending/',
+  '/notes/',
+  '/css/fonts/',
+  '/images/',
+  '*.tmp-*',
+];
+
+/** 旧版が必須としていた行。既存の `.gitignore` から落とす(`/pdf/` を無視したままにしない)。 */
+export const GITIGNORE_REMOVED: readonly string[] = ['/pdf/'];
+
+/**
+ * `.gitattributes` の必須行(この順で先頭に置く)。`* text eol=lf` は全ファイルを改行正規化の
+ * 対象にするので、PDF のバイナリを壊す。後続の `*.pdf binary` で text を外して守る。
+ */
+export const GITATTRIBUTES_REQUIRED: readonly string[] = ['* text eol=lf', '*.pdf binary'];
+
+/**
  * 追跡対象外にすべき作業コピー(下書き・承認待ち申請・一時ファイル)を .gitignore へ
  * 冪等に揃える。初期化済みリポジトリにも適用し、`/reviews/` 追加のような後付けでも
  * `commitAll` の `git add -A` がそれらを誤って取り込まないようにする。
@@ -303,27 +327,18 @@ async function ensureGitignore(): Promise<void> {
   // コミットの `git add -A -- css` が、置いた人ではなく次の承認者の名前でフォントを巻き込む。
   // `/images/` は別ツールが置くファンド別画像。エディタは読むだけで版を記録しない(過去版の
   // 表示も現在の画像を使う)。追跡すると次の承認者の名前で画像が承認コミットへ混ざる。
-  const required = [
-    '/drafts/',
-    '/reviews/',
-    '/pending/',
-    '/notes/',
-    '/css/fonts/',
-    '/images/',
-    '/pdf/',
-    '*.tmp-*',
-  ];
   const existing = await fs.readFile(file, 'utf8').catch(() => '');
   const lines = existing.split('\n').map((l) => l.trim());
-  const missing = required.filter((r) => !lines.includes(r));
-  if (missing.length === 0 && existing !== '') {
+  const missing = GITIGNORE_REQUIRED.filter((r) => !lines.includes(r));
+  const stale = lines.some((l) => GITIGNORE_REMOVED.includes(l));
+  if (missing.length === 0 && !stale && existing !== '') {
     return;
   }
-  const merged = [...new Set([...lines.filter((l) => l !== ''), ...missing])];
+  const kept = lines.filter((l) => l !== '' && !GITIGNORE_REMOVED.includes(l));
+  const merged = [...new Set([...kept, ...missing])];
   await fs.writeFile(file, `${merged.join('\n')}\n`, 'utf8');
 }
 
-const GITATTRIBUTES_LINE = '* text eol=lf';
 // `text` 属性の値として無効な書き方。見つけたら取り除く。
 const LEGACY_GITATTRIBUTES_LINE = '* text=lf';
 
@@ -339,8 +354,10 @@ async function ensureGitattributes(): Promise<void> {
   const others = normalized
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => l !== '' && l !== LEGACY_GITATTRIBUTES_LINE && l !== GITATTRIBUTES_LINE);
-  const wanted = `${[GITATTRIBUTES_LINE, ...others].join('\n')}\n`;
+    .filter(
+      (l) => l !== '' && l !== LEGACY_GITATTRIBUTES_LINE && !GITATTRIBUTES_REQUIRED.includes(l),
+    );
+  const wanted = `${[...GITATTRIBUTES_REQUIRED, ...others].join('\n')}\n`;
   if (existing === wanted) {
     return;
   }

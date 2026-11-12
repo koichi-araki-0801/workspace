@@ -199,8 +199,23 @@ Describe 'init-data-repo.ps1' {
       [IO.File]::WriteAllBytes((Join-Path $root '.gitattributes'), $bytes)
       git -C $root init -q
       Invoke-Init @{ DataRoot = $root } | Out-Null
-      ((git -C $root show HEAD:.gitattributes) -join '|') | Should Be '* text eol=lf|*.png binary'
+      ((git -C $root show HEAD:.gitattributes) -join '|') | Should Be '* text eol=lf|*.pdf binary|*.png binary'
       (Get-Content -Encoding Byte -TotalCount 3 (Join-Path $root '.gitattributes')) -join ',' | Should Not Be '239,187,191'
+    } finally { Remove-Item -Recurse -Force $root }
+  }
+
+  It '履歴の無いリポジトリの既存の /pdf/ は消し、*.pdf binary を 2 行目に入れる(他の行は残す)' {
+    $root = New-Root
+    try {
+      New-HandMadeContent $root
+      [IO.File]::WriteAllText((Join-Path $root '.gitignore'), "/pdf/`n/local-only/`n", (New-Object Text.UTF8Encoding $false))
+      [IO.File]::WriteAllText((Join-Path $root '.gitattributes'), "* text eol=lf`n*.svg -diff`n", (New-Object Text.UTF8Encoding $false))
+      git -C $root init -q
+      Invoke-Init @{ DataRoot = $root } | Out-Null
+      $lines = @([IO.File]::ReadAllLines((Join-Path $root '.gitignore')))
+      $lines -contains '/pdf/' | Should Be $false
+      $lines -contains '/local-only/' | Should Be $true
+      ((git -C $root show HEAD:.gitattributes) -join '|') | Should Be '* text eol=lf|*.pdf binary|*.svg -diff'
     } finally { Remove-Item -Recurse -Force $root }
   }
 
