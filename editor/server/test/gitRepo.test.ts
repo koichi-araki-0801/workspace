@@ -192,6 +192,22 @@ d('gitRepo', () => {
     expect(files).toEqual([rel]);
   });
 
+  // create_report.py は `git add` と `git commit --only` を別の git で呼ぶ。その間に承認が
+  // コミットしても、スクリプトがステージした PDF を承認者の名前で記録しない。
+  it('commitAll は他のプロセスがステージした pdf/ をコミットせず作業ツリーに残す', async () => {
+    const pdfRel = 'pdf/XX01_999999_20250108_交付版.pdf';
+    fs.mkdirSync(path.join(tmp, 'pdf'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, pdfRel), '%PDF-staged', 'utf8');
+    execFileSync('git', ['add', '--', pdfRel], { cwd: tmp });
+    const rel = 'templates/XX01_999999_20250108_交付版.html';
+    fs.writeFileSync(path.join(tmp, rel), '<p>pdf 除外</p>', 'utf8');
+
+    const hash = await git.commitAll('確定保存: pdf 除外', { name: 'tester' });
+    expect(await git.commitFiles(hash)).toEqual([rel]);
+    expect(fs.readFileSync(path.join(tmp, pdfRel), 'utf8')).toBe('%PDF-staged');
+    fs.rmSync(path.join(tmp, pdfRel));
+  });
+
   it('ensureRepo is idempotent for an already-initialized repo (isRepo=true 分岐)', async () => {
     // beforeAll の 1 回目は「未初期化 → init」分岐だけを通る。ここで 2 回目を呼び、
     // 「既に repo」分岐(ensureGitignore/ensureLongPaths の冪等パス)も通す。

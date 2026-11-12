@@ -453,6 +453,18 @@ async function stageTrackedAreas(): Promise<void> {
 }
 
 /**
+ * 許可リストの外のステージを外す(作業ツリーはそのまま)。`git commit -m` は index 全体を記録する
+ * ので、`add` を許可リストで絞るだけでは、ほかのプロセスがステージした物が混ざる。実例は
+ * create_report.py で、`git add -- filled pdf` と `git commit --only` を別の git で呼ぶ。その間や、
+ * コミットの前に止まったあとに承認が走ると、PDF が承認者の名前で記録されてしまう。
+ * 除外の pathspec は実在しなくても失敗しないので、`stageTrackedAreas` のような絞り込みは要らない。
+ */
+async function unstageOutsideAllowlist(): Promise<void> {
+  const keep = COMMITTED_PATHSPECS.map((spec) => `:(top,exclude)${spec}`);
+  await git(['reset', '-q', '--', ':(top)', ...keep]);
+}
+
+/**
  * 作業ツリーの全変更を 1 コミットにする。変更が無ければ HEAD を維持する。
  * コミットの author/committer は `author`(= ログインID)。新しい HEAD の hash を返す。
  * `message`/`author` はユーザー由来だが `-m` / `-c` の値位置に置かれるため、`-` 始まりでも
@@ -460,6 +472,7 @@ async function stageTrackedAreas(): Promise<void> {
  */
 export async function commitAll(message: string, author: GitAuthor): Promise<string> {
   await stageTrackedAreas();
+  await unstageOutsideAllowlist();
   // ステージに差分が無ければ commit しない(空コミット回避)。
   let dirty = true;
   try {
