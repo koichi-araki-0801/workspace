@@ -345,7 +345,8 @@ const LEGACY_GITATTRIBUTES_LINE = '* text=lf';
 /**
  * .gitattributes を `* text eol=lf`、`*.pdf binary` から始まる形へ冪等に揃える。
  * `* text eol=lf` だけだと git が PDF のバイト列まで改行変換して壊すので、`*.pdf binary` で
- * 変換の対象から外す。初期化済みリポジトリにも適用する。利用者が足した他の行は残し、旧い無効行だけを落とす。既に正しければ書かない
+ * 変換の対象から外す。初期化済みリポジトリにも適用する。
+ * 利用者が足した他の行は残し、旧い無効行だけを落とす。既に正しければ書かない
  * (`ensureRepo` は承認のたび呼ばれるので、共有上の作業ツリーを毎回書き換えない)。
  */
 async function ensureGitattributes(): Promise<void> {
