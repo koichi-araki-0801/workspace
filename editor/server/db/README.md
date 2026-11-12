@@ -35,7 +35,7 @@ powershell -ExecutionPolicy Bypass -File server\db\apply.ps1 -Server <host\insta
 
 `管理ユーザー.sql` はリポジトリに置かない（以前は admin のハッシュを追跡していた）。clone した後は必ず手順 1 で作る。以前の追跡版を手元で作り直していた場合、pull で変更と削除の競合になるので、`git rm --cached editor/server/db/seed/管理ユーザー.sql` で片付けてから作り直す。
 
-本番では `-SkipSeed` を付けて ddl → sproc だけを流す。seed は開発・検証用の値で、本番に入れると共通サンプルの行が開発値で埋まり、migrate/ の登録が登録済みとして飛ばす（本番の手順は `docs/editor/src/デプロイ運用手順書.md` の 4.3 節）。
+本番では `-SkipSeed` を付けて ddl → sproc だけを流す。seed は開発・検証用の値で、本番に入れると共通サンプルの行が開発値で埋まり、migrate/ の登録が登録済みとして飛ばす（本番の手順は `docs/editor/src/デプロイ運用手順書.md` の 4 章）。
 
 構築済みの検証 DB は、パーツカタログの行を消してから seed を流し直す（seed は既存行を上書きしないため、委託会社コードが NULL のまま残り一覧が空になる）。
 
