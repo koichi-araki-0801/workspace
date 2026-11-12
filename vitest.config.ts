@@ -117,6 +117,7 @@ export default defineConfig({
         'editor/server/src/routes/*.ts',
         'editor/server/src/middleware/auth.ts',
         'editor/server/src/security/externalRefs.ts',
+        'editor/server/src/security/pdfInputRefs.ts',
         // 隔離の完結で新設。配信ルートへ写す許可リストと egress 遮断の実体で、
         // どちらも「サニタイズを外した代わりの守り」なので閾値の対象へ入れる。
         'editor/server/src/vivliostyle/docAssets.ts',
@@ -127,6 +128,11 @@ export default defineConfig({
         'editor/server/src/openapi/docsRoutes.ts',
         'editor/server/src/vivliostyle/previewProxy.ts',
         'editor/server/src/generate/pyTemplate.ts',
+        'editor/server/src/generate/scriptRunner.ts',
+        'editor/server/src/generate/createReport.ts',
+        'editor/server/src/generate/officialPdfJobs.ts',
+        'editor/server/src/repositories/reportRepo.ts',
+        'editor/server/src/routes/report.routes.ts',
         'editor/server/src/generate/generatorCheck.ts',
         'editor/server/src/generate/baseDate.ts',
         'editor/server/src/generate/generatorLog.ts',
@@ -156,6 +162,7 @@ export default defineConfig({
         'editor/server/src/files/atomic.ts',
         'editor/server/src/files/fileLock.ts',
         'editor/server/src/files/fsHelpers.ts',
+        'editor/server/src/files/officialPdfFiles.ts',
         'editor/server/src/files/idPairStore.ts',
         'editor/server/src/files/confirmedHtml.ts',
         'editor/server/src/util/mapLimit.ts',
@@ -186,6 +193,7 @@ export default defineConfig({
         'editor/web/src/lib/appError.ts',
         'editor/web/src/lib/globalErrors.ts',
         'editor/web/src/lib/useAsyncResult.ts',
+        'editor/web/src/lib/useOfficialPdfStatus.ts',
         'editor/web/src/lib/format.ts',
         'editor/web/src/lib/labels.ts',
         // 編集経路 / 作成経路の出し分け。`created` query を出す唯一の場所で、退行は
@@ -302,6 +310,7 @@ export default defineConfig({
         // 後着の古い応答の破棄。退行は「絞り込みを変えた直後に選択が消える」形で出る。
         'editor/web/src/features/compare/CompareSideSelector.vue',
         'editor/web/src/features/templates/components/CreateFundSelect.vue',
+        'editor/web/src/features/templates/components/NewBaseDateDialog.vue',
         'editor/web/src/features/reviews/services/reviewDiffService.ts',
         'editor/web/src/features/reviews/services/cssGeneratedText.ts',
         'editor/web/src/features/reviews/services/reviewCompareDocs.ts',

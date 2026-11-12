@@ -81,6 +81,7 @@ beforeAll(async () => {
     '../src/routes/vivliostyle.routes.js',
     '../src/routes/templates.routes.js',
     '../src/routes/generate.routes.js',
+    '../src/routes/report.routes.js',
     '../src/routes/parts.routes.js',
     '../src/routes/reviews.routes.js',
     '../src/routes/history.routes.js',

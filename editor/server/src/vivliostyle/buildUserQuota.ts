@@ -30,6 +30,9 @@ export function buildBusyUserError(): Error {
 export class PerUserBuildGate {
   private readonly gates = new Map<string, BuildAdmissionGate>();
 
+  /** `busyError` は上限を超えたときの Error(既定は PDF 出力の `BUILD_BUSY_USER`)。 */
+  constructor(private readonly busyError: () => Error = buildBusyUserError) {}
+
   /** `user` の枠で `fn` を走らせる。実行中 1・待ち 1 を超えたら `fn` を呼ばずに 503 で断る。 */
   async run<T>(user: string, fn: () => Promise<T>): Promise<T> {
     let gate = this.gates.get(user);
@@ -37,7 +40,7 @@ export class PerUserBuildGate {
       gate = new BuildAdmissionGate({
         maxConcurrent: 1,
         maxQueue: 1,
-        queueFullError: buildBusyUserError,
+        queueFullError: this.busyError,
       });
       this.gates.set(user, gate);
     }

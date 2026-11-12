@@ -43,6 +43,25 @@ const ERR_503_BUILD_BUSY_USER = {
   ),
 };
 
+/** create_report 連携(fill と report-pdf)が共通に返す失敗。`code` で分岐できる。 */
+const ERR_REPORT = {
+  '404': err('対象が存在しない (kind=not_found)。連携が無効なときは code=REPORT_DISABLED'),
+  '500': err(
+    'サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは ' +
+      'code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH',
+  ),
+  '502': err(
+    'create_report が異常終了した (code=REPORT_RUN_FAILED)、または標準出力が PDF でない ' +
+      '(code=REPORT_OUTPUT_NOT_PDF) (kind=unexpected)',
+  ),
+  '503': err(
+    '生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。' +
+      'report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも ' +
+      '(kind=unexpected, code=REPORT_BUSY_USER)',
+  ),
+  '504': err('create_report が制限時間内に終わらなかった (kind=unexpected, code=REPORT_TIMEOUT)'),
+};
+
 /**
  * 外部向けライブプレビュー(`/preview` と `/preview/{id}*`)の前置き。既定は無効で、
  * サーバの設定 `VIVLIO_PREVIEW_ENABLED` を真にしたときだけ使える。
@@ -427,6 +446,93 @@ export function buildOpenApiDocument() {
               '選んだ版(版種を選ばなければ両版とも)が作成済みか申請中、または作る版が同意の無い作業中 (kind=conflict)',
             ),
             ...ERR_500,
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.reportStatus)]: {
+        get: {
+          tags: ['templates'],
+          summary: 'create_report 連携が有効か',
+          operationId: 'getReportStatus',
+          responses: { '200': json('有効かどうか', s.ReportStatus), ...ERR_401 },
+        },
+      },
+      [toOpenApiPath(apiPaths.reportSkeletons)]: {
+        get: {
+          tags: ['templates'],
+          summary: '値入り HTML を作れるテンプレート(templates/)の一覧',
+          operationId: 'getReportSkeletons',
+          responses: { '200': json('テンプレートの属性一覧', s.ReportSkeletons), ...ERR_401 },
+        },
+      },
+      [toOpenApiPath(apiPaths.reportOfficialPdf)]: {
+        get: {
+          tags: ['templates'],
+          summary: '正式 PDF の組版状態',
+          operationId: 'getOfficialPdfStatus',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '200': json('組版状態', s.OfficialPdfStatus),
+            ...ERR_401,
+            '404': err('値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)'),
+          },
+        },
+        post: {
+          tags: ['templates'],
+          summary: '正式 PDF の組版を依頼(作り直し)',
+          operationId: 'rebuildOfficialPdf',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '202': json('受け付けた。組版は非同期', z.object({ status: s.OfficialPdfStatus })),
+            ...ERR_401,
+            '403': err('精査者(承認者)権限が必要 (kind=forbidden)'),
+            '404': err('値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)'),
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.templateFill)]: {
+        post: {
+          tags: ['templates'],
+          summary: '新しい基準日の値入り HTML(filled/)を create_report で生成',
+          operationId: 'fillTemplate',
+          description:
+            '既に `filled/<id>.html` があれば何もせず `created: false` を返す(承認済みの内容を守る)。',
+          requestParams: { path: z.object({ id: z.string() }) },
+          responses: {
+            '200': json('生成結果', s.FillResult),
+            '400': err(
+              'リクエスト検証エラー (kind=validation)。会社の委託会社コードが Rep1 に無いときは ' +
+                'code=REPORT_COMPANY_UNKNOWN',
+            ),
+            ...ERR_401,
+            ...ERR_403_EDITOR,
+            ...ERR_REPORT,
+          },
+        },
+      },
+      [toOpenApiPath(apiPaths.templateReportPdf)]: {
+        post: {
+          tags: ['templates'],
+          summary: '編集中の値入り HTML から単体 PDF を create_report で組版',
+          operationId: 'buildReportPdf',
+          description: EXTERNAL_REF_CONTRACT,
+          requestParams: { path: z.object({ id: z.string() }) },
+          requestBody: { content: { 'application/json': { schema: s.ReportPdfRequest } } },
+          responses: {
+            '200': {
+              description: 'PDF バイナリ',
+              content: { 'application/pdf': { schema: PdfBinary } },
+            },
+            '400': err(
+              'リクエスト検証エラー (kind=validation)。外部参照は code=DOCUMENT_EXTERNAL_REF、' +
+                'dataRoot の css/・images/・js/ の外を指す参照は code=REPORT_INPUT_REF_OUTSIDE、' +
+                '委託会社コードが Rep1 に無いときは code=REPORT_COMPANY_UNKNOWN',
+            ),
+            ...ERR_401,
+            '403': err(
+              '`<script>` が確定済みの値入り HTML と違う (kind=forbidden)。閲覧者も呼べる',
+            ),
+            ...ERR_REPORT,
           },
         },
       },

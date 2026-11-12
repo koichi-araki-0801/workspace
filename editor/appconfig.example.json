@@ -10,6 +10,10 @@
     "script": "server/scripts/fake_generate_template.py",
     "timeoutMs": 300000
   },
+  "report": {
+    "script": "C:/path/to/create_report.py",
+    "timeoutMs": 300000
+  },
   "pdf": {
     "executableBrowser": ""
   },

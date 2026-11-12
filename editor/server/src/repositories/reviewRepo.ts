@@ -28,16 +28,20 @@ import {
   isApprover,
   MAX_REVIEW_PART_SCAN_CHARS,
   notFound,
+  type OfficialPdfStatus,
+  type PairSyncSummary,
   parseAnyTemplateFileName,
   parseSkeletonFileName,
   parseTemplateFileName,
   partKeysText,
+  REPORT_DISABLED,
   REVIEW_ALREADY_DECIDED,
   REVIEW_BASE_CHANGED,
   REVIEW_BASE_CHANGED_MESSAGE,
   REVIEW_NOT_REVIEWABLE,
   REVIEW_NOT_REVIEWABLE_MESSAGE,
   REVIEW_PART_DECISION_TRANSITION,
+  REVIEW_REGENERATED,
   type ReviewDecisionRequest,
   type ReviewOrigin,
   type ReviewPartDecision,
@@ -69,7 +73,8 @@ import {
   updateReviewMeta,
   writeReview,
 } from '../files/reviewFiles.js';
-import { filledExists, readTemplateCss } from '../files/templateFiles.js';
+import { filledExists, readFilledHtml, readTemplateCss } from '../files/templateFiles.js';
+import { authorEmailsSince, headCommit, showFile } from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
@@ -81,6 +86,7 @@ import {
   type ConfirmedTarget,
 } from './confirmedWrite.js';
 import { assertNoEditingMarkers } from './editingMarkerGate.js';
+import type { ReportRepo } from './reportRepo.js';
 
 /** 操作主体(認証済みユーザ)。ロールは自己承認/閲覧範囲の判定に使う。 */
 export interface ReviewActor {
@@ -465,6 +471,91 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
   return reviewContentHash(html, css);
 }
 
+// ── 単独の create_report との書き込みの競合 ──
+// `filled/<id>.html` を書くのは承認と単独の create_report の 2 つで、プロセスをまたぐロックは無い。
+// 単独の実行は書いたファイルだけを自分でコミットし、作者のメールにこの印を付ける。
+
+/** 単独の create_report のコミットの作者のメールの末尾。 */
+const STANDALONE_AUTHOR_DOMAIN = '@create_report.local';
+/** 申請後に単独の create_report が作り直したときの 409 の文言。 */
+const REVIEW_REGENERATED_MESSAGE = '申請後に再作成されました。';
+
+/** 値入り HTML のリポジトリ相対パス(git の pathspec)。 */
+const filledRelPath = (templateId: string): string => `filled/${templateId}.html`;
+
+/**
+ * 申請時点の HEAD(`baseCommit`)。編集経路だけが記録する。取れないときは null にして申請は通す —
+ * 記録が無い申請は承認で「再作成」の判定を飛ばし、今までどおり `staleWarning` だけになる。
+ */
+async function baseCommitOf(origin: ReviewOrigin, templateId: string): Promise<string | null> {
+  if (origin !== 'edit') {
+    return null;
+  }
+  try {
+    return await headCommit();
+  } catch (err) {
+    logger.warn({ err, templateId }, '申請時点の HEAD を取れないため、baseCommit を記録しません');
+    return null;
+  }
+}
+
+/**
+ * 申請の後で単独の create_report が同じ値入り HTML をコミットしたら 409 で止める。申請は元の版を
+ * 編集した HTML 全体なので、承認でそれを書くと作り直した値が黙って戻る。時刻(申請日時)で
+ * 比べないのは、dataRoot を共有すると書いた端末の時計がずれうるため。git で判定できないとき
+ * (`baseCommit` が履歴から消えた等)は止めない — 承認を永久に通せなくしないため。
+ */
+async function assertNotRegenerated(review: StoredReviewRequest): Promise<void> {
+  const base = review.baseCommit ?? null;
+  if (review.origin !== 'edit' || base === null) {
+    return;
+  }
+  let emails: string[];
+  try {
+    emails = await authorEmailsSince(base, filledRelPath(review.templateId));
+  } catch (err) {
+    logger.warn(
+      { err, templateId: review.templateId, reqId: review.id, baseCommit: base },
+      '申請後の再作成を git で判定できないため、承認を止めずに続けます',
+    );
+    return;
+  }
+  if (emails.some((e) => e.toLowerCase().endsWith(STANDALONE_AUTHOR_DOMAIN))) {
+    throw conflict(REVIEW_REGENERATED_MESSAGE, { code: REVIEW_REGENERATED });
+  }
+}
+
+/** 比べる前に BOM と改行(CRLF)をそろえる。git は `* text eol=lf` で LF にして記録する。 */
+const comparableHtml = (html: string): string => stripLeadingBom(html).replace(/\r\n/g, '\n');
+
+/**
+ * 承認の書き込みの直後に、単独の create_report が同じファイルを書き換えたか。HEAD と作業ツリーの
+ * 両方が承認した内容と違うときだけ true にする。作業ツリーだけが承認した内容なら、承認のコミットが
+ * 失敗しただけで(次のコミットで回収される)、HEAD だけが同じなら承認した内容は履歴に残っている。
+ * 確かめられないときは false(承認は成立済みで、ここは知らせるだけ)。
+ */
+async function overwrittenAfterApprove(
+  templateId: string,
+  confirmedHtml: string,
+): Promise<boolean> {
+  const want = comparableHtml(confirmedHtml);
+  try {
+    const committed = await showFile('HEAD', filledRelPath(templateId));
+    const working = await readFilledHtml(`${templateId}.html`);
+    const overwritten = comparableHtml(committed) !== want && comparableHtml(working) !== want;
+    if (overwritten) {
+      logger.warn(
+        { templateId },
+        '承認の直後に値入り HTML が書き換えられました(承認した内容が HEAD にも作業ツリーにも無い)',
+      );
+    }
+    return overwritten;
+  } catch (err) {
+    logger.warn({ err, templateId }, '承認の直後の書き換えを確かめられませんでした');
+    return false;
+  }
+}
+
 /**
  * 判定・最終確定・申請ごと却下が受け付ける現在状態の検査。決着(approved/rejected)済みを 409
  * で拒む。`code` は 3 つの操作で共通にし、画面は文言ではなく `code` で「読み直す」へ分岐する。
@@ -546,15 +637,47 @@ export interface ReviewRepo {
   ): Promise<ReviewRequestMeta>;
 }
 
+/** 承認した id と、パーツか CSS が写ったペアの id(正式 PDF を組み直す対象)。 */
+function pairIdsToRebuild(id: string, sync: PairSyncSummary | null): string[] {
+  const copied = sync !== null && (sync.applied.length > 0 || (sync.css?.applied.length ?? 0) > 0);
+  return copied ? [id, sync.pairTemplateId] : [id];
+}
+
+/**
+ * 正式 PDF を積み、積んだ版の状態を返す。承認は成立済みなので失敗では止めない(ログだけ残し、
+ * その版は返さない)。連携が無効(`REPORT_DISABLED`)なら積めないので null。
+ */
+async function queueOfficialPdfs(
+  pdf: Pick<ReportRepo, 'requestOfficialPdf' | 'officialPdfStatus'>,
+  ids: string[],
+): Promise<OfficialPdfStatus[] | null> {
+  const queued: OfficialPdfStatus[] = [];
+  for (const id of ids) {
+    try {
+      await pdf.requestOfficialPdf(id);
+      queued.push(await pdf.officialPdfStatus(id));
+    } catch (err) {
+      if (isAppError(err) && err.code === REPORT_DISABLED) {
+        return null;
+      }
+      logger.warn({ err, id }, '承認後の正式 PDF の受付に失敗した');
+    }
+  }
+  return queued;
+}
+
 export function createReviewRepo({
   noteMaster,
   pairSync,
   sampleOf,
+  officialPdf,
 }: {
   noteMaster: NoteMasterService;
   pairSync: PairSyncService;
   /** 作成経路の承認画面の本文を描く sample(`deps.ts` が `templates.getSampleData` を渡す)。 */
   sampleOf: SampleOf;
+  /** 承認後に正式 PDF を積む口(`deps.ts` が `report` を渡す)。無ければ積まない。 */
+  officialPdf?: Pick<ReportRepo, 'requestOfficialPdf' | 'officialPdfStatus'>;
 }): ReviewRepo {
   return {
     /** 確定保存を申請する(pending 作成・実ファイル非更新)。 */
@@ -585,6 +708,9 @@ export function createReviewRepo({
       // CSS を比較元にすると CSS の変更が常に「なし」に見え、同じファンド・版種の値入り文書が共有する
       // CSS を承認画面に出さずに上書きできる。作成経路の HTML の比較元は下の基準(承認画面の差分は
       // 使わない。本文の外側の固定と、承認時に「基準が変わった」を見分けるのに使う)。
+      // HEAD は比較元の HTML より先に取る。間に単独の create_report のコミットが入ったとき、そのコミットが
+      // baseCommit より後に数えられ(承認で止まる側に倒れ)、比較元だけが新しい版になって見落とさない。
+      const baseCommit = await baseCommitOf(req.origin, req.templateId);
       const baseCss = await readTemplateCss(req.templateId);
       const baseHtml =
         req.origin === 'create'
@@ -654,6 +780,7 @@ export function createReviewRepo({
           reviewedAt: null,
           comment: null,
           baseHash: await currentBaseHash(req.templateId, target),
+          baseCommit,
           baseHtml: baseHtml ?? baseline,
           baseCss,
 
@@ -854,6 +981,8 @@ export function createReviewRepo({
         const staleWarning =
           review.baseHash !== null &&
           review.baseHash !== (await currentBaseHash(review.templateId, target));
+        // 申請後に単独の create_report が作り直していれば、何も書かずに 409 で止める。
+        await assertNotRegenerated(review);
 
         // git コミットに申請者・承認者の双方を残す(承認者を author、申請者を Co-Authored-By)。
         const commitMessage =
@@ -891,6 +1020,11 @@ export function createReviewRepo({
           commitMessage,
           author: actor.username,
         });
+        // 書き込みとコミットの直後に照合する(単独の実行が書く前の検査をすり抜けたすき間を知らせる)。
+        const overwritten =
+          review.origin === 'edit'
+            ? await overwrittenAfterApprove(review.templateId, confirmedHtml)
+            : undefined;
         await finalizeApprovedMeta(reqId, {
           status: 'approved',
           reviewedBy: actor.username,
@@ -914,7 +1048,18 @@ export function createReviewRepo({
           actor.username,
           target,
         );
-        return { meta, staleWarning, sync, noteMaster: noteMasterResult };
+        const pdf =
+          review.origin === 'edit' && officialPdf
+            ? await queueOfficialPdfs(officialPdf, pairIdsToRebuild(review.templateId, sync))
+            : null;
+        return {
+          meta,
+          staleWarning,
+          sync,
+          noteMaster: noteMasterResult,
+          officialPdf: pdf,
+          ...(overwritten !== undefined ? { overwrittenAfterApprove: overwritten } : {}),
+        };
       });
     },
 

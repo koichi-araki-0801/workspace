@@ -9,21 +9,26 @@ import {
   type DropdownOptions,
   type DropdownQuery,
   type DropdownScope,
+  type FillResult,
   type FundOption,
   type GenerateRequest,
   type GenerateResult,
   isOk,
+  type OfficialPdfStatus,
   ok,
   type PairSyncStatus,
+  type ReportSkeletons,
+  type ReportStatus,
   type SampleDataResult,
   type SaveDraftRequest,
+  type SkeletonAttributes,
   type Template,
   type TemplateDraft,
   type TemplateMeta,
   type TemplateRepository,
   type TemplateValues,
 } from '@editor/shared';
-import { apiFetch, attemptRest } from './http';
+import { apiFetch, apiFetchBlob, attemptRest } from './http';
 
 // サンプル(`getSampleData`)は共通サンプルとファンド名・会社名で、同じタブの間に何度も変わらない。
 // テンプレート ID ごとに sessionStorage に持ち、タブを閉じれば消える(端末に残さない)。
@@ -152,4 +157,32 @@ export const restTemplateRepo: TemplateRepository = {
     attemptRest(() =>
       apiFetch<PairSyncStatus>(buildPath(apiPaths.templateSyncStatus, { id: templateId })),
     ),
+
+  getReportStatus: () => attemptRest(() => apiFetch<ReportStatus>(apiPaths.reportStatus)),
+
+  listReportSkeletons: () =>
+    attemptRest(async (): Promise<SkeletonAttributes[]> => {
+      const res = await apiFetch<ReportSkeletons>(apiPaths.reportSkeletons);
+      return res.skeletons;
+    }),
+
+  fillTemplate: (id: string) =>
+    attemptRest(() =>
+      apiFetch<FillResult>(buildPath(apiPaths.templateFill, { id }), { method: 'POST' }),
+    ),
+
+  buildReportPdf: (id: string, html: string) =>
+    attemptRest(() => apiFetchBlob(buildPath(apiPaths.templateReportPdf, { id }), { html })),
+
+  officialPdfStatus: (id: string) =>
+    attemptRest(() => apiFetch<OfficialPdfStatus>(buildPath(apiPaths.reportOfficialPdf, { id }))),
+
+  rebuildOfficialPdf: (id: string) =>
+    attemptRest(async (): Promise<OfficialPdfStatus> => {
+      const res = await apiFetch<{ status: OfficialPdfStatus }>(
+        buildPath(apiPaths.reportOfficialPdf, { id }),
+        { method: 'POST' },
+      );
+      return res.status;
+    }),
 };

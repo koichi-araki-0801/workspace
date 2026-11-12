@@ -42,6 +42,18 @@ async function main(): Promise<void> {
     process.env.PYTHON_BIN ??= 'python3';
   }
 
+  // 帳票の組版ツール(create_report.py)は偽物に向ける。本物は遮断端末にしか無く、本物の dataRoot を
+  // 書き換えうるので、e2e では本物を設定しない。シェルに本物の設定が残っていても必ず上書きし、
+  // 本物の指紋も消す(偽物を本物の指紋で照合して止まらないように)。
+  delete process.env.REPORT_SCRIPT_SHA256;
+  process.env.REPORT_SCRIPT = path.join(
+    repoRoot,
+    'editor',
+    'server',
+    'scripts',
+    'fake_create_report.py',
+  );
+
   await seedDataRoot(repoRoot);
 
   // `config.ts` が import 時に上記の env を読むため、`serve.ts` は動的 import で遅らせる。

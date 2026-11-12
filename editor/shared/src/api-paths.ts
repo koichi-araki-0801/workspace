@@ -35,6 +35,12 @@ export const apiPaths = {
   templateDraft: '/templates/:id/draft',
   templateSyncStatus: '/templates/:id/sync-status',
   generate: '/generate',
+  // create_report 連携
+  reportStatus: '/report/status',
+  reportSkeletons: '/report/skeletons',
+  reportOfficialPdf: '/report/official-pdf/:id',
+  templateFill: '/templates/:id/fill',
+  templateReportPdf: '/templates/:id/report-pdf',
   templateSampleData: '/templates/:id/sample-data',
   templateValues: '/templates/:id/values',
   // parts

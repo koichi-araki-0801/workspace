@@ -3,6 +3,7 @@ import {
   canDisableUser,
   hasErrors,
   isAdmin,
+  isEditor,
   isValidUsername,
   USERNAME_MAX_LENGTH,
   validateNewUser,
@@ -31,6 +32,16 @@ describe('isAdmin', () => {
   it('is false for null/undefined', () => {
     expect(isAdmin(null)).toBe(false);
     expect(isAdmin(undefined)).toBe(false);
+  });
+});
+
+describe('isEditor', () => {
+  it('editor / approver / admin は true、viewer と未ログインは false', () => {
+    expect(isEditor(make('editor'))).toBe(true);
+    expect(isEditor(make('approver'))).toBe(true);
+    expect(isEditor(make('admin'))).toBe(true);
+    expect(isEditor(make('viewer'))).toBe(false);
+    expect(isEditor(null)).toBe(false);
   });
 });
 

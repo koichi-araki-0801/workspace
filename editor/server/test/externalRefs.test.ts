@@ -58,6 +58,24 @@ describe('findDocumentExternalRefs — 検査面の網羅', () => {
     expect(findDocumentExternalRefs(html, '')).not.toEqual([]);
   });
 
+  it.each([
+    '<svg><style><img src="https://evil.example/x.png"></style></svg>',
+    '<svg><style><img src="//evil/share/x.png"></style></svg>',
+    '<svg><style>p{background:u&#114;l(https://evil/x.png)}</style></svg>',
+    '<math><style><img src=https://evil/x.png></style></math>',
+  ])(
+    '<style> の中のマークアップ・文字参照は外部参照として数える(foreign content で読まれる): %s',
+    (html) => {
+      expect(findDocumentExternalRefs(html, '').length).toBeGreaterThan(0);
+    },
+  );
+
+  it('普通の <style> の CSS は数えない(子セレクタ > や入れ子の & は通す)', () => {
+    expect(
+      findDocumentExternalRefs('<style>a > b{color:red} .x{&:hover{color:blue}}</style>', ''),
+    ).toEqual([]);
+  });
+
   it('HTML の style 属性に埋めた外部参照を拾う', () => {
     const html = `<div style="background:url(http://evil/x.png)">x</div>`;
     expect(findDocumentExternalRefs(html, '')).not.toEqual([]);

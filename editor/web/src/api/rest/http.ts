@@ -71,6 +71,39 @@ interface FetchOptions {
   body?: unknown;
 }
 
+/**
+ * 通信と HTTP 失敗の写像を `apiFetch` と `apiFetchBlob` で共有する。失敗は throw する。
+ * セッション切れは呼び出し元へ返すだけでは画面が認証済みのまま残る(`sessionExpiry.ts`)。
+ */
+async function request(url: string, init: RequestInit): Promise<Response> {
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, credentials: 'include' });
+  } catch (e) {
+    throw network(KIND_MESSAGE.network, { cause: e });
+  }
+  if (res.status === 401) {
+    notifyUnauthorized();
+  }
+  if (!res.ok) {
+    throw await toError(res);
+  }
+  return res;
+}
+
+/**
+ * JSON を POST して Blob(PDF)を受ける。失敗はサーバの構造化ボディ(`code` 込み)を保って
+ * throw する。`postBuild` と違い文言を差し替えず、サーバの文言をそのまま画面に出せる。
+ */
+export async function apiFetchBlob(path: string, body: unknown): Promise<Blob> {
+  const res = await request(apiUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return res.blob();
+}
+
 export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   const url = new URL(`${BASE}${path}`, window.location.origin);
   if (opts.query) {
@@ -81,24 +114,11 @@ export async function apiFetch<T>(path: string, opts: FetchOptions = {}): Promis
     }
   }
   const hasBody = opts.body !== undefined;
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      method: opts.method ?? 'GET',
-      credentials: 'include',
-      headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
-      body: hasBody ? JSON.stringify(opts.body) : undefined,
-    });
-  } catch (e) {
-    throw network(KIND_MESSAGE.network, { cause: e });
-  }
-  // セッション切れは呼び出し元へ返すだけでは画面が認証済みのまま残る(`sessionExpiry.ts`)。
-  if (res.status === 401) {
-    notifyUnauthorized();
-  }
-  if (!res.ok) {
-    throw await toError(res);
-  }
+  const res = await request(url.toString(), {
+    method: opts.method ?? 'GET',
+    headers: hasBody ? { 'Content-Type': 'application/json' } : undefined,
+    body: hasBody ? JSON.stringify(opts.body) : undefined,
+  });
   if (res.status === 204) {
     return undefined as T;
   }

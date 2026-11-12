@@ -843,6 +843,422 @@
         }
       }
     },
+    "/report/status": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "create_report 連携が有効か",
+        "operationId": "getReportStatus",
+        "responses": {
+          "200": {
+            "description": "有効かどうか",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/report/skeletons": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "値入り HTML を作れるテンプレート(templates/)の一覧",
+        "operationId": "getReportSkeletons",
+        "responses": {
+          "200": {
+            "description": "テンプレートの属性一覧",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportSkeletons"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/report/official-pdf/{id}": {
+      "get": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "正式 PDF の組版状態",
+        "operationId": "getOfficialPdfStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "組版状態",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OfficialPdfStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "正式 PDF の組版を依頼(作り直し)",
+        "operationId": "rebuildOfficialPdf",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "受け付けた。組版は非同期",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "$ref": "#/components/schemas/OfficialPdfStatus"
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "精査者(承認者)権限が必要 (kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "値入り HTML が無い、または連携が無効 (code=REPORT_DISABLED)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{id}/fill": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "新しい基準日の値入り HTML(filled/)を create_report で生成",
+        "operationId": "fillTemplate",
+        "description": "既に `filled/<id>.html` があれば何もせず `created: false` を返す(承認済みの内容を守る)。",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "生成結果",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FillResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)。会社の委託会社コードが Rep1 に無いときは code=REPORT_COMPANY_UNKNOWN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "編集者権限が必要 (viewer は不可。kind=forbidden)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)。連携が無効なときは code=REPORT_DISABLED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "create_report が異常終了した (code=REPORT_RUN_FAILED)、または標準出力が PDF でない (code=REPORT_OUTPUT_NOT_PDF) (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも (kind=unexpected, code=REPORT_BUSY_USER)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "create_report が制限時間内に終わらなかった (kind=unexpected, code=REPORT_TIMEOUT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/templates/{id}/report-pdf": {
+      "post": {
+        "tags": [
+          "templates"
+        ],
+        "summary": "編集中の値入り HTML から単体 PDF を create_report で組版",
+        "operationId": "buildReportPdf",
+        "description": "\n\n**外部参照は拒否する**(`code=DOCUMENT_EXTERNAL_REF` の 400)。PDF は CSP の無い headless ブラウザで組版されるため、CSS からの取得はそのままビルドサーバの位置からの GET になる。検査対象は (1) リクエストの `css`、(2) HTML 中の `<style>` ブロック、(3) HTML の `style=\"…\"` 属性、(4) HTML の**取得系属性**(`<link href>` `<script src>` `<img src|srcset>` `<iframe src>` `<object data>` SVG の `href`/`xlink:href` 等。`<a href>` は組版中に取得を起こさないので対象外)、(zip 経路は加えて展開した `.css` / `.html` 全件)。拒否するのは **許可リスト外の at-rule**(`@import` `@use` 等。`@media` `@page` とマージンボックス `@bottom-center` 等は許可)と、**外部を指す URL 値**(scheme 付き・scheme 相対 `//host/x`・許可外の `data:`)で、`url()` に限らず`image-set(\"http://…\")` のような引用符文字列も含む。許可する `data:` は `data:image/png` `data:image/jpeg` `data:image/jpg` `data:image/gif` `data:image/webp` `data:font/` `data:application/font-woff` の接頭辞のみ(`data:image/svg+xml` は不可)。**相対 URL と断片(`#id`)は通る。むしろ必須である** — 文書は作業フォルダの `doc/` に置かれたものとして扱い、テンプレ CSS・共通フォント・テンプレ JS・画像を `../css/…` `../css/fonts/…` `../js/…` `../images/…` の相対パスで参照する。サーバは参照された実体だけを `doc/` の兄弟(`css/` `js/` `images/`)へ同梱する。文書直下基準の `css/…` `images/…` は `doc/css/…` を指し、同梱されない。画像は `../images/<名前>` と `../images/<フォルダ>/<名前>`(1 段まで)を同梱し、2 段以上は同梱しない。リクエストの `css` は `css/<会社>_<ファンド>_<版種>.css` の位置に置かれた CSS として解釈する(相対 `url()` は CSS 自身の位置が基準。例: `url(fonts/a.woff2)` → `css/fonts/a.woff2`、`url(../images/a.svg)` → `images/a.svg`)。文書へは `doc/` から見た形に付け替えて埋め込む。相対参照は `url()` で書くこと(引用符文字列の相対参照は解決されない)。同梱の実体が無い相対参照の `<link>` / `<script src>` は 400 にはせず要素ごと落とす(404 は組版のページ分割を止めるため)。**削らずに拒む**のは外部参照の方で、違反が 1 件でも PDF は生成されない。また、タグ境界が一意に決まらない HTML(閉じないタグ・コメント・`<style>`/`<script>`)は`code=DOCUMENT_UNPARSABLE` の 400 で拒む — 検査できない入力を通すとそれ自体が回避路になる。\n\n**文書内の JavaScript**: 組版時に実行される。組版エンジンは文書を再パースして script をビューアの window へ作り直すため、`<head>` で `DOMContentLoaded` に登録した処理は発火しない(実測。処理は body 末尾に置くこと)。`<script src=\"../js/x.js\">` は、サーバが同梱した実体の中身をその位置へ**インライン展開**してから組版へ渡すので実行される(そのままでは相対 URL の解決基準がずれて 404 になるため)。同梱の実体が無い参照は要素ごと落ち、2MB を超えるファイルは展開されず 404 で実行されない。なお組版ブラウザの **HTTP/HTTPS 通信**は、そのビルド専用の loopback オリジン 1 つだけへ中継される(それ以外は宛先が loopback でも 502 で落ちる)。ただし遮断の実体は HTTP プロキシ 1 本なので、**HTTP 以外の経路**はこの中継を通らない。WebRTC はプロキシを通らない UDP を使わない設定(`--webrtc-ip-handling-policy=disable_non_proxied_udp`)でブラウザを起動する。それ以外の HTTP 以外の経路は残余リスクとして残る。\n\n",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportPdfRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PDF バイナリ",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary",
+                  "description": "PDF バイナリ"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "リクエスト検証エラー (kind=validation)。外部参照は code=DOCUMENT_EXTERNAL_REF、dataRoot の css/・images/・js/ の外を指す参照は code=REPORT_INPUT_REF_OUTSIDE、委託会社コードが Rep1 に無いときは code=REPORT_COMPANY_UNKNOWN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未認証 (kind=unauthorized)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`<script>` が確定済みの値入り HTML と違う (kind=forbidden)。閲覧者も呼べる",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "対象が存在しない (kind=not_found)。連携が無効なときは code=REPORT_DISABLED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "サーバ内部エラー (kind=unexpected)。create_report が正常終了したのに出力が無いときは code=REPORT_OUTPUT_MISSING、スクリプトの指紋が合わないときは code=GENERATOR_FINGERPRINT_MISMATCH",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "create_report が異常終了した (code=REPORT_RUN_FAILED)、または標準出力が PDF でない (code=REPORT_OUTPUT_NOT_PDF) (kind=unexpected)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "生成器の同時実行の待ちが満杯 (kind=unexpected, code=GENERATE_QUEUE_FULL)。report-pdf では、同じ利用者の実行中 1 件・待ち 1 件を超えたときも (kind=unexpected, code=REPORT_BUSY_USER)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "create_report が制限時間内に終わらなかった (kind=unexpected, code=REPORT_TIMEOUT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/templates/{id}/sample-data": {
       "get": {
         "tags": [
@@ -3245,6 +3661,20 @@
           "fundCode"
         ]
       },
+      "ReportPdfRequest": {
+        "type": "object",
+        "properties": {
+          "html": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4194304,
+            "description": "値入り HTML"
+          }
+        },
+        "required": [
+          "html"
+        ]
+      },
       "RecordPartChangeRequest": {
         "type": "object",
         "properties": {
@@ -4260,6 +4690,103 @@
         ],
         "additionalProperties": false
       },
+      "ReportStatus": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "ReportSkeletons": {
+        "type": "object",
+        "properties": {
+          "skeletons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkeletonAttributes"
+            }
+          }
+        },
+        "required": [
+          "skeletons"
+        ],
+        "additionalProperties": false
+      },
+      "SkeletonAttributes": {
+        "type": "object",
+        "properties": {
+          "companyCode": {
+            "type": "string"
+          },
+          "fundCode": {
+            "type": "string"
+          },
+          "editionType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "companyCode",
+          "fundCode",
+          "editionType"
+        ],
+        "additionalProperties": false
+      },
+      "OfficialPdfStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "building",
+              "done",
+              "failed",
+              "missing",
+              "stale"
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "updatedAt",
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "FillResult": {
+        "type": "object",
+        "properties": {
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "created"
+        ],
+        "additionalProperties": false
+      },
       "SampleDataResult": {
         "type": "object",
         "properties": {
@@ -4621,6 +5148,13 @@
               "null"
             ]
           },
+          "baseCommit": {
+            "description": "申請時点の HEAD のコミット(編集経路)。承認時に、これより後の単独の create_report のコミットを探す。この項目より前の申請・作成経路・取れなかったときは欠落か null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "changedSummary": {
             "anyOf": [
               {
@@ -4914,6 +5448,13 @@
               "null"
             ]
           },
+          "baseCommit": {
+            "description": "申請時点の HEAD のコミット(編集経路)。承認時に、これより後の単独の create_report のコミットを探す。この項目より前の申請・作成経路・取れなかったときは欠落か null",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "changedSummary": {
             "anyOf": [
               {
@@ -5008,6 +5549,24 @@
                 "type": "null"
               }
             ]
+          },
+          "officialPdf": {
+            "description": "承認で積んだ正式 PDF の状態(承認した id と、パーツ・CSS を写したペア)。編集経路でない・連携無効なら null/欠落",
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/OfficialPdfStatus"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "overwrittenAfterApprove": {
+            "description": "承認の直後に、承認した値入り HTML が別の書き手(単独の create_report)に書き換えられたか(HEAD と作業ツリーの両方が承認した内容と違う)。承認は成立済み。編集経路でなければ欠落",
+            "type": "boolean"
           }
         },
         "required": [

@@ -45,6 +45,7 @@ import { generateRoutes } from './routes/generate.routes.js';
 import { historyRoutes } from './routes/history.routes.js';
 import { notesRoutes } from './routes/notes.routes.js';
 import { partsRoutes } from './routes/parts.routes.js';
+import { reportRoutes } from './routes/report.routes.js';
 import { reviewsRoutes } from './routes/reviews.routes.js';
 import { assertRoutePolicy } from './routes/routeGuards.js';
 import { templatesRoutes } from './routes/templates.routes.js';
@@ -215,6 +216,7 @@ export function buildApp({ sproc = realSproc }: BuildAppOptions = {}) {
   app.register(vivliostyleRoutes, { prefix: '/api' });
   app.register(templatesRoutes, { prefix: '/api', deps });
   app.register(generateRoutes, { prefix: '/api', deps });
+  app.register(reportRoutes, { prefix: '/api', deps });
   app.register(partsRoutes, { prefix: '/api', deps });
   app.register(reviewsRoutes, { prefix: '/api', deps });
   app.register(historyRoutes, { prefix: '/api' });

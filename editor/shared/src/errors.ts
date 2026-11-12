@@ -42,6 +42,11 @@ export const REVIEW_BASE_CHANGED = 'REVIEW_BASE_CHANGED';
  */
 export const REVIEW_NOT_REVIEWABLE = 'REVIEW_NOT_REVIEWABLE';
 /**
+ * 申請の後で単独の create_report が同じ値入り HTML を作り直してコミットしたため、最終確定を受け付けない
+ * 409 の `code`。申請は元の版を編集した HTML 全体なので、承認すると作り直した値が消える。
+ */
+export const REVIEW_REGENERATED = 'REVIEW_REGENERATED';
+/**
  * 同じ人の PDF 出力(ビルド・結合・プロジェクト・プレビューの展開)が「実行中 1・待ち 1」を
  * 超えたときの 503 の `code`。共有の枠(全員で数台)を 1 人で埋めさせないため
  * (`server/src/vivliostyle/buildUserQuota.ts`)。web の PDF 出力の画面は code を見て文言を出す。
@@ -114,3 +119,33 @@ export function toAppError(cause: unknown, fallbackKind: AppErrorKind = 'unexpec
   }
   return { kind: fallbackKind, message: DEFAULT_ERROR_MESSAGE, cause };
 }
+
+/** 生成器・レポート作成の同時実行の待ち行列が満杯のときの `code`(503)。 */
+export const GENERATE_QUEUE_FULL = 'GENERATE_QUEUE_FULL';
+/** 生成器のスクリプトの指紋が設定と一致しない(または読めない)ときの `code`(500)。 */
+export const GENERATOR_FINGERPRINT_MISMATCH = 'GENERATOR_FINGERPRINT_MISMATCH';
+/** create_report が時間内に終わらなかったときの `code`。 */
+export const REPORT_TIMEOUT = 'REPORT_TIMEOUT';
+/** create_report が異常終了したときの `code`。 */
+export const REPORT_RUN_FAILED = 'REPORT_RUN_FAILED';
+/** create_report が終わったのに期待した PDF が無いときの `code`。 */
+export const REPORT_OUTPUT_MISSING = 'REPORT_OUTPUT_MISSING';
+/** create_report の標準出力が PDF(`%PDF-` 始まり)でないときの `code`。 */
+export const REPORT_OUTPUT_NOT_PDF = 'REPORT_OUTPUT_NOT_PDF';
+/** 指定の会社コードを create_report が知らないときの `code`。 */
+export const REPORT_COMPANY_UNKNOWN = 'REPORT_COMPANY_UNKNOWN';
+/** create_report の設定が無く、機能が無効なときの `code`。 */
+export const REPORT_DISABLED = 'REPORT_DISABLED';
+/**
+ * 単体 PDF の入力 HTML が dataRoot の `css/`・`images/`・`js/` の外を参照しているときの 400 の
+ * `code`。create_report は `filled/` にある見立ての HTML の相対参照をそのままファイルとして読むので、
+ * 外へ出る参照はサーバ上の任意のファイルを PDF へ写せる。
+ */
+export const REPORT_INPUT_REF_OUTSIDE = 'REPORT_INPUT_REF_OUTSIDE';
+/**
+ * 同じ人の単体 PDF(create_report)が「実行中 1・待ち 1」を超えたときの 503 の `code`
+ * (`BUILD_BUSY_USER` と同じ考え方。生成器の共有の枠を 1 人で埋めさせない)。
+ */
+export const REPORT_BUSY_USER = 'REPORT_BUSY_USER';
+/** `REPORT_BUSY_USER` の文言。server が返し、web はそのまま出す。 */
+export const REPORT_BUSY_USER_MESSAGE = '前の PDF の作成が終わってから、もう一度出してください';

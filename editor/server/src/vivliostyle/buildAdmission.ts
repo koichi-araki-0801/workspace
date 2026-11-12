@@ -52,9 +52,13 @@ export class BuildAdmissionGate {
     this.queueFullError = opts.queueFullError ?? (() => new Error(BUILD_QUEUE_FULL_MESSAGE));
   }
 
-  /** 枠を確保して `fn` を 1 回走らせる。行列が満杯なら `fn` を呼ばずに reject する。 */
-  async run<T>(fn: () => Promise<T>): Promise<T> {
-    await this.acquire();
+  /**
+   * 枠を確保して `fn` を 1 回走らせる。行列が満杯なら `fn` を呼ばずに reject する。
+   * `queueFullError` は満杯時の Error をこの呼び出しだけ差し替える(枠を共有する複数の
+   * スクリプトが、それぞれの文言で断るため)。
+   */
+  async run<T>(fn: () => Promise<T>, queueFullError?: () => Error): Promise<T> {
+    await this.acquire(queueFullError ?? this.queueFullError);
     try {
       return await fn();
     } finally {
@@ -74,13 +78,13 @@ export class BuildAdmissionGate {
 
   // ── 内部 ──
 
-  private acquire(): Promise<void> {
+  private acquire(queueFullError: () => Error): Promise<void> {
     if (this.active < this.maxConcurrent) {
       this.active += 1;
       return Promise.resolve();
     }
     if (this.waiters.length >= this.maxQueue) {
-      return Promise.reject(this.queueFullError());
+      return Promise.reject(queueFullError());
     }
     return new Promise<void>((resolve, reject) => this.waiters.push({ resolve, reject }));
   }

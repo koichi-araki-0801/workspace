@@ -593,6 +593,15 @@ export const ReviewRequestMeta = z
     reviewedAt: z.string().nullable(),
     comment: z.string().nullable().meta({ description: '却下理由 / 承認メモ。無ければ null' }),
     baseHash: z.string().nullable().meta({ description: '申請時点の現行版コンテンツキー' }),
+    baseCommit: z
+      .string()
+      .nullable()
+      .optional()
+      .meta({
+        description:
+          '申請時点の HEAD のコミット(編集経路)。承認時に、これより後の単独の create_report のコミットを' +
+          '探す。この項目より前の申請・作成経路・取れなかったときは欠落か null',
+      }),
     changedSummary: ReviewChangedSummary.nullable().optional(),
     partDecisions: z.array(ReviewPartDecision).optional().meta({
       description:
@@ -806,6 +815,16 @@ export const PairSyncStatus = z
   })
   .meta({ id: 'PairSyncStatus' });
 
+/** 正式 PDF の組版状態。記録が無いときは PDF と filled の更新時刻から導く。 */
+export const OfficialPdfStatus = z
+  .object({
+    id: z.string(),
+    state: z.enum(['queued', 'building', 'done', 'failed', 'missing', 'stale']),
+    updatedAt: z.string().nullable(),
+    error: z.string().nullable(),
+  })
+  .meta({ id: 'OfficialPdfStatus' });
+
 /** 承認の結果。反映後 `meta` + 並行性警告 `staleWarning` + ペア自動同期の概要 `sync`。 */
 export const ApproveReviewResult = z
   .object({
@@ -820,6 +839,18 @@ export const ApproveReviewResult = z
     noteMaster: NoteMasterReflectSummary.nullable()
       .optional()
       .meta({ description: '注記マスタ書き戻しの結果。テンプレ ID 解決不能なら null/欠落' }),
+    officialPdf: z.array(OfficialPdfStatus).nullable().optional().meta({
+      description:
+        '承認で積んだ正式 PDF の状態(承認した id と、パーツ・CSS を写したペア)。編集経路でない・連携無効なら null/欠落',
+    }),
+    overwrittenAfterApprove: z
+      .boolean()
+      .optional()
+      .meta({
+        description:
+          '承認の直後に、承認した値入り HTML が別の書き手(単独の create_report)に書き換えられたか' +
+          '(HEAD と作業ツリーの両方が承認した内容と違う)。承認は成立済み。編集経路でなければ欠落',
+      }),
   })
   .meta({ id: 'ApproveReviewResult' });
 
@@ -1135,6 +1166,22 @@ export const GenerateResult = z
   })
   .meta({ id: 'GenerateResult' });
 
+/** create_report 連携が有効か(`config.report` の有無)。画面が入口の出し分けに使う。 */
+export const ReportStatus = z.object({ enabled: z.boolean() }).meta({ id: 'ReportStatus' });
+
+/** `templates/` に置かれたテンプレート 1 件の属性(会社略称・ファンドコード・版種)。 */
+export const SkeletonAttributes = z
+  .object({ companyCode: z.string(), fundCode: z.string(), editionType: z.string() })
+  .meta({ id: 'SkeletonAttributes' });
+
+/** 値入り HTML を作れるテンプレートの一覧(`templates/` の 3 区切りのファイル)。 */
+export const ReportSkeletons = z
+  .object({ skeletons: z.array(SkeletonAttributes) })
+  .meta({ id: 'ReportSkeletons' });
+
+/** 値入り HTML の生成結果。既にあって何もしなかったときは `created: false`。 */
+export const FillResult = z.object({ created: z.boolean() }).meta({ id: 'FillResult' });
+
 export const SaveDraftRequest = z
   .object({
     // ファイル名規約に一致する id だけを受ける。ここが素の `z.string()` だった頃は、
@@ -1166,6 +1213,13 @@ const PageSize = z
     'ページサイズは用紙名(A4 など)か「幅,高さ」(210mm,297mm など)で指定します',
   )
   .meta({ description: 'ページサイズ (既定 A4)。用紙名か「幅,高さ」', example: 'A4' });
+
+/** 編集中の値入り HTML から単体 PDF を組むリクエスト。 */
+export const ReportPdfRequest = z
+  .object({
+    html: z.string().min(1).max(MAX_DOCUMENT_HTML_CHARS).meta({ description: '値入り HTML' }),
+  })
+  .meta({ id: 'ReportPdfRequest' });
 
 /** インライン build のリクエストボディ(レンダリング済み HTML + 任意 CSS → PDF)。 */
 export const BuildInlineRequest = z

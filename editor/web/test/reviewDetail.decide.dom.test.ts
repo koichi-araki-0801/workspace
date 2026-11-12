@@ -13,6 +13,7 @@ import {
   numberChangedParts,
   ok,
   REVIEW_ALREADY_DECIDED,
+  REVIEW_REGENERATED,
   type ReviewPartDecision,
   type ReviewRequest,
   type ReviewRequestMeta,
@@ -21,19 +22,21 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defineComponent, h, nextTick } from 'vue';
 import { confirm } from '@/components/ui/confirm';
-import { toast, toastError } from '@/components/ui/toast';
+import { toast, toastError, toastSuccess } from '@/components/ui/toast';
 import { buildHtmlDiff } from '@/features/compare/htmlBlockDiff';
 import ReviewDetail from '@/features/reviews/ReviewDetail.vue';
 import type { ReviewChangeRow } from '@/features/reviews/services/reviewDiffService';
+import { resetWatchingOfficialPdfs } from '@/lib/useOfficialPdfStatus';
 
 // ── 1. 差し替え ──
 
-const { repo, buildDiff, renderPdf, auth, panels } = vi.hoisted(() => ({
+const { repo, tplRepo, buildDiff, renderPdf, auth, panels } = vi.hoisted(() => ({
   repo: {
     approveReview: vi.fn(),
     rejectReview: vi.fn(),
     updatePartDecisions: vi.fn(),
   },
+  tplRepo: { officialPdfStatus: vi.fn() },
   buildDiff: vi.fn(),
   renderPdf: vi.fn(),
   auth: { isApprover: true, user: { username: 'boss' } },
@@ -59,7 +62,11 @@ vi.mock('@/lib/pairSyncText', () => ({
   pairSyncResultText: (sync: unknown) => (sync ? { text: '同期の結果', variant: 'error' } : null),
 }));
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }));
-vi.mock('@/api/repositories', () => ({ useReviewRepo: () => repo, usePartRepo: () => ({}) }));
+vi.mock('@/api/repositories', () => ({
+  useReviewRepo: () => repo,
+  usePartRepo: () => ({}),
+  useTemplateRepo: () => tplRepo,
+}));
 vi.mock('@/features/reviews/services/reviewDiffService', () => ({
   useReviewDiffService: () => ({ buildDiff }),
 }));
@@ -227,6 +234,8 @@ beforeEach(() => {
   repo.updatePartDecisions.mockReset();
   repo.approveReview.mockReset();
   repo.rejectReview.mockReset();
+  tplRepo.officialPdfStatus.mockReset();
+  resetWatchingOfficialPdfs();
   repo.updatePartDecisions.mockImplementation(
     async (_id: string, input: { decisions: { partKey: string; status: string }[] }) =>
       ok(input.decisions.map((d) => decision(d.partKey, d.status as ReviewPartDecision['status']))),
@@ -1113,5 +1122,104 @@ describe('ReviewDetail の承認後の通知と読み込み', () => {
     expect(w.find('[data-review-row-no][data-selected="true"]').exists()).toBe(false);
     // 親(コメントの宛先)にも選択が外れたことを知らせる。
     expect(w.emitted('select')?.at(-1)).toEqual([null, null]);
+  });
+});
+
+// ── 6. 承認後の正式 PDF の通知 ──
+
+describe('ReviewDetail の承認後の正式 PDF の通知', () => {
+  const st = (state: string, id = 'XX01_950037_20240710_交付版', error: string | null = null) =>
+    ok({ id, state, updatedAt: null, error });
+
+  async function approveWith(result: Partial<ApproveReviewResult>) {
+    repo.approveReview.mockResolvedValue(
+      ok({ meta: {} as ApproveReviewResult['meta'], staleWarning: false, ...result }),
+    );
+    serve(allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    return w;
+  }
+
+  it('done で成功、failed で作り直しの案内を出す', async () => {
+    tplRepo.officialPdfStatus.mockImplementation(async (id: string) =>
+      id === 'A' ? st('done', 'A') : st('failed', 'B', '落ちた'),
+    );
+    await approveWith({
+      officialPdf: [
+        { id: 'A', state: 'queued', updatedAt: null, error: null },
+        { id: 'B', state: 'queued', updatedAt: null, error: null },
+      ],
+    });
+    expect(vi.mocked(toastSuccess)).toHaveBeenCalledWith('正式 PDF を作りました: A');
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      '正式 PDF を作れませんでした: B（落ちた）。プレビュー画面から作り直せます',
+      'error',
+      8000,
+    );
+  });
+
+  it('officialPdf が null なら問い合わせない', async () => {
+    await approveWith({ officialPdf: null });
+    expect(tplRepo.officialPdfStatus).not.toHaveBeenCalled();
+  });
+
+  it('overwrittenAfterApprove で警告を出す', async () => {
+    await approveWith({ overwrittenAfterApprove: true });
+    expect(vi.mocked(toast)).toHaveBeenCalledWith(
+      '承認の直後に create_report で書き換えられました。履歴を確かめてください',
+      'default',
+      8000,
+    );
+  });
+
+  it('REVIEW_REGENERATED はサーバの文言を出して読み直す', async () => {
+    repo.approveReview.mockResolvedValue(
+      err(appError('conflict', '申請後に再作成されました。', { code: REVIEW_REGENERATED })),
+    );
+    serve(allApproved(), allApproved());
+    const w = await mountDetail();
+    await w.find('[data-finalize]').trigger('click');
+    await flushPromises();
+    expect(buildDiff).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(toast).mock.calls).toEqual([['申請後に再作成されました。', 'error']]);
+    expect(vi.mocked(toastError)).not.toHaveBeenCalled();
+  });
+
+  it('同じ id の問い合わせ中は新しく張らず、通知は 1 回だけ出す', async () => {
+    vi.mocked(toastSuccess).mockClear();
+    vi.useFakeTimers();
+    try {
+      tplRepo.officialPdfStatus.mockResolvedValue(st('building', 'A'));
+      const queued = [{ id: 'A', state: 'queued', updatedAt: null, error: null }] as const;
+      const w = await approveWith({ officialPdf: [...queued] });
+      w.unmount();
+      await approveWith({ officialPdf: [...queued] });
+      tplRepo.officialPdfStatus.mockResolvedValue(st('done', 'A'));
+      await vi.advanceTimersByTimeAsync(10000);
+      const built = vi
+        .mocked(toastSuccess)
+        .mock.calls.filter(([m]) => String(m).startsWith('正式 PDF を作りました'));
+      expect(built).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('画面を離れても終わるまで問い合わせて通知する', async () => {
+    vi.useFakeTimers();
+    try {
+      tplRepo.officialPdfStatus.mockResolvedValueOnce(st('building', 'A'));
+      tplRepo.officialPdfStatus.mockResolvedValue(st('done', 'A'));
+      const w = await approveWith({
+        officialPdf: [{ id: 'A', state: 'queued', updatedAt: null, error: null }],
+      });
+      w.unmount();
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(vi.mocked(toastSuccess)).toHaveBeenCalledWith('正式 PDF を作りました: A');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

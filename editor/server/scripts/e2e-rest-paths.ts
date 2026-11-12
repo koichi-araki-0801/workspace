@@ -19,6 +19,13 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 export const E2E_REST_DATA_ROOT = path.join(repoRoot, '.tmp', 'e2e-rest-dataroot');
 
 /**
+ * 偽の `fake_create_report.py` が起動のたびに 1 行足す記録。dataRoot の外に置くのは、dataRoot は
+ * git に記録される(`commitAll`)ため。親フォルダの `report-calls.log` と決め、スクリプト側も
+ * 同じ名前を持つ。
+ */
+export const E2E_REPORT_CALL_LOG = path.join(repoRoot, '.tmp', 'report-calls.log');
+
+/**
  * rest e2e のログの置き場(`config.logging.dir`。監査ログと修正履歴 `history/*.jsonl`)。既定の
  * `editor/logs` のままだと修正履歴が実行をまたいで積もり、全履歴を出す画面の撮影が実行ごとに
  * 変わる。dataRoot と同じく gitignore 済みの固定パスを、サーバの起動ごとに作り直して使う。

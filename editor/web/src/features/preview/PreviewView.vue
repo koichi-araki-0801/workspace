@@ -5,11 +5,11 @@
 // 上部バーは編集画面(`EditorTopBar`)と揃え, ズーム(+/-/%)とページ送り(◁ x/y ▷)を集約する。
 // 実際のズーム/ページ送りは `PreviewPanel`(vivliostyle)へ ref 経由で委譲し, 状態は
 // `state` イベントで受け取って表示する。
-import { isErr, isOk, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
+import { isErr, isOk, isValidTemplateId, type Result, type ReviewOrigin, type SampleData, type Template } from '@editor/shared';
 import { AlertCircle, Crop, FileDown, Loader2, Minus, Plus, Send, TriangleAlert } from '@lucide/vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, toRef, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { useFundAssetRepo, useReviewRepo } from '@/api/repositories';
+import { useFundAssetRepo, useReviewRepo, useTemplateRepo } from '@/api/repositories';
 import AttributeBar from '@/components/AttributeBar.vue';
 import PageNav from '@/components/PageNav.vue';
 import PageRail from '@/components/PageRail.vue';
@@ -29,9 +29,13 @@ import {
   svgRejectedImages,
 } from '@/lib/assetWarnings';
 import { withCropMarks } from '@/lib/cropMarks';
+import { formatDateTimeShort } from '@/lib/format';
 import { companyCodeOfTemplateId } from '@/lib/fundImages';
+import { renderReportDocument } from '@/lib/pdfDocument';
 import { useAsyncResult } from '@/lib/useAsyncResult';
+import { useOfficialPdfStatus } from '@/lib/useOfficialPdfStatus';
 import { useSlowIndicator } from '@/lib/useSlowIndicator';
+import { useAuthStore } from '@/stores/auth';
 import { useEditorSessionStore } from '@/stores/editorSession';
 import PreviewPanel from './PreviewPanel.vue';
 import {
@@ -45,6 +49,7 @@ const props = defineProps<{ id: string }>();
 
 const preview = useTemplatePreviewService();
 const reviews = useReviewRepo();
+const templates = useTemplateRepo();
 const fundAssets = useFundAssetRepo();
 const changedSummaryService = useChangedSummaryService();
 const route = useRoute();
@@ -64,10 +69,62 @@ const isFilled = ref(false);
 // トンボ(トリムマーク)の ON/OFF。画面内トグルのみで保持し, 初期は ON。表示用の `displayDoc`
 // と PDF 出力(`exportPdf`)の双方へ効かせる。ベースの `previewDoc`(トンボ無し)は保持する。
 const cropMarks = ref(true);
+// create_report 連携が有効か。状態の取得に失敗したら無効として今までの経路(vivliostyle)を使う。
+const reportEnabled = ref(false);
+// 状態の確定(取得失敗も「確定・無効扱い」)。確定前に PDF を出すと、組版の違う PDF を黙って渡す
+// ことがあるので、確定までは PDF 出力を押させない。
+const reportStatusResolved = ref(false);
+// 値入り HTML のときだけ create_report で単体 PDF を作る(作成タブのスケルトンは対象外)。
+// この経路はトンボを足さないので、トンボの切替も出さない。
+// 経路は id の形(4 つ区切り)で決める。`isFilled` だけでは 3 つ区切りの id も通ってしまう。
+const reportCandidate = computed(() => isFilled.value && isValidTemplateId(props.id));
+const useReportPdf = computed(() => reportEnabled.value && reportCandidate.value);
+// 候補の id だけ状態の確定を待たせる。候補でない id は状態を使わないので、状態 API が返らなくても
+// 今までの経路で出せる。
+const awaitingReportStatus = computed(() => reportCandidate.value && !reportStatusResolved.value);
+
+// 正式 PDF の組版状態の行。連携が有効な値入り HTML のときだけ出す。作り直しは承認権限のみ。
+const auth = useAuthStore();
+const officialPdf = useOfficialPdfStatus(toRef(props, 'id'));
+const showOfficialPdf = computed(() => useReportPdf.value);
+// 利用者の取得後に利用者が居ないのは無認証モード(サーバがロールを見ない)なので、出す側にする。
+const canRebuildOfficialPdf = computed(
+  () => auth.ready && (auth.user === null || auth.isApprover),
+);
+// 同じルートで id だけ変わる遷移ではコンポーネントが作り直されないため、id の変化でも張り直す。
+watch(
+  [showOfficialPdf, () => props.id],
+  ([on]) => {
+    officialPdf.status.value = null;
+    if (on) {
+      officialPdf.start();
+    } else {
+      officialPdf.stop();
+    }
+  },
+  { immediate: true },
+);
+const officialPdfText = computed(() => {
+  const st = officialPdf.status.value;
+  if (!st) { return ''; }
+  const labels = {
+    done: st.updatedAt ? `できた（${formatDateTimeShort(st.updatedAt)}）` : 'できた',
+    stale: '古い',
+    missing: '無い',
+    building: '組版中',
+    queued: '待ち',
+    failed: `失敗（${st.error ?? '理由不明'}）`,
+  } as const;
+  return labels[st.state];
+});
+const officialPdfBusy = computed(() => {
+  const state = officialPdf.status.value?.state;
+  return state === 'queued' || state === 'building';
+});
 // プレビュー表示用ドキュメント。`previewDoc`(ベース)へトンボ CSS を後段注入する。トグル変更で
 // `PreviewPanel`(`watch(() => props.html, render)`)が再描画し即反映される。
 const displayDoc = computed(() =>
-  previewDoc.value ? withCropMarks(previewDoc.value, cropMarks.value) : '',
+  previewDoc.value ? withCropMarks(previewDoc.value, cropMarks.value && !useReportPdf.value) : '',
 );
 // 初期ロード失敗(API・Worker いずれも含む)を画面に出すためのフラグ。トースト一回だけだと
 // 見逃して「無音の白紙」になるため、本文領域に常設のエラー表示を出す。
@@ -129,7 +186,19 @@ async function inspectServedImages(doc: string): Promise<void> {
   }
 }
 
+async function loadReportStatus(): Promise<void> {
+  try {
+    const status = await templates.getReportStatus();
+    reportEnabled.value = isOk(status) && status.value.enabled;
+  } catch {
+    // 状態が分からないときは連携なしとして扱う。
+  } finally {
+    reportStatusResolved.value = true;
+  }
+}
+
 onMounted(async () => {
+  void loadReportStatus();
   const res = await runLoad(() =>
     preview.loadForPreview(props.id, {
       editorCssBaseline: sessionStore.cssBaselineOf(props.id),
@@ -225,16 +294,29 @@ async function submitForReview() {
   }
 }
 
+/** create_report 経路。文書の組み立て・サーバの失敗とも vivliostyle へは切り替えない。 */
+async function buildReportPdf(): Promise<Result<Blob>> {
+  const doc = await renderReportDocument(
+    props.id,
+    restoredHtml.value,
+    template.value?.meta.attributes.companyCode ?? null,
+  );
+  if (isErr(doc)) { return doc; }
+  return templates.buildReportPdf(props.id, doc.value);
+}
+
 async function exportPdf() {
   const res = await runExport(() =>
-    preview.renderPdf(
-      restoredHtml.value,
-      css.value,
-      sample.value,
-      cropMarks.value,
-      isFilled.value,
-      template.value?.meta.attributes.companyCode ?? null,
-    ),
+    useReportPdf.value
+      ? buildReportPdf()
+      : preview.renderPdf(
+          restoredHtml.value,
+          css.value,
+          sample.value,
+          cropMarks.value,
+          isFilled.value,
+          template.value?.meta.attributes.companyCode ?? null,
+        ),
   );
   if (isErr(res)) { return; }
   const url = URL.createObjectURL(res.value);
@@ -328,7 +410,7 @@ async function exportPdf() {
 
       <!-- トンボ(トリムマーク)ON/OFF。ON は塗り(default), OFF は輪郭(outline)で状態を示す。
            表示(`displayDoc`)と PDF 出力(`exportPdf`)の双方へ効く。 -->
-      <Tooltip text="トンボ(トリムマーク)の表示切替">
+      <Tooltip v-if="!useReportPdf" text="トンボ(トリムマーク)の表示切替">
         <Button
           :variant="cropMarks ? 'default' : 'outline'"
           size="sm"
@@ -339,7 +421,7 @@ async function exportPdf() {
         </Button>
       </Tooltip>
       <!-- 読込に失敗した状態では本文が空のまま。押させると空の PDF を出してしまう。 -->
-      <Button variant="outline" size="sm" :disabled="exporting || loadFailed" @click="exportPdf">
+      <Button variant="outline" size="sm" :disabled="exporting || loadFailed || awaitingReportStatus" @click="exportPdf">
         <Loader2 v-if="exporting" class="h-4 w-4 animate-spin" />
         <FileDown v-else class="h-4 w-4" /> PDF出力
       </Button>
@@ -385,6 +467,23 @@ async function exportPdf() {
       <ul class="space-y-0.5">
         <li v-for="m in assetWarnings" :key="m">{{ m }}</li>
       </ul>
+    </div>
+
+    <div
+      v-if="showOfficialPdf && (officialPdf.status.value || canRebuildOfficialPdf)"
+      class="flex items-center gap-3 border-b bg-muted/30 px-4 py-1.5 text-[12.5px]"
+      data-testid="official-pdf-status"
+    >
+      <span v-if="officialPdf.status.value">正式 PDF: {{ officialPdfText }}</span>
+      <Button
+        v-if="canRebuildOfficialPdf"
+        variant="outline"
+        size="sm"
+        :disabled="officialPdfBusy"
+        @click="officialPdf.rebuild()"
+      >
+        正式 PDF を作り直す
+      </Button>
     </div>
 
     <!-- PDF 出力が長引く場合の補足(ボタンのスピナーだけでは固まったように見えるため)。 -->

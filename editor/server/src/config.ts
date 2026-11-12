@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiPaths, DEFAULT_SAMPLE_OVERLAY_KEYS } from '@editor/shared';
 import { z } from 'zod';
+import type { ScriptSpec } from './generate/scriptRunner.js';
 import { COMMITTED_AREAS } from './git/committedAreas.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -84,6 +85,14 @@ const appConfigSchema = z
         scriptSha256: z.string().optional(),
         timeoutMs: z.number().int().positive().optional(),
         maxOutputFiles: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    report: z
+      .object({
+        script: z.string().optional(),
+        scriptSha256: z.string().optional(),
+        timeoutMs: z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
@@ -316,6 +325,50 @@ export function parseScriptSha256(value: string | undefined, source: string): st
   return v.toLowerCase();
 }
 
+/**
+ * create_report のタイムアウト。env と appconfig のどちらの値も同じ範囲で検査する
+ * (appconfig の値を素通しすると、上限超えが起動時に弾かれない)。
+ */
+function resolveReportTimeoutMs(): number {
+  const fromFile = file.report?.timeoutMs;
+  const fromEnv = process.env.REPORT_TIMEOUT_MS;
+  const name = fromEnv === undefined ? 'appconfig.json の report.timeoutMs' : 'REPORT_TIMEOUT_MS';
+  const raw = fromEnv ?? (fromFile === undefined ? undefined : String(fromFile));
+  return envPositiveNumber(name, raw, 300_000, { integer: true, max: 600_000 });
+}
+
+/** 空白だけの文字列を `undefined` にする。 */
+function blankToUndefined(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === '' ? undefined : value;
+}
+
+/** `config.report` を組み立てる。script が無ければ機能ごと無効(`undefined`)。 */
+function resolveReportSpec(): ScriptSpec | undefined {
+  // 空文字の env は未設定と見なさず appconfig の値を隠す(`python.script` の `??` と同じ)。
+  // `python.script` は空文字がそのまま使われて壊れるが、report は空文字を「無効」として扱う。
+  const script = process.env.REPORT_SCRIPT ?? file.report?.script;
+  // 指紋は script の有無に関係なく検査する。script を書き忘れたまま指紋だけ打ち間違えた
+  // 設定を黙って無視すると、あとで script を足したときに初めて落ちる。
+  // 空(trim 後に空)の指紋は未指定と見なす。空欄のまま残した設定で、機能オフの起動が止まらないように。
+  const envSha = blankToUndefined(process.env.REPORT_SCRIPT_SHA256);
+  const scriptSha256 =
+    envSha !== undefined
+      ? parseScriptSha256(envSha, '環境変数 REPORT_SCRIPT_SHA256')
+      : parseScriptSha256(
+          blankToUndefined(file.report?.scriptSha256),
+          'appconfig.json の report.scriptSha256',
+        );
+  if (script === undefined || script === '') {
+    return undefined;
+  }
+  return {
+    script: toPath(script),
+    scriptSha256,
+    timeoutMs: resolveReportTimeoutMs(),
+    label: 'report',
+  };
+}
+
 const executableBrowser =
   process.env.VIVLIOSTYLE_EXECUTABLE_BROWSER ||
   file.pdf?.executableBrowser ||
@@ -433,6 +486,12 @@ export const config = {
    * .gitignore しない)。ポリシー(同期既定)は DB のパーツカタログ列で、ここには持たない。
    */
   syncDir: resolveDataPath(process.env.SYNC_DIR, file.paths?.syncDir, 'sync'),
+  /**
+   * create_report が書き出す PDF の置き場(git 管理外。`/pdf/` を .gitignore する)。
+   * 上書きの設定は持たない。
+   * create_report は自分の dataRoot 直下の `pdf/` に書くので、場所を変えると必ず「出力が無い」になる。
+   */
+  pdfDir: path.join(dataRoot, 'pdf'),
   /** テンプレ版管理の git リポジトリ(= dataRoot)。確定保存ごとに 1 コミット。 */
   gitRepoDir: process.env.GIT_REPO_DIR === undefined ? dataRoot : toPath(process.env.GIT_REPO_DIR),
 
@@ -491,6 +550,12 @@ export const config = {
       { integer: true, max: 1000 },
     ),
   },
+
+  /**
+   * create_report(PDF のレポート作成ツール)。スクリプトが env にも appconfig にも無ければ
+   * `undefined` で、機能を出さない。指紋・タイムアウトは `python` と同じ検査。
+   */
+  report: resolveReportSpec(),
 
   /** vivliostyle の PDF 生成に使う一時ディレクトリ。 */
   tmpDir: resolvePath(process.env.TMP_DIR, file.paths?.tmpDir, '.tmp'),

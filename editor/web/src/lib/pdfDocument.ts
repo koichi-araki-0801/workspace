@@ -10,6 +10,7 @@ import {
   BUILD_BUSY_USER,
   BUILD_BUSY_USER_MESSAGE,
   conflict,
+  cssFileNameOf,
   DOC_DIR,
   EXTERNAL_REF_MESSAGE,
   err,
@@ -188,4 +189,40 @@ export async function renderPdfDocument(
     );
   }
   return ok({ html: serializePreviewRoot(root), css: pdfCss });
+}
+
+/**
+ * create_report 連携の PDF 用に、値入り HTML を完全な文書へ整える。保存済み CSS は本文を
+ * 連結せず `<link href="../css/…">` で参照させる(サーバが同じ相対位置に CSS を置いて組版
+ * する)。入力が body だけでも参照が付くよう、`<head>` に link を必ず 1 本置く。
+ * script は落とさない(`renderPdfDocument` と同じ方針)。トンボは足さない。
+ * link はサニタイズの後に足す。PDF 用のサニタイズは `<link>` を残すので、入力に同じ href の
+ * link があれば先に除いて 1 本にそろえる。
+ */
+export async function renderReportDocument(
+  id: string,
+  html: string,
+  companyCode: string | null,
+): Promise<Result<string>> {
+  const cssFile = cssFileNameOf(id);
+  if (cssFile === null) {
+    return err(conflict(PDF_ERROR_MSG, { cause: `invalid template id: ${id}` }));
+  }
+  const root = sanitizePdfRoot(formatHtml(html));
+  dropUnmatchedCompanyImages(root, companyCode);
+  const href = `../css/${cssFile}`;
+  // `WHOLE_DOCUMENT` のサニタイズは断片でも `<head>` を作るので、head の有無の分岐は要らない。
+  // PDF 用のサニタイズは `<link>` を残す(`pdfPurifyConfig`)ので、入力に同じ href があれば
+  // 先に除いてから 1 本足す。
+  const head = root.ownerDocument.head;
+  for (const l of Array.from(head.querySelectorAll('link'))) {
+    if (l.getAttribute('href') === href) {
+      l.remove();
+    }
+  }
+  const link = root.ownerDocument.createElement('link');
+  link.setAttribute('rel', 'stylesheet');
+  link.setAttribute('href', href);
+  head.appendChild(link);
+  return ok(serializePreviewRoot(root));
 }
