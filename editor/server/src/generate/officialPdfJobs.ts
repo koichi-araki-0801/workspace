@@ -21,6 +21,8 @@ export interface OfficialPdfJobsDeps {
   /** `filled/<id>.html` を最後に変えたコミット。記録が無ければ null。 */
   filledCommit(id: string): Promise<CommitRef | null>;
   isAncestorOrSame(ancestor: string, descendant: string): Promise<boolean>;
+  /** `base` より後の `filled/<id>.html` のコミットが、すべて create_report.py の作者のものか。 */
+  filledChangedOnlyByCreateReport(id: string, base: string): Promise<boolean>;
   now?: () => Date;
 }
 
@@ -93,13 +95,33 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
    * 成功時のコミットを覚える。filled は組版の前に読んだものを使う: 組版中に承認が filled を
    * コミットしても、その新しい filled から組んだ `done` と取り違えないため。
    */
-  async function rememberDone(key: string, id: string, filled: string | null | undefined) {
+  async function rememberDone(key: string, id: string, filledBefore: string | null | undefined) {
     const pdf = await readHash(deps.pdfCommit, id);
-    if (pdf === undefined || filled === undefined) {
+    if (pdf === undefined || filledBefore === undefined) {
       doneHashes.delete(key);
       return;
     }
-    doneHashes.set(key, { pdf, filled });
+    doneHashes.set(key, { pdf, filled: await filledAfterBuild(id, filledBefore) });
+  }
+
+  /**
+   * 組版の後の filled の記録として覚える hash。create_report.py は組版で filled を書き直し
+   * (改ページなど)、PDF が同じバイトなら filled だけをコミットしうる。組版の前からの filled の
+   * コミットがすべて create_report.py の作者なら、それはこの組版の結果なので組版後の hash を
+   * 覚える。ほかの作者(承認など)が混ざるか、確かめられなければ組版の前の hash のまま
+   * (git から出し直して `stale` になる)。
+   */
+  async function filledAfterBuild(id: string, before: string | null): Promise<string | null> {
+    const after = await readHash(deps.filledCommit, id);
+    if (before === null || after === undefined || after === null || after === before) {
+      return before;
+    }
+    try {
+      return (await deps.filledChangedOnlyByCreateReport(id, before)) ? after : before;
+    } catch (gitErr) {
+      logger.warn({ id, err: gitErr }, '[report] 組版後の filled の作者を git から読めません');
+      return before;
+    }
   }
 
   async function runLoop(key: string, id: string): Promise<void> {

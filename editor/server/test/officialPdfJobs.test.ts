@@ -27,14 +27,16 @@ function setup(build: (id: string) => Promise<void>) {
   const pdf: { value: Ref | null } = { value: C0 };
   const filled: { value: Ref | null } = { value: null };
   const filledIsNewer = { value: false };
+  const onlyByCreateReport = { value: false };
   const jobs = createOfficialPdfJobs({
     build,
     pdfCommit: async () => pdf.value,
     filledCommit: async () => filled.value,
     isAncestorOrSame: async (a, b) => a === b || !filledIsNewer.value,
+    filledChangedOnlyByCreateReport: async () => onlyByCreateReport.value,
     now: () => T1,
   });
-  return { jobs, pdf, filled, filledIsNewer };
+  return { jobs, pdf, filled, filledIsNewer, onlyByCreateReport };
 }
 
 describe('officialPdfJobs', () => {
@@ -121,6 +123,34 @@ describe('officialPdfJobs', () => {
       state.filled.value = C1;
       state.filledIsNewer.value = true;
     });
+    state.jobs.request('A');
+    await state.jobs.settled();
+    expect((await state.jobs.status('A')).state).toBe('stale');
+  });
+
+  it('keeps done when create_report itself committed only filled during the build', async () => {
+    const state = setup(async () => {
+      // create_report が filled を書き直してコミットし、PDF は同じバイトなのでコミットを省いた
+      state.filled.value = C1;
+      state.filledIsNewer.value = true;
+    });
+    state.filled.value = C0;
+    state.onlyByCreateReport.value = true;
+    state.jobs.request('A');
+    await state.jobs.settled();
+    expect((await state.jobs.status('A')).state).toBe('done');
+    // その後にほかの作者が filled をコミットすれば、git から出し直す
+    state.filled.value = { hash: 'c3', date: '2026-11-11T04:00:00.000Z' };
+    expect((await state.jobs.status('A')).state).toBe('stale');
+  });
+
+  it('derives stale when a filled commit by someone else lands during the build', async () => {
+    const state = setup(async () => {
+      state.filled.value = C1;
+      state.filledIsNewer.value = true;
+    });
+    state.filled.value = C0;
+    state.onlyByCreateReport.value = false;
     state.jobs.request('A');
     await state.jobs.settled();
     expect((await state.jobs.status('A')).state).toBe('stale');
@@ -226,6 +256,7 @@ describe('officialPdfJobs', () => {
       pdfCommit: async () => null,
       filledCommit: async () => null,
       isAncestorOrSame: async () => true,
+      filledChangedOnlyByCreateReport: async () => false,
       now: () => {
         throw new Error('clock');
       },
@@ -245,6 +276,7 @@ describe('officialPdfJobs', () => {
       pdfCommit: async () => null,
       filledCommit: async () => null,
       isAncestorOrSame: async () => true,
+      filledChangedOnlyByCreateReport: async () => false,
     });
     jobs.request('A');
     await jobs.settled();

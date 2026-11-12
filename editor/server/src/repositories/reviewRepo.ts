@@ -74,7 +74,12 @@ import {
   writeReview,
 } from '../files/reviewFiles.js';
 import { filledExists, readFilledHtml, readTemplateCss } from '../files/templateFiles.js';
-import { authorEmailsSince, headCommit, showFile } from '../git/gitRepo.js';
+import {
+  authorEmailsSince,
+  CREATE_REPORT_AUTHOR_DOMAIN,
+  headCommit,
+  showFile,
+} from '../git/gitRepo.js';
 import { logger } from '../logger.js';
 import { assertTemplateScriptsUnchanged } from '../security/templateScripts.js';
 import type { NoteMasterService } from '../sync/noteMasterService.js';
@@ -473,10 +478,8 @@ async function currentBaseHash(templateId: string, target: ConfirmedTarget): Pro
 
 // ── 単独の create_report との書き込みの競合 ──
 // `filled/<id>.html` を書くのは承認と単独の create_report の 2 つで、プロセスをまたぐロックは無い。
-// 単独の実行は書いたファイルだけを自分でコミットし、作者のメールにこの印を付ける。
+// 単独の実行は書いたファイルだけを自分でコミットし、作者のメールに印(`CREATE_REPORT_AUTHOR_DOMAIN`)を付ける。
 
-/** 単独の create_report のコミットの作者のメールの末尾。 */
-const STANDALONE_AUTHOR_DOMAIN = '@create_report.local';
 /** 申請後に単独の create_report が作り直したときの 409 の文言。 */
 const REVIEW_REGENERATED_MESSAGE = '申請後に再作成されました。';
 
@@ -520,7 +523,7 @@ async function assertNotRegenerated(review: StoredReviewRequest): Promise<void> 
     );
     return;
   }
-  if (emails.some((e) => e.toLowerCase().endsWith(STANDALONE_AUTHOR_DOMAIN))) {
+  if (emails.some((e) => e.toLowerCase().endsWith(CREATE_REPORT_AUTHOR_DOMAIN))) {
     throw conflict(REVIEW_REGENERATED_MESSAGE, { code: REVIEW_REGENERATED });
   }
 }

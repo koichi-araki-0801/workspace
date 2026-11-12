@@ -633,6 +633,9 @@ export async function headCommit(): Promise<string | null> {
   }
 }
 
+/** create_report.py が単独でコミットするときの作者のメールの末尾。 */
+export const CREATE_REPORT_AUTHOR_DOMAIN = '@create_report.local';
+
 /**
  * `base` より後(`base..HEAD`)で `relPath` に触れたコミットの author email を新しい順で返す。
  * 承認の前に「申請の後で単独の create_report がコミットしたか」を見るのに使う。件数は絞らない —

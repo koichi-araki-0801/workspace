@@ -29,6 +29,8 @@ import {
 } from '../generate/createReport.js';
 import { createOfficialPdfJobs } from '../generate/officialPdfJobs.js';
 import {
+  authorEmailsSince,
+  CREATE_REPORT_AUTHOR_DOMAIN,
   commitAll,
   ensureRepo,
   isAncestorOrSame,
@@ -163,6 +165,10 @@ export function createReportRepo(templates: Pick<TemplateRepo, 'listCompanies'>)
     pdfCommit: (id: string) => lastCommitFor(`pdf/${id}.pdf`),
     filledCommit: (id: string) => lastCommitFor(`filled/${id}.html`),
     isAncestorOrSame,
+    filledChangedOnlyByCreateReport: async (id: string, base: string) =>
+      (await authorEmailsSince(base, `filled/${id}.html`)).every((e) =>
+        e.toLowerCase().endsWith(CREATE_REPORT_AUTHOR_DOMAIN),
+      ),
   };
 
   // 正式 PDF の組版。rep1 は組版の直前に引くので、DB 不通は要求ではなくジョブの失敗になる。
