@@ -38,6 +38,12 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const IMG = (name: string) => resolve(here, '../../docs/editor/images', name);
 const SEED_ID = 'XX01_950037_20240710_交付版';
+// 「作成して開く」の撮影に使う組。ファンドは sproc フェイクが名前を返し(候補が「コード 名称」に
+// なる)、SEED_ID とは別のもの。基準日は fixtures の `filled/` に無い日付にする。
+const NEW_DATE_FUND = '950155';
+const NEW_DATE_TEXT = '2026/09/30';
+const NEW_DATE_SKELETON = `XX01_${NEW_DATE_FUND}_交付版.html`;
+const NEW_DATE_ID = `XX01_${NEW_DATE_FUND}_20260930_交付版`;
 
 test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -106,6 +112,42 @@ test('capture editor screens', async ({ page }) => {
   // ② 編集タブ（属性ドロップダウンが見える）
   await waitForTransitionsSettled(page);
   await page.screenshot({ path: IMG('edit-tab.png'), animations: 'disabled' });
+
+  // ②a 編集タブ: まだ帳票の無い基準日で検索し、「作成して開く」が出た状態
+  // 元になるテンプレート(3 つ区切り)を置くと、その版種が新しい基準日の候補に出る。置いたままだと
+  // 作成タブの「作成済み」と以降の候補が変わるので、撮ったら消す。「作成して開く」は押さない
+  // (偽の create_report が `filled/` を作り、後の撮影と再実行の結果が変わる)。
+  const newDateSkeleton = resolve(E2E_REST_DATA_ROOT, 'templates', NEW_DATE_SKELETON);
+  expect(fs.existsSync(resolve(E2E_REST_DATA_ROOT, 'filled', `${NEW_DATE_ID}.html`))).toBe(false);
+  fs.mkdirSync(dirname(newDateSkeleton), { recursive: true });
+  fs.writeFileSync(
+    newDateSkeleton,
+    '<html><body><h1 class="report-title">{{ fund.name }}</h1></body></html>',
+    'utf8',
+  );
+  try {
+    await page.goto('/edit');
+    await page.getByText('ファンドコード').first().waitFor();
+    await page.getByPlaceholder('委託会社を入力/選択').click();
+    await page.getByRole('option', { name: /^XX01（/ }).click();
+    await page.getByPlaceholder('ファンドコードを入力/選択').click();
+    await page.getByRole('option', { name: new RegExp(`^${NEW_DATE_FUND}`) }).click();
+    const date = page.getByPlaceholder('基準日を入力/選択');
+    // 日付は固定の文字列で打ち込む(画面の日付に依らず、毎回同じ画像にするため)。
+    await date.fill(NEW_DATE_TEXT);
+    await date.press('Enter');
+    await page.getByRole('combobox').filter({ hasText: '版種を選択' }).click();
+    await page.getByRole('option', { name: '交付版', exact: true }).click();
+    await page.getByRole('button', { name: '検索' }).click();
+    await expect(page.getByRole('button', { name: '作成して開く' })).toBeVisible();
+    // 押した検索ボタンのホバーが写らないよう、ポインタを画面の隅へ逃がす。
+    await page.mouse.move(0, 0);
+    await waitForLoaded(page);
+    await waitForTransitionsSettled(page);
+    await page.screenshot({ path: IMG('edit-tab-new-base-date.png'), animations: 'disabled' });
+  } finally {
+    fs.rmSync(newDateSkeleton, { force: true });
+  }
 
   // ②b テンプレート作成タブ
   // タブ間はリンククリックでなく `goto` で移る。クリックだとタブの `transition-colors` が走り、

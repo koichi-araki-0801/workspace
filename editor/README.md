@@ -194,7 +194,7 @@ editor\start.bat lan          # 本番 + REST + LAN 公開（HTTPS）
 | `GENERATE_MAX_CONCURRENCY` / `GENERATE_MAX_QUEUE` | 2 / 8 | 生成の同時実行と待ち行列の上限 |
 | `PY_TIMEOUT_MS` | 300000（5 分。上限 600000） | 生成器 1 回のタイムアウト（ms） |
 | `GENERATE_MAX_OUTPUT_FILES` | 50 | 1 回の作成で取り込む出力ファイルの上限（appconfig の `python.maxOutputFiles`） |
-| `REPORT_SCRIPT` | なし（機能オフ） | create_report.py のパス。設定すると編集タブに「新しい基準日で開く」が出て、値入り HTML の単体 PDF が create_report の組版になる（Python の実行ファイルと枠は上の生成器と共有）。開発・e2e は偽物 `server/scripts/fake_create_report.py` を指し、本物を設定しない |
+| `REPORT_SCRIPT` | なし（機能オフ） | create_report.py のパス。設定すると編集タブで、検索欄に入力したまだ帳票の無い基準日の値入り HTML を「作成して開く」で作れるようになり、値入り HTML の単体 PDF が create_report の組版になる（Python の実行ファイルと枠は上の生成器と共有）。開発・e2e は偽物 `server/scripts/fake_create_report.py` を指し、本物を設定しない |
 | `REPORT_SCRIPT_SHA256` | なし | create_report.py の SHA256。設定すると起動のたびに照合する（appconfig の `report.scriptSha256`） |
 | `REPORT_TIMEOUT_MS` | 300000（上限 600000） | create_report.py 1 回のタイムアウト（ms。appconfig の `report.timeoutMs`） |
 | `VIVLIOSTYLE_EXECUTABLE_BROWSER` | 自動検出 | PDF 用ブラウザ（Edge → playwright 既定） |
