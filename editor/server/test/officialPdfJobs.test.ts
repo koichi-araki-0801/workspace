@@ -228,7 +228,7 @@ describe('officialPdfJobs', () => {
     expect(await jobs.status('A')).toMatchObject({ state: 'done', updatedAt: C1.date });
   });
 
-  it('keeps failed when an old pdf commit stays the same across the failure', async () => {
+  it('replaces failed once a pdf that existed before the failure is recommitted', async () => {
     const { jobs, pdf } = setup(async () => {
       throw new Error('x');
     });

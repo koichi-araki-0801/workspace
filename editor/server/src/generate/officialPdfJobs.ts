@@ -78,13 +78,16 @@ export function createOfficialPdfJobs(deps: OfficialPdfJobsDeps): OfficialPdfJob
           // 画面に出すのは利用者向けの文言だけ。DB エラーなどの生の文言は logger にだけ残す。
           const message = toAppError(err).message;
           logger.error({ id, err }, '[report] 正式 PDF の組版に失敗しました');
-          failedPdfHash.set(
-            key,
-            await deps.pdfCommit(id).then(
-              (c) => c?.hash ?? null,
-              () => null,
-            ),
+          // 記録中に git が読めなくても失敗の記録は残す。null に倒すと、のちに PDF の hash が
+          // 取れた時点で failed が done に切り替わるだけで、誤って失敗が残り続けることはない。
+          const hashAtFailure = await deps.pdfCommit(id).then(
+            (c) => c?.hash ?? null,
+            (gitErr) => {
+              logger.warn({ id, err: gitErr }, '[report] 失敗時の PDF の記録を git から読めません');
+              return null;
+            },
           );
+          failedPdfHash.set(key, hashAtFailure);
           records.set(key, { state: 'failed', updatedAt: now().toISOString(), error: message });
         }
       } while (again.has(key));

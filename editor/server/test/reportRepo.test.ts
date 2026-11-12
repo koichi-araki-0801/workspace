@@ -3,7 +3,6 @@
 // =============================================================================
 // generate / files / git は境界で差し替え、検査と呼び出しの順序だけを確かめる。
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
