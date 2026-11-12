@@ -16,8 +16,11 @@
   書くだけ。有れば filled/<id>.html に記録されていない変更がある場合は書かずに exit 4。無ければ名前を
   変えて、そのファイル 1 つだけを `<名前>@create_report.local` の作者でコミットする。
   コミットの失敗は exit 5(HTML は書いたまま)。git の場所は環境変数 GIT_BIN(無ければ git)。
-- --pdf-only --fund-only(単独): filled/<id>.html が無ければ exit 3。あれば記録されていない変更の
-  検査(filled だけ。exit 4 なら何も書かない)の後、filled を同じ内容で書き戻し、`%PDF-1.4` で始まる
+- --pdf-only --fund-only(単独): filled/<id>.html が無ければ exit 3。あれば読んだときの
+  `HEAD:filled/<id>.html` の blob を覚え、記録されていない変更の検査(filled だけ)の後にもう一度
+  blob を引く。どちらかで止まるなら(変更あり・blob が変わった)何も書かずに exit 4。blob を比べるのは、
+  読んだ後に承認が filled をコミットすると作業ツリーは clean のままで、書き戻すと承認した内容が
+  消えるため。通れば filled を同じ内容で書き戻し、`%PDF-1.4` で始まる
   最小の PDF を pdf/<id>.pdf に書く(どちらも一時ファイル経由)。.git が無ければ警告して書くだけ。
   有れば pdf/<id>.pdf の `text` 属性が unset でなければ exit 5(コミットしない)。2 つを同じ
   作者・1 コミットで記録する(同一内容なら何もしない)。
@@ -26,6 +29,11 @@
 
 - 起動のたびに、dataRoot の親フォルダの `report-calls.log` へ引数を 1 行足す(e2e が「走らなかった」
   ことを確かめる用。dataRoot の中に置くと git の記録に混ざる)。
+
+テスト用の環境変数:
+- FAKE_REPORT_COMMIT_BEFORE_WRITE: --pdf-only 単独で、記録されていない変更の検査の直後に、値を
+  filled/<id>.html に書いて approver@editor.local の作者でコミットする(読んでから書くまでの間に
+  承認が入った場合の再現用。本物には無い)。
 
 テスト用の特別なファンドコード:
 - 999101: exit 1(失敗)。
@@ -50,6 +58,7 @@ EXIT_USAGE = 2
 EXIT_NO_INPUT = 3
 EXIT_UNRECORDED_CHANGE = 4
 EXIT_COMMIT_FAILED = 5
+COMMIT_BEFORE_WRITE_ENV = "FAKE_REPORT_COMMIT_BEFORE_WRITE"
 LOCK_RETRIES = 5
 LOCK_WAIT_SECONDS = 0.3
 
@@ -93,19 +102,22 @@ _FLAG_SETS = (
 )
 
 
-def _git(args: list[str], cwd: str, hooks_dir: str, user: str) -> subprocess.CompletedProcess:
-    """リポジトリ側から子プロセスを起こす口を切って git を呼ぶ。"""
+def _git(
+    args: list[str], cwd: str, hooks_dir: str, user: str, email: str | None = None
+) -> subprocess.CompletedProcess:
+    """リポジトリ側から子プロセスを起こす口を切って git を呼ぶ。email の既定は単独の実行の印。"""
+    email = email or f"{user}@create_report.local"
     env = dict(os.environ)
     env.update(
         GIT_AUTHOR_NAME=user,
-        GIT_AUTHOR_EMAIL=f"{user}@create_report.local",
+        GIT_AUTHOR_EMAIL=email,
         GIT_COMMITTER_NAME=user,
-        GIT_COMMITTER_EMAIL=f"{user}@create_report.local",
+        GIT_COMMITTER_EMAIL=email,
     )
     cmd = [
         os.environ.get("GIT_BIN") or "git",
         "-c", f"user.name={user}",
-        "-c", f"user.email={user}@create_report.local",
+        "-c", f"user.email={email}",
         "-c", f"core.hooksPath={hooks_dir}",
         "-c", "core.fsmonitor=false",
         "-c", "commit.gpgSign=false",
@@ -120,13 +132,43 @@ def _git(args: list[str], cwd: str, hooks_dir: str, user: str) -> subprocess.Com
         return subprocess.CompletedProcess(cmd, 127, "", str(e))
 
 
+def _head_blob(data_root: str, rel: str, hooks_dir: str, user: str) -> str:
+    """`HEAD:<rel>` の blob の hash。HEAD かそのパスの記録が無ければ空文字。"""
+    got = _git(["rev-parse", "--verify", "-q", f"HEAD:{rel}"], data_root, hooks_dir, user)
+    return got.stdout.strip() if got.returncode == 0 else ""
+
+
+def _read_blob(data_root: str, rel: str) -> str | None:
+    """読んだときの `HEAD:<rel>` の blob。.git が無ければ None(記録が無いので比べない)。"""
+    if not os.path.exists(os.path.join(data_root, ".git")):
+        return None
+    with tempfile.TemporaryDirectory() as hooks_dir:
+        return _head_blob(data_root, rel, hooks_dir, getpass.getuser())
+
+
+def _commit_as_approver(data_root: str, rel: str, body: str, hooks_dir: str) -> None:
+    """読んでから書くまでの間の承認を再現する(FAKE_REPORT_COMMIT_BEFORE_WRITE のテスト専用)。"""
+    _write_atomic(os.path.join(data_root, *rel.split("/")), body.encode("utf-8"))
+    approver = ("approver", "approver@editor.local")
+    _git(["add", "--", rel], data_root, hooks_dir, *approver)
+    _git(
+        ["commit", "--no-verify", "-q", "-m", "approve", "--", rel], data_root, hooks_dir, *approver
+    )
+
+
 def _record_standalone(
-    data_root: str, report_id: str, files: list[tuple[str, bytes]], binary_rels: list[str]
+    data_root: str,
+    report_id: str,
+    files: list[tuple[str, bytes]],
+    binary_rels: list[str],
+    read_blob: str | None = None,
 ) -> int:
     """files(相対パスと中身の並び)を順に書き、1 コミットにする。
 
     記録されていない変更の検査は files[0] だけに掛ける(後ろは生成物で、未追跡でも止めない)。
     binary_rels は `text` 属性が unset であること(改行変換されないこと)を確かめるパス。
+    read_blob は files[0] を読んだときの `HEAD:` の blob。None でなければ、書く直前の blob と
+    違うとき何も書かずに exit 4 で止まる。
     """
     rels = [rel for rel, _ in files]
 
@@ -145,6 +187,12 @@ def _record_standalone(
         if status.returncode != 0 or status.stdout.strip():
             print("editor の承認の途中か、記録されていない変更があります", file=sys.stderr)
             return EXIT_UNRECORDED_CHANGE if status.returncode == 0 else EXIT_COMMIT_FAILED
+        approved = os.environ.get(COMMIT_BEFORE_WRITE_ENV)
+        if approved is not None:
+            _commit_as_approver(data_root, rels[0], approved, hooks_dir)
+        if read_blob is not None and _head_blob(data_root, rels[0], hooks_dir, user) != read_blob:
+            print(f"{rels[0]} が読んだ後にコミットされました(承認が入った)", file=sys.stderr)
+            return EXIT_UNRECORDED_CHANGE
         write_all()
         for rel in binary_rels:
             attr = _git(["check-attr", "text", "--", rel], data_root, hooks_dir, user)
@@ -232,14 +280,17 @@ def main(argv: list[str]) -> int:
     if not os.path.isfile(filled):
         print(f"filled/{report_id}.html がありません", file=sys.stderr)
         return EXIT_NO_INPUT
+    filled_rel = f"filled/{report_id}.html"
+    read_blob = _read_blob(data_root, filled_rel)
     with open(filled, "rb") as f:
         filled_body = f.read()
     # filled を同じ内容で書き戻してから pdf を書く。本物と同じく 2 つを 1 コミットにする
     return _record_standalone(
         data_root,
         report_id,
-        [(f"filled/{report_id}.html", filled_body), (f"pdf/{report_id}.pdf", MIN_PDF)],
+        [(filled_rel, filled_body), (f"pdf/{report_id}.pdf", MIN_PDF)],
         [f"pdf/{report_id}.pdf"],
+        read_blob,
     )
 
 

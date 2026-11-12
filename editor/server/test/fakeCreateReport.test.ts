@@ -224,6 +224,22 @@ describe('fake_create_report.py', () => {
     expect(fs.existsSync(path.join(root, 'pdf', `${ID}.pdf`))).toBe(false);
   }, 60_000);
 
+  // 読んだ後に承認が filled をコミットすると、作業ツリーは clean のまま HEAD の blob だけが変わる。
+  // 書き戻すと承認した内容が消えるので、何も書かずに exit 4 で止まる。
+  it('standalone pdf stops with 4 when filled is committed between read and write', async () => {
+    const root = pdfRepo('sa-pdf-race');
+    const r = await run(root, FUND, '--pdf-only', {
+      env: { FAKE_REPORT_COMMIT_BEFORE_WRITE: '<p>approved</p>' },
+    });
+    expect(r.code).toBe(4);
+    expect(r.stderr).not.toBe('');
+    expect(fs.readFileSync(path.join(root, 'filled', `${ID}.html`), 'utf8')).toBe(
+      '<p>approved</p>',
+    );
+    expect(fs.existsSync(path.join(root, 'pdf', `${ID}.pdf`))).toBe(false);
+    expect(git(root, 'log', '-1', '--format=%ae').trim()).toBe('approver@editor.local');
+  }, 60_000);
+
   it('editor pdf uses stdin and stdout only', async () => {
     const root = dataRoot('ed-pdf');
     const r = await run(root, FUND, '--pdf-only', { fromEditor: true, stdin: '<p>x</p>' });
