@@ -187,7 +187,7 @@ describe('fake_create_report.py', () => {
     return root;
   }
 
-  it('standalone pdf commits filled and pdf together', async () => {
+  it('standalone pdf records only the pdf in one create_report.local commit', async () => {
     const root = pdfRepo('sa-pdf-commit');
     const r = await run(root, FUND, '--pdf-only');
     expect(r.code).toBe(0);
