@@ -136,6 +136,25 @@ describe('SearchFilters の基準日の段', () => {
     expect(searchButton(w).attributes('disabled')).toBeUndefined();
   });
 
+  it('unreadable retype disables edition and search', async () => {
+    // 確定済みの基準日を読めない文字に打ち直すと、欄に誤りが出たまま前の基準日で進めてしまう。
+    templates.getDropdownOptions.mockImplementation(async () => ok(optionsWith(['全体版'])));
+    const w = mountFilters();
+    await flushPromises();
+    await commitBaseDate(w, '2024/07/10');
+    editionSelect(w)?.vm.$emit('update:modelValue', '全体版');
+    await flushPromises();
+    expect(searchButton(w).attributes('disabled')).toBeUndefined();
+
+    const input = w.findComponent(BaseDateInput).find('input');
+    await input.setValue('2024/13/01');
+    await input.trigger('blur');
+    await flushPromises();
+    expect(w.text()).toContain('実在しない日付です');
+    expect(editionSelect(w)?.props('disabled')).toBe(true);
+    expect(searchButton(w).attributes('disabled')).toBeDefined();
+  });
+
   it('allow: unknown date keeps edition enabled', async () => {
     templates.getDropdownOptions.mockImplementation(async () => ok(optionsWith(['全体版'])));
     const w = mountFilters({ dropdownScope: 'edit', newBaseDate: 'allow' });

@@ -84,7 +84,7 @@ function mountWith(opts: MountOpts = {}) {
       stubs: { SearchFilters: SearchFiltersStub, TemplateTable: true },
     },
   });
-  return { w, templates };
+  return { w, templates, pinia };
 }
 
 function filters(w: ReturnType<typeof mountWith>['w']) {
@@ -115,8 +115,6 @@ describe('EditTabView create and open', () => {
       [{ enabled: true, role: 'viewer' }, false],
       [{ enabled: false, role: 'editor' }, false],
       [{ enabled: 'error', role: 'editor' }, false],
-      // 利用者の取得中は閲覧者かどうか分からないので出さない。
-      [{ enabled: true, ready: false }, false],
     ];
     for (const [opts, expected] of shown) {
       const { w } = mountWith(opts);
@@ -159,6 +157,15 @@ describe('EditTabView create and open', () => {
     release(ok({ created: true }));
     await flushPromises();
     expect(push).toHaveBeenCalledWith({ name: 'editor', params: { id: ID } });
+  });
+
+  it('builds id with digits-only base date', async () => {
+    // 既存の値入り HTML がハイフン表記の基準日でも、server は 8 桁の数字だけを基準日として読む。
+    const { w, templates } = mountWith({ role: 'editor' });
+    await searchWith(w, { ...FULL, baseDate: '2024-05-17', editionType: '全体版' });
+    await createButton(w)?.trigger('click');
+    await flushPromises();
+    expect(templates.fillTemplate).toHaveBeenCalledWith('XX01_910024_20240517_全体版');
   });
 
   it('shows failure text and retries', async () => {
@@ -257,6 +264,58 @@ describe('EditTabView create and open', () => {
     table.vm.$emit('open-review', row);
     expect(push).toHaveBeenNthCalledWith(1, { name: 'editor', params: { id: ID } });
     expect(push).toHaveBeenNthCalledWith(2, { name: 'reviews', query: { template: ID } });
+  });
+
+  it('waits for status and user before rendering filters', async () => {
+    // 状態の応答前に検索欄を描くと、`reject` のまま URL の新しい基準日を止めてしまう。
+    let answer: (v: unknown) => void = () => {};
+    const pinia = createPinia();
+    pinia.state.value.auth = { ready: true, user: { ...USER } };
+    const templates = {
+      getReportStatus: vi.fn(
+        () =>
+          new Promise((r) => {
+            answer = r;
+          }),
+      ),
+      listTemplates: vi.fn(async () => ok([])),
+      fillTemplate: vi.fn(async () => ok({ created: true })),
+    };
+    const history = { listVersions: vi.fn(async () => ok([])) };
+    const w = mount(EditTabView, {
+      global: {
+        plugins: [pinia],
+        provide: { [REPOS_KEY as symbol]: { templates, history } },
+        stubs: { SearchFilters: SearchFiltersStub, TemplateTable: true },
+      },
+    });
+    await flushPromises();
+    expect(filters(w).exists()).toBe(false);
+
+    answer(ok({ enabled: true }));
+    await flushPromises();
+    expect(filters(w).props('newBaseDate')).toBe('allow');
+    filters(w).vm.$emit('restore', { ...FULL });
+    await flushPromises();
+    expect(w.text()).toContain(EMPTY_TEXT);
+  });
+
+  it('waits for user ready before rendering filters', async () => {
+    // 利用者の取得中は閲覧者かどうか分からないので、検索欄も空表示もまだ出さない。
+    const { w, pinia } = mountWith({ role: 'editor', ready: false });
+    await flushPromises();
+    expect(filters(w).exists()).toBe(false);
+    expect(w.text()).not.toContain(EMPTY_TEXT);
+
+    pinia.state.value.auth.ready = true;
+    await flushPromises();
+    expect(filters(w).props('newBaseDate')).toBe('allow');
+  });
+
+  it('renders filters as reject when status fails', async () => {
+    const { w } = mountWith({ enabled: 'error', role: 'editor' });
+    await flushPromises();
+    expect(filters(w).props('newBaseDate')).toBe('reject');
   });
 
   it('passes newBaseDate', async () => {

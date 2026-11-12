@@ -19,6 +19,7 @@ import { useRouter } from 'vue-router';
 import { useHistoryRepo, useTemplateRepo } from '@/api/repositories';
 import { buttonVariants } from '@/components/ui/Button.vue';
 import EmptyState from '@/components/ui/EmptyState.vue';
+import Skeleton from '@/components/ui/Skeleton.vue';
 import { useAsyncResult } from '@/lib/useAsyncResult';
 import { useLatest } from '@/lib/useLatest';
 import { useAuthStore } from '@/stores/auth';
@@ -40,6 +41,7 @@ const searched = ref(false);
 // 帳票作成の連携が有効なときだけ、0 件の検索に「作成して開く」を出す。状態の取得に失敗したら
 // 出さない。
 const reportEnabled = ref(false);
+const statusLoaded = ref(false);
 // 値入り HTML の生成は編集者以上(サーバの `requireEditor`)なので、閲覧者には入口を出さない。
 // 利用者の取得が済むまでは出さない(取得中は利用者が空で、閲覧者にも一瞬出てしまう)。取得後に
 // 利用者が居ないのは無認証モード(サーバがロールを見ない)なので、出す側にする。
@@ -49,7 +51,12 @@ const canFill = computed(() => auth.ready && (auth.user === null || isEditor(aut
 onMounted(async () => {
   const status = await repo.getReportStatus();
   reportEnabled.value = !isErr(status) && status.value.enabled;
+  statusLoaded.value = true;
 });
+
+// 連携の状態と利用者がそろうまで検索欄を描かない。先に描くと `reject` のまま候補を取り終え、
+// URL に残った新しい基準日を編集者でも止めて案内を出してしまう。状態の取得の失敗は確定として扱う。
+const filtersReady = computed(() => statusLoaded.value && auth.ready);
 
 // 連携が有効で生成できる利用者なら、候補に無い基準日も検索欄で確定させる(作って開くため)。
 const newBaseDate = computed(() => (reportEnabled.value && canFill.value ? 'allow' : 'reject'));
@@ -77,7 +84,9 @@ const createId = computed(() => {
   if (!q || !searched.value || rows.value.length > 0 || newBaseDate.value !== 'allow') {
     return null;
   }
-  const { companyCode, fundCode, baseDate, editionType } = q;
+  const { companyCode, fundCode, editionType } = q;
+  // 候補の表記が `yyyy-mm-dd` でも、server は 8 桁の数字だけを基準日として読む。
+  const baseDate = q.baseDate?.replace(/\D/g, '');
   if (!companyCode || !fundCode || !baseDate || !editionType) {
     return null;
   }
@@ -150,6 +159,7 @@ function openReview(m: TemplateMeta) {
   <div class="space-y-4">
     <h2 class="text-lg font-bold">テンプレートを検索</h2>
     <SearchFilters
+      v-if="filtersReady"
       dropdown-scope="edit"
       :new-base-date="newBaseDate"
       :unknown-date-text="UNKNOWN_DATE_TEXT"
@@ -157,6 +167,8 @@ function openReview(m: TemplateMeta) {
       @restore="search"
       @update="onQueryChange"
     />
+    <!-- 待つ間は検索欄と同じ高さの枠を置き、描いた時点で下の一覧がずれないようにする。 -->
+    <Skeleton v-else class="h-24 w-full rounded-lg" />
     <EmptyState v-if="createId" :icon="FilePlus" title="この基準日の帳票はまだありません">
       <p v-if="filling" class="text-xs text-muted-foreground" role="status">値入り HTML を作成しています</p>
       <p v-if="failure" class="text-xs text-destructive" role="alert">{{ failure }}</p>

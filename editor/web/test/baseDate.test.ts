@@ -13,6 +13,13 @@ describe('parseBaseDateInput', () => {
     'trims pasted whitespace %j',
     (raw) => expect(parseBaseDateInput(raw)).toEqual({ ok: true, value: '20260930' }),
   );
+  it.each([
+    ['２０２６／０９／３０', '20260930'],
+    ['２０２６－９－３', '20260903'],
+    ['２０２６０９３０', '20260930'],
+  ])('reads full-width digits %s', (raw, v) =>
+    expect(parseBaseDateInput(raw)).toEqual({ ok: true, value: v }),
+  );
   it.each(['2026930', '202609301', '2026/9-30', '26/09/30', '2026.09.30', 'abc', ''])(
     'rejects format %s',
     (raw) => expect(parseBaseDateInput(raw)).toEqual({ ok: false, reason: 'format' }),

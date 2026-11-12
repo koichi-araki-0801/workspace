@@ -21,7 +21,8 @@ function exists(y: number, m: number, d: number): boolean {
 
 /** 区切りあり(`/` か `-` で揃っている)は月日 1〜2 桁、区切りなしは 8 桁ちょうどだけ受ける。 */
 export function parseBaseDateInput(raw: string): BaseDateParse {
-  const s = raw.trim();
+  // 日本語入力のまま打った全角の数字・`／`・`－` も半角と同じに読む。
+  const s = raw.normalize('NFKC').trim();
   const g = (DELIMITED.exec(s) ?? COMPACT.exec(s))?.groups;
   if (!g) {
     return { ok: false, reason: 'format' };

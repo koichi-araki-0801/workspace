@@ -124,6 +124,10 @@ const restoreBlocked = computed(
 // 入力欄が読めなかった理由。案内と同じ行に出す。
 const baseDateError = ref('');
 
+// 版種の段と検索を止めるか。欄に読めない入力が残っている間も止める(前に確定した基準日のまま
+// 進むと、欄の表示と違う日付で検索してしまうため)。
+const stopped = computed(() => blocked.value || !!baseDateError.value);
+
 // 基準日の段の下に出す案内。版種の候補 0 件は取り直しの途中だと古い候補を見てしまうので待つ。
 const baseDateNotice = computed(() => {
   if (blocked.value) {
@@ -183,7 +187,7 @@ function fieldDisabled(f: Field): boolean {
   const idx = FIELDS.indexOf(f);
   if (idx === 0) { return false; // 先頭 (委託会社) は常に活性
 }
-  if (f === 'editionType' && blocked.value) {
+  if (f === 'editionType' && stopped.value) {
     return true;
   }
   return !query[FIELDS[idx - 1]];
@@ -191,7 +195,7 @@ function fieldDisabled(f: Field): boolean {
 
 // 検索ボタンの活性。条件が空のまま押しても結果も案内も出ないので、押せないことを
 // 見た目で示す (判定は `searchGuard.ts`)。
-const canSearch = computed(() => !blocked.value && canSubmitSearch(query, FIELDS));
+const canSearch = computed(() => !stopped.value && canSubmitSearch(query, FIELDS));
 </script>
 
 <template>
