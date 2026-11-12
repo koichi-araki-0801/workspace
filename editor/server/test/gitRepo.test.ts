@@ -440,7 +440,8 @@ d('gitRepo', () => {
     expect(await git.isAncestorOrSame(older, older)).toBe(true);
     expect(await git.isAncestorOrSame(older, newer)).toBe(true);
     expect(await git.isAncestorOrSame(newer, older)).toBe(false);
-    await expect(git.isAncestorOrSame('f'.repeat(40), newer)).rejects.toBeDefined();
+    // 存在しないオブジェクトは「祖先でない」(終了コード 1)ではなく git の失敗(128)として投げる。
+    await expect(git.isAncestorOrSame('f'.repeat(40), newer)).rejects.toMatchObject({ code: 128 });
   });
 
   it('isPathClean は記録済みで true、書き換え後と未追跡で false', async () => {
@@ -453,6 +454,19 @@ d('gitRepo', () => {
     expect(await git.isPathClean(rel)).toBe(false);
     await git.commitAll('書き換え記録', { name: 'tester' });
     expect(await git.isPathClean(rel)).toBe(true);
+  });
+
+  it('isPathClean はリポジトリが無いと false', async () => {
+    const { config } = await import('../src/config.js');
+    const original = config.gitRepoDir;
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-git-norepo-'));
+    try {
+      config.gitRepoDir = empty;
+      expect(await git.isPathClean('pdf/a.pdf')).toBe(false);
+    } finally {
+      config.gitRepoDir = original;
+      fs.rmSync(empty, { recursive: true, force: true });
+    }
   });
 
   it('showFile still resolves a valid hash:path after the option guard', async () => {

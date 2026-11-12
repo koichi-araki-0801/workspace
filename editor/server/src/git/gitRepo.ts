@@ -699,10 +699,17 @@ export async function isAncestorOrSame(ancestor: string, descendant: string): Pr
 
 /**
  * `relPath` が作業ツリーでも index でも HEAD と同じか。`status --porcelain` が空なら true で、
- * 未追跡(`??`)は記録が無いので false。
+ * 未追跡(`??`)は記録が無いので false。リポジトリが無いときも、記録が無く「記録と一致」は
+ * 成り立たないので false を返す。
+ *
+ * `.gitignore` で無視されたパスは `status --porcelain` に出ないため clean と報告される。正式 PDF
+ * (`pdf/`)は `.gitignore` に載せない方針なので、この関数の用途では問題にならない。
  */
 export async function isPathClean(relPath: string): Promise<boolean> {
   const spec = checkRelPath(relPath);
+  if (!(await isRepo())) {
+    return false;
+  }
   const out = await git(['status', '--porcelain', '--', spec]);
   return out.trim().length === 0;
 }
