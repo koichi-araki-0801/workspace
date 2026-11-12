@@ -8,23 +8,25 @@ export type BaseDateParse =
   | { ok: true; value: string }
   | { ok: false; reason: 'format' | 'invalid' };
 
-const DELIMITED = /^(\d{4})([/-])(\d{1,2})\2(\d{1,2})$/;
-const COMPACT = /^(\d{4})(\d{2})(\d{2})$/;
+const DELIMITED = /^(?<y>\d{4})(?<sep>[/-])(?<m>\d{1,2})\k<sep>(?<d>\d{1,2})$/;
+const COMPACT = /^(?<y>\d{4})(?<m>\d{2})(?<d>\d{2})$/;
 
-// Date.UTC で組み立てて年月日が戻るかを見る。ローカル TZ の影響を受けないため。
+// UTC で組み立てて年月日が戻るかを見る(ローカル TZ に依らないため)。`Date.UTC` は年 0〜99 を
+// 1900 年代へ読み替えるので、`setUTCFullYear` で年を入れて 0000〜0099 も実在する日付として扱う。
 function exists(y: number, m: number, d: number): boolean {
-  const t = new Date(Date.UTC(y, m - 1, d));
+  const t = new Date(0);
+  t.setUTCFullYear(y, m - 1, d);
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
 /** 区切りあり(`/` か `-` で揃っている)は月日 1〜2 桁、区切りなしは 8 桁ちょうどだけ受ける。 */
 export function parseBaseDateInput(raw: string): BaseDateParse {
   const s = raw.trim();
-  const m = DELIMITED.exec(s) ?? COMPACT.exec(s);
-  if (!m) {
+  const g = (DELIMITED.exec(s) ?? COMPACT.exec(s))?.groups;
+  if (!g) {
     return { ok: false, reason: 'format' };
   }
-  const [y, mo, d] = m.length === 5 ? [m[1], m[3], m[4]] : [m[1], m[2], m[3]];
+  const { y, m: mo, d } = g;
   if (!exists(Number(y), Number(mo), Number(d))) {
     return { ok: false, reason: 'invalid' };
   }

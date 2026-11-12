@@ -17,6 +17,18 @@ describe('parseBaseDateInput', () => {
     'rejects format %s',
     (raw) => expect(parseBaseDateInput(raw)).toEqual({ ok: false, reason: 'format' }),
   );
+  it('handles leap day boundaries', () => {
+    expect(parseBaseDateInput('2024/02/29')).toEqual({ ok: true, value: '20240229' });
+    expect(parseBaseDateInput('2026/02/29')).toEqual({ ok: false, reason: 'invalid' });
+  });
+  it.each([
+    ['0000/01/01', '00000101'],
+    ['0099-12-31', '00991231'],
+  ])('reads year below 100 as is %s', (raw, v) =>
+    expect(parseBaseDateInput(raw)).toEqual({ ok: true, value: v }),
+  );
+  it('rejects Feb 29 of a non-leap year below 100', () =>
+    expect(parseBaseDateInput('0001/02/29')).toEqual({ ok: false, reason: 'invalid' }));
   it.each(['2026/02/30', '20261301', '2026-00-10'])('rejects invalid %s', (raw) =>
     expect(parseBaseDateInput(raw)).toEqual({ ok: false, reason: 'invalid' }),
   );
